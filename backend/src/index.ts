@@ -708,6 +708,10 @@ app.post('/api/export/folders', async (req, res) => {
 });
 
 // --- Docs API (simple docs/sheets por workspace/board) ---
+// Comprobar que las rutas de docs están cargadas (útil si POST /api/docs da 404)
+app.get('/api/docs/check', (_req, res) => {
+  res.json({ ok: true, docs: true });
+});
 
 app.get('/api/docs', async (req, res) => {
   try {
@@ -726,18 +730,6 @@ app.get('/api/docs', async (req, res) => {
   } catch (e) {
     console.error('Error fetching docs list:', e);
     res.status(500).json({ error: 'Failed to fetch docs' });
-  }
-});
-
-app.get('/api/docs/:id', async (req, res) => {
-  try {
-    const { id } = req.params;
-    const doc = await prisma.doc.findUnique({ where: { id } });
-    if (!doc) return res.status(404).json({ error: 'Doc no encontrado' });
-    res.json(doc);
-  } catch (e) {
-    console.error('Error fetching doc:', e);
-    res.status(500).json({ error: 'Failed to fetch doc' });
   }
 });
 
@@ -766,6 +758,18 @@ app.post('/api/docs', async (req, res) => {
     console.error('Error creating doc:', e);
     const msg = e instanceof Error ? e.message : 'Failed to create doc';
     res.status(500).json({ error: msg });
+  }
+});
+
+app.get('/api/docs/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const doc = await prisma.doc.findUnique({ where: { id } });
+    if (!doc) return res.status(404).json({ error: 'Doc no encontrado' });
+    res.json(doc);
+  } catch (e) {
+    console.error('Error fetching doc:', e);
+    res.status(500).json({ error: 'Failed to fetch doc' });
   }
 });
 

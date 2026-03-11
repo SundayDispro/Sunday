@@ -92,7 +92,12 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards }) => {
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        const msg = typeof data?.error === 'string' ? data.error : 'Error al crear el documento';
+        const msg =
+          res.status === 404
+            ? 'La ruta /api/docs no existe en el backend. Reinicia el backend desde la carpeta Sunday/backend con: npm run dev'
+            : typeof data?.error === 'string'
+              ? data.error
+              : 'Error al crear el documento';
         throw new Error(msg);
       }
       setDocs(prev => [data, ...prev]);

@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Item, BoardColumn, ColumnValue } from '../../types';
 import { socket } from '../../store/socket';
-import { FileSpreadsheet, ExternalLink, Upload, Loader2, X } from 'lucide-react';
+import { FileSpreadsheet, Upload, Loader2, X } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import * as Dialog from '@radix-ui/react-dialog';
 
@@ -82,23 +82,15 @@ export const ExcelCellRenderer: React.FC<Props> = ({ item, column, value }) => {
   return (
     <>
       <div
-        className="w-full h-full min-h-[38px] flex items-center gap-2 px-2 cursor-pointer hover:bg-monday-hover transition-colors"
+        className="w-full h-full min-h-[38px] flex items-center justify-center gap-1 px-2 cursor-pointer hover:bg-monday-hover transition-colors"
         onClick={url ? openExcelInSheetView : (e) => { e.stopPropagation(); }}
+        title={url ? `${fileName} — Clic para ver en hoja` : 'Subir archivo Excel'}
       >
         <FileSpreadsheet size={16} className="text-[#217346] shrink-0" />
-        <div className="flex-1 min-w-0 flex flex-col">
-          {url ? (
-            <>
-              <span className="text-[13px] text-monday-blue truncate">{fileName}</span>
-              <span className="text-[11px] text-monday-subtext truncate">Clic para ver en hoja</span>
-            </>
-          ) : (
-            <span className="text-[12px] text-monday-subtext">Sin archivo de Excel</span>
-          )}
-        </div>
         <label
-          className="flex items-center gap-1 text-[11px] text-monday-blue cursor-pointer shrink-0 px-1.5 py-0.5 rounded hover:bg-monday-hover"
+          className="flex items-center text-monday-blue cursor-pointer shrink-0 p-0.5 rounded hover:bg-monday-hover"
           onClick={e => e.stopPropagation()}
+          title="Subir archivo"
         >
           <input
             type="file"
@@ -110,9 +102,7 @@ export const ExcelCellRenderer: React.FC<Props> = ({ item, column, value }) => {
             }}
           />
           {uploading ? <Loader2 size={12} className="animate-spin" /> : <Upload size={12} />}
-          Subir
         </label>
-        {url && <ExternalLink size={12} className="text-monday-subtext shrink-0" />}
       </div>
 
       <Dialog.Root open={sheetOpen} onOpenChange={setSheetOpen}>
