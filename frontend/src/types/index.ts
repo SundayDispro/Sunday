@@ -40,6 +40,18 @@ export interface BoardColumn {
   settings?: string;
 }
 
+export interface Doc {
+  id: string;
+  title: string;
+  type: 'text' | 'sheet';
+  content: string;
+  boardId?: string | null;
+  workspaceId: string;
+  createdBy?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface ColumnValue {
   id: string;
   value: string;

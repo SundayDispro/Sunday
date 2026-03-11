@@ -219,6 +219,45 @@ app.get('/api/boards', async (req, res) => {
   }
 });
 
+// Reorder columns within a board
+app.post('/api/boards/:id/columns/reorder', async (req, res) => {
+  try {
+    const boardId = req.params.id;
+    const updates = (req.body?.updates ?? []) as { id: string; position: number }[];
+    if (!Array.isArray(updates) || updates.length === 0) {
+      return res.status(400).json({ error: 'updates array is required' });
+    }
+
+    // Ensure all columns belong to the board
+    const columnIds = updates.map(u => u.id);
+    const columns = await prisma.boardColumn.findMany({
+      where: { id: { in: columnIds }, boardId },
+    });
+    if (columns.length !== updates.length) {
+      return res.status(400).json({ error: 'Some columns do not belong to this board' });
+    }
+
+    await Promise.all(
+      updates.map(u =>
+        prisma.boardColumn.update({
+          where: { id: u.id },
+          data: { position: u.position },
+        })
+      )
+    );
+
+    const reordered = await prisma.boardColumn.findMany({
+      where: { boardId },
+      orderBy: { position: 'asc' },
+    });
+
+    res.json(reordered);
+  } catch (error) {
+    console.error('Error reordering columns:', error);
+    res.status(500).json({ error: 'Failed to reorder columns' });
+  }
+});
+
 // Create a new board (REST – no dependency on socket)
 app.post('/api/boards', async (req, res) => {
   try {
@@ -665,6 +704,105 @@ app.post('/api/export/folders', async (req, res) => {
   } catch (e) {
     console.error('Export folders error:', e);
     return res.status(500).json({ error: 'Error al exportar carpetas' });
+  }
+});
+
+// --- Docs API (simple docs/sheets por workspace/board) ---
+
+app.get('/api/docs', async (req, res) => {
+  try {
+    const { workspaceId, boardId } = req.query as { workspaceId?: string; boardId?: string };
+    if (!workspaceId) {
+      return res.status(400).json({ error: 'workspaceId es obligatorio' });
+    }
+    const docs = await prisma.doc.findMany({
+      where: {
+        workspaceId,
+        boardId: boardId || undefined,
+      },
+      orderBy: { updatedAt: 'desc' },
+    });
+    res.json(docs);
+  } catch (e) {
+    console.error('Error fetching docs list:', e);
+    res.status(500).json({ error: 'Failed to fetch docs' });
+  }
+});
+
+app.get('/api/docs/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const doc = await prisma.doc.findUnique({ where: { id } });
+    if (!doc) return res.status(404).json({ error: 'Doc no encontrado' });
+    res.json(doc);
+  } catch (e) {
+    console.error('Error fetching doc:', e);
+    res.status(500).json({ error: 'Failed to fetch doc' });
+  }
+});
+
+app.post('/api/docs', async (req, res) => {
+  try {
+    const body = req.body ?? {};
+    const workspaceId = String(body.workspaceId || '').trim();
+    if (!workspaceId) {
+      return res.status(400).json({ error: 'workspaceId es obligatorio' });
+    }
+    const title = (body.title && String(body.title).trim()) || 'Nuevo doc';
+    const type = (body.type && String(body.type).trim()) || 'text';
+    const content = typeof body.content === 'string' ? body.content : JSON.stringify(body.content ?? {});
+    const doc = await prisma.doc.create({
+      data: {
+        title,
+        type,
+        content,
+        workspaceId,
+        boardId: body.boardId ? String(body.boardId) : null,
+        createdBy: body.createdBy ? String(body.createdBy) : null,
+      },
+    });
+    res.status(201).json(doc);
+  } catch (e) {
+    console.error('Error creating doc:', e);
+    res.status(500).json({ error: 'Failed to create doc' });
+  }
+});
+
+app.patch('/api/docs/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const body = req.body ?? {};
+    const data: { title?: string; content?: string; type?: string } = {};
+    if (body.title !== undefined) data.title = String(body.title).trim() || 'Sin título';
+    if (body.type !== undefined) data.type = String(body.type).trim() || 'text';
+    if (body.content !== undefined) {
+      data.content = typeof body.content === 'string' ? body.content : JSON.stringify(body.content ?? {});
+    }
+    if (Object.keys(data).length === 0) {
+      return res.status(400).json({ error: 'Nada que actualizar' });
+    }
+    const doc = await prisma.doc.update({ where: { id }, data });
+    res.json(doc);
+  } catch (e) {
+    console.error('Error updating doc:', e);
+    if ((e as { code?: string })?.code === 'P2025') {
+      return res.status(404).json({ error: 'Doc no encontrado' });
+    }
+    res.status(500).json({ error: 'Failed to update doc' });
+  }
+});
+
+app.delete('/api/docs/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    await prisma.doc.delete({ where: { id } });
+    res.status(204).send();
+  } catch (e) {
+    console.error('Error deleting doc:', e);
+    if ((e as { code?: string })?.code === 'P2025') {
+      return res.status(404).json({ error: 'Doc no encontrado' });
+    }
+    res.status(500).json({ error: 'Failed to delete doc' });
   }
 });
 

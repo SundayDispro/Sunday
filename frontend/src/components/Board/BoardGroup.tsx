@@ -6,7 +6,7 @@ import {
   getCoreRowModel,
   useReactTable,
 } from '@tanstack/react-table';
-import { SortableContext, verticalListSortingStrategy, useSortable } from '@dnd-kit/sortable';
+import { SortableContext, verticalListSortingStrategy, useSortable, horizontalListSortingStrategy } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { DraggableRow } from './DraggableRow';
 import { GripVertical, MessageSquare, Plus, ChevronDown, MoreHorizontal, Pencil, Trash2 } from 'lucide-react';
@@ -187,11 +187,26 @@ const InlineNameCell: React.FC<{ item: Item; onOpen: () => void; allGroups?: Gro
   );
 };
 
-// ── Column header with rename / delete ────────────────────────────────────
+// ── Column header with rename / delete + drag ─────────────────────────────
 const ColumnHeader: React.FC<{ col: BoardColumn }> = ({ col }) => {
   const [menuOpen, setMenuOpen] = useState(false);
   const [renaming, setRenaming] = useState(false);
   const [draft, setDraft] = useState(col.title);
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id: col.id });
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    cursor: 'grab',
+    opacity: isDragging ? 0.7 : 1,
+  };
 
   const commitRename = () => {
     setRenaming(false);
@@ -218,7 +233,20 @@ const ColumnHeader: React.FC<{ col: BoardColumn }> = ({ col }) => {
 
   return (
     <Popover.Root open={menuOpen} onOpenChange={setMenuOpen}>
-      <div className="flex items-center justify-center gap-1 group/colhead w-full px-1">
+      <div
+        ref={setNodeRef}
+        style={style}
+        className="flex items-center justify-center gap-1 group/colhead w-full px-1"
+      >
+        <button
+          {...attributes}
+          {...listeners}
+          className="text-monday-border hover:text-monday-subtext shrink-0 cursor-grab"
+          onClick={e => e.stopPropagation()}
+          title="Arrastrar para reordenar"
+        >
+          <GripVertical size={12} />
+        </button>
         <span className="text-[12px] font-medium text-monday-subtext truncate">{col.title}</span>
         <Popover.Trigger asChild>
           <button
@@ -597,22 +625,27 @@ export const BoardGroup: React.FC<Props> = ({
           <table className="w-max text-left border-collapse whitespace-nowrap table-fixed">
             {/* Header */}
             <thead>
-              {table.getHeaderGroups().map(headerGroup => (
-                <tr key={headerGroup.id} className="h-[34px] bg-monday-hover/60">
-                  {headerGroup.headers.map((header, i) => (
-                    <th
-                      key={header.id}
-                      className={`font-normal align-middle border-b border-r border-monday-border last:border-r-0 relative ${i === 2 ? 'border-l-[3px]' : ''}`}
-                      style={{
-                        width: header.getSize(),
-                        borderLeftColor: i === 2 ? group.color : undefined,
-                      }}
-                    >
-                      {flexRender(header.column.columnDef.header, header.getContext())}
-                    </th>
-                  ))}
-                </tr>
-              ))}
+              <SortableContext
+                items={columns.filter(col => !hiddenColumns?.includes(col.id)).map(col => col.id)}
+                strategy={horizontalListSortingStrategy}
+              >
+                {table.getHeaderGroups().map(headerGroup => (
+                  <tr key={headerGroup.id} className="h-[34px] bg-monday-hover/60">
+                    {headerGroup.headers.map((header, i) => (
+                      <th
+                        key={header.id}
+                        className={`font-normal align-middle border-b border-r border-monday-border last:border-r-0 relative ${i === 2 ? 'border-l-[3px]' : ''}`}
+                        style={{
+                          width: header.getSize(),
+                          borderLeftColor: i === 2 ? group.color : undefined,
+                        }}
+                      >
+                        {flexRender(header.column.columnDef.header, header.getContext())}
+                      </th>
+                    ))}
+                  </tr>
+                ))}
+              </SortableContext>
             </thead>
 
             {/* Rows */}

@@ -188,6 +188,41 @@ const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode }) => {
     const { active, over } = event;
     if (!over || active.id === over.id || !board) return;
 
+    // Column reordering (horizontal)
+    const isActiveColumn = board.columns.some(c => c.id === active.id);
+    const isOverColumn = board.columns.some(c => c.id === over.id);
+    if (isActiveColumn && isOverColumn) {
+      const oldIndex = board.columns.findIndex(c => c.id === active.id);
+      const newIndex = board.columns.findIndex(c => c.id === over.id);
+      if (oldIndex === -1 || newIndex === -1 || oldIndex === newIndex) return;
+
+      const reordered = [...board.columns];
+      const [moved] = reordered.splice(oldIndex, 1);
+      reordered.splice(newIndex, 0, moved);
+
+      const updates = reordered.map((c, idx) => ({
+        id: c.id,
+        position: (idx + 1) * 1024,
+      }));
+
+      const withPositions = reordered.map((c, idx) => ({
+        ...c,
+        position: updates[idx].position,
+      }));
+
+      setBoard(prev => (prev ? { ...prev, columns: withPositions } : prev));
+
+      fetch(`http://localhost:3001/api/boards/${board.id}/columns/reorder`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ updates }),
+      }).catch(err => {
+        console.error('Error persisting column reorder:', err);
+      });
+
+      return;
+    }
+
     // Check if we are dragging a group or an item.
     // Assuming groups and items don't share IDs.
     const isActiveGroup = board.groups.some(g => g.id === active.id);

@@ -56,8 +56,12 @@ export const ContactCellRenderer: React.FC<Props> = ({ item, column, value }) =>
     const payload = JSON.stringify({ text: text.trim(), link: link.trim() || undefined });
     socket.emit('update_column_value', { itemId: item.id, columnId: column.id, value: payload });
   };
-
-  const displayText = parsed.text?.trim() || '—';
+  const emailCandidate = isEmail(parsed.text || '') ? parsed.text : isEmail(parsed.link || '') ? parsed.link : '';
+  const phoneCandidate = isPhone(parsed.text || '') ? parsed.text : isPhone(parsed.link || '') ? parsed.link : '';
+  const displayText =
+    emailCandidate && phoneCandidate
+      ? `${emailCandidate} · ${phoneCandidate}`
+      : parsed.text?.trim() || parsed.link?.trim() || '—';
   const hasLink = !!parsed.link?.trim();
   const openLink = () => {
     let url = parsed.link!.trim();
@@ -65,8 +69,9 @@ export const ContactCellRenderer: React.FC<Props> = ({ item, column, value }) =>
     window.open(url, '_blank', 'noopener');
   };
   const openWhatsApp = () => {
-    const url = isPhone(parsed.text || '') ? whatsappUrl(parsed.text!) : parsed.link!;
-    window.open(url.startsWith('http') ? url : 'https://wa.me/' + url.replace(/\D/g, ''), '_blank', 'noopener');
+    const phone = phoneCandidate || parsed.text || parsed.link || '';
+    const url = whatsappUrl(phone);
+    window.open(url, '_blank', 'noopener');
   };
 
   if (editing) {
