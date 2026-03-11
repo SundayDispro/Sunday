@@ -262,7 +262,7 @@ function App() {
       {/* ─── Left Nav Rail ─────────────────────────────────────── */}
       <aside className="w-[56px] min-w-[56px] bg-monday-sidebar flex flex-col items-center py-3 gap-1 z-30">
         {/* Logo */}
-        <div className="w-9 h-9 rounded-xl flex items-center justify-center shadow-monday-md mb-3 overflow-hidden">
+        <div className="w-12 h-12 rounded-xl flex items-center justify-center shadow-monday-md mb-3 overflow-hidden">
           <img src="/logo.png" alt="Sunday" className="w-full h-full object-contain" />
         </div>
 

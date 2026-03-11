@@ -4,7 +4,7 @@ import { Workspace as WorkspaceType, Board } from '../../types';
 import * as Popover from '@radix-ui/react-popover';
 import * as Dialog from '@radix-ui/react-dialog';
 
-const API_BASE = 'http://localhost:3001';
+const API_BASE = import.meta.env.DEV ? '' : 'http://localhost:3001';
 
 type TabId = 'recent' | 'content' | 'permissions';
 
@@ -37,6 +37,7 @@ export const WorkspaceOverviewPage: React.FC<WorkspaceOverviewPageProps> = ({
   const [savingRename, setSavingRename] = useState(false);
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   const saveDescription = async () => {
     if (!workspace?.id) return;
@@ -79,13 +80,37 @@ export const WorkspaceOverviewPage: React.FC<WorkspaceOverviewPageProps> = ({
   const deleteWorkspace = async () => {
     if (!workspace?.id) return;
     setDeleting(true);
+    setDeleteError(null);
     try {
       const res = await fetch(`${API_BASE}/api/workspaces/${workspace.id}`, { method: 'DELETE' });
       if (res.ok) {
         setDeleteConfirmOpen(false);
         setMenuOpen(false);
+        setDeleteError(null);
         onWorkspaceDeleted();
+      } else {
+        const text = await res.text();
+        let msg = `Error ${res.status}`;
+        try {
+          const json = text ? JSON.parse(text) : {};
+          if (json?.error) msg = json.error;
+        } catch {
+          if (text) {
+            if (text.trimStart().startsWith('<!') || text.includes('</html>')) {
+              const preMatch = text.match(/<pre[^>]*>([\s\S]*?)<\/pre>/i);
+              const raw = preMatch ? preMatch[1].trim() : '';
+              msg = raw.startsWith('Cannot DELETE')
+                ? 'El backend no reconoce la eliminación de workspaces. Asegúrate de tener el backend de Sunday en ejecución (npm run dev en la carpeta backend, puerto 3001) y de haber guardado los cambios.'
+                : raw || 'El servidor no pudo eliminar el espacio de trabajo. Comprueba que el backend esté en marcha.';
+            } else {
+              msg = text.length > 200 ? `${text.slice(0, 200)}…` : text;
+            }
+          }
+        }
+        setDeleteError(msg);
       }
+    } catch (err) {
+      setDeleteError(err instanceof Error ? err.message : 'No se pudo conectar. Comprueba que el backend esté en marcha.');
     } finally {
       setDeleting(false);
     }
@@ -225,7 +250,7 @@ export const WorkspaceOverviewPage: React.FC<WorkspaceOverviewPageProps> = ({
                   </button>
                   <button
                     type="button"
-                    onClick={() => { setMenuOpen(false); setDeleteConfirmOpen(true); }}
+                    onClick={() => { setMenuOpen(false); setDeleteError(null); setDeleteConfirmOpen(true); }}
                     className="w-full flex items-center gap-2 px-3 py-2 text-[13px] text-red-600 hover:bg-red-50 rounded-lg text-left"
                   >
                     <Trash2 size={14} />
@@ -289,7 +314,13 @@ export const WorkspaceOverviewPage: React.FC<WorkspaceOverviewPageProps> = ({
         )}
       </div>
 
-      <Dialog.Root open={deleteConfirmOpen} onOpenChange={setDeleteConfirmOpen}>
+      <Dialog.Root
+        open={deleteConfirmOpen}
+        onOpenChange={(open) => {
+          setDeleteConfirmOpen(open);
+          if (!open) setDeleteError(null);
+        }}
+      >
         <Dialog.Portal>
           <Dialog.Overlay className="fixed inset-0 bg-black/50 z-40" />
           <Dialog.Content className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-50 w-full max-w-md bg-white rounded-xl shadow-xl p-6">
@@ -299,6 +330,11 @@ export const WorkspaceOverviewPage: React.FC<WorkspaceOverviewPageProps> = ({
             <Dialog.Description className="text-[14px] text-monday-subtext mt-2">
               ¿Estás seguro? Se eliminarán todos los tableros y su contenido de &quot;{workspace.name}&quot;. Esta acción no se puede deshacer.
             </Dialog.Description>
+            {deleteError && (
+              <p className="mt-3 px-3 py-2 rounded-lg bg-red-50 text-red-700 text-[13px]" role="alert">
+                {deleteError}
+              </p>
+            )}
             <div className="flex justify-end gap-2 mt-6">
               <Dialog.Close asChild>
                 <button className="px-4 py-2 text-[13px] text-monday-subtext hover:bg-monday-hover rounded-lg">
