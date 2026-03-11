@@ -17,6 +17,7 @@ import { DocsPage } from './components/pages/DocsPage';
 import { DashboardPage } from './components/pages/DashboardPage';
 import { TeamPage } from './components/pages/TeamPage';
 import { FacturacionPage } from './components/pages/FacturacionPage';
+import { WorkspaceOverviewPage } from './components/pages/WorkspaceOverviewPage';
 import * as Popover from '@radix-ui/react-popover';
 type ViewMode = 'table' | 'kanban' | 'calendar' | 'facturacion';
 
@@ -343,6 +344,7 @@ function App() {
                       }`}
                       onClick={() => {
                         setActiveWorkspaceId(ws.id);
+                        setActiveBoardId(null);
                         setWorkspaceSelectorOpen(false);
                       }}
                     >
@@ -387,13 +389,14 @@ function App() {
                       })
                         .then(r => r.json().then((data: Workspace & { error?: string }) => ({ ok: r.ok, status: r.status, data })))
                         .then(({ ok, data }) => {
-                          if (ok && data && typeof data.id === 'string') {
-                            const created = data as Workspace;
-                            setWorkspaces(prev => [...prev, created]);
-                            setActiveWorkspaceId(created.id);
-                            setNewWorkspaceName('');
-                            setWorkspaceSelectorOpen(false);
-                          } else {
+if (ok && data && typeof data.id === 'string') {
+                          const created = data as Workspace;
+                          setWorkspaces(prev => [...prev, created]);
+                          setActiveWorkspaceId(created.id);
+                          setActiveBoardId(null);
+                          setNewWorkspaceName('');
+                          setWorkspaceSelectorOpen(false);
+                        } else {
                             setWorkspaceError((data as { error?: string })?.error || 'Error al crear workspace');
                           }
                         })
@@ -446,6 +449,13 @@ function App() {
               </div>
 
               <p className="text-white/40 text-[11px] font-semibold px-2 mb-1 mt-2 uppercase tracking-wider">Tableros</p>
+              <button
+                onClick={() => setActiveBoardId(null)}
+                className={`w-full flex items-center gap-2 text-[13px] px-2 py-1.5 rounded-lg transition-colors mb-0.5 ${activeBoardId === null ? 'bg-monday-blue/80 text-white font-medium' : 'text-white/60 hover:bg-monday-sidebarHover hover:text-white'}`}
+              >
+                <LayoutGrid size={14} className="shrink-0" />
+                Vista general
+              </button>
               {boards
                 .filter(b => b && (!boardSearch.trim() || b.name.toLowerCase().includes(boardSearch.trim().toLowerCase())))
                 .map((b) => b && (
@@ -577,7 +587,31 @@ function App() {
       <main className="flex-1 flex flex-col min-w-0 p-3 pl-0 bg-monday-bg overflow-hidden">
         <div className="flex-1 flex flex-col bg-white rounded-2xl shadow-monday-sm border border-monday-border overflow-hidden">
           
-          {activePage === 'board' && boards.length === 0 ? (
+          {activePage === 'board' && !activeBoardId ? (
+            <WorkspaceOverviewPage
+              workspace={workspaces.find(w => w.id === activeWorkspaceId) ?? null}
+              boards={boards}
+              onSelectBoard={setActiveBoardId}
+              onWorkspaceUpdated={(updated) => {
+                setWorkspaces(prev => prev.map(w => w.id === updated.id ? { ...w, ...updated } : w));
+              }}
+              onWorkspaceDeleted={() => {
+                fetch('http://localhost:3001/api/workspaces')
+                  .then(r => r.json())
+                  .then((data: Workspace[]) => {
+                    if (!Array.isArray(data)) return;
+                    setWorkspaces(data);
+                    const stillExists = data.some(w => w.id === activeWorkspaceId);
+                    if (!stillExists) {
+                      setActiveWorkspaceId(data[0]?.id ?? null);
+                      setActiveBoardId(null);
+                      setBoards([]);
+                    }
+                  })
+                  .catch(() => {});
+              }}
+            />
+          ) : activePage === 'board' && boards.length === 0 ? (
             <div className="flex-1 flex flex-col items-center justify-center text-monday-subtext p-8">
               <p className="text-[15px] font-medium text-monday-text mb-2">No hay tableros</p>
               <p className="text-[13px] mb-4">Crea uno desde el menú de la izquierda con &quot;Agregar tablero&quot;.</p>

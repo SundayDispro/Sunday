@@ -111,6 +111,51 @@ app.post('/api/workspaces', async (req, res) => {
   }
 });
 
+// Update workspace (rename, description)
+app.patch('/api/workspaces/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const body = req.body ?? {};
+    const name = body.name != null ? String(body.name).trim() : undefined;
+    const description = body.description !== undefined ? (body.description === null || body.description === '' ? null : String(body.description)) : undefined;
+    const data: { name?: string; description?: string | null } = {};
+    if (name !== undefined) data.name = name || 'Nuevo workspace';
+    if (description !== undefined) data.description = description;
+    if (Object.keys(data).length === 0) {
+      return res.status(400).json({ error: 'Nada que actualizar' });
+    }
+    const workspace = await prisma.workspace.update({
+      where: { id },
+      data,
+      include: {
+        boards: { orderBy: { createdAt: 'asc' }, select: { id: true, name: true, workspaceId: true } },
+      },
+    });
+    res.json(workspace);
+  } catch (error) {
+    if ((error as { code?: string })?.code === 'P2025') {
+      return res.status(404).json({ error: 'Workspace no encontrado' });
+    }
+    console.error('Error updating workspace:', error);
+    res.status(500).json({ error: 'Failed to update workspace' });
+  }
+});
+
+// Delete workspace (cascade deletes boards)
+app.delete('/api/workspaces/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    await prisma.workspace.delete({ where: { id } });
+    res.status(204).send();
+  } catch (error) {
+    if ((error as { code?: string })?.code === 'P2025') {
+      return res.status(404).json({ error: 'Workspace no encontrado' });
+    }
+    console.error('Error deleting workspace:', error);
+    res.status(500).json({ error: 'Failed to delete workspace' });
+  }
+});
+
 // Search items and boards by query (all boards)
 app.get('/api/search', async (req, res) => {
   try {
