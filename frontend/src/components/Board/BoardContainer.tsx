@@ -253,8 +253,13 @@ const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode }) => {
     clearSelection();
     setShowDeleteItemsConfirm(false);
 
-    // Enviar al backend para persistir
-    idsToDelete.forEach(itemId => socket.emit('delete_item', { itemId }));
+    // Enviar al backend para persistir (REST + socket para tiempo real)
+    idsToDelete.forEach(itemId => {
+      socket.emit('delete_item', { itemId });
+      fetch(`http://localhost:3001/api/items/${itemId}`, { method: 'DELETE' }).catch(err =>
+        console.error('Error persistiendo eliminación de item', itemId, err)
+      );
+    });
   };
 
   const handleMoveSelected = (targetGroupId: string) => {

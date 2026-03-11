@@ -114,7 +114,7 @@ export const ContactCellRenderer: React.FC<Props> = ({ item, column, value }) =>
           <ExternalLink size={12} />
         </button>
       )}
-      {!hasLink && parsed.text?.trim() && isPhone(parsed.text) && (
+      {phoneCandidate && (
         <button
           type="button"
           onClick={e => { e.stopPropagation(); openWhatsApp(); }}

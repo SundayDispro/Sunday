@@ -764,7 +764,8 @@ app.post('/api/docs', async (req, res) => {
     res.status(201).json(doc);
   } catch (e) {
     console.error('Error creating doc:', e);
-    res.status(500).json({ error: 'Failed to create doc' });
+    const msg = e instanceof Error ? e.message : 'Failed to create doc';
+    res.status(500).json({ error: msg });
   }
 });
 
@@ -803,6 +804,29 @@ app.delete('/api/docs/:id', async (req, res) => {
       return res.status(404).json({ error: 'Doc no encontrado' });
     }
     res.status(500).json({ error: 'Failed to delete doc' });
+  }
+});
+
+// DELETE item (misma lógica que socket delete_item: persistencia en BD)
+app.delete('/api/items/:id', async (req, res) => {
+  try {
+    const itemId = req.params.id;
+    if (!itemId) {
+      return res.status(400).json({ error: 'itemId es obligatorio' });
+    }
+    await prisma.$transaction([
+      prisma.columnValue.deleteMany({ where: { itemId } }),
+      prisma.update.deleteMany({ where: { itemId } }),
+      prisma.notification.deleteMany({ where: { itemId } }),
+      prisma.item.delete({ where: { id: itemId } }),
+    ]);
+    res.status(204).send();
+  } catch (e) {
+    console.error('Error deleting item:', e);
+    if ((e as { code?: string })?.code === 'P2025') {
+      return res.status(404).json({ error: 'Item no encontrado' });
+    }
+    res.status(500).json({ error: 'Error al eliminar el elemento' });
   }
 });
 
