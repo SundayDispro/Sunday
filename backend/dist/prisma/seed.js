@@ -1,11 +1,7 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 const client_1 = require("@prisma/client");
-const prisma = new client_1.PrismaClient({
-    datasources: {
-        db: { url: 'file:../dev.db' }
-    }
-});
+const prisma = new client_1.PrismaClient();
 async function main() {
     console.log('🌱 Seeding Sunday (Monday Clone) base data...');
     // 1. Flush existing data (Optional, useful for rapid testing)
@@ -15,6 +11,17 @@ async function main() {
     await prisma.group.deleteMany({});
     await prisma.board.deleteMany({});
     await prisma.workspace.deleteMany({});
+    // --- Create ADMIN User ---
+    const admin = await prisma.user.create({
+        data: {
+            username: 'ADMIN',
+            name: 'Administrador Principal',
+            initials: 'AD',
+            color: '#00c875',
+            password: 'root', // As requested
+            role: 'ADMIN',
+        }
+    });
     // 2. Create default Workspace
     const workspace = await prisma.workspace.create({
         data: { name: 'Main Workspace' },

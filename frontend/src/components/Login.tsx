@@ -29,8 +29,8 @@ export const Login: React.FC = () => {
     <div className="min-h-screen bg-[#f5f6f8] flex items-center justify-center p-4 font-sans">
       <div className="max-w-[400px] w-full bg-white rounded-2xl shadow-monday-lg border border-monday-border p-8 fade-in">
         <div className="flex flex-col items-center mb-8">
-          <div className="w-12 h-12 rounded-2xl flex items-center justify-center shadow-monday-md mb-4 overflow-hidden bg-monday-hover">
-            <img src="/logo.png" alt="Sunday" className="w-full h-full object-contain" />
+          <div className="w-12 h-12 rounded-2xl flex items-center justify-center shadow-monday-md mb-4 overflow-hidden bg-monday-hover p-1.5">
+            <img src="/logo.png" alt="Sunday" className="w-full h-full object-contain" style={{ filter: 'brightness(0)' }} />
           </div>
           <h1 className="text-2xl font-bold text-monday-text text-center">Bienvenido a Sunday</h1>
           <p className="text-[14px] text-monday-subtext text-center mt-2">Ingresa tus datos para continuar a tu espacio de trabajo.</p>

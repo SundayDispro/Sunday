@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { socket } from './store/socket';
 import BoardContainer from './components/Board/BoardContainer';
 import { ItemDetailsPanel } from './components/Board/ItemDetailsPanel';
@@ -88,6 +88,9 @@ function App() {
   const [boardNameDraft, setBoardNameDraft] = useState('');
   const [showAddBoard, setShowAddBoard] = useState(false);
   const [newBoardName, setNewBoardName] = useState('');
+  const [creatingBoard, setCreatingBoard] = useState(false);
+  const [createBoardError, setCreateBoardError] = useState<string | null>(null);
+  const newBoardNameInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (currentUser) {
@@ -132,6 +135,52 @@ function App() {
     { id: 'team', icon: <Users size={20} />, label: 'Equipo' },
     { id: 'admin', icon: <Settings size={20} />, label: 'Admin' },
   ];
+
+  const handleCreateBoard = async () => {
+    const name = newBoardName.trim() || 'Nuevo tablero';
+    if (!name) return;
+    setCreatingBoard(true);
+    setCreateBoardError(null);
+    try {
+      const res = await fetch('http://localhost:3001/api/boards', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(typeof data?.error === 'string' ? data.error : `Error del servidor (${res.status})`);
+      }
+      if (!data?.id) {
+        throw new Error('El servidor no devolvió un tablero válido');
+      }
+      const board: Board = {
+        id: data.id,
+        name: data.name,
+        workspaceId: data.workspaceId,
+        groups: [],
+        columns: [],
+      };
+      setBoards(prev => [...prev, board]);
+      setActiveBoardId(board.id);
+      setNewBoardName('');
+      setCreateBoardError(null);
+      setShowAddBoard(false);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Error al crear el tablero';
+      const isNetwork =
+        err instanceof TypeError ||
+        (typeof message === 'string' && (message.includes('fetch') || message.includes('network')));
+      setCreateBoardError(
+        isNetwork
+          ? 'No se pudo conectar con el servidor. Comprueba que el backend esté en marcha (puerto 3001).'
+          : message
+      );
+      console.error('Error creating board:', err);
+    } finally {
+      setCreatingBoard(false);
+    }
+  };
 
   return (
     <div className="flex h-screen bg-monday-bg overflow-hidden font-sans">
@@ -236,54 +285,73 @@ function App() {
                   {activeBoardId === b.id && <Star size={13} className="ml-auto opacity-50 text-monday-orange" />}
                 </button>
               ))}
-              <Popover.Root open={showAddBoard} onOpenChange={setShowAddBoard}>
+              <Popover.Root
+                open={showAddBoard}
+                onOpenChange={(open) => {
+                  setShowAddBoard(open);
+                  if (!open) setCreateBoardError(null);
+                }}
+              >
                 <Popover.Trigger asChild>
-                  <button className="w-full flex items-center gap-2 text-[12px] px-2 py-1.5 text-white/40 hover:text-white/70 transition-colors mt-1">
+                  <button type="button" className="w-full flex items-center gap-2 text-[12px] px-2 py-1.5 text-white/40 hover:text-white/70 transition-colors mt-1">
                     <Plus size={14} />
                     Agregar tablero
                   </button>
                 </Popover.Trigger>
                 <Popover.Portal>
                   <Popover.Content
-                    className="z-50 bg-white rounded-xl shadow-monday-lg border border-monday-border w-64 p-3"
+                    className="z-50 w-[280px] rounded-xl shadow-monday-lg border border-white/10 bg-monday-sidebar p-0 overflow-hidden"
                     sideOffset={8}
                     align="start"
+                    onOpenAutoFocus={(e) => {
+                      e.preventDefault();
+                      setTimeout(() => newBoardNameInputRef.current?.focus(), 0);
+                    }}
                   >
-                    <p className="text-[12px] font-semibold text-monday-subtext mb-2">Nuevo tablero</p>
-                    <input
-                      type="text"
-                      value={newBoardName}
-                      onChange={e => setNewBoardName(e.target.value)}
-                      placeholder="Nombre del tablero"
-                      className="w-full px-3 py-2 rounded-monday border border-monday-border text-[13px] text-monday-text placeholder:text-monday-subtext focus:outline-none focus:ring-2 focus:ring-monday-blue mb-3"
-                      onKeyDown={e => {
-                        if (e.key === 'Enter') {
-                          const name = newBoardName.trim() || 'Nuevo tablero';
-                          socket.emit('add_board', { name });
-                          setNewBoardName('');
-                          setShowAddBoard(false);
-                        }
-                      }}
-                    />
-                    <div className="flex justify-end gap-2">
-                      <button
-                        onClick={() => { setShowAddBoard(false); setNewBoardName(''); }}
-                        className="px-3 py-1.5 text-[13px] text-monday-subtext hover:text-monday-text rounded-monday"
-                      >
-                        Cancelar
-                      </button>
-                      <button
-                        onClick={() => {
-                          const name = newBoardName.trim() || 'Nuevo tablero';
-                          socket.emit('add_board', { name });
-                          setNewBoardName('');
-                          setShowAddBoard(false);
-                        }}
-                        className="px-3 py-1.5 text-[13px] font-medium text-white bg-monday-blue rounded-monday hover:bg-monday-blue/90"
-                      >
-                        Crear
-                      </button>
+                    <div className="px-4 pt-4 pb-2">
+                      <p className="text-[13px] font-semibold text-white/90">Nuevo tablero</p>
+                      <p className="text-[12px] text-white/50 mt-0.5">Asigna un nombre a tu tablero</p>
                     </div>
+                    <form
+                      className="px-4 pb-4"
+                      onSubmit={(e) => {
+                        e.preventDefault();
+                        handleCreateBoard();
+                      }}
+                    >
+                      <input
+                        ref={newBoardNameInputRef}
+                        type="text"
+                        value={newBoardName}
+                        onChange={e => setNewBoardName(e.target.value)}
+                        placeholder="Nombre del tablero"
+                        className="w-full px-3 py-2.5 rounded-lg bg-white/10 border border-white/20 text-[13px] text-white placeholder:text-white/40 focus:outline-none focus:ring-2 focus:ring-monday-blue focus:border-transparent mb-4"
+                        disabled={creatingBoard}
+                        aria-describedby={createBoardError ? 'create-board-error' : undefined}
+                      />
+                      {createBoardError && (
+                        <p id="create-board-error" className="text-red-400 text-[12px] mb-3" role="alert">
+                          {createBoardError}
+                        </p>
+                      )}
+                      <div className="flex justify-end gap-2">
+                        <button
+                          type="button"
+                          disabled={creatingBoard}
+                          onClick={() => { setShowAddBoard(false); setNewBoardName(''); setCreateBoardError(null); }}
+                          className="px-3 py-2 text-[13px] text-white/70 hover:text-white hover:bg-white/10 rounded-lg transition-colors disabled:opacity-50"
+                        >
+                          Cancelar
+                        </button>
+                        <button
+                          type="submit"
+                          disabled={creatingBoard}
+                          className="px-4 py-2 text-[13px] font-medium text-white bg-monday-blue hover:bg-monday-blue/90 rounded-lg transition-colors shadow-sm disabled:opacity-70 disabled:cursor-not-allowed"
+                        >
+                          {creatingBoard ? 'Creando...' : 'Crear'}
+                        </button>
+                      </div>
+                    </form>
                   </Popover.Content>
                 </Popover.Portal>
               </Popover.Root>

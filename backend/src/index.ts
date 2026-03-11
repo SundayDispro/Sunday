@@ -17,6 +17,11 @@ const io = new Server(httpServer, {
 app.use(cors());
 app.use(express.json());
 
+// Health check (for frontend to verify backend is up)
+app.get('/api/health', (_req, res) => {
+  res.status(200).json({ ok: true });
+});
+
 // Get all boards (for sidebar list)
 app.get('/api/boards', async (req, res) => {
   try {
@@ -27,6 +32,27 @@ app.get('/api/boards', async (req, res) => {
     res.json(boards);
   } catch (error) {
     res.status(500).json({ error: 'Failed to fetch boards' });
+  }
+});
+
+// Create a new board (REST – no dependency on socket)
+app.post('/api/boards', async (req, res) => {
+  try {
+    let workspace = await prisma.workspace.findFirst();
+    if (!workspace) {
+      workspace = await prisma.workspace.create({
+        data: { name: 'Main Workspace' },
+      });
+    }
+    const name = (req.body?.name && String(req.body.name).trim()) || 'Nuevo tablero';
+    const newBoard = await prisma.board.create({
+      data: { name, workspaceId: workspace.id },
+      select: { id: true, name: true, workspaceId: true },
+    });
+    res.status(201).json(newBoard);
+  } catch (error) {
+    console.error('Error creating board:', error);
+    res.status(500).json({ error: 'Failed to create board' });
   }
 });
 
