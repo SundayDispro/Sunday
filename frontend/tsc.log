@@ -1,0 +1,4 @@
+src/components/Board/BoardGroup.tsx(309,24): error TS2304: Cannot find name 'allGroups'.
+src/components/Board/StatusCellRenderer.tsx(2,42): error TS2305: Module '"../../types"' has no exported member 'StatusSettings'.
+src/components/Board/StatusCellRenderer.tsx(15,47): error TS7006: Parameter 'o' implicitly has an 'any' type.
+src/components/Board/StatusCellRenderer.tsx(48,33): error TS7006: Parameter 'opt' implicitly has an 'any' type.

@@ -1,0 +1,93 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id        String   @id @default(uuid())
+  username  String   @unique
+  name      String
+  initials  String
+  color     String
+  password  String
+  role      String   @default("USER") // 'ADMIN' or 'USER'
+  createdAt DateTime @default(now())
+}
+
+model Workspace {
+  id        String   @id @default(uuid())
+  name      String
+  boards    Board[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Board {
+  id          String        @id @default(uuid())
+  name        String
+  workspaceId String
+  workspace   Workspace     @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  groups      Group[]
+  columns     BoardColumn[]
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+}
+
+model Group {
+  id        String   @id @default(uuid())
+  name      String
+  color     String   @default("#1d60f5")
+  position  Float
+  boardId   String
+  board     Board    @relation(fields: [boardId], references: [id], onDelete: Cascade)
+  items     Item[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Item {
+  id           String        @id @default(uuid())
+  name         String
+  position     Float
+  groupId      String
+  group        Group         @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  columnValues ColumnValue[]
+  updates      Update[]
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+}
+
+model BoardColumn {
+  id       String        @id @default(uuid())
+  title    String
+  type     String // 'status', 'date', 'person', 'priority', 'text', 'timeline', 'number'
+  position Float
+  boardId  String
+  board    Board         @relation(fields: [boardId], references: [id], onDelete: Cascade)
+  settings String? // JSON string for specific settings
+  values   ColumnValue[]
+}
+
+model ColumnValue {
+  id       String      @id @default(uuid())
+  value    String // JSON string (e.g., array of user IDs for 'person' column) or plain text
+  itemId   String
+  item     Item        @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  columnId String
+  column   BoardColumn @relation(fields: [columnId], references: [id], onDelete: Cascade)
+
+  @@unique([itemId, columnId])
+}
+
+model Update {
+  id        String   @id @default(uuid())
+  content   String
+  authorId  String // Store userId instead of string author name
+  itemId    String
+  item      Item     @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+}

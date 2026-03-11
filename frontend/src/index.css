@@ -1,0 +1,78 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    margin: 0;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    background-color: theme('colors.monday.bg');
+    color: theme('colors.monday.text');
+    font-family: 'Inter', 'Segoe UI', system-ui, sans-serif;
+    font-size: 14px;
+    overflow: hidden;
+  }
+
+  * {
+    box-sizing: border-box;
+  }
+
+  /* Monday-style focus ring */
+  :focus-visible {
+    outline: 2px solid theme('colors.monday.blue');
+    outline-offset: 1px;
+  }
+
+  input, textarea, button {
+    font-family: inherit;
+  }
+}
+
+@layer utilities {
+  /* Scrollbar */
+  .custom-scrollbar::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  .custom-scrollbar::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  .custom-scrollbar::-webkit-scrollbar-thumb {
+    background: #d0d4e4;
+    border-radius: 10px;
+  }
+  .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+    background: #a9b0c5;
+  }
+
+  /* Monday-style table cell hover */
+  .monday-cell {
+    @apply transition-colors duration-100;
+  }
+
+  /* Subtle animated entrance for floating panels */
+  @keyframes slide-in-right {
+    from { transform: translateX(100%); opacity: 0; }
+    to   { transform: translateX(0);    opacity: 1; }
+  }
+  .panel-slide-in {
+    animation: slide-in-right 0.22s cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+
+  /* Fade in */
+  @keyframes fade-in {
+    from { opacity: 0; transform: translateY(4px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+  .fade-in {
+    animation: fade-in 0.18s ease both;
+  }
+
+  /* Toolbar button shared style */
+  .toolbar-btn {
+    @apply flex items-center gap-1.5 text-[13px] font-medium text-monday-subtext
+           hover:bg-monday-pill hover:text-monday-text
+           px-2.5 py-1.5 rounded-monday transition-colors duration-100 cursor-pointer;
+  }
+}

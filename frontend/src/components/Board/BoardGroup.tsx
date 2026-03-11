@@ -1,0 +1,537 @@
+import React, { useMemo, useRef, useState } from 'react';
+import { Group, BoardColumn, Item } from '../../types';
+import {
+  createColumnHelper,
+  flexRender,
+  getCoreRowModel,
+  useReactTable,
+} from '@tanstack/react-table';
+import { SortableContext, verticalListSortingStrategy, useSortable } from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
+import { DraggableRow } from './DraggableRow';
+import { GripVertical, MessageSquare, Plus, ChevronDown, MoreHorizontal, Pencil, Trash2 } from 'lucide-react';
+import { StatusCellRenderer } from './StatusCellRenderer';
+import { ColumnTypePicker } from './ColumnTypePicker';
+import { socket } from '../../store/socket';
+import * as Popover from '@radix-ui/react-popover';
+import { PersonCellRenderer } from './PersonCellRenderer';
+
+interface Props {
+  group: Group;
+  allGroups?: Group[];
+  columns: BoardColumn[];
+  hiddenColumns?: string[];
+  boardId: string;
+  onRowClick: (item: Item) => void;
+}
+
+const columnHelper = createColumnHelper<Item>();
+
+// ── Inline text cell (item name) ──────────────────────────────────────────
+const InlineNameCell: React.FC<{ item: Item; onOpen: () => void; allGroups?: Group[]; currentGroupId: string }> = ({ item, onOpen, allGroups, currentGroupId }) => {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(item.name);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  const commit = () => {
+    setEditing(false);
+    if (draft.trim() && draft !== item.name) {
+      socket.emit('update_item_name', { itemId: item.id, name: draft.trim() });
+    } else {
+      setDraft(item.name);
+    }
+  };
+
+  const handleMoveToGroup = (targetGroupId: string) => {
+    setMenuOpen(false);
+    socket.emit('move_item', { itemId: item.id, newGroupId: targetGroupId, newPosition: 999999 });
+  };
+
+  if (editing) {
+    return (
+      <input
+        ref={inputRef}
+        autoFocus
+        value={draft}
+        onChange={e => setDraft(e.target.value)}
+        onBlur={commit}
+        onKeyDown={e => { if (e.key === 'Enter') commit(); if (e.key === 'Escape') { setDraft(item.name); setEditing(false); } }}
+        onClick={e => e.stopPropagation()}
+        className="w-full bg-white border border-monday-blue rounded-sm outline-none text-[13px] text-monday-text px-1 py-0.5 shadow-monday-sm"
+      />
+    );
+  }
+
+  return (
+    <div className="flex items-center gap-2 group/item h-full w-full px-2">
+      <button
+        className="text-[13px] text-left text-monday-text hover:text-monday-blue transition-colors truncate flex-1 min-w-0"
+        onClick={e => { e.stopPropagation(); onOpen(); }}
+        onDoubleClick={e => { e.stopPropagation(); setEditing(true); setTimeout(() => inputRef.current?.select(), 0); }}
+        title="Clic: abrir panel · Doble clic: renombrar"
+      >
+        {item.name}
+      </button>
+      
+      <div className="flex items-center gap-0.5 opacity-0 group-hover/item:opacity-100 transition-all">
+        <button
+          className="text-monday-border hover:text-monday-blue shrink-0 p-1"
+          onClick={e => { e.stopPropagation(); onOpen(); }}
+          title="Abrir panel"
+        >
+          <MessageSquare size={14} />
+        </button>
+        
+        <Popover.Root open={menuOpen} onOpenChange={setMenuOpen}>
+          <Popover.Trigger asChild>
+            <button 
+              className="text-monday-border hover:text-monday-blue shrink-0 p-1"
+              onClick={e => e.stopPropagation()}
+            >
+              <MoreHorizontal size={14} />
+            </button>
+          </Popover.Trigger>
+          <Popover.Portal>
+            <Popover.Content 
+              className="z-[100] bg-white rounded-xl shadow-monday-lg border border-monday-border w-48 p-1.5 fade-in box-border" 
+              sideOffset={5} 
+              align="start"
+              onClick={e => e.stopPropagation()}
+            >
+              <div className="text-[11px] font-semibold text-monday-subtext mb-1 px-2 uppercase tracking-wider">
+                Mover a...
+              </div>
+              <div className="flex flex-col gap-0.5 max-h-48 overflow-y-auto custom-scrollbar">
+                {allGroups?.filter(g => g.id !== currentGroupId).map(g => (
+                  <button
+                    key={g.id}
+                    onClick={() => handleMoveToGroup(g.id)}
+                    className="w-full text-left flex items-center gap-2 px-2 py-1.5 hover:bg-monday-hover rounded-monday transition-colors"
+                  >
+                    <div className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: g.color }} />
+                    <span className="text-[13px] text-monday-text truncate">{g.name}</span>
+                  </button>
+                ))}
+                {allGroups?.length === 1 && (
+                  <div className="px-2 py-2 text-[12px] text-monday-subtext italic">
+                    No hay otros grupos disponibles.
+                  </div>
+                )}
+              </div>
+            </Popover.Content>
+          </Popover.Portal>
+        </Popover.Root>
+      </div>
+    </div>
+  );
+};
+
+// ── Column header with rename / delete ────────────────────────────────────
+const ColumnHeader: React.FC<{ col: BoardColumn }> = ({ col }) => {
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [renaming, setRenaming] = useState(false);
+  const [draft, setDraft] = useState(col.title);
+
+  const commitRename = () => {
+    setRenaming(false);
+    if (draft.trim() && draft !== col.title) {
+      socket.emit('rename_column', { columnId: col.id, title: draft.trim() });
+    } else {
+      setDraft(col.title);
+    }
+  };
+
+  if (renaming) {
+    return (
+      <input
+        autoFocus
+        value={draft}
+        onChange={e => setDraft(e.target.value)}
+        onBlur={commitRename}
+        onKeyDown={e => { if (e.key === 'Enter') commitRename(); if (e.key === 'Escape') { setDraft(col.title); setRenaming(false); } }}
+        onClick={e => e.stopPropagation()}
+        className="w-full bg-white border border-monday-blue rounded-sm outline-none text-[13px] text-monday-text px-1.5 py-0.5 text-center"
+      />
+    );
+  }
+
+  return (
+    <Popover.Root open={menuOpen} onOpenChange={setMenuOpen}>
+      <div className="flex items-center justify-center gap-1 group/colhead w-full px-1">
+        <span className="text-[12px] font-medium text-monday-subtext truncate">{col.title}</span>
+        <Popover.Trigger asChild>
+          <button
+            className="opacity-0 group-hover/colhead:opacity-100 transition-opacity text-monday-subtext hover:text-monday-text shrink-0"
+            onClick={e => e.stopPropagation()}
+          >
+            <MoreHorizontal size={14} />
+          </button>
+        </Popover.Trigger>
+      </div>
+      <Popover.Portal>
+        <Popover.Content
+          className="z-[100] bg-white rounded-xl shadow-monday-lg border border-monday-border w-44 p-1.5 fade-in"
+          sideOffset={4}
+          align="center"
+          onClick={e => e.stopPropagation()}
+        >
+          <button
+            className="w-full flex items-center gap-2.5 text-[13px] text-monday-text hover:bg-monday-hover px-3 py-2 rounded-monday"
+            onClick={() => { setMenuOpen(false); setRenaming(true); setDraft(col.title); }}
+          >
+            <Pencil size={14} className="text-monday-subtext" />
+            Renombrar
+          </button>
+          <button
+            className="w-full flex items-center gap-2.5 text-[13px] text-monday-red hover:bg-red-50 px-3 py-2 rounded-monday"
+            onClick={() => { setMenuOpen(false); socket.emit('delete_column', { columnId: col.id }); }}
+          >
+            <Trash2 size={14} />
+            Eliminar
+          </button>
+          <Popover.Arrow className="fill-white" />
+        </Popover.Content>
+      </Popover.Portal>
+    </Popover.Root>
+  );
+};
+
+// ── Main BoardGroup ────────────────────────────────────────────────────────
+export const BoardGroup: React.FC<Props> = ({ group, allGroups, columns, hiddenColumns, boardId, onRowClick }) => {
+  const [newTaskName, setNewTaskName] = useState('');
+  const [isAddingTask, setIsAddingTask] = useState(false);
+  const [isCollapsed, setIsCollapsed] = useState(false);
+  const [isRenamingGroup, setIsRenamingGroup] = useState(false);
+  const [groupNameDraft, setGroupNameDraft] = useState(group.name);
+  const addInputRef = useRef<HTMLInputElement>(null);
+
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id: group.id });
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    zIndex: isDragging ? 50 : 1,
+    opacity: isDragging ? 0.5 : 1,
+  };
+
+  const emitAddItem = (name: string) => {
+    if (!name.trim()) return;
+    const newPosition = group.items.length > 0
+      ? group.items.reduce((max, i) => Math.max(max, i.position), 0) + 1024
+      : 1024;
+    socket.emit('add_item', { groupId: group.id, name: name.trim(), position: newPosition });
+    setNewTaskName('');
+    setIsAddingTask(false);
+  };
+
+  const handleAddTask = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter') emitAddItem(newTaskName);
+    else if (e.key === 'Escape') { setNewTaskName(''); setIsAddingTask(false); }
+  };
+
+  const startAdding = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setIsAddingTask(true);
+    setTimeout(() => addInputRef.current?.focus(), 0);
+  };
+
+  const handleAddColumn = (type: string, label: string) => {
+    const newPosition = columns.length > 0
+      ? columns.reduce((max, c) => Math.max(max, c.position), 0) + 1024
+      : 1024;
+
+    // Build sensible default settings based on type
+    let settings: string | null = null;
+    if (type === 'status') {
+      settings = JSON.stringify({
+        options: [
+          { id: 'done',     label: 'Hecho',          color: '#00c875' },
+          { id: 'working',  label: 'Trabajando en ello', color: '#fdab3d' },
+          { id: 'stuck',    label: 'Pendiente',       color: '#e2445c' },
+          { id: 'default',  label: '',                color: '#c4c4c4' },
+        ]
+      });
+    } else if (type === 'priority') {
+      settings = JSON.stringify({
+        options: [
+          { id: 'critical', label: 'Crítica',  color: '#e2445c' },
+          { id: 'high',     label: 'Alta',     color: '#fdab3d' },
+          { id: 'medium',   label: 'Media',    color: '#5559df' },
+          { id: 'low',      label: 'Baja',     color: '#00c875' },
+          { id: 'default',  label: '',         color: '#c4c4c4' },
+        ]
+      });
+    }
+
+    socket.emit('add_column', { boardId, title: label, type, position: newPosition, settings });
+  };
+
+  const tableColumns = useMemo(() => {
+    const baseCols = [
+      columnHelper.display({
+        id: 'dragHandler',
+        header: () => null,
+        cell: () => (
+          <div className="text-monday-border hover:text-monday-subtext px-2 cursor-grab flex justify-center">
+            <GripVertical size={14} />
+          </div>
+        ),
+        size: 36,
+      }),
+      columnHelper.display({
+        id: 'checkbox',
+        header: () => (
+          <div className="w-full flex justify-center">
+            <input type="checkbox" className="w-3.5 h-3.5 cursor-pointer accent-monday-blue rounded" />
+          </div>
+        ),
+        cell: () => (
+          <div className="w-full flex justify-center" onClick={e => e.stopPropagation()}>
+            <input type="checkbox" className="w-3.5 h-3.5 cursor-pointer accent-monday-blue rounded" />
+          </div>
+        ),
+        size: 36,
+      }),
+      columnHelper.accessor('name', {
+        header: () => <span className="ml-2 text-[12px] font-medium text-monday-subtext">Elemento</span>,
+        cell: (info) => (
+          <InlineNameCell 
+            item={info.row.original} 
+            onOpen={() => onRowClick(info.row.original)} 
+            allGroups={allGroups}
+            currentGroupId={group.id}
+          />
+        ),
+        size: 300,
+      }),
+    ];
+
+    const visibleColumns = columns.filter(col => !hiddenColumns?.includes(col.id));
+    
+    const dynamicCols = visibleColumns.map(col => columnHelper.display({
+      id: col.id,
+      header: () => <ColumnHeader col={col} />,
+      cell: (info) => {
+        const item = info.row.original;
+        const cv = item.columnValues.find(v => v.columnId === col.id);
+
+        if (col.type === 'status' || col.type === 'priority') {
+          return <StatusCellRenderer item={item} column={col} value={cv} />;
+        }
+        if (col.type === 'date') {
+          return (
+            <div
+              className="w-full h-full flex items-center justify-center text-[13px] text-monday-subtext hover:bg-monday-hover cursor-pointer transition-colors"
+              onClick={e => e.stopPropagation()}
+            >
+              {cv?.value || <span className="text-monday-border text-[12px]">— —</span>}
+            </div>
+          );
+        }
+        if (col.type === 'person') {
+          return <PersonCellRenderer item={item} column={col} value={cv} />;
+        }
+        if (col.type === 'timeline') {
+          return (
+            <div className="w-full px-2 h-full flex items-center justify-center" onClick={e => e.stopPropagation()}>
+              <div className="w-full bg-monday-blue rounded-full h-5 text-white text-[10px] flex items-center justify-center font-medium">
+                mar. 10 – 15
+              </div>
+            </div>
+          );
+        }
+        if (col.type === 'text') {
+          return (
+            <div className="w-full h-full flex items-center px-2" onClick={e => e.stopPropagation()}>
+              <span className="text-[13px] text-monday-text truncate">{cv?.value || ''}</span>
+            </div>
+          );
+        }
+        if (col.type === 'number') {
+          return (
+            <div className="w-full h-full flex items-center justify-center" onClick={e => e.stopPropagation()}>
+              <span className="text-[13px] text-monday-text font-medium">{cv?.value || ''}</span>
+            </div>
+          );
+        }
+        return (
+          <div
+            className="w-full h-full min-h-[38px] hover:bg-monday-hover cursor-pointer transition-colors"
+            onClick={e => e.stopPropagation()}
+          />
+        );
+      },
+      size: 140,
+    }));
+
+    // "+" add column button
+    const addCol = columnHelper.display({
+      id: '__add_column__',
+      header: () => (
+        <ColumnTypePicker onSelect={handleAddColumn}>
+          <button
+            className="w-full h-full flex items-center justify-center text-monday-subtext hover:text-monday-blue hover:bg-monday-pill transition-colors"
+            title="Agregar columna"
+          >
+            <Plus size={16} />
+          </button>
+        </ColumnTypePicker>
+      ),
+      cell: () => <div />,
+      size: 44,
+    });
+
+    return [...baseCols, ...dynamicCols, addCol];
+  }, [columns, onRowClick, boardId, group.id, group.items]);
+
+  const table = useReactTable({
+    data: group.items,
+    columns: tableColumns,
+    getCoreRowModel: getCoreRowModel(),
+  });
+
+  return (
+    <div ref={setNodeRef} style={style} className="mb-6 relative">
+      {/* ── Group Header ─────────────────────────────────────────── */}
+      <div className="flex items-center gap-1.5 mb-1.5 group/header">
+        <div 
+          {...attributes} 
+          {...listeners} 
+          className="text-transparent group-hover/header:text-monday-subtext hover:text-monday-text px-1 cursor-grab active:cursor-grabbing transition-colors"
+        >
+          <GripVertical size={16} />
+        </div>
+        <button
+          onClick={() => setIsCollapsed(v => !v)}
+          className="text-monday-subtext hover:text-monday-text transition-colors"
+          title={isCollapsed ? 'Expandir' : 'Colapsar'}
+        >
+          <ChevronDown
+            size={18}
+            style={{ color: group.color }}
+            className={`transition-transform duration-200 ${isCollapsed ? '-rotate-90' : 'rotate-0'}`}
+          />
+        </button>
+
+        {isRenamingGroup ? (
+          <input
+            autoFocus
+            value={groupNameDraft}
+            onChange={e => setGroupNameDraft(e.target.value)}
+            onBlur={() => {
+              setIsRenamingGroup(false);
+              if (groupNameDraft.trim() && groupNameDraft !== group.name) {
+                socket.emit('rename_group', { groupId: group.id, name: groupNameDraft.trim() });
+              } else setGroupNameDraft(group.name);
+            }}
+            onKeyDown={e => {
+              if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
+              if (e.key === 'Escape') { setGroupNameDraft(group.name); setIsRenamingGroup(false); }
+            }}
+            className="text-[15px] font-semibold bg-transparent border-b-2 outline-none px-0"
+            style={{ color: group.color, borderColor: group.color, minWidth: 80 }}
+          />
+        ) : (
+          <h3
+            className="text-[15px] font-semibold cursor-pointer hover:opacity-80 transition-opacity select-none"
+            style={{ color: group.color }}
+            onDoubleClick={() => setIsRenamingGroup(true)}
+            title="Doble clic para renombrar"
+          >
+            {group.name}
+          </h3>
+        )}
+
+        <span className="text-[12px] text-monday-subtext font-medium">
+          {group.items.length} {group.items.length === 1 ? 'elemento' : 'elementos'}
+        </span>
+      </div>
+
+      {/* ── Table ───────────────────────────────────────────────── */}
+      {!isCollapsed && (
+        <div className="w-full overflow-x-auto rounded-l-md shadow-monday-sm border border-monday-border">
+          <table className="w-max text-left border-collapse whitespace-nowrap table-fixed">
+            {/* Header */}
+            <thead>
+              {table.getHeaderGroups().map(headerGroup => (
+                <tr key={headerGroup.id} className="h-[34px] bg-monday-hover/60">
+                  {headerGroup.headers.map((header, i) => (
+                    <th
+                      key={header.id}
+                      className={`font-normal align-middle border-b border-r border-monday-border last:border-r-0 relative ${i === 2 ? 'border-l-[3px]' : ''}`}
+                      style={{
+                        width: header.getSize(),
+                        borderLeftColor: i === 2 ? group.color : undefined,
+                      }}
+                    >
+                      {flexRender(header.column.columnDef.header, header.getContext())}
+                    </th>
+                  ))}
+                </tr>
+              ))}
+            </thead>
+
+            {/* Rows */}
+            <SortableContext items={group.items.map(i => i.id)} strategy={verticalListSortingStrategy}>
+              <tbody>
+                {table.getRowModel().rows.map(row => (
+                  <DraggableRow key={row.id} row={row} groupColor={group.color} />
+                ))}
+
+                {/* ── Add task row ───────────────────────────────── */}
+                <tr className="h-[38px] hover:bg-monday-hover/50 bg-white" onClick={e => e.stopPropagation()}>
+                  <td colSpan={2} className="border-b border-r border-monday-border align-middle" />
+                  <td
+                    className="px-2 border-b border-r border-monday-border border-l-[3px] h-full"
+                    style={{ borderLeftColor: group.color }}
+                  >
+                    {isAddingTask ? (
+                      <input
+                        ref={addInputRef}
+                        type="text"
+                        placeholder="Escribe el nombre del elemento..."
+                        value={newTaskName}
+                        onChange={e => setNewTaskName(e.target.value)}
+                        onKeyDown={handleAddTask}
+                        onBlur={() => emitAddItem(newTaskName)}
+                        className="w-full bg-transparent outline-none text-[13px] text-monday-text placeholder:text-monday-border"
+                      />
+                    ) : (
+                      <button
+                        onClick={startAdding}
+                        className="flex items-center gap-1.5 text-[13px] text-monday-subtext hover:text-monday-blue transition-colors w-full h-full"
+                      >
+                        <Plus size={14} />
+                        Agregar elemento
+                      </button>
+                    )}
+                  </td>
+                  <td colSpan={columns.length + 1} className="border-b border-monday-border bg-monday-hover/20" />
+                </tr>
+              </tbody>
+            </SortableContext>
+          </table>
+        </div>
+      )}
+
+      {/* Collapsed summary bar */}
+      {isCollapsed && (
+        <button
+          onClick={() => setIsCollapsed(false)}
+          className="text-[12px] text-monday-subtext hover:text-monday-text flex items-center gap-1.5 mt-1 px-2 py-1 hover:bg-monday-hover rounded-monday transition-colors"
+        >
+          <ChevronDown size={14} className="-rotate-90" />
+          {group.items.length} elemento{group.items.length !== 1 ? 's' : ''} ocultos
+        </button>
+      )}
+    </div>
+  );
+};
