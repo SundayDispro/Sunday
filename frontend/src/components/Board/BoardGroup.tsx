@@ -34,6 +34,7 @@ interface Props {
   showAddColumn?: boolean;
   /** Si false (ej. vista Taller), no se muestra la fila "Agregar elemento" */
   showAddRow?: boolean;
+  isSubgroup?: boolean;
 }
 
 const columnHelper = createColumnHelper<Item>();
@@ -255,7 +256,7 @@ const ColumnHeader: React.FC<{ col: BoardColumn }> = ({ col }) => {
 };
 
 // ── Main BoardGroup ────────────────────────────────────────────────────────
-export const BoardGroup: React.FC<Props> = ({ group, allGroups, columns, hiddenColumns, boardId, onRowClick, showAddColumn = true, showAddRow = true }) => {
+export const BoardGroup: React.FC<Props> = ({ group, allGroups, columns, hiddenColumns, boardId, onRowClick, showAddColumn = true, showAddRow = true, isSubgroup = false }) => {
   const [newTaskName, setNewTaskName] = useState('');
   const [isAddingTask, setIsAddingTask] = useState(false);
   const [isCollapsed, setIsCollapsed] = useState(false);
@@ -450,7 +451,7 @@ export const BoardGroup: React.FC<Props> = ({ group, allGroups, columns, hiddenC
   return (
     <div ref={setNodeRef} style={style} className="mb-6 relative">
       {/* ── Group Header ─────────────────────────────────────────── */}
-      <div className="flex items-center gap-1.5 mb-1.5 group/header">
+      <div className={`flex items-center gap-1.5 mb-1.5 group/header ${isSubgroup ? 'ml-6' : ''}`}>
         <div 
           {...attributes} 
           {...listeners} 
@@ -501,7 +502,29 @@ export const BoardGroup: React.FC<Props> = ({ group, allGroups, columns, hiddenC
 
         <span className="text-[12px] text-monday-subtext font-medium">
           {group.items.length} {group.items.length === 1 ? 'elemento' : 'elementos'}
+          {group.parentGroupId ? ' · subgrupo' : ''}
         </span>
+
+        {!isSubgroup && (
+          <button
+            type="button"
+            onClick={() => {
+              const colors = ['#00c875', '#fdab3d', '#e2445c', '#5559df', '#6e3cbb', '#0073ea'];
+              const randomColor = colors[Math.floor(Math.random() * colors.length)];
+              const newPosition = (group.position || 0) + 0.5;
+              socket.emit('add_group', {
+                boardId,
+                name: 'Nuevo cliente',
+                color: randomColor,
+                position: newPosition,
+                parentGroupId: group.id,
+              });
+            }}
+            className="ml-2 px-2 py-1 text-[11px] rounded-md border border-monday-border text-monday-subtext hover:text-monday-blue hover:border-monday-blue transition-colors"
+          >
+            + Cliente
+          </button>
+        )}
 
         <button
           onClick={e => {

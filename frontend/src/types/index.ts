@@ -19,6 +19,7 @@ export interface Group {
   color: string;
   position: number;
   boardId: string;
+  parentGroupId?: string | null;
   items: Item[];
 }
 

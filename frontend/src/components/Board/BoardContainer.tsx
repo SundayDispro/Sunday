@@ -3,7 +3,7 @@ import { Board, Group, BoardColumn, Item } from '../../types';
 import { socket } from '../../store/socket';
 import { BoardGroup } from './BoardGroup';
 import {
-  Plus, Search, Filter, ArrowUpDown, EyeOff, ChevronDown, X,
+  Plus, Search, Filter, ArrowUpDown, EyeOff, ChevronDown, X, Folder,
 } from 'lucide-react';
 import {
   DndContext,
@@ -42,6 +42,7 @@ const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode }) => {
   const [sortConfig, setSortConfig] = useState<{ columnId: string, direction: 'asc' | 'desc' } | null>(null);
   const [showSort, setShowSort] = useState(false);
   const [showHide, setShowHide] = useState(false);
+  const [exporting, setExporting] = useState(false);
 
   const fetchBoard = async () => {
     try {
@@ -329,6 +330,11 @@ const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode }) => {
     return result;
   }, [board, searchQuery, sortConfig, isTaller, isItemApproved]);
 
+  const rootFilteredGroups = useMemo(
+    () => filteredGroups.filter(g => !g.parentGroupId),
+    [filteredGroups]
+  );
+
   const toggleHideColumn = (colId: string) => {
     setHiddenColumns(prev => 
       prev.includes(colId) ? prev.filter(id => id !== colId) : [...prev, colId]
@@ -343,6 +349,24 @@ const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode }) => {
         : null,
     [board, filteredGroups, visibleColumns]
   );
+
+  const handleExportFolders = async () => {
+    if (!board || !currentUser) return;
+    try {
+      setExporting(true);
+      await fetch('http://localhost:3001/api/export/folders', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId: currentUser.id, boardId: board.id }),
+      });
+      alert('Exportación de carpetas lanzada. Revisa la carpeta SundayExports en tu usuario.');
+    } catch (e) {
+      console.error('Error exporting folders', e);
+      alert('No se pudo exportar la estructura de carpetas.');
+    } finally {
+      setExporting(false);
+    }
+  };
 
   if (!board) return (
     <div className="flex items-center justify-center h-full text-monday-subtext text-sm gap-2">
@@ -502,6 +526,18 @@ const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode }) => {
             </Popover.Content>
           </Popover.Portal>
         </Popover.Root>
+
+        <div className="ml-auto flex items-center gap-2">
+          <button
+            type="button"
+            onClick={handleExportFolders}
+            disabled={exporting}
+            className="toolbar-btn border border-monday-border"
+          >
+            <Folder size={15} />
+            <span>{exporting ? 'Exportando…' : 'Exportar carpetas'}</span>
+          </button>
+        </div>
       </div>
       )}
 
@@ -516,19 +552,36 @@ const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode }) => {
         ) : (
           <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
             <div className="flex flex-col gap-8">
-              <SortableContext items={filteredGroups.map(g => g.id)} strategy={verticalListSortingStrategy}>
-                {filteredGroups.map(group => (
-                  <BoardGroup
-                    key={group.id}
-                    group={group}
-                    allGroups={board.groups}
-                    columns={visibleColumns}
-                    hiddenColumns={isTaller ? [] : hiddenColumns}
-                    boardId={board.id}
-                    onRowClick={onRowClick}
-                    showAddColumn={!isTaller}
-                    showAddRow={!isTaller}
-                  />
+              <SortableContext items={rootFilteredGroups.map(g => g.id)} strategy={verticalListSortingStrategy}>
+                {rootFilteredGroups.map(group => (
+                  <React.Fragment key={group.id}>
+                    <BoardGroup
+                      group={group}
+                      allGroups={board.groups}
+                      columns={visibleColumns}
+                      hiddenColumns={isTaller ? [] : hiddenColumns}
+                      boardId={board.id}
+                      onRowClick={onRowClick}
+                      showAddColumn={!isTaller}
+                      showAddRow={!isTaller}
+                    />
+                    {filteredGroups
+                      .filter(g => g.parentGroupId === group.id)
+                      .map(sub => (
+                        <BoardGroup
+                          key={sub.id}
+                          group={sub}
+                          allGroups={board.groups}
+                          columns={visibleColumns}
+                          hiddenColumns={isTaller ? [] : hiddenColumns}
+                          boardId={board.id}
+                          onRowClick={onRowClick}
+                          showAddColumn={!isTaller}
+                          showAddRow={!isTaller}
+                          isSubgroup
+                        />
+                      ))}
+                  </React.Fragment>
                 ))}
               </SortableContext>
 

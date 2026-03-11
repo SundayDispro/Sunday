@@ -41,15 +41,18 @@ model Board {
 }
 
 model Group {
-  id        String   @id @default(uuid())
-  name      String
-  color     String   @default("#1d60f5")
-  position  Float
-  boardId   String
-  board     Board    @relation(fields: [boardId], references: [id], onDelete: Cascade)
-  items     Item[]
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id            String   @id @default(uuid())
+  name          String
+  color         String   @default("#1d60f5")
+  position      Float
+  boardId       String
+  board         Board    @relation(fields: [boardId], references: [id], onDelete: Cascade)
+  parentGroupId String?
+  parent        Group?   @relation("GroupToSubgroups", fields: [parentGroupId], references: [id], onDelete: Cascade)
+  children      Group[]  @relation("GroupToSubgroups")
+  items         Item[]
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
 }
 
 model Item {

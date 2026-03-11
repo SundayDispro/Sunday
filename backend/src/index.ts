@@ -459,6 +459,26 @@ app.get('/api/users', async (req, res) => {
   }
 });
 
+// --- Sync profile config (per role) ---
+
+type SyncProfile = {
+  syncDocs: boolean;
+  syncExcel: boolean;
+  syncFiles: boolean;
+};
+
+const ROLE_SYNC_PROFILES: Record<string, SyncProfile> = {
+  ADMIN: { syncDocs: true, syncExcel: true, syncFiles: true },
+  DISENO: { syncDocs: true, syncExcel: true, syncFiles: true },
+  VENTAS: { syncDocs: true, syncExcel: true, syncFiles: false },
+  TALLER: { syncDocs: true, syncExcel: false, syncFiles: false },
+  USER: { syncDocs: true, syncExcel: false, syncFiles: false },
+};
+
+function getSyncProfileForRole(role: string): SyncProfile {
+  return ROLE_SYNC_PROFILES[role] || ROLE_SYNC_PROFILES.USER;
+}
+
 // --- Notifications API ---
 
 app.get('/api/notifications', async (req, res) => {
@@ -510,6 +530,127 @@ app.patch('/api/notifications/read-all', async (req, res) => {
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: 'Failed' });
+  }
+});
+
+// --- Export folders from boards (one-shot) ---
+import os from 'os';
+
+function classifyFileType(url: string): 'docs' | 'excel' | 'file' {
+  const lower = url.toLowerCase();
+  if (lower.endsWith('.doc') || lower.endsWith('.docx') || lower.endsWith('.pdf')) return 'docs';
+  if (lower.endsWith('.xls') || lower.endsWith('.xlsx') || lower.endsWith('.csv')) return 'excel';
+  return 'file';
+}
+
+app.post('/api/export/folders', async (req, res) => {
+  try {
+    const { userId, boardId, basePath } = req.body ?? {};
+    if (!userId || !boardId) {
+      return res.status(400).json({ error: 'userId y boardId son obligatorios' });
+    }
+    const user = await prisma.user.findUnique({ where: { id: userId } });
+    if (!user) return res.status(404).json({ error: 'Usuario no encontrado' });
+
+    const syncProfile = getSyncProfileForRole(user.role);
+
+    const board = await prisma.board.findUnique({
+      where: { id: boardId },
+      include: {
+        workspace: true,
+        groups: {
+          orderBy: { position: 'asc' },
+          include: {
+            items: {
+              orderBy: { position: 'asc' },
+              include: { columnValues: true },
+            },
+          },
+        },
+        columns: { orderBy: { position: 'asc' } },
+      },
+    });
+
+    if (!board) return res.status(404).json({ error: 'Tablero no encontrado' });
+
+    const rootPath = basePath && typeof basePath === 'string' && basePath.trim()
+      ? basePath
+      : path.join(os.homedir(), 'SundayExports');
+
+    const workspaceDir = path.join(rootPath, board.workspace?.name || 'Workspace');
+    const boardDir = path.join(workspaceDir, board.name);
+
+    fs.mkdirSync(boardDir, { recursive: true });
+
+    const docsColumns = board.columns.filter(c => c.type === 'docs');
+    const excelColumns = board.columns.filter(c => c.type === 'excel');
+    const fileColumns = board.columns.filter(c => c.type === 'file');
+
+    const createdPaths: string[] = [];
+
+    const allGroups = board.groups as any[];
+    const rootGroups = allGroups.filter(g => !g.parentGroupId);
+
+    const getChildren = (parentId: string) =>
+      allGroups.filter(g => g.parentGroupId === parentId);
+
+    for (const group of rootGroups) {
+      const monthDir = path.join(boardDir, group.name);
+      fs.mkdirSync(monthDir, { recursive: true });
+      createdPaths.push(monthDir);
+
+      const clientGroups = getChildren(group.id);
+      const targetGroups = clientGroups.length > 0 ? clientGroups : [group];
+
+      for (const client of targetGroups) {
+        const clientDir = clientGroups.length > 0
+          ? path.join(monthDir, client.name)
+          : monthDir;
+        if (!fs.existsSync(clientDir)) {
+          fs.mkdirSync(clientDir, { recursive: true });
+          createdPaths.push(clientDir);
+        }
+
+        for (const item of client.items) {
+          const safeItemName = item.name || 'Elemento';
+          const itemDir = path.join(clientDir, safeItemName.replace(/[\\\\/:*?\"<>|]/g, '_'));
+          fs.mkdirSync(itemDir, { recursive: true });
+          createdPaths.push(itemDir);
+
+          const handleColumnSet = (columnsArr: typeof board.columns, enabled: boolean) => {
+            if (!enabled) return;
+            for (const col of columnsArr) {
+              const cv = item.columnValues.find((v: any) => v.columnId === col.id);
+              if (!cv || !cv.value) continue;
+              const value = cv.value.trim();
+              if (!value) continue;
+              const type = classifyFileType(value);
+              if (type === 'docs' && !syncProfile.syncDocs) continue;
+              if (type === 'excel' && !syncProfile.syncExcel) continue;
+              if (type === 'file' && !syncProfile.syncFiles) continue;
+
+              const filename = `${col.title.replace(/[\\\\/:*?\"<>|]/g, '_')}.url.txt`;
+              const filePath = path.join(itemDir, filename);
+              fs.writeFileSync(filePath, value, 'utf8');
+              createdPaths.push(filePath);
+            }
+          };
+
+          handleColumnSet(docsColumns, syncProfile.syncDocs);
+          handleColumnSet(excelColumns, syncProfile.syncExcel);
+          handleColumnSet(fileColumns, syncProfile.syncFiles);
+        }
+      }
+    }
+
+    return res.json({
+      ok: true,
+      rootPath,
+      createdCount: createdPaths.length,
+    });
+  } catch (e) {
+    console.error('Export folders error:', e);
+    return res.status(500).json({ error: 'Error al exportar carpetas' });
   }
 });
 
@@ -627,9 +768,9 @@ io.on('connection', (socket) => {
 
   socket.on('add_group', async (data) => {
     try {
-      const { boardId, name, color, position } = data;
+      const { boardId, name, color, position, parentGroupId } = data;
       const newGroup = await prisma.group.create({
-        data: { boardId, name, color, position },
+        data: { boardId, name, color, position, parentGroupId: parentGroupId || null },
         include: { items: { include: { columnValues: true } } }
       });
       io.emit('group_added', newGroup);
