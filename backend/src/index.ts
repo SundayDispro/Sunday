@@ -2,6 +2,9 @@ import express from 'express';
 import { createServer } from 'http';
 import { Server } from 'socket.io';
 import cors from 'cors';
+import path from 'path';
+import fs from 'fs';
+import multer from 'multer';
 import { PrismaClient } from '@prisma/client';
 
 const prisma = new PrismaClient();
@@ -14,12 +17,62 @@ const io = new Server(httpServer, {
   },
 });
 
+const UPLOAD_DIR = path.join(process.cwd(), 'uploads');
+const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5 MB
+
+try {
+  fs.mkdirSync(UPLOAD_DIR, { recursive: true });
+} catch (_) {}
+
+const storage = multer.diskStorage({
+  destination: (_req, _file, cb) => cb(null, UPLOAD_DIR),
+  filename: (_req, _file, cb) =>
+    cb(null, `${Date.now()}-${Math.random().toString(36).slice(2, 9)}.jpg`),
+});
+
+const upload = multer({
+  storage,
+  limits: { fileSize: MAX_FILE_SIZE },
+  fileFilter: (_req, file, cb) => {
+    const ok = file.mimetype === 'image/jpeg' || file.mimetype === 'image/jpg';
+    if (ok) cb(null, true);
+    else cb(new Error('Solo se permiten archivos JPG (image/jpeg).'));
+  },
+});
+
 app.use(cors());
 app.use(express.json());
+
+// Servir archivos subidos (URL pública: /uploads/nombre.jpg)
+app.use('/uploads', express.static(UPLOAD_DIR));
 
 // Health check (for frontend to verify backend is up)
 app.get('/api/health', (_req, res) => {
   res.status(200).json({ ok: true });
+});
+
+// Subir imagen JPG (multipart/form-data, field: "file"); responde con la URL pública
+app.post('/api/upload', (req, res) => {
+  const sendError = (status: number, message: string) => {
+    res.status(status).json({ error: message });
+  };
+  upload.single('file')(req, res, (err: unknown) => {
+    try {
+      if (err) {
+        if (err instanceof multer.MulterError) {
+          if (err.code === 'LIMIT_FILE_SIZE')
+            return sendError(400, 'El archivo no puede superar 5 MB.');
+        }
+        return sendError(400, err instanceof Error ? err.message : 'Error al subir.');
+      }
+      if (!req.file) return sendError(400, 'No se envió ningún archivo.');
+      const url = '/uploads/' + req.file.filename;
+      res.status(201).json({ url });
+    } catch (e) {
+      console.error('Upload error:', e);
+      sendError(500, 'Error interno al guardar el archivo.');
+    }
+  });
 });
 
 // Get all boards (for sidebar list)
