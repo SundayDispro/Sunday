@@ -2,12 +2,10 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Averta Std – títulos de grupo. Si tienes la fuente: coloca AvertaStd-Regular.woff2 en public/fonts/ */
+/* Averta Demo PE – títulos de grupo (Vite resuelve la ruta desde assets) */
 @font-face {
   font-family: 'Averta Std';
-  src: local('AvertaStd-Regular'), local('Averta Std'),
-       url('/fonts/AvertaStd-Regular.woff2') format('woff2'),
-       url('/fonts/AvertaStd-Regular.woff') format('woff');
+  src: url('./assets/fonts/AvertaDemoPECuttedDemo-Regular.otf') format('opentype');
   font-weight: 400;
   font-style: normal;
   font-display: swap;
