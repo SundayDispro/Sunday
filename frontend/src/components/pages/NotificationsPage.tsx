@@ -32,6 +32,7 @@ export const NotificationsPage: React.FC<NotificationsPageProps> = ({
   const [mentions, setMentions] = useState<FeedPostMention[]>([]);
   const [loading, setLoading] = useState(true);
   const [onlyUnread, setOnlyUnread] = useState(false);
+  const [showRead, setShowRead] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
 
   const fetchNotifications = async () => {
@@ -113,7 +114,18 @@ export const NotificationsPage: React.FC<NotificationsPageProps> = ({
   const unreadCount = notifications.filter(n => !n.read).length;
   const assignments = notifications.filter(n => n.type === 'assigned' || n.item);
   const q = searchQuery.trim().toLowerCase();
-  const filteredAssignments = (onlyUnread ? assignments.filter(n => !n.read) : assignments).filter(
+
+  const unreadAssignments = assignments.filter(n => !n.read);
+  const readAssignments = assignments.filter(n => n.read);
+
+  const filteredUnreadAssignments = (onlyUnread ? unreadAssignments : assignments).filter(
+    n =>
+      !q ||
+      n.item?.name?.toLowerCase().includes(q) ||
+      n.item?.group?.board?.name?.toLowerCase().includes(q)
+  );
+
+  const filteredReadAssignments = readAssignments.filter(
     n =>
       !q ||
       n.item?.name?.toLowerCase().includes(q) ||
@@ -186,6 +198,15 @@ export const NotificationsPage: React.FC<NotificationsPageProps> = ({
             />
             Solo no leídas
           </label>
+          <label className="flex items-center gap-2 text-[13px] text-monday-subtext whitespace-nowrap">
+            <input
+              type="checkbox"
+              checked={showRead}
+              onChange={e => setShowRead(e.target.checked)}
+              className="rounded border-monday-border text-monday-blue focus:ring-monday-blue"
+            />
+            Mostrar leídas
+          </label>
         </div>
       </div>
 
@@ -201,13 +222,13 @@ export const NotificationsPage: React.FC<NotificationsPageProps> = ({
                 <h2 className="text-[12px] font-semibold text-monday-subtext uppercase tracking-wider mb-2">
                   Asignaciones
                 </h2>
-                {filteredAssignments.length === 0 ? (
+                {filteredUnreadAssignments.length === 0 ? (
                   <p className="text-[13px] text-monday-subtext py-2">
                     No hay asignaciones para mostrar.
                   </p>
                 ) : (
                   <ul className="divide-y divide-monday-border">
-                    {filteredAssignments.map(n => (
+                    {filteredUnreadAssignments.map(n => (
                       <li
                         key={n.id}
                         className={`py-3 flex items-start gap-3 hover:bg-monday-hover/50 transition-colors ${!n.read ? 'bg-blue-50/50' : ''}`}
@@ -271,6 +292,64 @@ export const NotificationsPage: React.FC<NotificationsPageProps> = ({
                       </li>
                     ))}
                   </ul>
+                )}
+
+                {showRead && filteredReadAssignments.length > 0 && (
+                  <div className="mt-4 border-t border-monday-border pt-3">
+                    <h3 className="text-[12px] font-semibold text-monday-subtext uppercase tracking-wider mb-2">
+                      Leídas
+                    </h3>
+                    <ul className="divide-y divide-monday-border">
+                      {filteredReadAssignments.map(n => (
+                        <li
+                          key={n.id}
+                          className="py-3 flex items-start gap-3 bg-monday-hover/30"
+                        >
+                          <div className="flex-1 min-w-0">
+                            <button
+                              type="button"
+                              onClick={() => handleAssignmentClick(n)}
+                              className="text-left w-full"
+                            >
+                              <p className="text-[14px] text-monday-text font-medium">
+                                Te han asignado en un elemento
+                              </p>
+                              {n.item && (
+                                <p className="text-[13px] text-monday-subtext mt-0.5 truncate">
+                                  {n.item.name}
+                                  {n.item.group?.board?.name && (
+                                    <span> · {n.item.group.board.name}</span>
+                                  )}
+                                </p>
+                              )}
+                              <p className="text-[12px] text-monday-subtext mt-1">
+                                {new Date(n.createdAt).toLocaleDateString('es', {
+                                  day: 'numeric',
+                                  month: 'short',
+                                  hour: '2-digit',
+                                  minute: '2-digit',
+                                })}
+                              </p>
+                            </button>
+                          </div>
+                          {n.item?.group?.board?.id && onOpenItem && (
+                            <button
+                              type="button"
+                              onClick={() =>
+                                n.item &&
+                                n.item.group?.board?.id &&
+                                onOpenItem(n.item as Item, n.item.group.board.id)
+                              }
+                              className="p-1.5 rounded-lg text-monday-subtext hover:bg-monday-hover hover:text-monday-blue transition-colors"
+                              title="Ir al tablero"
+                            >
+                              <ExternalLink size={16} />
+                            </button>
+                          )}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
                 )}
               </section>
             )}
