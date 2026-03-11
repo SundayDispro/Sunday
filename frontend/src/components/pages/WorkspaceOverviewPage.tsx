@@ -141,7 +141,7 @@ export const WorkspaceOverviewPage: React.FC<WorkspaceOverviewPageProps> = ({
         } catch {
           if (text) {
             if (text.trimStart().startsWith('<!') || text.includes('</html>')) {
-              const preMatch = text.match(/<pre[^>]*>([\s\\s]*?)<\\/pre>/i);
+              const preMatch = text.match(/<pre[^>]*>([\s\S]*?)<\/pre>/i);
               const raw = preMatch ? preMatch[1].trim() : '';
               msg = raw.startsWith('Cannot DELETE')
                 ? 'El backend no reconoce la eliminación de tableros. Asegúrate de tener el backend de Sunday en ejecución (npm run dev en la carpeta backend, puerto 3001) y de haber guardado los cambios.'
