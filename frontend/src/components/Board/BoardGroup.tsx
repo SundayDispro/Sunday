@@ -557,12 +557,12 @@ export const BoardGroup: React.FC<Props> = ({
               if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
               if (e.key === 'Escape') { setGroupNameDraft(group.name); setIsRenamingGroup(false); }
             }}
-            className="text-[15px] font-semibold bg-transparent border-b-2 outline-none px-0"
+            className="text-[14px] font-medium bg-transparent border-b-2 outline-none px-0"
             style={{ color: group.color, borderColor: group.color, minWidth: 80 }}
           />
         ) : (
           <h3
-            className="text-[15px] font-semibold cursor-pointer hover:opacity-80 transition-opacity select-none"
+            className="text-[14px] font-medium text-monday-text cursor-pointer hover:opacity-80 transition-opacity select-none"
             style={{ color: group.color }}
             onDoubleClick={() => setIsRenamingGroup(true)}
             title="Doble clic para renombrar"
@@ -571,7 +571,7 @@ export const BoardGroup: React.FC<Props> = ({
           </h3>
         )}
 
-        <span className="text-[12px] text-monday-subtext font-medium">
+        <span className="text-[11px] text-monday-subtext font-normal">
           {group.items.length} {group.items.length === 1 ? 'elemento' : 'elementos'}
           {group.parentGroupId ? ' · subgrupo' : ''}
         </span>
