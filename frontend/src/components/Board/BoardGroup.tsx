@@ -515,6 +515,19 @@ export const BoardGroup: React.FC<Props> = ({ group, allGroups, columns, hiddenC
         <span className="text-[12px] text-monday-subtext font-medium">
           {group.items.length} {group.items.length === 1 ? 'elemento' : 'elementos'}
         </span>
+
+        <button
+          onClick={e => {
+            e.stopPropagation();
+            if (window.confirm(`¿Eliminar el grupo "${group.name}" y todas sus tareas? Esta acción no se puede deshacer.`)) {
+              socket.emit('delete_group', { groupId: group.id });
+            }
+          }}
+          className="ml-auto p-1.5 rounded-lg text-monday-subtext hover:text-monday-red hover:bg-red-50 transition-colors"
+          title="Eliminar grupo"
+        >
+          <Trash2 size={16} />
+        </button>
       </div>
 
       {/* ── Table ───────────────────────────────────────────────── */}

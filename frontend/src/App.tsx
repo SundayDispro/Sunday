@@ -84,19 +84,37 @@ function App() {
   const [activeBoardId, setActiveBoardId] = useState<string | null>(null);
   const [boardSearch, setBoardSearch] = useState('');
   const [showAdminPanel, setShowAdminPanel] = useState(false);
+  const [editingBoardName, setEditingBoardName] = useState(false);
+  const [boardNameDraft, setBoardNameDraft] = useState('');
+  const [showAddBoard, setShowAddBoard] = useState(false);
+  const [newBoardName, setNewBoardName] = useState('');
 
   useEffect(() => {
     if (currentUser) {
-      // Fetch all boards for sidebar
-      fetch('http://localhost:3001/api/boards/first')
+      fetch('http://localhost:3001/api/boards')
         .then(r => r.json())
-        .then(data => {
-          if (data && data.id) {
-            setBoards([data]); 
-            if (!activeBoardId) setActiveBoardId(data.id);
-          }
+        .then((data: Board[]) => {
+          if (!Array.isArray(data)) return;
+          setBoards(data);
+          setActiveBoardId(prev => {
+            if (data.length === 0) return null;
+            const exists = data.some(b => b.id === prev);
+            return exists ? prev : data[0].id;
+          });
         })
         .catch(err => console.error('Error fetching boards:', err));
+
+      socket.on('board_renamed', (updated: Board) => {
+        setBoards(prev => prev.map(b => b.id === updated.id ? { ...b, name: updated.name } : b));
+      });
+      socket.on('board_added', (newBoard: Board) => {
+        setBoards(prev => [...prev, newBoard]);
+        setActiveBoardId(newBoard.id);
+      });
+      return () => {
+        socket.off('board_renamed');
+        socket.off('board_added');
+      };
     }
   }, [currentUser]);
 
@@ -218,10 +236,57 @@ function App() {
                   {activeBoardId === b.id && <Star size={13} className="ml-auto opacity-50 text-monday-orange" />}
                 </button>
               ))}
-              <button className="w-full flex items-center gap-2 text-[12px] px-2 py-1.5 text-white/40 hover:text-white/70 transition-colors mt-1">
-                <Plus size={14} />
-                Agregar tablero
-              </button>
+              <Popover.Root open={showAddBoard} onOpenChange={setShowAddBoard}>
+                <Popover.Trigger asChild>
+                  <button className="w-full flex items-center gap-2 text-[12px] px-2 py-1.5 text-white/40 hover:text-white/70 transition-colors mt-1">
+                    <Plus size={14} />
+                    Agregar tablero
+                  </button>
+                </Popover.Trigger>
+                <Popover.Portal>
+                  <Popover.Content
+                    className="z-50 bg-white rounded-xl shadow-monday-lg border border-monday-border w-64 p-3"
+                    sideOffset={8}
+                    align="start"
+                  >
+                    <p className="text-[12px] font-semibold text-monday-subtext mb-2">Nuevo tablero</p>
+                    <input
+                      type="text"
+                      value={newBoardName}
+                      onChange={e => setNewBoardName(e.target.value)}
+                      placeholder="Nombre del tablero"
+                      className="w-full px-3 py-2 rounded-monday border border-monday-border text-[13px] text-monday-text placeholder:text-monday-subtext focus:outline-none focus:ring-2 focus:ring-monday-blue mb-3"
+                      onKeyDown={e => {
+                        if (e.key === 'Enter') {
+                          const name = newBoardName.trim() || 'Nuevo tablero';
+                          socket.emit('add_board', { name });
+                          setNewBoardName('');
+                          setShowAddBoard(false);
+                        }
+                      }}
+                    />
+                    <div className="flex justify-end gap-2">
+                      <button
+                        onClick={() => { setShowAddBoard(false); setNewBoardName(''); }}
+                        className="px-3 py-1.5 text-[13px] text-monday-subtext hover:text-monday-text rounded-monday"
+                      >
+                        Cancelar
+                      </button>
+                      <button
+                        onClick={() => {
+                          const name = newBoardName.trim() || 'Nuevo tablero';
+                          socket.emit('add_board', { name });
+                          setNewBoardName('');
+                          setShowAddBoard(false);
+                        }}
+                        className="px-3 py-1.5 text-[13px] font-medium text-white bg-monday-blue rounded-monday hover:bg-monday-blue/90"
+                      >
+                        Crear
+                      </button>
+                    </div>
+                  </Popover.Content>
+                </Popover.Portal>
+              </Popover.Root>
             </>
           ) : activePage === 'inbox' ? (
             <div className="p-3">
@@ -265,7 +330,19 @@ function App() {
       <main className="flex-1 flex flex-col min-w-0 p-3 pl-0 bg-monday-bg overflow-hidden">
         <div className="flex-1 flex flex-col bg-white rounded-2xl shadow-monday-sm border border-monday-border overflow-hidden">
           
-          {activePage === 'board' && activeBoardId ? (
+          {activePage === 'board' && boards.length === 0 ? (
+            <div className="flex-1 flex flex-col items-center justify-center text-monday-subtext p-8">
+              <p className="text-[15px] font-medium text-monday-text mb-2">No hay tableros</p>
+              <p className="text-[13px] mb-4">Crea uno desde el menú de la izquierda con &quot;Agregar tablero&quot;.</p>
+              <button
+                onClick={() => setShowAddBoard(true)}
+                className="px-4 py-2 bg-monday-blue text-white text-[13px] font-medium rounded-monday hover:bg-monday-blue/90"
+              >
+                <Plus size={16} className="inline mr-1.5 -mt-0.5" />
+                Agregar tablero
+              </button>
+            </div>
+          ) : activePage === 'board' && activeBoardId ? (
             <>
               <header className="shrink-0 border-b border-monday-border">
                 <div className="h-[56px] flex items-center px-6 justify-between">
@@ -273,7 +350,40 @@ function App() {
                     <button onClick={() => setSidebarOpen(v => !v)} className="p-1.5 rounded-lg text-monday-subtext hover:bg-monday-hover transition-colors mr-1">
                       <ChevronRight size={18} className={`transition-transform ${sidebarOpen ? 'rotate-180' : 'rotate-0'}`} />
                     </button>
-                    <h1 className="text-[20px] font-semibold text-monday-text">{boards.find(b => b && b.id === activeBoardId)?.name || 'Cargando...'}</h1>
+                    {editingBoardName && activeBoardId ? (
+                      <input
+                        autoFocus
+                        value={boardNameDraft}
+                        onChange={e => setBoardNameDraft(e.target.value)}
+                        onBlur={() => {
+                          setEditingBoardName(false);
+                          if (boardNameDraft.trim()) {
+                            socket.emit('rename_board', { boardId: activeBoardId, name: boardNameDraft.trim() });
+                            setBoards(prev => prev.map(b => b.id === activeBoardId ? { ...b, name: boardNameDraft.trim() } : b));
+                          }
+                        }}
+                        onKeyDown={e => {
+                          if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
+                          if (e.key === 'Escape') setEditingBoardName(false);
+                        }}
+                        onClick={e => e.stopPropagation()}
+                        className="text-[20px] font-semibold text-monday-text bg-monday-hover rounded px-1 py-0.5 outline-none border border-monday-blue min-w-[120px]"
+                      />
+                    ) : (
+                      <h1
+                        className="text-[20px] font-semibold text-monday-text cursor-pointer hover:bg-monday-hover rounded px-1 py-0.5 transition-colors"
+                        onClick={() => {
+                          const board = boards.find(b => b && b.id === activeBoardId);
+                          if (board) {
+                            setBoardNameDraft(board.name);
+                            setEditingBoardName(true);
+                          }
+                        }}
+                        title="Clic para editar nombre del tablero"
+                      >
+                        {boards.find(b => b && b.id === activeBoardId)?.name || 'Cargando...'}
+                      </h1>
+                    )}
                     <Star size={16} className="text-monday-subtext hover:text-monday-orange cursor-pointer transition-colors" />
                   </div>
 

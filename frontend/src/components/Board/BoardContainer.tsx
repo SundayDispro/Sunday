@@ -130,6 +130,10 @@ const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode }) => {
       setBoard(prev => prev ? { ...prev, columns: prev.columns.filter(c => c.id !== columnId) } : prev);
     });
 
+    socket.on('group_deleted', ({ groupId }: { groupId: string }) => {
+      setBoard(prev => prev ? { ...prev, groups: prev.groups.filter(g => g.id !== groupId) } : prev);
+    });
+
     return () => {
       socket.off('column_value_updated');
       socket.off('group_added');
@@ -139,6 +143,7 @@ const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode }) => {
       socket.off('column_added');
       socket.off('column_renamed');
       socket.off('column_deleted');
+      socket.off('group_deleted');
     };
   }, [boardId]);
 

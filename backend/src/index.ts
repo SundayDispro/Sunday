@@ -17,6 +17,19 @@ const io = new Server(httpServer, {
 app.use(cors());
 app.use(express.json());
 
+// Get all boards (for sidebar list)
+app.get('/api/boards', async (req, res) => {
+  try {
+    const boards = await prisma.board.findMany({
+      orderBy: { createdAt: 'asc' },
+      select: { id: true, name: true, workspaceId: true },
+    });
+    res.json(boards);
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to fetch boards' });
+  }
+});
+
 // Get the first Board dynamically
 app.get('/api/boards/first', async (req, res) => {
   try {
@@ -226,7 +239,47 @@ io.on('connection', (socket) => {
     }
   });
 
+  // ── BOARD EVENTS ───────────────────────────────────────────────────────────
+
+  socket.on('rename_board', async (data) => {
+    try {
+      const { boardId, name } = data;
+      const updated = await prisma.board.update({ where: { id: boardId }, data: { name: name.trim() } });
+      io.emit('board_renamed', updated);
+    } catch (e) {
+      console.error('Error renaming board:', e);
+    }
+  });
+
+  socket.on('add_board', async (data) => {
+    try {
+      const workspace = await prisma.workspace.findFirst();
+      if (!workspace) {
+        console.error('No workspace found');
+        return;
+      }
+      const name = (data.name && String(data.name).trim()) || 'Nuevo tablero';
+      const maxPos = await prisma.board.findFirst({ orderBy: { createdAt: 'desc' }, select: { id: true } });
+      const newBoard = await prisma.board.create({
+        data: { name, workspaceId: workspace.id },
+      });
+      io.emit('board_added', newBoard);
+    } catch (e) {
+      console.error('Error adding board:', e);
+    }
+  });
+
   // ── GROUP EVENTS ──────────────────────────────────────────────────────────
+
+  socket.on('delete_group', async (data) => {
+    try {
+      const { groupId } = data;
+      await prisma.group.delete({ where: { id: groupId } });
+      io.emit('group_deleted', { groupId });
+    } catch (e) {
+      console.error('Error deleting group:', e);
+    }
+  });
 
   socket.on('add_group', async (data) => {
     try {
