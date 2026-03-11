@@ -532,11 +532,11 @@ export const BoardGroup: React.FC<Props> = ({
         </div>
         <button
           onClick={() => onToggleCollapse?.()}
-          className="text-monday-subtext hover:text-monday-text transition-colors"
+          className="text-monday-subtext hover:text-monday-text transition-colors flex-shrink-0"
           title={isCollapsed ? 'Expandir' : 'Colapsar'}
         >
           <ChevronDown
-            size={18}
+            size={24}
             style={{ color: group.color }}
             className={`transition-transform duration-200 ${isCollapsed ? '-rotate-90' : 'rotate-0'}`}
           />
@@ -557,12 +557,12 @@ export const BoardGroup: React.FC<Props> = ({
               if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
               if (e.key === 'Escape') { setGroupNameDraft(group.name); setIsRenamingGroup(false); }
             }}
-            className="text-[14px] font-medium bg-transparent border-b-2 outline-none px-0"
-            style={{ color: group.color, borderColor: group.color, minWidth: 80 }}
+            className="text-[26px] font-normal bg-transparent border-b-2 outline-none px-0 min-w-[120px] font-averta"
+            style={{ color: group.color, borderColor: group.color }}
           />
         ) : (
           <h3
-            className="text-[14px] font-medium text-monday-text cursor-pointer hover:opacity-80 transition-opacity select-none"
+            className="text-[26px] font-normal leading-tight cursor-pointer hover:opacity-80 transition-opacity select-none font-averta"
             style={{ color: group.color }}
             onDoubleClick={() => setIsRenamingGroup(true)}
             title="Doble clic para renombrar"
@@ -571,7 +571,7 @@ export const BoardGroup: React.FC<Props> = ({
           </h3>
         )}
 
-        <span className="text-[11px] text-monday-subtext font-normal">
+        <span className="text-[14px] text-monday-subtext font-normal">
           {group.items.length} {group.items.length === 1 ? 'elemento' : 'elementos'}
           {group.parentGroupId ? ' · subgrupo' : ''}
         </span>

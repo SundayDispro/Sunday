@@ -2,6 +2,17 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Fuente Averta para títulos de grupo (coloca Averta-Regular.woff2 en public/fonts/ o usa la ruta de tu CDN) */
+@font-face {
+  font-family: 'Averta';
+  src: local('Averta'), local('Averta Regular'),
+       url('/fonts/Averta-Regular.woff2') format('woff2'),
+       url('/fonts/Averta-Regular.woff') format('woff');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
 @layer base {
   body {
     margin: 0;

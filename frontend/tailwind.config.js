@@ -27,6 +27,7 @@ export default {
       },
       fontFamily: {
         sans: ['"Inter"', '"Figtree"', '"Segoe UI"', 'system-ui', 'sans-serif'],
+        averta: ['Averta', '"Inter"', '"Segoe UI"', 'system-ui', 'sans-serif'],
       },
       boxShadow: {
         'monday-sm':  '0 1px 4px rgba(0,0,0,0.08)',
