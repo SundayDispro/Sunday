@@ -1,0 +1,27 @@
+import React from 'react';
+import { BookOpen } from 'lucide-react';
+
+export const DocsPage: React.FC = () => {
+  return (
+    <div className="flex-1 flex flex-col overflow-hidden">
+      <div className="p-6 border-b border-monday-border">
+        <h1 className="text-[20px] font-semibold text-monday-text flex items-center gap-2">
+          <BookOpen size={22} className="text-monday-blue" />
+          Documentos
+        </h1>
+        <p className="text-[13px] text-monday-subtext mt-1">
+          Documentación y guías del workspace
+        </p>
+      </div>
+      <div className="flex-1 flex flex-col items-center justify-center py-16 text-monday-subtext">
+        <div className="w-16 h-16 rounded-full bg-monday-hover flex items-center justify-center mb-4">
+          <BookOpen size={28} className="opacity-60" />
+        </div>
+        <p className="text-[15px] font-medium text-monday-text">Docs</p>
+        <p className="text-[13px] mt-1 max-w-sm text-center">
+          Aquí podrás centralizar documentación, guías y plantillas de tu equipo.
+        </p>
+      </div>
+    </div>
+  );
+};
