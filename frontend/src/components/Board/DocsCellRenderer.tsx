@@ -4,7 +4,7 @@ import { socket } from '../../store/socket';
 import { useUser } from '../../store/UserContext';
 import * as Popover from '@radix-ui/react-popover';
 import * as Dialog from '@radix-ui/react-dialog';
-import { FileText, ChevronDown, ExternalLink, Upload, Loader2 } from 'lucide-react';
+import { FileText, ChevronDown, ExternalLink, Upload, Loader2, Trash2 } from 'lucide-react';
 
 // En desarrollo Vite hace proxy de /api y /uploads al backend (3001); usar '' para mismo origen
 const API_BASE = import.meta.env.DEV ? '' : 'http://localhost:3001';
@@ -125,6 +125,24 @@ export const DocsCellRenderer: React.FC<Props> = ({ item, column, value }) => {
   const previewUrl = (url: string) => (url.trim().startsWith('/') ? API_BASE + url : url);
   const isPdf = (url: string) => url.toLowerCase().endsWith('.pdf');
 
+  const clearField = (field: 'cotizacion' | 'hoja' | 'levantamiento') => {
+    let nextCot = cotizacion;
+    let nextHoja = hojaTrabajo;
+    let nextLev = levantamiento;
+    if (field === 'cotizacion') nextCot = '';
+    if (field === 'hoja') nextHoja = '';
+    if (field === 'levantamiento') nextLev = '';
+    setCotizacion(nextCot);
+    setHojaTrabajo(nextHoja);
+    setLevantamiento(nextLev);
+    const payload = JSON.stringify({
+      cotizacion: nextCot.trim() || undefined,
+      hojaTrabajo: nextHoja.trim() || undefined,
+      levantamiento: nextLev.trim() || undefined,
+    });
+    socket.emit('update_column_value', { itemId: item.id, columnId: column.id, value: payload });
+  };
+
   return (
     <>
       {/* Popover sin modal evita que el foco quede atrapado y que el cierre sea errático */}
@@ -157,49 +175,79 @@ export const DocsCellRenderer: React.FC<Props> = ({ item, column, value }) => {
               {isTaller ? 'Hoja de trabajo' : 'Documentos'}
             </div>
             {!isTaller && parsed.cotizacion?.trim() && (
-              <button
-                type="button"
-                onClick={e => {
-                  e.stopPropagation();
-                  openUrl(parsed.cotizacion!);
-                  setOpen(false);
-                }}
-                className="w-full flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-monday-hover text-left text-[13px] text-monday-text"
-              >
-                <FileText size={14} />
-                Cotización
-                <ExternalLink size={12} className="ml-auto text-monday-subtext" />
-              </button>
+              <div className="flex items-center gap-1">
+                <button
+                  type="button"
+                  onClick={e => {
+                    e.stopPropagation();
+                    openUrl(parsed.cotizacion!);
+                    setOpen(false);
+                  }}
+                  className="flex-1 flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-monday-hover text-left text-[13px] text-monday-text"
+                >
+                  <FileText size={14} />
+                  Cotización
+                  <ExternalLink size={12} className="ml-auto text-monday-subtext" />
+                </button>
+                <button
+                  type="button"
+                  onClick={e => { e.stopPropagation(); clearField('cotizacion'); }}
+                  className="p-1.5 rounded-lg text-monday-subtext hover:text-monday-red hover:bg-red-50"
+                  title="Eliminar archivo"
+                >
+                  <Trash2 size={12} />
+                </button>
+              </div>
             )}
             {parsed.hojaTrabajo?.trim() && (
-              <button
-                type="button"
-                onClick={e => {
-                  e.stopPropagation();
-                  openUrl(parsed.hojaTrabajo!);
-                  setOpen(false);
-                }}
-                className="w-full flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-monday-hover text-left text-[13px] text-monday-text"
-              >
-                <FileText size={14} />
-                Hoja de trabajo
-                <ExternalLink size={12} className="ml-auto text-monday-subtext" />
-              </button>
+              <div className="flex items-center gap-1">
+                <button
+                  type="button"
+                  onClick={e => {
+                    e.stopPropagation();
+                    openUrl(parsed.hojaTrabajo!);
+                    setOpen(false);
+                  }}
+                  className="flex-1 flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-monday-hover text-left text-[13px] text-monday-text"
+                >
+                  <FileText size={14} />
+                  Hoja de trabajo
+                  <ExternalLink size={12} className="ml-auto text-monday-subtext" />
+                </button>
+                <button
+                  type="button"
+                  onClick={e => { e.stopPropagation(); clearField('hoja'); }}
+                  className="p-1.5 rounded-lg text-monday-subtext hover:text-monday-red hover:bg-red-50"
+                  title="Eliminar archivo"
+                >
+                  <Trash2 size={12} />
+                </button>
+              </div>
             )}
             {!isTaller && parsed.levantamiento?.trim() && (
-              <button
-                type="button"
-                onClick={e => {
-                  e.stopPropagation();
-                  openUrl(parsed.levantamiento!);
-                  setOpen(false);
-                }}
-                className="w-full flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-monday-hover text-left text-[13px] text-monday-text"
-              >
-                <FileText size={14} />
-                Levantamiento
-                <ExternalLink size={12} className="ml-auto text-monday-subtext" />
-              </button>
+              <div className="flex items-center gap-1">
+                <button
+                  type="button"
+                  onClick={e => {
+                    e.stopPropagation();
+                    openUrl(parsed.levantamiento!);
+                    setOpen(false);
+                  }}
+                  className="flex-1 flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-monday-hover text-left text-[13px] text-monday-text"
+                >
+                  <FileText size={14} />
+                  Levantamiento
+                  <ExternalLink size={12} className="ml-auto text-monday-subtext" />
+                </button>
+                <button
+                  type="button"
+                  onClick={e => { e.stopPropagation(); clearField('levantamiento'); }}
+                  className="p-1.5 rounded-lg text-monday-subtext hover:text-monday-red hover:bg-red-50"
+                  title="Eliminar archivo"
+                >
+                  <Trash2 size={12} />
+                </button>
+              </div>
             )}
             {!parsed.hojaTrabajo?.trim() && !isTaller && !parsed.cotizacion?.trim() && !parsed.levantamiento?.trim() && (
               <p className="text-[12px] text-monday-subtext px-2 py-1">Sin documentos. Agrega desde el botón de abajo.</p>

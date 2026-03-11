@@ -1,7 +1,9 @@
 import React, { useState } from 'react';
 import { Item, BoardColumn, ColumnValue } from '../../types';
 import { socket } from '../../store/socket';
-import { FileSpreadsheet, ExternalLink } from 'lucide-react';
+import { FileSpreadsheet, ExternalLink, Upload, Loader2 } from 'lucide-react';
+
+const API_BASE = import.meta.env.DEV ? '' : 'http://localhost:3001';
 
 interface Props {
   item: Item;
@@ -11,6 +13,7 @@ interface Props {
 
 export const ExcelCellRenderer: React.FC<Props> = ({ item, column, value }) => {
   const [editing, setEditing] = useState(false);
+  const [uploading, setUploading] = useState(false);
   const url = (value?.value ?? '').trim();
 
   const save = (e: React.FormEvent) => {
@@ -24,8 +27,31 @@ export const ExcelCellRenderer: React.FC<Props> = ({ item, column, value }) => {
   const openExcel = (e: React.MouseEvent) => {
     e.stopPropagation();
     if (!url) return;
-    const href = url.startsWith('http') ? url : 'https://' + url;
+    const href = url.startsWith('/') ? API_BASE + url : (url.startsWith('http') ? url : 'https://' + url);
     window.open(href, '_blank', 'noopener');
+  };
+
+  const handleUpload = async (file: File) => {
+    setUploading(true);
+    const formData = new FormData();
+    formData.append('file', file);
+    try {
+      const res = await fetch(`${API_BASE}/api/upload`, {
+        method: 'POST',
+        body: formData,
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data?.url) {
+        throw new Error(data?.error || `Error al subir archivo (${res.status})`);
+      }
+      socket.emit('update_column_value', { itemId: item.id, columnId: column.id, value: data.url });
+      setEditing(false);
+    } catch (err) {
+      console.error('Error uploading excel', err);
+      alert('No se pudo subir el archivo de Excel.');
+    } finally {
+      setUploading(false);
+    }
   };
 
   if (editing) {
@@ -38,6 +64,19 @@ export const ExcelCellRenderer: React.FC<Props> = ({ item, column, value }) => {
           placeholder="https://... (enlace al Excel)"
           className="flex-1 min-w-0 text-[12px] border border-monday-blue rounded px-1.5 py-0.5 outline-none"
         />
+        <label className="flex items-center gap-1 text-[11px] text-monday-blue cursor-pointer shrink-0">
+          <input
+            type="file"
+            accept=".xlsx,.xls,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel,text/csv"
+            className="hidden"
+            onChange={e => {
+              const f = e.target.files?.[0];
+              if (f) handleUpload(f);
+            }}
+          />
+          {uploading ? <Loader2 size={12} className="animate-spin" /> : <Upload size={12} />}
+          Subir
+        </label>
         <button type="submit" className="text-[11px] text-monday-blue font-medium shrink-0">Guardar</button>
       </form>
     );

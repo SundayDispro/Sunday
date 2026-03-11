@@ -31,6 +31,9 @@ const storage = multer.diskStorage({
     const safeExt = (() => {
       if (file.mimetype === 'application/pdf') return '.pdf';
       if (file.mimetype === 'image/jpeg' || file.mimetype === 'image/jpg') return '.jpg';
+      if (file.mimetype === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+        return '.xlsx';
+      if (file.mimetype === 'application/vnd.ms-excel') return '.xls';
       return path.extname(file.originalname || '').toLowerCase() || '.bin';
     })();
     cb(null, `${Date.now()}-${Math.random().toString(36).slice(2, 9)}${safeExt}`);
@@ -44,7 +47,9 @@ const upload = multer({
     const ok =
       file.mimetype === 'image/jpeg' ||
       file.mimetype === 'image/jpg' ||
-      file.mimetype === 'application/pdf';
+      file.mimetype === 'application/pdf' ||
+      file.mimetype === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' ||
+      file.mimetype === 'application/vnd.ms-excel';
     if (ok) cb(null, true);
     else cb(new Error('Solo se permiten archivos JPG (image/jpeg) o PDF (application/pdf).'));
   },
