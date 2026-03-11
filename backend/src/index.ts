@@ -211,7 +211,7 @@ app.post('/api/login', async (req, res) => {
 // Admin endpoint to create a new user
 app.post('/api/users', async (req, res) => {
   try {
-    const { username, name, password, adminId } = req.body;
+    const { username, name, password, adminId, role: bodyRole } = req.body;
     
     // Simple admin check
     const reqAdmin = await prisma.user.findUnique({ where: { id: adminId } });
@@ -224,6 +224,9 @@ app.post('/api/users', async (req, res) => {
       return res.status(400).json({ error: 'El usuario ya está registrado' });
     }
 
+    const allowedRoles = ['ADMIN', 'VENTAS', 'DISENO', 'TALLER', 'USER'];
+    const role = allowedRoles.includes(bodyRole) ? bodyRole : 'USER';
+
     const initials = name.split(' ').map((n: string) => n[0]).join('').substring(0, 2).toUpperCase();
     const colors = ['#00c875', '#fdab3d', '#e2445c', '#5559df', '#6e3cbb', '#0073ea'];
     const color = colors[Math.floor(Math.random() * colors.length)];
@@ -235,7 +238,7 @@ app.post('/api/users', async (req, res) => {
         initials,
         color,
         password, // Accept password from admin
-        role: 'USER'
+        role
       }
     });
 
@@ -253,6 +256,60 @@ app.get('/api/users', async (req, res) => {
     const users = await prisma.user.findMany({ orderBy: { name: 'asc' } });
     res.json(users);
   } catch (e) {
+    res.status(500).json({ error: 'Failed' });
+  }
+});
+
+// --- Notifications API ---
+
+app.get('/api/notifications', async (req, res) => {
+  try {
+    const userId = req.query.userId as string;
+    if (!userId) return res.status(400).json({ error: 'userId required' });
+    const notifications = await prisma.notification.findMany({
+      where: { userId },
+      orderBy: { createdAt: 'desc' },
+      include: {
+        item: {
+          include: {
+            columnValues: true,
+            group: { include: { board: true } },
+          },
+        },
+      },
+    });
+    res.json(notifications);
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: 'Failed to fetch notifications' });
+  }
+});
+
+app.patch('/api/notifications/:id/read', async (req, res) => {
+  try {
+    const { id } = req.params;
+    await prisma.notification.update({
+      where: { id },
+      data: { read: true },
+    });
+    res.json({ ok: true });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: 'Failed to mark as read' });
+  }
+});
+
+app.patch('/api/notifications/read-all', async (req, res) => {
+  try {
+    const userId = req.query.userId as string;
+    if (!userId) return res.status(400).json({ error: 'userId required' });
+    await prisma.notification.updateMany({
+      where: { userId },
+      data: { read: true },
+    });
+    res.json({ ok: true });
+  } catch (e) {
+    console.error(e);
     res.status(500).json({ error: 'Failed' });
   }
 });
@@ -307,12 +364,21 @@ io.on('connection', (socket) => {
   socket.on('update_column_value', async (data) => {
     try {
       const { itemId, columnId, value } = data;
+      const column = await prisma.boardColumn.findUnique({ where: { id: columnId } });
       const updated = await prisma.columnValue.upsert({
         where: { itemId_columnId: { itemId, columnId } },
         update: { value },
         create: { itemId, columnId, value }
       });
       io.emit('column_value_updated', updated);
+      // Notificación al usuario asignado cuando se actualiza columna Personas
+      if (column?.type === 'person' && value && typeof value === 'string' && value.trim()) {
+        const assignedUserId = value.trim();
+        const notif = await prisma.notification.create({
+          data: { userId: assignedUserId, itemId, type: 'assigned', read: false },
+        });
+        io.emit('notification_created', notif);
+      }
     } catch (e) {
       console.error('Error updating column value:', e);
     }

@@ -46,8 +46,14 @@ export const TeamPage: React.FC = () => {
                   <p className="text-[14px] font-medium text-monday-text truncate">{u.name}</p>
                   <p className="text-[12px] text-monday-subtext truncate">@{u.username}</p>
                 </div>
-                <span className={`text-[11px] font-medium px-2 py-0.5 rounded ${u.role === 'ADMIN' ? 'bg-purple-100 text-purple-700' : 'bg-monday-hover text-monday-subtext'}`}>
-                  {u.role === 'ADMIN' ? 'Admin' : 'Usuario'}
+                <span className={`text-[11px] font-medium px-2 py-0.5 rounded ${
+                  u.role === 'ADMIN' ? 'bg-purple-100 text-purple-700' :
+                  u.role === 'VENTAS' ? 'bg-green-100 text-green-700' :
+                  u.role === 'DISENO' ? 'bg-purple-100 text-purple-600' :
+                  u.role === 'TALLER' ? 'bg-blue-100 text-blue-700' :
+                  'bg-monday-hover text-monday-subtext'
+                }`}>
+                  {u.role === 'ADMIN' ? 'Admin' : u.role === 'VENTAS' ? 'Ventas' : u.role === 'DISENO' ? 'Diseño' : u.role === 'TALLER' ? 'Taller' : 'Usuario'}
                 </span>
               </li>
             ))}

@@ -33,23 +33,65 @@ function getItemDates(item: Item, dateColumn: BoardColumn | undefined, timelineC
   return null;
 }
 
+function getProductionLabel(item: Item, col: BoardColumn | undefined): string {
+  if (!col) return '';
+  const cv = item.columnValues.find(v => v.columnId === col.id);
+  if (!cv?.value) return '';
+  try {
+    const parsed = JSON.parse(cv.value);
+    if (parsed.start) {
+      const d = new Date(parsed.start);
+      if (!isNaN(d.getTime())) return d.toLocaleDateString('es', { day: 'numeric', month: 'short' });
+    }
+  } catch {
+    const d = new Date(cv.value);
+    if (!isNaN(d.getTime())) return d.toLocaleDateString('es', { day: 'numeric', month: 'short' });
+  }
+  return '';
+}
+
 interface Props {
   board: Board;
   onRowClick: (item: Item) => void;
+  /** Vista taller: usa columnas "Fecha de colocación" y "Tiempo de producción" */
+  isTallerView?: boolean;
 }
 
-export const CalendarView: React.FC<Props> = ({ board, onRowClick }) => {
+const COLOCACION_TITLE = 'Fecha de colocación';
+const PRODUCCION_TITLE = 'Tiempo de producción';
+
+export const CalendarView: React.FC<Props> = ({ board, onRowClick, isTallerView }) => {
   const [viewDate, setViewDate] = useState(() => {
     const d = new Date();
     d.setDate(1);
     return d;
   });
 
-  const dateColumn = board.columns.find(c => c.type === 'date');
-  const timelineColumn = board.columns.find(c => c.type === 'timeline');
+  const dateColumn = useMemo(() => {
+    if (isTallerView) {
+      const byTitle = board.columns.find(c => c.title === COLOCACION_TITLE && (c.type === 'date' || c.type === 'timeline'));
+      if (byTitle) return byTitle;
+    }
+    return board.columns.find(c => c.type === 'date');
+  }, [board.columns, isTallerView]);
+
+  const timelineColumn = useMemo(() => {
+    if (isTallerView) {
+      const colocacion = board.columns.find(c => c.title === COLOCACION_TITLE && c.type === 'timeline');
+      const produccion = board.columns.find(c => c.title === PRODUCCION_TITLE && (c.type === 'date' || c.type === 'timeline'));
+      if (colocacion) return colocacion;
+      if (produccion) return produccion;
+    }
+    return board.columns.find(c => c.type === 'timeline');
+  }, [board.columns, isTallerView]);
+
+  const productionColumn = useMemo(() => {
+    if (!isTallerView) return undefined;
+    return board.columns.find(c => c.title === PRODUCCION_TITLE && (c.type === 'date' || c.type === 'timeline'));
+  }, [board.columns, isTallerView]);
 
   const itemsWithDates = useMemo(() => {
-    const result: { item: Item; start: Date; end?: Date; groupName: string }[] = [];
+    const result: { item: Item; start: Date; end?: Date; groupName: string; productionLabel?: string }[] = [];
     board.groups.forEach(group => {
       group.items.forEach(item => {
         const dates = getItemDates(item, dateColumn, timelineColumn);
@@ -59,12 +101,13 @@ export const CalendarView: React.FC<Props> = ({ board, onRowClick }) => {
             start: dates.start,
             end: dates.end,
             groupName: group.name,
+            productionLabel: isTallerView && productionColumn ? getProductionLabel(item, productionColumn) : undefined,
           });
         }
       });
     });
     return result;
-  }, [board, dateColumn, timelineColumn]);
+  }, [board, dateColumn, timelineColumn, isTallerView, productionColumn]);
 
   const year = viewDate.getFullYear();
   const month = viewDate.getMonth();
@@ -78,15 +121,15 @@ export const CalendarView: React.FC<Props> = ({ board, onRowClick }) => {
   for (let d = 1; d <= daysInMonth; d++) days.push(d);
 
   const itemsByDay = useMemo(() => {
-    const map: Record<string, { item: Item; groupName: string }[]> = {};
-    itemsWithDates.forEach(({ item, start, end, groupName }) => {
+    const map: Record<string, { item: Item; groupName: string; productionLabel?: string }[]> = {};
+    itemsWithDates.forEach(({ item, start, end, groupName, productionLabel }) => {
       const startKey = `${start.getFullYear()}-${start.getMonth()}-${start.getDate()}`;
       const endDate = end || start;
       const cur = new Date(start);
       while (cur <= endDate) {
         const key = `${cur.getFullYear()}-${cur.getMonth()}-${cur.getDate()}`;
         if (!map[key]) map[key] = [];
-        map[key].push({ item, groupName });
+        map[key].push({ item, groupName, productionLabel });
         cur.setDate(cur.getDate() + 1);
       }
     });
@@ -138,13 +181,17 @@ export const CalendarView: React.FC<Props> = ({ board, onRowClick }) => {
                 {day !== null && (
                   <>
                     <span className="text-[12px] text-monday-subtext font-medium">{day}</span>
-                    {dayItems.map(({ item }) => (
+                    {dayItems.map(({ item, productionLabel }) => (
                       <button
                         key={item.id}
                         onClick={() => onRowClick(item)}
-                        className="text-left px-2 py-1 rounded bg-monday-blue/10 hover:bg-monday-blue/20 text-monday-text text-[12px] truncate border-l-2 border-monday-blue"
+                        className="text-left px-2 py-1 rounded bg-monday-blue/10 hover:bg-monday-blue/20 text-monday-text text-[12px] truncate border-l-2 border-monday-blue w-full"
+                        title={productionLabel ? `Producción: ${productionLabel}` : undefined}
                       >
-                        {item.name}
+                        <span className="block truncate">{item.name}</span>
+                        {productionLabel && (
+                          <span className="block text-[10px] text-monday-subtext truncate">Prod: {productionLabel}</span>
+                        )}
                       </button>
                     ))}
                   </>

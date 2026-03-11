@@ -61,7 +61,7 @@ export interface User {
   name: string;
   initials: string;
   color: string;
-  role: 'ADMIN' | 'USER';
+  role: 'ADMIN' | 'VENTAS' | 'DISENO' | 'TALLER' | 'USER';
 }
 
 export interface Update {
@@ -71,4 +71,14 @@ export interface Update {
   authorUser?: User;
   itemId: string;
   createdAt: string;
+}
+
+export interface Notification {
+  id: string;
+  userId: string;
+  itemId: string;
+  type: string;
+  read: boolean;
+  createdAt: string;
+  item?: Item & { group?: { id: string; name: string; board?: { id: string; name: string } } };
 }

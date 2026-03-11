@@ -21,7 +21,7 @@ import { ContactCellRenderer } from './ContactCellRenderer';
 import { ExcelCellRenderer } from './ExcelCellRenderer';
 import { DocsCellRenderer } from './DocsCellRenderer';
 import { TimelineCellRenderer } from './TimelineCellRenderer';
-import { Paperclip } from 'lucide-react';
+import { FileCellRenderer } from './FileCellRenderer';
 
 interface Props {
   group: Group;
@@ -30,6 +30,10 @@ interface Props {
   hiddenColumns?: string[];
   boardId: string;
   onRowClick: (item: Item) => void;
+  /** Si false (ej. vista Taller), no se muestra la columna "+" para añadir columna */
+  showAddColumn?: boolean;
+  /** Si false (ej. vista Taller), no se muestra la fila "Agregar elemento" */
+  showAddRow?: boolean;
 }
 
 const columnHelper = createColumnHelper<Item>();
@@ -251,7 +255,7 @@ const ColumnHeader: React.FC<{ col: BoardColumn }> = ({ col }) => {
 };
 
 // ── Main BoardGroup ────────────────────────────────────────────────────────
-export const BoardGroup: React.FC<Props> = ({ group, allGroups, columns, hiddenColumns, boardId, onRowClick }) => {
+export const BoardGroup: React.FC<Props> = ({ group, allGroups, columns, hiddenColumns, boardId, onRowClick, showAddColumn = true, showAddRow = true }) => {
   const [newTaskName, setNewTaskName] = useState('');
   const [isAddingTask, setIsAddingTask] = useState(false);
   const [isCollapsed, setIsCollapsed] = useState(false);
@@ -310,6 +314,7 @@ export const BoardGroup: React.FC<Props> = ({ group, allGroups, columns, hiddenC
           { id: 'done',     label: 'Hecho',          color: '#00c875' },
           { id: 'working',  label: 'Trabajando en ello', color: '#fdab3d' },
           { id: 'stuck',    label: 'Pendiente',       color: '#e2445c' },
+          { id: 'aprobado', label: 'Aprobado',       color: '#00c875' },
           { id: 'default',  label: '',                color: '#c4c4c4' },
         ]
       });
@@ -369,7 +374,7 @@ export const BoardGroup: React.FC<Props> = ({ group, allGroups, columns, hiddenC
     ];
 
     const visibleColumns = columns.filter(col => !hiddenColumns?.includes(col.id));
-    
+
     const dynamicCols = visibleColumns.map(col => columnHelper.display({
       id: col.id,
       header: () => <ColumnHeader col={col} />,
@@ -402,14 +407,7 @@ export const BoardGroup: React.FC<Props> = ({ group, allGroups, columns, hiddenC
           return <DocsCellRenderer item={item} column={col} value={cv} />;
         }
         if (col.type === 'file') {
-          return (
-            <div className="w-full h-full flex items-center justify-center px-2" onClick={e => e.stopPropagation()}>
-              <span className="text-[12px] text-monday-subtext flex items-center gap-1.5">
-                <Paperclip size={14} />
-                {cv?.value ? 'Archivo adjunto' : 'Sin archivos'}
-              </span>
-            </div>
-          );
+          return <FileCellRenderer item={item} column={col} value={cv} />;
         }
         return (
           <div
@@ -421,25 +419,27 @@ export const BoardGroup: React.FC<Props> = ({ group, allGroups, columns, hiddenC
       size: 140,
     }));
 
-    // "+" add column button
-    const addCol = columnHelper.display({
-      id: '__add_column__',
-      header: () => (
-        <ColumnTypePicker onSelect={handleAddColumn}>
-          <button
-            className="w-full h-full flex items-center justify-center text-monday-subtext hover:text-monday-blue hover:bg-monday-pill transition-colors"
-            title="Agregar columna"
-          >
-            <Plus size={16} />
-          </button>
-        </ColumnTypePicker>
-      ),
-      cell: () => <div />,
-      size: 44,
-    });
+    // "+" add column button (oculto en vista Taller)
+    const addCol = showAddColumn
+      ? columnHelper.display({
+          id: '__add_column__',
+          header: () => (
+            <ColumnTypePicker onSelect={handleAddColumn}>
+              <button
+                className="w-full h-full flex items-center justify-center text-monday-subtext hover:text-monday-blue hover:bg-monday-pill transition-colors"
+                title="Agregar columna"
+              >
+                <Plus size={16} />
+              </button>
+            </ColumnTypePicker>
+          ),
+          cell: () => <div />,
+          size: 44,
+        })
+      : null;
 
-    return [...baseCols, ...dynamicCols, addCol];
-  }, [columns, onRowClick, boardId, group.id, group.items]);
+    return addCol ? [...baseCols, ...dynamicCols, addCol] : [...baseCols, ...dynamicCols];
+  }, [columns, onRowClick, boardId, group.id, group.items, showAddColumn]);
 
   const table = useReactTable({
     data: group.items,
@@ -584,7 +584,8 @@ export const BoardGroup: React.FC<Props> = ({ group, allGroups, columns, hiddenC
                   <DraggableRow key={row.id} row={row} groupColor={group.color} />
                 ))}
 
-                {/* ── Add task row ───────────────────────────────── */}
+                {/* ── Add task row (oculta en vista Taller) ───────────────────────────────── */}
+                {showAddRow && (
                 <tr className="h-[38px] hover:bg-monday-hover/50 bg-white" onClick={e => e.stopPropagation()}>
                   <td colSpan={2} className="border-b border-r border-monday-border align-middle" />
                   <td
@@ -614,6 +615,7 @@ export const BoardGroup: React.FC<Props> = ({ group, allGroups, columns, hiddenC
                   </td>
                   <td colSpan={columns.length + 1} className="border-b border-monday-border bg-monday-hover/20" />
                 </tr>
+                )}
               </tbody>
             </SortableContext>
           </table>

@@ -21,13 +21,14 @@ import {
 } from '@dnd-kit/sortable';
 import { KanbanView } from './KanbanView';
 import { CalendarView } from './CalendarView';
+import { FacturacionBoardView } from './FacturacionBoardView';
 import { useUser } from '../../store/UserContext';
 import * as Popover from '@radix-ui/react-popover';
 
 interface Props {
   boardId: string;
   onRowClick: (item: Item) => void;
-  viewMode: 'table' | 'kanban' | 'calendar';
+  viewMode: 'table' | 'kanban' | 'calendar' | 'facturacion';
 }
 
 const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode }) => {
@@ -242,12 +243,47 @@ const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode }) => {
     socket.emit('move_item', { itemId: movedItemId, newGroupId, newPosition: finalPosition });
   };
 
+  const isTaller = currentUser?.role === 'TALLER';
+  const statusColumnIds = useMemo(
+    () => (board?.columns ?? []).filter(c => c.type === 'status').map(c => c.id),
+    [board?.columns]
+  );
+  const isItemApproved = useMemo(() => {
+    return (item: Item) =>
+      statusColumnIds.some(cid => {
+        const cv = item.columnValues.find(v => v.columnId === cid);
+        if (!cv?.value) return false;
+        try {
+          const p = JSON.parse(cv.value);
+          return p.optionId === 'aprobado';
+        } catch {
+          return false;
+        }
+      });
+  }, [statusColumnIds]);
+
+  // Columnas visibles: para TALLER solo docs, file, priority, date, timeline (+ nombre implícito)
+  const visibleColumns = useMemo(() => {
+    if (!board) return [];
+    if (isTaller)
+      return board.columns.filter(c =>
+        ['docs', 'file', 'priority', 'date', 'timeline'].includes(c.type)
+      );
+    return board.columns.filter(c => !hiddenColumns.includes(c.id));
+  }, [board, hiddenColumns, isTaller]);
+
   // ─── Client-side search + sort filter ─────────────────────────────────────
   const filteredGroups = useMemo(() => {
     if (!board) return [];
-    
-    // 1. Filter by search query
+
     let result = board.groups;
+    if (isTaller) {
+      result = result
+        .map(g => ({ ...g, items: g.items.filter(isItemApproved) }))
+        .filter(g => g.items.length > 0);
+    }
+
+    // 1. Filter by search query
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase();
       result = result
@@ -263,14 +299,14 @@ const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode }) => {
       result = result.map(g => {
         const sortedItems = [...g.items].sort((a, b) => {
           if (sortConfig.columnId === 'name') {
-            return sortConfig.direction === 'asc' 
-              ? a.name.localeCompare(b.name) 
+            return sortConfig.direction === 'asc'
+              ? a.name.localeCompare(b.name)
               : b.name.localeCompare(a.name);
           }
-          
+
           const aVal = a.columnValues.find(v => v.columnId === sortConfig.columnId)?.value || '';
           const bVal = b.columnValues.find(v => v.columnId === sortConfig.columnId)?.value || '';
-          
+
           if (aVal < bVal) return sortConfig.direction === 'asc' ? -1 : 1;
           if (aVal > bVal) return sortConfig.direction === 'asc' ? 1 : -1;
           return 0;
@@ -280,13 +316,22 @@ const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode }) => {
     }
 
     return result;
-  }, [board, searchQuery, sortConfig]);
+  }, [board, searchQuery, sortConfig, isTaller, isItemApproved]);
 
   const toggleHideColumn = (colId: string) => {
     setHiddenColumns(prev => 
       prev.includes(colId) ? prev.filter(id => id !== colId) : [...prev, colId]
     );
   };
+
+  // Board con grupos y columnas ya filtrados (búsqueda, orden, vista Taller)
+  const boardForView = useMemo(
+    () =>
+      board
+        ? { ...board, groups: filteredGroups, columns: visibleColumns }
+        : null,
+    [board, filteredGroups, visibleColumns]
+  );
 
   if (!board) return (
     <div className="flex items-center justify-center h-full text-monday-subtext text-sm gap-2">
@@ -297,9 +342,11 @@ const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode }) => {
 
   return (
     <div className="h-full flex flex-col">
-      {/* ── Action Toolbar ─────────────────────────────────────── */}
+      {/* ── Action Toolbar (oculta en vista Facturación) ─────────────────────────────────────── */}
+      {viewMode !== 'facturacion' && (
       <div className="px-6 py-2.5 border-b border-monday-border flex items-center gap-2 shrink-0 bg-white">
-        {/* Primary CTA */}
+        {/* Primary CTA (oculto para rol Taller) */}
+        {!isTaller && (
         <div className="flex items-center bg-monday-blue rounded-monday shadow-monday-sm mr-2">
           <button
             onClick={handleAddItemFromToolbar}
@@ -312,6 +359,7 @@ const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode }) => {
             <ChevronDown size={14} />
           </button>
         </div>
+        )}
 
         <div className="w-px h-5 bg-monday-border" />
 
@@ -444,13 +492,16 @@ const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode }) => {
           </Popover.Portal>
         </Popover.Root>
       </div>
+      )}
 
       {/* ── Board Content ───────────────────────────────────────── */}
       <div className="flex-1 overflow-auto custom-scrollbar px-6 py-5">
-        {viewMode === 'kanban' ? (
-          <KanbanView board={board} onRowClick={onRowClick} />
-        ) : viewMode === 'calendar' ? (
-          <CalendarView board={board} onRowClick={onRowClick} />
+        {viewMode === 'kanban' && boardForView ? (
+          <KanbanView board={boardForView} onRowClick={onRowClick} />
+        ) : viewMode === 'calendar' && boardForView ? (
+          <CalendarView board={boardForView} onRowClick={onRowClick} isTallerView={isTaller} />
+        ) : viewMode === 'facturacion' && board ? (
+          <FacturacionBoardView board={board} onRowClick={onRowClick} />
         ) : (
           <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
             <div className="flex flex-col gap-8">
@@ -460,15 +511,17 @@ const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode }) => {
                     key={group.id}
                     group={group}
                     allGroups={board.groups}
-                    columns={board.columns}
-                    hiddenColumns={hiddenColumns}
+                    columns={visibleColumns}
+                    hiddenColumns={isTaller ? [] : hiddenColumns}
                     boardId={board.id}
                     onRowClick={onRowClick}
+                    showAddColumn={!isTaller}
+                    showAddRow={!isTaller}
                   />
                 ))}
               </SortableContext>
 
-              {searchQuery.trim() === '' && (
+              {searchQuery.trim() === '' && !isTaller && (
                 <button
                   onClick={handleAddGroup}
                   className="toolbar-btn border border-dashed border-monday-border hover:border-monday-blue w-max px-4 py-2 rounded-monday text-[13px] mt-2 group"

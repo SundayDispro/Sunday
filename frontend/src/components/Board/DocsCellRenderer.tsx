@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Item, BoardColumn, ColumnValue } from '../../types';
 import { socket } from '../../store/socket';
+import { useUser } from '../../store/UserContext';
 import * as Popover from '@radix-ui/react-popover';
 import * as Dialog from '@radix-ui/react-dialog';
 import { FileText, ChevronDown, ExternalLink, Upload, Loader2 } from 'lucide-react';
@@ -35,6 +36,9 @@ interface Props {
 }
 
 export const DocsCellRenderer: React.FC<Props> = ({ item, column, value }) => {
+  const { currentUser } = useUser();
+  const isTaller = currentUser?.role === 'TALLER';
+
   const [open, setOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
   const parsed = parseDocsValue(value?.value);
@@ -48,6 +52,7 @@ export const DocsCellRenderer: React.FC<Props> = ({ item, column, value }) => {
   const levantamientoFileRef = useRef<HTMLInputElement>(null);
 
   const hasAny = !!(parsed.cotizacion?.trim() || parsed.hojaTrabajo?.trim() || parsed.levantamiento?.trim());
+  const hasHoja = !!parsed.hojaTrabajo?.trim();
 
   useEffect(() => {
     if (editOpen) {
@@ -130,7 +135,11 @@ export const DocsCellRenderer: React.FC<Props> = ({ item, column, value }) => {
           >
             <FileText size={16} className="text-[#4285f4] shrink-0" />
             <span className="text-[13px] text-monday-text truncate flex-1">
-              {hasAny ? 'Cotización / Hoja de trabajo / Levantamiento' : 'Sin documentos'}
+              {isTaller
+                ? (hasHoja ? 'Hoja de trabajo' : 'Sin hoja de trabajo')
+                : hasAny
+                  ? 'Cotización / Hoja de trabajo / Levantamiento'
+                  : 'Sin documentos'}
             </span>
             <ChevronDown size={14} className="text-monday-subtext shrink-0" />
           </button>
@@ -143,9 +152,9 @@ export const DocsCellRenderer: React.FC<Props> = ({ item, column, value }) => {
             onClick={e => e.stopPropagation()}
           >
             <div className="text-[11px] font-semibold text-monday-subtext mb-2 px-1 uppercase tracking-wider">
-              Documentos
+              {isTaller ? 'Hoja de trabajo' : 'Documentos'}
             </div>
-            {parsed.cotizacion?.trim() && (
+            {!isTaller && parsed.cotizacion?.trim() && (
               <button
                 type="button"
                 onClick={e => {
@@ -175,7 +184,7 @@ export const DocsCellRenderer: React.FC<Props> = ({ item, column, value }) => {
                 <ExternalLink size={12} className="ml-auto text-monday-subtext" />
               </button>
             )}
-            {parsed.levantamiento?.trim() && (
+            {!isTaller && parsed.levantamiento?.trim() && (
               <button
                 type="button"
                 onClick={e => {
@@ -190,16 +199,21 @@ export const DocsCellRenderer: React.FC<Props> = ({ item, column, value }) => {
                 <ExternalLink size={12} className="ml-auto text-monday-subtext" />
               </button>
             )}
-            {!parsed.cotizacion?.trim() && !parsed.hojaTrabajo?.trim() && !parsed.levantamiento?.trim() && (
+            {!parsed.hojaTrabajo?.trim() && !isTaller && !parsed.cotizacion?.trim() && !parsed.levantamiento?.trim() && (
               <p className="text-[12px] text-monday-subtext px-2 py-1">Sin documentos. Agrega desde el botón de abajo.</p>
             )}
-            <button
-              type="button"
-              onClick={openEditDialog}
-              className="w-full mt-2 px-2 py-1.5 rounded-lg hover:bg-monday-hover text-[12px] text-monday-blue font-medium"
-            >
-              {hasAny ? 'Editar documentos' : 'Agregar documentos'}
-            </button>
+            {isTaller && !parsed.hojaTrabajo?.trim() && (
+              <p className="text-[12px] text-monday-subtext px-2 py-1">Sin hoja de trabajo.</p>
+            )}
+            {!isTaller && (
+              <button
+                type="button"
+                onClick={openEditDialog}
+                className="w-full mt-2 px-2 py-1.5 rounded-lg hover:bg-monday-hover text-[12px] text-monday-blue font-medium"
+              >
+                {hasAny ? 'Editar documentos' : 'Agregar documentos'}
+              </button>
+            )}
           </Popover.Content>
         </Popover.Portal>
       </Popover.Root>

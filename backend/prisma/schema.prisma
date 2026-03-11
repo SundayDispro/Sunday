@@ -8,14 +8,15 @@ datasource db {
 }
 
 model User {
-  id        String   @id @default(uuid())
-  username  String   @unique
-  name      String
-  initials  String
-  color     String
-  password  String
-  role      String   @default("USER") // 'ADMIN' or 'USER'
-  createdAt DateTime @default(now())
+  id             String         @id @default(uuid())
+  username       String         @unique
+  name           String
+  initials       String
+  color          String
+  password       String
+  role           String         @default("USER") // 'ADMIN' | 'VENTAS' | 'DISENO' | 'TALLER' | 'USER'
+  createdAt      DateTime       @default(now())
+  notifications Notification[]
 }
 
 model Workspace {
@@ -50,15 +51,16 @@ model Group {
 }
 
 model Item {
-  id           String        @id @default(uuid())
+  id           String         @id @default(uuid())
   name         String
   position     Float
   groupId      String
-  group        Group         @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  group        Group          @relation(fields: [groupId], references: [id], onDelete: Cascade)
   columnValues ColumnValue[]
   updates      Update[]
-  createdAt    DateTime      @default(now())
-  updatedAt    DateTime      @updatedAt
+  notifications Notification[]
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
 }
 
 model BoardColumn {
@@ -89,5 +91,16 @@ model Update {
   authorId  String // Store userId instead of string author name
   itemId    String
   item      Item     @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+}
+
+model Notification {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  itemId    String
+  item      Item     @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  type      String   // e.g. 'assigned', 'item_created'
+  read      Boolean  @default(false)
   createdAt DateTime @default(now())
 }

@@ -14,6 +14,7 @@ export const AdminUsersPanel: React.FC<Props> = ({ open, onOpenChange }) => {
   const [username, setUsername] = useState('');
   const [name, setName] = useState('');
   const [password, setPassword] = useState('');
+  const [role, setRole] = useState<'ADMIN' | 'VENTAS' | 'DISENO' | 'TALLER'>('VENTAS');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState(false);
@@ -36,7 +37,7 @@ export const AdminUsersPanel: React.FC<Props> = ({ open, onOpenChange }) => {
       const res = await fetch('http://localhost:3001/api/users', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username, name, password, adminId: currentUser.id })
+        body: JSON.stringify({ username, name, password, adminId: currentUser.id, role })
       });
 
       if (!res.ok) {
@@ -103,7 +104,7 @@ export const AdminUsersPanel: React.FC<Props> = ({ open, onOpenChange }) => {
                   />
                 </div>
 
-                <div className="flex flex-col gap-1 mb-2">
+                <div className="flex flex-col gap-1">
                   <label className="text-[12px] font-semibold text-monday-text ml-1">Contraseña</label>
                   <input
                     type="password"
@@ -112,6 +113,20 @@ export const AdminUsersPanel: React.FC<Props> = ({ open, onOpenChange }) => {
                     placeholder="••••••••"
                     className="w-full h-8 px-2 py-1 text-[13px] border border-monday-border rounded bg-monday-bg outline-none focus:border-monday-blue transition-colors"
                   />
+                </div>
+
+                <div className="flex flex-col gap-1 mb-2">
+                  <label className="text-[12px] font-semibold text-monday-text ml-1">Rol</label>
+                  <select
+                    value={role}
+                    onChange={e => setRole(e.target.value as 'ADMIN' | 'VENTAS' | 'DISENO' | 'TALLER')}
+                    className="w-full h-8 px-2 py-1 text-[13px] border border-monday-border rounded bg-monday-bg outline-none focus:border-monday-blue transition-colors"
+                  >
+                    <option value="ADMIN">Admin</option>
+                    <option value="VENTAS">Ventas</option>
+                    <option value="DISENO">Diseño</option>
+                    <option value="TALLER">Taller</option>
+                  </select>
                 </div>
 
                 {error && <div className="text-[12px] text-monday-red font-medium">{error}</div>}
@@ -145,6 +160,18 @@ export const AdminUsersPanel: React.FC<Props> = ({ open, onOpenChange }) => {
                       <div className="flex items-center gap-1">
                         {user.role === 'ADMIN' && (
                           <span className="text-[9px] bg-monday-orange text-white px-1 py-0.5 rounded-sm font-bold leading-none mt-0.5">ADMIN</span>
+                        )}
+                        {user.role === 'VENTAS' && (
+                          <span className="text-[9px] bg-green-600 text-white px-1 py-0.5 rounded-sm font-bold leading-none mt-0.5">VENTAS</span>
+                        )}
+                        {user.role === 'DISENO' && (
+                          <span className="text-[9px] bg-purple-600 text-white px-1 py-0.5 rounded-sm font-bold leading-none mt-0.5">DISEÑO</span>
+                        )}
+                        {user.role === 'TALLER' && (
+                          <span className="text-[9px] bg-monday-blue text-white px-1 py-0.5 rounded-sm font-bold leading-none mt-0.5">TALLER</span>
+                        )}
+                        {user.role === 'USER' && (
+                          <span className="text-[9px] bg-monday-hover text-monday-subtext px-1 py-0.5 rounded-sm font-bold leading-none mt-0.5">USER</span>
                         )}
                         <span className="text-[11px] text-monday-subtext truncate leading-tight">{user.username}</span>
                       </div>

@@ -4,7 +4,7 @@ import BoardContainer from './components/Board/BoardContainer';
 import { ItemDetailsPanel } from './components/Board/ItemDetailsPanel';
 import {
   Home, Bell, Search, Settings, ChevronDown, ChevronRight,
-  LayoutGrid, Users, BookOpen, BarChart2, Inbox, Star, Plus,
+  LayoutGrid, Users, BookOpen, BarChart2, Inbox, Star, Plus, Receipt, Calendar,
 } from 'lucide-react';
 import { Item, Board } from './types';
 import { useUser } from './store/UserContext';
@@ -16,23 +16,26 @@ import { SearchPage } from './components/pages/SearchPage';
 import { DocsPage } from './components/pages/DocsPage';
 import { DashboardPage } from './components/pages/DashboardPage';
 import { TeamPage } from './components/pages/TeamPage';
+import { FacturacionPage } from './components/pages/FacturacionPage';
 import * as Popover from '@radix-ui/react-popover';
-import { Calendar } from 'lucide-react';
-
-type ViewMode = 'table' | 'kanban' | 'calendar';
+type ViewMode = 'table' | 'kanban' | 'calendar' | 'facturacion';
 
 function AddViewDropdown({
   enabledViews,
   onAddView,
   open,
   onOpenChange,
+  canAddFacturacion,
 }: {
   enabledViews: ViewMode[];
   onAddView: (view: ViewMode) => void;
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  canAddFacturacion: boolean;
 }) {
   const canAddCalendar = !enabledViews.includes('calendar');
+  const canAddFact = canAddFacturacion && !enabledViews.includes('facturacion');
+  const hasAny = canAddCalendar || canAddFact;
   return (
     <Popover.Root open={open} onOpenChange={onOpenChange}>
       <Popover.Trigger asChild>
@@ -52,6 +55,15 @@ function AddViewDropdown({
           <div className="text-[12px] font-semibold text-monday-subtext mb-2 px-2 uppercase tracking-tight">
             Añadir vista
           </div>
+          {canAddFact && (
+            <button
+              onClick={() => onAddView('facturacion')}
+              className="w-full flex items-center gap-2.5 px-3 py-2 rounded-monday hover:bg-monday-hover transition-colors text-left text-[13px] text-monday-text"
+            >
+              <Receipt size={16} className="text-monday-blue shrink-0" />
+              Facturación
+            </button>
+          )}
           {canAddCalendar && (
             <button
               onClick={() => onAddView('calendar')}
@@ -61,7 +73,7 @@ function AddViewDropdown({
               Calendario
             </button>
           )}
-          {!canAddCalendar && (
+          {!hasAny && (
             <p className="text-[12px] text-monday-subtext px-2 py-2">Todas las vistas están activas.</p>
           )}
         </Popover.Content>
@@ -73,13 +85,20 @@ function AddViewDropdown({
 function App() {
   const { currentUser, logout } = useUser();
   const [selectedItem, setSelectedItem] = useState<Item | null>(null);
+  const canSeeFacturacionView = currentUser?.role === 'ADMIN' || currentUser?.role === 'VENTAS';
   const [currentView, setCurrentView] = useState<ViewMode>('table');
   const [enabledViews, setEnabledViews] = useState<ViewMode[]>(['table', 'kanban']);
+
+  useEffect(() => {
+    if (canSeeFacturacionView && !enabledViews.includes('facturacion')) {
+      setEnabledViews(prev => [...prev, 'facturacion']);
+    }
+  }, [canSeeFacturacionView, enabledViews]);
   const [showAddViewPopover, setShowAddViewPopover] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   
   // Navigation state
-  const [activePage, setActivePage] = useState<'home' | 'inbox' | 'notifications' | 'dashboard' | 'board' | 'search' | 'docs' | 'team'>('board');
+  const [activePage, setActivePage] = useState<'home' | 'inbox' | 'notifications' | 'dashboard' | 'board' | 'search' | 'docs' | 'team' | 'facturacion'>('board');
   const [boards, setBoards] = useState<Board[]>([]);
   const [activeBoardId, setActiveBoardId] = useState<string | null>(null);
   const [boardSearch, setBoardSearch] = useState('');
@@ -91,6 +110,34 @@ function App() {
   const [creatingBoard, setCreatingBoard] = useState(false);
   const [createBoardError, setCreateBoardError] = useState<string | null>(null);
   const newBoardNameInputRef = useRef<HTMLInputElement>(null);
+  const [unreadNotifCount, setUnreadNotifCount] = useState(0);
+
+  const fetchUnreadNotifications = React.useCallback(async () => {
+    if (!currentUser?.id) return;
+    try {
+      const res = await fetch(`http://localhost:3001/api/notifications?userId=${currentUser.id}`);
+      if (res.ok) {
+        const data = await res.json();
+        setUnreadNotifCount(data.filter((n: { read: boolean }) => !n.read).length);
+      }
+    } catch {
+      // ignore
+    }
+  }, [currentUser?.id]);
+
+  useEffect(() => {
+    fetchUnreadNotifications();
+  }, [fetchUnreadNotifications]);
+
+  useEffect(() => {
+    if (!currentUser?.id) return;
+    socket.on('notification_created', (notif: { userId: string }) => {
+      if (notif.userId === currentUser.id) fetchUnreadNotifications();
+    });
+    return () => {
+      socket.off('notification_created');
+    };
+  }, [currentUser?.id, fetchUnreadNotifications]);
 
   useEffect(() => {
     if (currentUser) {
@@ -127,6 +174,7 @@ function App() {
 
   const navIcons = [
     { id: 'board', icon: <Home size={20} />, label: 'Inicio' },
+    { id: 'facturacion', icon: <Receipt size={20} />, label: 'Facturación' },
     { id: 'inbox', icon: <Inbox size={20} />, label: 'Bandeja' },
     { id: 'notifications', icon: <Bell size={20} />, label: 'Notificaciones' },
     { id: 'search', icon: <Search size={20} />, label: 'Buscar' },
@@ -200,15 +248,21 @@ function App() {
                 setShowAdminPanel(true);
                 return;
               }
-              const pageIds = ['board', 'inbox', 'dashboard', 'search', 'docs', 'team', 'notifications'];
+              const pageIds = ['board', 'inbox', 'dashboard', 'search', 'docs', 'team', 'notifications', 'facturacion'];
               if (pageIds.includes(id)) {
                 setActivePage(id as typeof activePage);
                 setSidebarOpen(true);
+                if (id === 'notifications') fetchUnreadNotifications();
               }
             }}
-            className={`w-9 h-9 flex items-center justify-center rounded-lg transition-all duration-150 ${activePage === id ? 'bg-monday-sidebarHover text-white' : 'text-white/50 hover:text-white hover:bg-monday-sidebarHover'}`}
+            className={`relative w-9 h-9 flex items-center justify-center rounded-lg transition-all duration-150 ${activePage === id ? 'bg-monday-sidebarHover text-white' : 'text-white/50 hover:text-white hover:bg-monday-sidebarHover'}`}
           >
             {icon}
+            {id === 'notifications' && unreadNotifCount > 0 && (
+              <span className="absolute -top-0.5 -right-0.5 min-w-[16px] h-4 px-1 flex items-center justify-center bg-red-500 text-white text-[10px] font-bold rounded-full">
+                {unreadNotifCount > 99 ? '99+' : unreadNotifCount}
+              </span>
+            )}
           </button>
         ))}
 
@@ -386,6 +440,11 @@ function App() {
               <p className="text-white/40 text-[11px] font-semibold px-2 mb-2 uppercase tracking-wider">Notificaciones</p>
               <p className="text-white/60 text-[12px] px-2">Actualizaciones recientes.</p>
             </div>
+          ) : activePage === 'facturacion' ? (
+            <div className="p-3">
+              <p className="text-white/40 text-[11px] font-semibold px-2 mb-2 uppercase tracking-wider">Facturación</p>
+              <p className="text-white/60 text-[12px] px-2">Proyectos aprobados.</p>
+            </div>
           ) : (
             <div className="p-4 text-center text-white/50 text-[13px]">
               Menú de {activePage}
@@ -466,6 +525,7 @@ function App() {
                   {[
                     { id: 'table' as const, label: '⊞ Tabla principal' },
                     { id: 'kanban' as const, label: '▦ Kanban' },
+                    ...(enabledViews.includes('facturacion') ? [{ id: 'facturacion' as const, label: '🧾 Facturación' }] : []),
                     ...(enabledViews.includes('calendar') ? [{ id: 'calendar' as const, label: '📅 Calendario' }] : []),
                   ].map(tab => (
                     <button
@@ -487,6 +547,7 @@ function App() {
                     }}
                     open={showAddViewPopover}
                     onOpenChange={setShowAddViewPopover}
+                    canAddFacturacion={canSeeFacturacionView}
                   />
                 </div>
               </header>
@@ -498,7 +559,14 @@ function App() {
           ) : activePage === 'inbox' ? (
             <InboxPage onItemClick={setSelectedItem} />
           ) : activePage === 'notifications' ? (
-            <NotificationsPage />
+            <NotificationsPage
+              onOpenItem={(item, boardId) => {
+                setActivePage('board');
+                setActiveBoardId(boardId);
+                setSelectedItem(item);
+              }}
+              onNotificationsChange={fetchUnreadNotifications}
+            />
           ) : activePage === 'search' ? (
             <SearchPage onItemClick={setSelectedItem} />
           ) : activePage === 'docs' ? (
@@ -507,6 +575,15 @@ function App() {
             <DashboardPage />
           ) : activePage === 'team' ? (
             <TeamPage />
+          ) : activePage === 'facturacion' ? (
+            <FacturacionPage
+              boards={boards}
+              onOpenItem={(item, boardId) => {
+                setActivePage('board');
+                setActiveBoardId(boardId);
+                setSelectedItem(item);
+              }}
+            />
           ) : (
             <div className="flex-1 flex flex-col items-center justify-center text-monday-subtext">
               <BarChart2 size={48} className="mb-4 opacity-50" />
