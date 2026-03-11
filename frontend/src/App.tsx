@@ -6,7 +6,7 @@ import {
   Home, Bell, Search, Settings, ChevronDown, ChevronRight,
   LayoutGrid, Users, BookOpen, BarChart2, Inbox, Star, Plus, Receipt, Calendar,
 } from 'lucide-react';
-import { Item, Board } from './types';
+import { Item, Board, Workspace } from './types';
 import { useUser } from './store/UserContext';
 import { Login } from './components/Login';
 import { AdminUsersPanel } from './components/AdminUsersPanel';
@@ -88,12 +88,6 @@ function App() {
   const canSeeFacturacionView = currentUser?.role === 'ADMIN' || currentUser?.role === 'VENTAS';
   const [currentView, setCurrentView] = useState<ViewMode>('table');
   const [enabledViews, setEnabledViews] = useState<ViewMode[]>(['table', 'kanban']);
-
-  useEffect(() => {
-    if (canSeeFacturacionView && !enabledViews.includes('facturacion')) {
-      setEnabledViews(prev => [...prev, 'facturacion']);
-    }
-  }, [canSeeFacturacionView, enabledViews]);
   const [showAddViewPopover, setShowAddViewPopover] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   
@@ -102,6 +96,13 @@ function App() {
   const [boards, setBoards] = useState<Board[]>([]);
   const [activeBoardId, setActiveBoardId] = useState<string | null>(null);
   const [boardSearch, setBoardSearch] = useState('');
+  const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
+  const [activeWorkspaceId, setActiveWorkspaceId] = useState<string | null>(null);
+  const [workspaceSelectorOpen, setWorkspaceSelectorOpen] = useState(false);
+  const [newWorkspaceName, setNewWorkspaceName] = useState('');
+  const [creatingWorkspace, setCreatingWorkspace] = useState(false);
+  const [workspaceError, setWorkspaceError] = useState<string | null>(null);
+  const newWorkspaceInputRef = useRef<HTMLInputElement>(null);
   const [showAdminPanel, setShowAdminPanel] = useState(false);
   const [editingBoardName, setEditingBoardName] = useState(false);
   const [boardNameDraft, setBoardNameDraft] = useState('');
@@ -139,42 +140,67 @@ function App() {
     };
   }, [currentUser?.id, fetchUnreadNotifications]);
 
+  // Load workspaces once user is available
   useEffect(() => {
-    if (currentUser) {
-      fetch('http://localhost:3001/api/boards')
-        .then(r => r.json())
-        .then((data: Board[]) => {
-          if (!Array.isArray(data)) return;
-          setBoards(data);
-          setActiveBoardId(prev => {
-            if (data.length === 0) return null;
-            const exists = data.some(b => b.id === prev);
-            return exists ? prev : data[0].id;
-          });
-        })
-        .catch(err => console.error('Error fetching boards:', err));
+    if (!currentUser) return;
+    fetch('http://localhost:3001/api/workspaces')
+      .then(r => r.json())
+      .then((data: Workspace[]) => {
+        if (!Array.isArray(data)) return;
+        setWorkspaces(data);
+        setActiveWorkspaceId(prev => {
+          if (prev && data.some(w => w.id === prev)) return prev;
+          return data[0]?.id ?? null;
+        });
+      })
+      .catch(err => console.error('Error fetching workspaces:', err));
+  }, [currentUser]);
 
-      socket.on('board_renamed', (updated: Board) => {
-        setBoards(prev => prev.map(b => b.id === updated.id ? { ...b, name: updated.name } : b));
-      });
-      socket.on('board_added', (newBoard: Board) => {
+  // Load boards for active workspace
+  useEffect(() => {
+    if (!currentUser) return;
+    const url = activeWorkspaceId
+      ? `http://localhost:3001/api/boards?workspaceId=${encodeURIComponent(activeWorkspaceId)}`
+      : 'http://localhost:3001/api/boards';
+
+    fetch(url)
+      .then(r => r.json())
+      .then((data: Board[]) => {
+        if (!Array.isArray(data)) return;
+        setBoards(data);
+        setActiveBoardId(prev => {
+          if (data.length === 0) return null;
+          const exists = data.some(b => b.id === prev);
+          return exists ? prev : data[0].id;
+        });
+      })
+      .catch(err => console.error('Error fetching boards:', err));
+
+    socket.on('board_renamed', (updated: Board) => {
+      setBoards(prev => prev.map(b => b.id === updated.id ? { ...b, name: updated.name } : b));
+    });
+    socket.on('board_added', (newBoard: Board) => {
+      // Sólo añadimos automáticamente si pertenece al workspace activo (o si no hay ninguno activo)
+      if (!activeWorkspaceId || newBoard.workspaceId === activeWorkspaceId) {
         setBoards(prev => [...prev, newBoard]);
         setActiveBoardId(newBoard.id);
-      });
-      return () => {
-        socket.off('board_renamed');
-        socket.off('board_added');
-      };
-    }
-  }, [currentUser]);
+      }
+    });
+    return () => {
+      socket.off('board_renamed');
+      socket.off('board_added');
+    };
+  }, [currentUser, activeWorkspaceId]);
 
   if (!currentUser) {
     return <Login />;
   }
 
+  const activeWorkspaceName =
+    workspaces.find(w => w.id === activeWorkspaceId)?.name || 'Main Workspace';
+
   const navIcons = [
     { id: 'board', icon: <Home size={20} />, label: 'Inicio' },
-    { id: 'facturacion', icon: <Receipt size={20} />, label: 'Facturación' },
     { id: 'inbox', icon: <Inbox size={20} />, label: 'Bandeja' },
     { id: 'notifications', icon: <Bell size={20} />, label: 'Notificaciones' },
     { id: 'search', icon: <Search size={20} />, label: 'Buscar' },
@@ -193,7 +219,7 @@ function App() {
       const res = await fetch('http://localhost:3001/api/boards', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name }),
+        body: JSON.stringify({ name, workspaceId: activeWorkspaceId }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
@@ -248,7 +274,7 @@ function App() {
                 setShowAdminPanel(true);
                 return;
               }
-              const pageIds = ['board', 'inbox', 'dashboard', 'search', 'docs', 'team', 'notifications', 'facturacion'];
+              const pageIds = ['board', 'inbox', 'dashboard', 'search', 'docs', 'team', 'notifications'];
               if (pageIds.includes(id)) {
                 setActivePage(id as typeof activePage);
                 setSidebarOpen(true);
@@ -286,11 +312,103 @@ function App() {
         className={`${sidebarOpen ? 'w-[232px] min-w-[232px]' : 'w-0 min-w-0'} bg-monday-sidebar flex flex-col overflow-hidden transition-all duration-200 z-20 border-r border-white/10`}
       >
         <div className="px-3 py-3 border-b border-white/10">
-          <button className="w-full flex items-center gap-2 text-white/90 hover:bg-monday-sidebarHover rounded-lg px-2 py-1.5 transition-colors">
-            <div className="w-6 h-6 rounded bg-monday-purple/80 flex items-center justify-center text-white text-xs font-bold">E</div>
-            <span className="text-[13px] font-semibold flex-1 text-left">Mi Equipo</span>
-            <ChevronDown size={15} className="text-white/50" />
-          </button>
+          <Popover.Root open={workspaceSelectorOpen} onOpenChange={setWorkspaceSelectorOpen}>
+            <Popover.Trigger asChild>
+              <button className="w-full flex items-center gap-2 text-white/90 hover:bg-monday-sidebarHover rounded-lg px-2 py-1.5 transition-colors">
+                <div className="w-6 h-6 rounded bg-monday-purple/80 flex items-center justify-center text-white text-xs font-bold">E</div>
+                <span className="text-[13px] font-semibold flex-1 text-left truncate">
+                  {activeWorkspaceName}
+                </span>
+                <ChevronDown size={15} className="text-white/50" />
+              </button>
+            </Popover.Trigger>
+            <Popover.Portal>
+              <Popover.Content
+                className="z-50 w-64 rounded-xl shadow-monday-lg border border-white/10 bg-monday-sidebar p-2"
+                sideOffset={8}
+                align="start"
+                onClick={e => e.stopPropagation()}
+              >
+                <p className="text-[11px] font-semibold text-white/40 px-1 mb-1 uppercase tracking-wider">
+                  Workspaces
+                </p>
+                <div className="flex flex-col gap-0.5 max-h-64 overflow-y-auto custom-scrollbar">
+                  {workspaces.map(ws => (
+                    <button
+                      key={ws.id}
+                      className={`w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-[13px] transition-colors ${
+                        ws.id === activeWorkspaceId
+                          ? 'bg-white/10 text-white'
+                          : 'text-white/70 hover:bg-white/5 hover:text-white'
+                      }`}
+                      onClick={() => {
+                        setActiveWorkspaceId(ws.id);
+                        setWorkspaceSelectorOpen(false);
+                      }}
+                    >
+                      <div className="w-6 h-6 rounded bg-monday-purple/80 flex items-center justify-center text-white text-xs font-bold">
+                        {ws.name.charAt(0).toUpperCase()}
+                      </div>
+                      <span className="flex-1 text-left truncate">{ws.name}</span>
+                    </button>
+                  ))}
+                  {workspaces.length === 0 && (
+                    <p className="text-[12px] text-white/50 px-2 py-1.5">
+                      No hay workspaces disponibles.
+                    </p>
+                  )}
+                </div>
+                <div className="mt-2 pt-2 border-t border-white/10">
+                  <input
+                    ref={newWorkspaceInputRef}
+                    type="text"
+                    value={newWorkspaceName}
+                    onChange={e => { setNewWorkspaceName(e.target.value); setWorkspaceError(null); }}
+                    onKeyDown={e => { if (e.key === 'Enter') e.preventDefault(); }}
+                    placeholder="Nuevo workspace"
+                    className="w-full px-2 py-1.5 rounded-lg bg-white/10 border border-white/20 text-[13px] text-white placeholder:text-white/40 focus:outline-none focus:ring-1 focus:ring-monday-blue mb-1.5"
+                    disabled={creatingWorkspace}
+                  />
+                  {workspaceError && <p className="text-red-400 text-[11px] mb-1.5">{workspaceError}</p>}
+                  <button
+                    type="button"
+                    disabled={creatingWorkspace}
+                    onClick={e => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      const name = newWorkspaceName.trim() || 'Nuevo workspace';
+                      if (!name || creatingWorkspace) return;
+                      setWorkspaceError(null);
+                      setCreatingWorkspace(true);
+                      fetch('http://localhost:3001/api/workspaces', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ name }),
+                      })
+                        .then(r => r.json().then((data: Workspace & { error?: string }) => ({ ok: r.ok, status: r.status, data })))
+                        .then(({ ok, data }) => {
+                          if (ok && data && typeof data.id === 'string') {
+                            const created = data as Workspace;
+                            setWorkspaces(prev => [...prev, created]);
+                            setActiveWorkspaceId(created.id);
+                            setNewWorkspaceName('');
+                            setWorkspaceSelectorOpen(false);
+                          } else {
+                            setWorkspaceError((data as { error?: string })?.error || 'Error al crear workspace');
+                          }
+                        })
+                        .catch(err => setWorkspaceError(err?.message || 'No se pudo conectar con el servidor'))
+                        .finally(() => setCreatingWorkspace(false));
+                    }}
+                    className="w-full flex items-center justify-center gap-1.5 py-1.5 rounded-lg bg-monday-blue text-white text-[12px] font-medium hover:bg-monday-blue/90 disabled:opacity-50"
+                  >
+                    <Plus size={14} />
+                    Agregar workspace
+                  </button>
+                </div>
+              </Popover.Content>
+            </Popover.Portal>
+          </Popover.Root>
         </div>
 
         <div className="flex-1 overflow-y-auto custom-scrollbar py-2 px-2">
@@ -302,7 +420,7 @@ function App() {
                   <div className="w-5 h-5 rounded bg-gradient-to-br from-monday-blue to-[#1d60f5] flex items-center justify-center text-white text-xs shadow-sm">
                     M
                   </div>
-                  Main Workspace
+                  {activeWorkspaceName}
                 </h2>
                 {currentUser?.role === 'ADMIN' && (
                   <button 
@@ -328,7 +446,9 @@ function App() {
               </div>
 
               <p className="text-white/40 text-[11px] font-semibold px-2 mb-1 mt-2 uppercase tracking-wider">Tableros</p>
-              {boards.map((b) => b && (
+              {boards
+                .filter(b => b && (!boardSearch.trim() || b.name.toLowerCase().includes(boardSearch.trim().toLowerCase())))
+                .map((b) => b && (
                 <button
                   key={b.id}
                   onClick={() => setActiveBoardId(b.id)}
@@ -565,10 +685,18 @@ function App() {
                 setActiveBoardId(boardId);
                 setSelectedItem(item);
               }}
+              onOpenInbox={() => setActivePage('inbox')}
               onNotificationsChange={fetchUnreadNotifications}
             />
           ) : activePage === 'search' ? (
-            <SearchPage onItemClick={setSelectedItem} />
+            <SearchPage
+              onItemClick={setSelectedItem}
+              onResultClick={(item, boardId) => {
+                setActivePage('board');
+                setActiveBoardId(boardId);
+                setSelectedItem(item);
+              }}
+            />
           ) : activePage === 'docs' ? (
             <DocsPage />
           ) : activePage === 'dashboard' ? (

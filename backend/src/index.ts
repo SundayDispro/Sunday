@@ -1,3 +1,4 @@
+import 'dotenv/config';
 import express from 'express';
 import { createServer } from 'http';
 import { Server } from 'socket.io';
@@ -75,10 +76,81 @@ app.post('/api/upload', (req, res) => {
   });
 });
 
-// Get all boards (for sidebar list)
+// Get all workspaces (for sidebar workspace selector)
+app.get('/api/workspaces', async (_req, res) => {
+  try {
+    const workspaces = await prisma.workspace.findMany({
+      orderBy: { createdAt: 'asc' },
+      include: {
+        boards: {
+          orderBy: { createdAt: 'asc' },
+          select: { id: true, name: true, workspaceId: true },
+        },
+      },
+    });
+    res.json(workspaces);
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to fetch workspaces' });
+  }
+});
+
+// Create a new workspace
+app.post('/api/workspaces', async (req, res) => {
+  try {
+    const name = (req.body?.name && String(req.body.name).trim()) || 'Nuevo workspace';
+    const workspace = await prisma.workspace.create({
+      data: { name },
+      include: {
+        boards: { orderBy: { createdAt: 'asc' }, select: { id: true, name: true, workspaceId: true } },
+      },
+    });
+    res.status(201).json(workspace);
+  } catch (error) {
+    console.error('Error creating workspace:', error);
+    res.status(500).json({ error: 'Failed to create workspace' });
+  }
+});
+
+// Search items and boards by query (all boards)
+app.get('/api/search', async (req, res) => {
+  try {
+    const q = (req.query.q as string)?.trim()?.toLowerCase();
+    if (!q) return res.json([]);
+    const boards = await prisma.board.findMany({
+      include: {
+        groups: { include: { items: true } },
+      },
+    });
+    const results: { item: { id: string; name: string; groupId: string }; boardId: string; boardName: string; groupId: string; groupName: string }[] = [];
+    for (const board of boards) {
+      for (const group of board.groups) {
+        for (const item of group.items) {
+          if (item.name.toLowerCase().includes(q) || board.name.toLowerCase().includes(q)) {
+            results.push({
+              item: { id: item.id, name: item.name, groupId: item.groupId },
+              boardId: board.id,
+              boardName: board.name,
+              groupId: group.id,
+              groupName: group.name,
+            });
+          }
+        }
+      }
+    }
+    res.json(results.slice(0, 100));
+  } catch (error) {
+    console.error('Search error:', error);
+    res.status(500).json({ error: 'Failed to search' });
+  }
+});
+
+// Get all boards (for sidebar list), optionally filtered by workspace
 app.get('/api/boards', async (req, res) => {
   try {
+    const { workspaceId } = req.query as { workspaceId?: string };
+    const where = workspaceId ? { workspaceId } : undefined;
     const boards = await prisma.board.findMany({
+      where,
       orderBy: { createdAt: 'asc' },
       select: { id: true, name: true, workspaceId: true },
     });
@@ -91,15 +163,29 @@ app.get('/api/boards', async (req, res) => {
 // Create a new board (REST – no dependency on socket)
 app.post('/api/boards', async (req, res) => {
   try {
-    let workspace = await prisma.workspace.findFirst();
-    if (!workspace) {
-      workspace = await prisma.workspace.create({
-        data: { name: 'Main Workspace' },
-      });
+    const body = req.body ?? {};
+    const requestedWorkspaceId = body.workspaceId ? String(body.workspaceId) : null;
+
+    let workspaceIdToUse: string;
+    if (requestedWorkspaceId) {
+      const existing = await prisma.workspace.findUnique({ where: { id: requestedWorkspaceId } });
+      if (!existing) {
+        return res.status(400).json({ error: 'Workspace no encontrado' });
+      }
+      workspaceIdToUse = existing.id;
+    } else {
+      let workspace = await prisma.workspace.findFirst();
+      if (!workspace) {
+        workspace = await prisma.workspace.create({
+          data: { name: 'Main Workspace' },
+        });
+      }
+      workspaceIdToUse = workspace.id;
     }
+
     const name = (req.body?.name && String(req.body.name).trim()) || 'Nuevo tablero';
     const newBoard = await prisma.board.create({
-      data: { name, workspaceId: workspace.id },
+      data: { name, workspaceId: workspaceIdToUse },
       select: { id: true, name: true, workspaceId: true },
     });
     res.status(201).json(newBoard);
@@ -182,6 +268,59 @@ app.get('/api/items/:itemId/updates', async (req, res) => {
     res.json(enriched);
   } catch (error) {
     res.status(500).json({ error: 'Failed to fetch updates' });
+  }
+});
+
+// --- Bandeja feed (publicaciones con @mentions) ---
+app.get('/api/feed', async (req, res) => {
+  try {
+    const filter = req.query.filter as string; // 'mentions' = solo donde me mencionaron
+    const userId = req.query.userId as string;
+    const posts = await prisma.feedPost.findMany({
+      orderBy: { createdAt: 'desc' },
+      include: { author: true },
+      take: 200,
+    });
+    let list = posts.map(p => {
+      const author = p.author ? { ...p.author, password: undefined } : p.author;
+      return {
+        ...p,
+        author,
+        mentionedUserIds: (() => { try { return JSON.parse(p.mentionedUserIds || '[]'); } catch { return []; } })(),
+      };
+    });
+    if (filter === 'mentions' && userId) {
+      list = list.filter(p => {
+        const ids = (p as any).mentionedUserIds as string[];
+        return Array.isArray(ids) && ids.includes(userId);
+      });
+    }
+    res.json(list);
+  } catch (error) {
+    console.error('Feed error:', error);
+    res.status(500).json({ error: 'Failed to fetch feed' });
+  }
+});
+
+app.post('/api/feed', async (req, res) => {
+  try {
+    const { content, authorId, mentionedUserIds } = req.body ?? {};
+    if (!content || typeof content !== 'string' || !authorId) {
+      return res.status(400).json({ error: 'content y authorId son obligatorios' });
+    }
+    const ids = Array.isArray(mentionedUserIds) ? mentionedUserIds : [];
+    const post = await prisma.feedPost.create({
+      data: {
+        content: content.trim(),
+        authorId,
+        mentionedUserIds: JSON.stringify(ids),
+      },
+      include: { author: true },
+    });
+    res.status(201).json({ ...post, mentionedUserIds: ids });
+  } catch (error) {
+    console.error('Feed post error:', error);
+    res.status(500).json({ error: 'Failed to create post' });
   }
 });
 

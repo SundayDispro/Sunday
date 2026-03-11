@@ -16,7 +16,8 @@ model User {
   password       String
   role           String         @default("USER") // 'ADMIN' | 'VENTAS' | 'DISENO' | 'TALLER' | 'USER'
   createdAt      DateTime       @default(now())
-  notifications Notification[]
+  notifications  Notification[]
+  feedPosts      FeedPost[]
 }
 
 model Workspace {
@@ -103,4 +104,14 @@ model Notification {
   type      String   // e.g. 'assigned', 'item_created'
   read      Boolean  @default(false)
   createdAt DateTime @default(now())
+}
+
+// Feed de la Bandeja: publicaciones con @mentions (no ligadas a un item)
+model FeedPost {
+  id              String   @id @default(uuid())
+  content         String
+  authorId        String
+  author          User     @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  mentionedUserIds String   @default("[]") // JSON array of user IDs
+  createdAt       DateTime @default(now())
 }

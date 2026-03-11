@@ -131,6 +131,16 @@ const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode }) => {
       setBoard(prev => prev ? { ...prev, columns: prev.columns.filter(c => c.id !== columnId) } : prev);
     });
 
+    socket.on('group_renamed', (updated: { id: string; name: string }) => {
+      setBoard(prev => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          groups: prev.groups.map(g => g.id === updated.id ? { ...g, name: updated.name } : g),
+        };
+      });
+    });
+
     socket.on('group_deleted', ({ groupId }: { groupId: string }) => {
       setBoard(prev => prev ? { ...prev, groups: prev.groups.filter(g => g.id !== groupId) } : prev);
     });
@@ -144,6 +154,7 @@ const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode }) => {
       socket.off('column_added');
       socket.off('column_renamed');
       socket.off('column_deleted');
+      socket.off('group_renamed');
       socket.off('group_deleted');
     };
   }, [boardId]);

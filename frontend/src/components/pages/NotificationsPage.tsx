@@ -1,19 +1,38 @@
 import React, { useEffect, useState } from 'react';
-import { Bell, Check, CheckCheck, ExternalLink } from 'lucide-react';
+import { Bell, Check, CheckCheck, ExternalLink, AtSign, UserPlus } from 'lucide-react';
 import { useUser } from '../../store/UserContext';
 import { Notification as NotificationType, Item } from '../../types';
 
-const API_BASE = import.meta.env.DEV ? '' : 'http://localhost:3001';
+const API_BASE = 'http://localhost:3001';
+
+type TabId = 'all' | 'mentions' | 'assignments';
+
+type FeedPostMention = {
+  id: string;
+  content: string;
+  authorId: string;
+  author?: { id: string; name: string; initials: string; color: string };
+  createdAt: string;
+};
 
 interface NotificationsPageProps {
   onOpenItem?: (item: Item, boardId: string) => void;
+  onOpenInbox?: () => void;
   onNotificationsChange?: () => void;
 }
 
-export const NotificationsPage: React.FC<NotificationsPageProps> = ({ onOpenItem, onNotificationsChange }) => {
+export const NotificationsPage: React.FC<NotificationsPageProps> = ({
+  onOpenItem,
+  onOpenInbox,
+  onNotificationsChange,
+}) => {
   const { currentUser } = useUser();
+  const [tab, setTab] = useState<TabId>('all');
   const [notifications, setNotifications] = useState<NotificationType[]>([]);
+  const [mentions, setMentions] = useState<FeedPostMention[]>([]);
   const [loading, setLoading] = useState(true);
+  const [onlyUnread, setOnlyUnread] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
 
   const fetchNotifications = async () => {
     if (!currentUser?.id) return;
@@ -21,24 +40,40 @@ export const NotificationsPage: React.FC<NotificationsPageProps> = ({ onOpenItem
       const res = await fetch(`${API_BASE}/api/notifications?userId=${currentUser.id}`);
       if (res.ok) {
         const data = await res.json();
-        setNotifications(data);
+        setNotifications(Array.isArray(data) ? data : []);
       }
     } catch (err) {
       console.error('Error fetching notifications:', err);
-    } finally {
-      setLoading(false);
+    }
+  };
+
+  const fetchMentions = async () => {
+    if (!currentUser?.id) return;
+    try {
+      const res = await fetch(
+        `${API_BASE}/api/feed?filter=mentions&userId=${encodeURIComponent(currentUser.id)}`
+      );
+      if (res.ok) {
+        const data = await res.json();
+        setMentions(Array.isArray(data) ? data : []);
+      }
+    } catch (err) {
+      console.error('Error fetching mentions:', err);
     }
   };
 
   useEffect(() => {
-    fetchNotifications();
+    setLoading(true);
+    Promise.all([fetchNotifications(), fetchMentions()]).finally(() => setLoading(false));
   }, [currentUser?.id]);
 
   const markAsRead = async (id: string) => {
     try {
-      await fetch(`${API_BASE}/api/notifications/${id}/read`, { method: 'PATCH' });
-      setNotifications(prev => prev.map(n => (n.id === id ? { ...n, read: true } : n)));
-      onNotificationsChange?.();
+      const res = await fetch(`${API_BASE}/api/notifications/${id}/read`, { method: 'PATCH' });
+      if (res.ok) {
+        setNotifications(prev => prev.map(n => (n.id === id ? { ...n, read: true } : n)));
+        onNotificationsChange?.();
+      }
     } catch (err) {
       console.error('Error marking as read:', err);
     }
@@ -47,15 +82,20 @@ export const NotificationsPage: React.FC<NotificationsPageProps> = ({ onOpenItem
   const markAllAsRead = async () => {
     if (!currentUser?.id) return;
     try {
-      await fetch(`${API_BASE}/api/notifications/read-all?userId=${currentUser.id}`, { method: 'PATCH' });
-      setNotifications(prev => prev.map(n => ({ ...n, read: true })));
-      onNotificationsChange?.();
+      const res = await fetch(
+        `${API_BASE}/api/notifications/read-all?userId=${currentUser.id}`,
+        { method: 'PATCH' }
+      );
+      if (res.ok) {
+        setNotifications(prev => prev.map(n => ({ ...n, read: true })));
+        onNotificationsChange?.();
+      }
     } catch (err) {
       console.error('Error marking all as read:', err);
     }
   };
 
-  const handleClick = (n: NotificationType) => {
+  const handleAssignmentClick = (n: NotificationType) => {
     if (!n.item) return;
     const boardId = n.item.group?.board?.id;
     if (boardId && onOpenItem) {
@@ -64,23 +104,42 @@ export const NotificationsPage: React.FC<NotificationsPageProps> = ({ onOpenItem
     }
   };
 
+  const handleMentionClick = () => {
+    if (onOpenInbox) {
+      onOpenInbox();
+    }
+  };
+
   const unreadCount = notifications.filter(n => !n.read).length;
+  const assignments = notifications.filter(n => n.type === 'assigned' || n.item);
+  const q = searchQuery.trim().toLowerCase();
+  const filteredAssignments = (onlyUnread ? assignments.filter(n => !n.read) : assignments).filter(
+    n =>
+      !q ||
+      n.item?.name?.toLowerCase().includes(q) ||
+      n.item?.group?.board?.name?.toLowerCase().includes(q)
+  );
+  const filteredMentions = mentions.filter(
+    m =>
+      !q ||
+      m.content?.toLowerCase().includes(q) ||
+      m.author?.name?.toLowerCase().includes(q)
+  );
+
+  const showAssignments = tab === 'all' || tab === 'assignments';
+  const showMentions = tab === 'all' || tab === 'mentions';
 
   return (
     <div className="flex-1 flex flex-col overflow-hidden">
       <div className="p-6 border-b border-monday-border">
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-[20px] font-semibold text-monday-text flex items-center gap-2">
-              <Bell size={22} className="text-monday-blue" />
-              Notificaciones
-            </h1>
-            <p className="text-[13px] text-monday-subtext mt-1">
-              Actualizaciones y asignaciones
-            </p>
-          </div>
+        <div className="flex items-center justify-between mb-4">
+          <h1 className="text-[20px] font-semibold text-monday-text flex items-center gap-2">
+            <Bell size={22} className="text-monday-blue" />
+            Notificaciones
+          </h1>
           {unreadCount > 0 && (
             <button
+              type="button"
               onClick={markAllAsRead}
               className="flex items-center gap-1.5 px-3 py-1.5 text-[13px] text-monday-blue hover:bg-monday-hover rounded-lg transition-colors"
             >
@@ -89,79 +148,204 @@ export const NotificationsPage: React.FC<NotificationsPageProps> = ({ onOpenItem
             </button>
           )}
         </div>
+
+        <div className="flex gap-1 border-b border-monday-border mb-4">
+          {[
+            { id: 'all' as TabId, label: 'Todas' },
+            { id: 'mentions' as TabId, label: 'Menciones', icon: AtSign },
+            { id: 'assignments' as TabId, label: 'Asignaciones', icon: UserPlus },
+          ].map(t => (
+            <button
+              key={t.id}
+              type="button"
+              onClick={() => setTab(t.id)}
+              className={`flex items-center gap-1.5 py-2.5 px-3 text-[13px] font-medium border-b-2 -mb-px transition-colors ${
+                tab === t.id ? 'border-monday-blue text-monday-blue' : 'border-transparent text-monday-subtext hover:text-monday-text'
+              }`}
+            >
+              {t.icon && <t.icon size={14} />}
+              {t.label}
+            </button>
+          ))}
+        </div>
+
+        <div className="flex gap-2 mb-2">
+          <input
+            type="text"
+            value={searchQuery}
+            onChange={e => setSearchQuery(e.target.value)}
+            placeholder="Busca notificaciones por personas, tableros y más..."
+            className="flex-1 px-3 py-2 rounded-monday border border-monday-border bg-white text-monday-text text-[13px] placeholder:text-monday-subtext focus:outline-none focus:ring-2 focus:ring-monday-blue"
+          />
+          <label className="flex items-center gap-2 text-[13px] text-monday-subtext whitespace-nowrap">
+            <input
+              type="checkbox"
+              checked={onlyUnread}
+              onChange={e => setOnlyUnread(e.target.checked)}
+              className="rounded border-monday-border text-monday-blue focus:ring-monday-blue"
+            />
+            Solo no leídas
+          </label>
+        </div>
       </div>
-      <div className="flex-1 overflow-auto">
+
+      <div className="flex-1 overflow-auto p-6">
         {loading ? (
-          <div className="flex items-center justify-center py-16">
+          <div className="flex justify-center py-16">
             <div className="w-8 h-8 border-2 border-monday-blue border-t-transparent rounded-full animate-spin" />
           </div>
-        ) : notifications.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-16 text-monday-subtext">
-            <div className="w-16 h-16 rounded-full bg-monday-hover flex items-center justify-center mb-4">
-              <Bell size={28} className="opacity-60" />
-            </div>
-            <p className="text-[15px] font-medium text-monday-text">Sin notificaciones</p>
-            <p className="text-[13px] mt-1">Aquí aparecerán las notificaciones de asignación y tableros.</p>
-          </div>
         ) : (
-          <ul className="divide-y divide-monday-border">
-            {notifications.map(n => (
-              <li
-                key={n.id}
-                className={`px-6 py-3 flex items-start gap-3 hover:bg-monday-hover/50 transition-colors ${!n.read ? 'bg-blue-50/50' : ''}`}
-              >
-                <div className="flex-1 min-w-0">
-                  <button
-                    type="button"
-                    onClick={() => handleClick(n)}
-                    className="text-left w-full"
-                  >
-                    <p className="text-[14px] text-monday-text font-medium">
-                      {n.type === 'assigned' && 'Te han asignado en un elemento'}
-                    </p>
-                    {n.item && (
-                      <p className="text-[13px] text-monday-subtext mt-0.5 truncate">
-                        {n.item.name}
-                        {n.item.group?.board?.name && (
-                          <span className="text-monday-subtext"> · {n.item.group.board.name}</span>
-                        )}
-                      </p>
-                    )}
-                    <p className="text-[12px] text-monday-subtext mt-1">
-                      {new Date(n.createdAt).toLocaleDateString('es', {
-                        day: 'numeric',
-                        month: 'short',
-                        hour: '2-digit',
-                        minute: '2-digit',
-                      })}
-                    </p>
-                  </button>
+          <>
+            {showAssignments && (
+              <section className="mb-6">
+                <h2 className="text-[12px] font-semibold text-monday-subtext uppercase tracking-wider mb-2">
+                  Asignaciones
+                </h2>
+                {filteredAssignments.length === 0 ? (
+                  <p className="text-[13px] text-monday-subtext py-2">
+                    No hay asignaciones para mostrar.
+                  </p>
+                ) : (
+                  <ul className="divide-y divide-monday-border">
+                    {filteredAssignments.map(n => (
+                      <li
+                        key={n.id}
+                        className={`py-3 flex items-start gap-3 hover:bg-monday-hover/50 transition-colors ${!n.read ? 'bg-blue-50/50' : ''}`}
+                      >
+                        <div className="flex-1 min-w-0">
+                          <button
+                            type="button"
+                            onClick={() => handleAssignmentClick(n)}
+                            className="text-left w-full"
+                          >
+                            <p className="text-[14px] text-monday-text font-medium">
+                              Te han asignado en un elemento
+                            </p>
+                            {n.item && (
+                              <p className="text-[13px] text-monday-subtext mt-0.5 truncate">
+                                {n.item.name}
+                                {n.item.group?.board?.name && (
+                                  <span> · {n.item.group.board.name}</span>
+                                )}
+                              </p>
+                            )}
+                            <p className="text-[12px] text-monday-subtext mt-1">
+                              {new Date(n.createdAt).toLocaleDateString('es', {
+                                day: 'numeric',
+                                month: 'short',
+                                hour: '2-digit',
+                                minute: '2-digit',
+                              })}
+                            </p>
+                          </button>
+                        </div>
+                        <div className="flex items-center gap-1 shrink-0">
+                          {!n.read && (
+                            <button
+                              type="button"
+                              onClick={e => {
+                                e.stopPropagation();
+                                markAsRead(n.id);
+                              }}
+                              className="p-1.5 rounded-lg text-monday-subtext hover:bg-monday-hover hover:text-monday-blue transition-colors"
+                              title="Marcar como leída"
+                            >
+                              <Check size={16} />
+                            </button>
+                          )}
+                          {n.item?.group?.board?.id && onOpenItem && (
+                            <button
+                              type="button"
+                              onClick={() =>
+                                n.item &&
+                                n.item.group?.board?.id &&
+                                onOpenItem(n.item as Item, n.item.group.board.id)
+                              }
+                              className="p-1.5 rounded-lg text-monday-subtext hover:bg-monday-hover hover:text-monday-blue transition-colors"
+                              title="Ir al tablero"
+                            >
+                              <ExternalLink size={16} />
+                            </button>
+                          )}
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </section>
+            )}
+
+            {showMentions && (
+              <section>
+                <h2 className="text-[12px] font-semibold text-monday-subtext uppercase tracking-wider mb-2">
+                  Menciones
+                </h2>
+                {filteredMentions.length === 0 ? (
+                  <p className="text-[13px] text-monday-subtext py-2">
+                    No hay menciones. Te avisaremos cuando alguien te @mencione.
+                  </p>
+                ) : (
+                  <ul className="divide-y divide-monday-border">
+                    {filteredMentions.map(post => (
+                      <li
+                        key={post.id}
+                        className="py-3 flex items-start gap-3 hover:bg-monday-hover/50 transition-colors"
+                      >
+                        <div
+                          className="w-9 h-9 rounded-full flex items-center justify-center text-white text-xs font-semibold shrink-0"
+                          style={{ backgroundColor: post.author?.color || '#555' }}
+                        >
+                          {post.author?.initials || '?'}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <button
+                            type="button"
+                            onClick={handleMentionClick}
+                            className="text-left w-full"
+                          >
+                            <p className="text-[14px] text-monday-text font-medium">
+                              {post.author?.name ?? 'Alguien'} te mencionó
+                            </p>
+                            <p className="text-[13px] text-monday-subtext mt-0.5 line-clamp-2">
+                              {post.content}
+                            </p>
+                            <p className="text-[12px] text-monday-subtext mt-1">
+                              {new Date(post.createdAt).toLocaleDateString('es', {
+                                day: 'numeric',
+                                month: 'short',
+                                hour: '2-digit',
+                                minute: '2-digit',
+                              })}
+                            </p>
+                          </button>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={handleMentionClick}
+                          className="p-1.5 rounded-lg text-monday-subtext hover:bg-monday-hover hover:text-monday-blue transition-colors shrink-0"
+                          title="Ir a la bandeja"
+                        >
+                          <ExternalLink size={16} />
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </section>
+            )}
+
+            {!loading && tab === 'all' && filteredAssignments.length === 0 && filteredMentions.length === 0 && (
+              <div className="flex flex-col items-center justify-center py-16 text-monday-subtext">
+                <div className="w-16 h-16 rounded-full bg-monday-hover flex items-center justify-center mb-4">
+                  <Bell size={28} className="opacity-60" />
                 </div>
-                <div className="flex items-center gap-1 shrink-0">
-                  {!n.read && (
-                    <button
-                      type="button"
-                      onClick={e => { e.stopPropagation(); markAsRead(n.id); }}
-                      className="p-1.5 rounded-lg text-monday-subtext hover:bg-monday-hover hover:text-monday-blue transition-colors"
-                      title="Marcar como leída"
-                    >
-                      <Check size={16} />
-                    </button>
-                  )}
-                  {n.item?.group?.board?.id && (
-                    <button
-                      type="button"
-                      onClick={() => n.item && n.item.group?.board?.id && onOpenItem?.(n.item as Item, n.item.group.board.id)}
-                      className="p-1.5 rounded-lg text-monday-subtext hover:bg-monday-hover hover:text-monday-blue transition-colors"
-                      title="Ir al tablero"
-                    >
-                      <ExternalLink size={16} />
-                    </button>
-                  )}
-                </div>
-              </li>
-            ))}
-          </ul>
+                <p className="text-[15px] font-medium text-monday-text">No hay notificaciones para mostrar</p>
+                <p className="text-[13px] mt-1 text-center">
+                  Te notificaremos aquí cuando alguien te @mencione o te asigne en un elemento.
+                </p>
+              </div>
+            )}
+          </>
         )}
       </div>
     </div>
