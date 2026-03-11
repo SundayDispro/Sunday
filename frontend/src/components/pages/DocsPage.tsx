@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { BookOpen, FileText, Table2, Plus, Trash2 } from 'lucide-react';
 import { Board, Doc } from '../../types';
 
-const API_BASE = import.meta.env.DEV ? '' : 'http://localhost:3001';
+const API_BASE = 'http://localhost:3001';
 
 interface Props {
   workspaceId: string | null;

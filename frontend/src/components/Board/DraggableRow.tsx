@@ -7,9 +7,10 @@ import { Item } from '../../types';
 interface DraggableRowProps {
   row: Row<Item>;
   groupColor: string;
+  isSelected?: boolean;
 }
 
-export const DraggableRow: React.FC<DraggableRowProps> = ({ row, groupColor }) => {
+export const DraggableRow: React.FC<DraggableRowProps> = ({ row, groupColor, isSelected }) => {
   const {
     attributes,
     listeners,
@@ -36,7 +37,9 @@ export const DraggableRow: React.FC<DraggableRowProps> = ({ row, groupColor }) =
     <tr
       ref={setNodeRef}
       style={style}
-      className={`h-[42px] bg-white transition group/row ${isDragging ? 'shadow-xl ring-2 ring-monday-blue' : 'hover:bg-monday-bg'}`}
+      className={`h-[42px] transition group/row ${
+        isDragging ? 'shadow-xl ring-2 ring-monday-blue bg-white' : isSelected ? 'bg-blue-50' : 'bg-white hover:bg-monday-bg'
+      }`}
     >
       {row.getVisibleCells().map((cell, i) => {
         const isDragHandleCell = cell.column.id === 'dragHandler';

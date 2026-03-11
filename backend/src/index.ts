@@ -851,6 +851,19 @@ io.on('connection', (socket) => {
     }
   });
 
+  socket.on('delete_item', async (data) => {
+    try {
+      const { itemId } = data;
+      await prisma.columnValue.deleteMany({ where: { itemId } });
+      await prisma.update.deleteMany({ where: { itemId } });
+      await prisma.notification.deleteMany({ where: { itemId } });
+      await prisma.item.delete({ where: { id: itemId } });
+      io.emit('item_deleted', { itemId });
+    } catch (e) {
+      console.error('Error deleting item:', e);
+    }
+  });
+
   // ── COLUMN VALUE EVENTS ──────────────────────────────────────────────────
 
   socket.on('update_column_value', async (data) => {

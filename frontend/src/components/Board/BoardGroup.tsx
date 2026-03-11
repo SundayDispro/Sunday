@@ -37,6 +37,10 @@ interface Props {
   isSubgroup?: boolean;
   collapsed?: boolean;
   onToggleCollapse?: () => void;
+  /** IDs de elementos seleccionados (selección múltiple tipo Monday) */
+  selectedItemIds?: Set<string>;
+  onToggleItem?: (itemId: string, checked: boolean) => void;
+  onToggleGroupAll?: (groupId: string, checked: boolean) => void;
 }
 
 const columnHelper = createColumnHelper<Item>();
@@ -298,6 +302,9 @@ export const BoardGroup: React.FC<Props> = ({
   isSubgroup = false,
   collapsed,
   onToggleCollapse,
+  selectedItemIds = new Set(),
+  onToggleItem,
+  onToggleGroupAll,
 }) => {
   const [newTaskName, setNewTaskName] = useState('');
   const [isAddingTask, setIsAddingTask] = useState(false);
@@ -391,16 +398,37 @@ export const BoardGroup: React.FC<Props> = ({
       }),
       columnHelper.display({
         id: 'checkbox',
-        header: () => (
-          <div className="w-full flex justify-center">
-            <input type="checkbox" className="w-3.5 h-3.5 cursor-pointer accent-monday-blue rounded" />
-          </div>
-        ),
-        cell: () => (
-          <div className="w-full flex justify-center" onClick={e => e.stopPropagation()}>
-            <input type="checkbox" className="w-3.5 h-3.5 cursor-pointer accent-monday-blue rounded" />
-          </div>
-        ),
+        header: () => {
+          const allSelected = group.items.length > 0 && group.items.every(i => selectedItemIds.has(i.id));
+          const someSelected = group.items.some(i => selectedItemIds.has(i.id));
+          return (
+            <div className="w-full flex justify-center" onClick={e => e.stopPropagation()}>
+              <input
+                type="checkbox"
+                className="w-3.5 h-3.5 cursor-pointer accent-monday-blue rounded"
+                checked={allSelected}
+                ref={el => { if (el) el.indeterminate = someSelected && !allSelected; }}
+                onChange={() => onToggleGroupAll?.(group.id, !allSelected)}
+                disabled={!onToggleGroupAll || group.items.length === 0}
+              />
+            </div>
+          );
+        },
+        cell: (info) => {
+          const item = info.row.original;
+          const checked = selectedItemIds.has(item.id);
+          return (
+            <div className="w-full flex justify-center" onClick={e => e.stopPropagation()}>
+              <input
+                type="checkbox"
+                className="w-3.5 h-3.5 cursor-pointer accent-monday-blue rounded"
+                checked={checked}
+                onChange={e => onToggleItem?.(item.id, e.target.checked)}
+                disabled={!onToggleItem}
+              />
+            </div>
+          );
+        },
         size: 36,
       }),
       columnHelper.accessor('name', {
@@ -483,7 +511,7 @@ export const BoardGroup: React.FC<Props> = ({
       : null;
 
     return addCol ? [...baseCols, ...dynamicCols, addCol] : [...baseCols, ...dynamicCols];
-  }, [columns, onRowClick, boardId, group.id, group.items, showAddColumn]);
+  }, [columns, onRowClick, boardId, group.id, group.items, showAddColumn, selectedItemIds, onToggleItem, onToggleGroupAll]);
 
   const table = useReactTable({
     data: group.items,
@@ -652,7 +680,12 @@ export const BoardGroup: React.FC<Props> = ({
             <SortableContext items={group.items.map(i => i.id)} strategy={verticalListSortingStrategy}>
               <tbody>
                 {table.getRowModel().rows.map(row => (
-                  <DraggableRow key={row.id} row={row} groupColor={group.color} />
+                  <DraggableRow
+                    key={row.id}
+                    row={row}
+                    groupColor={group.color}
+                    isSelected={selectedItemIds.has(row.original.id)}
+                  />
                 ))}
 
                 {/* ── Add task row (oculta en vista Taller) ───────────────────────────────── */}

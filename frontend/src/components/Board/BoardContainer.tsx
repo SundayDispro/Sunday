@@ -4,6 +4,7 @@ import { socket } from '../../store/socket';
 import { BoardGroup } from './BoardGroup';
 import {
   Plus, Search, Filter, ArrowUpDown, EyeOff, ChevronDown, X, Folder,
+  Copy, Download, Archive, Trash2, ArrowRightLeft,
 } from 'lucide-react';
 import {
   DndContext,
@@ -45,6 +46,11 @@ const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode }) => {
   const [exporting, setExporting] = useState(false);
   const [newMenuOpen, setNewMenuOpen] = useState(false);
   const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({});
+  const [selectedItemIds, setSelectedItemIds] = useState<Set<string>>(new Set());
+  const [showMultiSelectHint, setShowMultiSelectHint] = useState(() => {
+    try { return localStorage.getItem('sunday-multiselect-hint') !== 'dismissed'; } catch { return true; }
+  });
+  const [showMovePopover, setShowMovePopover] = useState(false);
 
   const fetchBoard = async () => {
     try {
@@ -134,6 +140,24 @@ const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode }) => {
       setBoard(prev => prev ? { ...prev, columns: prev.columns.filter(c => c.id !== columnId) } : prev);
     });
 
+    socket.on('item_deleted', ({ itemId }: { itemId: string }) => {
+      setBoard(prev => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          groups: prev.groups.map(g => ({
+            ...g,
+            items: g.items.filter(i => i.id !== itemId),
+          })),
+        };
+      });
+      setSelectedItemIds(prev => {
+        const next = new Set(prev);
+        next.delete(itemId);
+        return next;
+      });
+    });
+
     socket.on('group_renamed', (updated: { id: string; name: string }) => {
       setBoard(prev => {
         if (!prev) return prev;
@@ -157,10 +181,88 @@ const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode }) => {
       socket.off('column_added');
       socket.off('column_renamed');
       socket.off('column_deleted');
+      socket.off('item_deleted');
       socket.off('group_renamed');
       socket.off('group_deleted');
     };
   }, [boardId]);
+
+  const toggleItemSelection = (itemId: string, checked: boolean) => {
+    setSelectedItemIds(prev => {
+      const next = new Set(prev);
+      if (checked) next.add(itemId);
+      else next.delete(itemId);
+      return next;
+    });
+  };
+
+  const toggleGroupAll = (groupId: string, checked: boolean) => {
+    if (!board) return;
+    const group = board.groups.find(g => g.id === groupId);
+    if (!group) return;
+    setSelectedItemIds(prev => {
+      const next = new Set(prev);
+      group.items.forEach(i => {
+        if (checked) next.add(i.id);
+        else next.delete(i.id);
+      });
+      return next;
+    });
+  };
+
+  const clearSelection = () => {
+    setSelectedItemIds(new Set());
+    setShowMovePopover(false);
+  };
+
+  const handleDuplicateSelected = () => {
+    if (!board || selectedItemIds.size === 0) return;
+    selectedItemIds.forEach(itemId => {
+      const group = board.groups.find(g => g.items.some(i => i.id === itemId));
+      if (!group) return;
+      const item = group.items.find(i => i.id === itemId);
+      if (!item) return;
+      const newPosition = group.items.reduce((max, i) => Math.max(max, i.position), 0) + 1024;
+      socket.emit('add_item', { groupId: group.id, name: `Copia de ${item.name}`, position: newPosition });
+    });
+    clearSelection();
+  };
+
+  const handleDeleteSelected = () => {
+    if (selectedItemIds.size === 0) return;
+    if (!window.confirm(`¿Eliminar ${selectedItemIds.size} elemento(s) seleccionado(s)?`)) return;
+    selectedItemIds.forEach(itemId => socket.emit('delete_item', { itemId }));
+    clearSelection();
+  };
+
+  const handleMoveSelected = (targetGroupId: string) => {
+    if (!board || selectedItemIds.size === 0) return;
+    const targetGroup = board.groups.find(g => g.id === targetGroupId);
+    if (!targetGroup) return;
+    let position = targetGroup.items.length > 0
+      ? targetGroup.items.reduce((max, i) => Math.max(max, i.position), 0) + 1024
+      : 1024;
+    selectedItemIds.forEach(itemId => {
+      socket.emit('move_item', { itemId, newGroupId: targetGroupId, newPosition: position });
+      position += 1024;
+    });
+    clearSelection();
+  };
+
+  const handleExportSelected = () => {
+    if (selectedItemIds.size === 0) return;
+    alert(`Exportar ${selectedItemIds.size} elemento(s): puedes ampliar esta función para descargar CSV o JSON.`);
+  };
+
+  const handleArchiveSelected = () => {
+    if (selectedItemIds.size === 0) return;
+    alert('Archivar: crea un grupo "Archivados" y usa Mover para llevar los elementos allí.');
+  };
+
+  const dismissMultiSelectHint = () => {
+    setShowMultiSelectHint(false);
+    try { localStorage.setItem('sunday-multiselect-hint', 'dismissed'); } catch {}
+  };
 
   const handleAddGroup = () => {
     if (!board) return;
@@ -641,6 +743,9 @@ const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode }) => {
                         showAddRow={!isTaller}
                         collapsed={isCollapsed}
                         onToggleCollapse={() => toggleGroupCollapse(group.id)}
+                        selectedItemIds={selectedItemIds}
+                        onToggleItem={toggleItemSelection}
+                        onToggleGroupAll={toggleGroupAll}
                       />
                       {!isCollapsed &&
                         filteredGroups
@@ -659,6 +764,9 @@ const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode }) => {
                               isSubgroup
                               collapsed={!!collapsedGroups[sub.id]}
                               onToggleCollapse={() => toggleGroupCollapse(sub.id)}
+                              selectedItemIds={selectedItemIds}
+                              onToggleItem={toggleItemSelection}
+                              onToggleGroupAll={toggleGroupAll}
                             />
                           ))}
                     </React.Fragment>
@@ -679,6 +787,117 @@ const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode }) => {
               )}
             </div>
           </DndContext>
+        )}
+
+        {/* Hint: selección múltiple (solo primera vez) */}
+        {viewMode === 'table' && showMultiSelectHint && selectedItemIds.size > 0 && (
+          <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/30" onClick={dismissMultiSelectHint}>
+            <div
+              className="bg-white rounded-xl shadow-monday-xl border border-monday-border p-6 max-w-sm mx-4 text-center"
+              onClick={e => e.stopPropagation()}
+            >
+              <h3 className="text-[16px] font-semibold text-monday-text mb-2">
+                Actualiza elementos múltiples de una sola vez
+              </h3>
+              <p className="text-[13px] text-monday-subtext mb-4">
+                Selecciona elementos para actualizar valores, duplicar, mover o eliminar con un solo clic.
+              </p>
+              <button
+                type="button"
+                onClick={dismissMultiSelectHint}
+                className="px-4 py-2 rounded-monday bg-monday-blue text-white text-[13px] font-medium hover:bg-monday-blue/90"
+              >
+                Entiendo
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Barra flotante de acciones múltiples (sin IA) */}
+        {viewMode === 'table' && selectedItemIds.size > 0 && (
+          <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[100] flex items-center gap-4 px-4 py-3 bg-white rounded-xl shadow-monday-lg border border-monday-border">
+            <span className="text-[13px] font-medium text-monday-text whitespace-nowrap">
+              {selectedItemIds.size} elemento{selectedItemIds.size !== 1 ? 's' : ''} seleccionado{selectedItemIds.size !== 1 ? 's' : ''}
+            </span>
+            <div className="flex items-center gap-1">
+              <button
+                type="button"
+                onClick={handleDuplicateSelected}
+                className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-monday text-[12px] text-monday-text hover:bg-monday-hover"
+                title="Duplicar"
+              >
+                <Copy size={14} />
+                Duplicar
+              </button>
+              <button
+                type="button"
+                onClick={handleExportSelected}
+                className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-monday text-[12px] text-monday-text hover:bg-monday-hover"
+                title="Exportar"
+              >
+                <Download size={14} />
+                Exportar
+              </button>
+              <button
+                type="button"
+                onClick={handleArchiveSelected}
+                className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-monday text-[12px] text-monday-text hover:bg-monday-hover"
+                title="Archivar"
+              >
+                <Archive size={14} />
+                Archivar
+              </button>
+              <button
+                type="button"
+                onClick={handleDeleteSelected}
+                className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-monday text-[12px] text-monday-red hover:bg-red-50"
+                title="Eliminar"
+              >
+                <Trash2 size={14} />
+                Eliminar
+              </button>
+              <Popover.Root open={showMovePopover} onOpenChange={setShowMovePopover}>
+                <Popover.Trigger asChild>
+                  <button
+                    type="button"
+                    className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-monday text-[12px] text-monday-text hover:bg-monday-hover"
+                    title="Mover"
+                  >
+                    <ArrowRightLeft size={14} />
+                    Mover
+                  </button>
+                </Popover.Trigger>
+                <Popover.Portal>
+                  <Popover.Content
+                    className="z-[110] bg-white rounded-xl shadow-monday-lg border border-monday-border w-52 p-2 max-h-64 overflow-y-auto"
+                    sideOffset={8}
+                    side="top"
+                  >
+                    <div className="text-[11px] font-semibold text-monday-subtext px-2 py-1 uppercase">Mover a grupo</div>
+                    {board?.groups.filter(g => !g.parentGroupId).map(g => (
+                      <button
+                        key={g.id}
+                        type="button"
+                        onClick={() => { handleMoveSelected(g.id); setShowMovePopover(false); }}
+                        className="w-full flex items-center gap-2 px-2 py-1.5 rounded-monday text-[13px] text-left hover:bg-monday-hover"
+                      >
+                        <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: g.color }} />
+                        {g.name}
+                      </button>
+                    ))}
+                  </Popover.Content>
+                </Popover.Portal>
+              </Popover.Root>
+            </div>
+            <button
+              type="button"
+              onClick={clearSelection}
+              className="p-1.5 rounded-monday text-monday-subtext hover:bg-monday-hover hover:text-monday-text"
+              title="Cerrar"
+            >
+              <X size={18} />
+            </button>
+          </div>
         )}
       </div>
     </div>
