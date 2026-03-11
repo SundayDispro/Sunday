@@ -10,26 +10,36 @@ export const KanbanView: React.FC<Props> = ({ board, onRowClick }) => {
   // In a Monday board Kanban, columns usually map to statuses. 
   // For the sake of this feature mirroring the provided screenshots where columns are "En curso", "Listo", "Detenido" etc.
   
-  // Find the 'Status' column to group items by it.
   const statusColumn = board.columns.find(c => c.type === 'status');
-  console.log("kanban board", board);
+  const settings = statusColumn?.settings ? (() => { try { return JSON.parse(statusColumn.settings); } catch { return { options: [] }; } })() : { options: [] };
+  const options = settings.options || [];
 
-  // Hardcoded statuses based on Monday defaults for now
-  const statuses = [
-    { label: 'En curso', color: '#fdab3d' },
-    { label: 'Listo', color: '#00c875' },
-    { label: 'Detenido', color: '#e2445c' },
-    { label: 'Vacío', color: '#c4c4c4'}
-  ];
+  const statuses = options.length > 0
+    ? options.map((opt: { id: string; label: string; color?: string }) => ({ id: opt.id, label: opt.label, color: opt.color || '#c4c4c4' }))
+    : [
+        { id: 'default', label: 'Sin estado', color: '#c4c4c4' },
+        { id: 'en-curso', label: 'En curso', color: '#fdab3d' },
+        { id: 'listo', label: 'Listo', color: '#00c875' },
+        { id: 'detenido', label: 'Detenido', color: '#e2445c' },
+      ];
 
-  // Group items by status
   const itemsByStatus = statuses.map(status => {
-    let itemsForStatus: Item[] = [];
+    const itemsForStatus: Item[] = [];
     board.groups.forEach(group => {
       group.items.forEach(item => {
-        let val = item.columnValues.find(cv => cv.columnId === statusColumn?.id)?.value;
-        if (!val && status.label === 'Vacío') itemsForStatus.push(item);
-        if (val === status.label) itemsForStatus.push(item);
+        const cv = item.columnValues.find(v => v.columnId === statusColumn?.id)?.value;
+        let optionId: string | null = null;
+        if (cv) {
+          try {
+            const parsed = JSON.parse(cv);
+            optionId = parsed.optionId ?? null;
+          } catch {
+            optionId = cv;
+          }
+        }
+        if ((!optionId && status.id === 'default') || optionId === status.id) {
+          itemsForStatus.push(item);
+        }
       });
     });
     return { ...status, items: itemsForStatus };

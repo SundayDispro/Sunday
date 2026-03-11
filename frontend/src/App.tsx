@@ -4,21 +4,82 @@ import BoardContainer from './components/Board/BoardContainer';
 import { ItemDetailsPanel } from './components/Board/ItemDetailsPanel';
 import {
   Home, Bell, Search, Settings, ChevronDown, ChevronRight,
-  LayoutGrid, Users, BookOpen, BarChart2, Inbox, Star, Plus, LogOut,
+  LayoutGrid, Users, BookOpen, BarChart2, Inbox, Star, Plus,
 } from 'lucide-react';
 import { Item, Board } from './types';
 import { useUser } from './store/UserContext';
 import { Login } from './components/Login';
 import { AdminUsersPanel } from './components/AdminUsersPanel';
+import { InboxPage } from './components/pages/InboxPage';
+import { NotificationsPage } from './components/pages/NotificationsPage';
+import { SearchPage } from './components/pages/SearchPage';
+import { DocsPage } from './components/pages/DocsPage';
+import { DashboardPage } from './components/pages/DashboardPage';
+import { TeamPage } from './components/pages/TeamPage';
+import * as Popover from '@radix-ui/react-popover';
+import { Calendar } from 'lucide-react';
+
+type ViewMode = 'table' | 'kanban' | 'calendar';
+
+function AddViewDropdown({
+  enabledViews,
+  onAddView,
+  open,
+  onOpenChange,
+}: {
+  enabledViews: ViewMode[];
+  onAddView: (view: ViewMode) => void;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}) {
+  const canAddCalendar = !enabledViews.includes('calendar');
+  return (
+    <Popover.Root open={open} onOpenChange={onOpenChange}>
+      <Popover.Trigger asChild>
+        <button
+          className="py-2.5 px-2 text-monday-subtext hover:text-monday-blue transition-colors rounded-t-md"
+          title="Añadir vista"
+        >
+          <Plus size={16} />
+        </button>
+      </Popover.Trigger>
+      <Popover.Portal>
+        <Popover.Content
+          className="z-50 bg-white rounded-xl shadow-monday-lg border border-monday-border w-52 p-2 fade-in"
+          sideOffset={6}
+          align="start"
+        >
+          <div className="text-[12px] font-semibold text-monday-subtext mb-2 px-2 uppercase tracking-tight">
+            Añadir vista
+          </div>
+          {canAddCalendar && (
+            <button
+              onClick={() => onAddView('calendar')}
+              className="w-full flex items-center gap-2.5 px-3 py-2 rounded-monday hover:bg-monday-hover transition-colors text-left text-[13px] text-monday-text"
+            >
+              <Calendar size={16} className="text-monday-blue shrink-0" />
+              Calendario
+            </button>
+          )}
+          {!canAddCalendar && (
+            <p className="text-[12px] text-monday-subtext px-2 py-2">Todas las vistas están activas.</p>
+          )}
+        </Popover.Content>
+      </Popover.Portal>
+    </Popover.Root>
+  );
+}
 
 function App() {
   const { currentUser, logout } = useUser();
   const [selectedItem, setSelectedItem] = useState<Item | null>(null);
-  const [currentView, setCurrentView] = useState<'table' | 'kanban'>('table');
+  const [currentView, setCurrentView] = useState<ViewMode>('table');
+  const [enabledViews, setEnabledViews] = useState<ViewMode[]>(['table', 'kanban']);
+  const [showAddViewPopover, setShowAddViewPopover] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   
   // Navigation state
-  const [activePage, setActivePage] = useState<'home' | 'inbox' | 'notifications' | 'dashboard' | 'board'>('board');
+  const [activePage, setActivePage] = useState<'home' | 'inbox' | 'notifications' | 'dashboard' | 'board' | 'search' | 'docs' | 'team'>('board');
   const [boards, setBoards] = useState<Board[]>([]);
   const [activeBoardId, setActiveBoardId] = useState<string | null>(null);
   const [boardSearch, setBoardSearch] = useState('');
@@ -59,8 +120,8 @@ function App() {
       {/* ─── Left Nav Rail ─────────────────────────────────────── */}
       <aside className="w-[56px] min-w-[56px] bg-monday-sidebar flex flex-col items-center py-3 gap-1 z-30">
         {/* Logo */}
-        <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-monday-orange via-monday-red to-monday-purple flex items-center justify-center shadow-monday-md mb-3">
-          <span className="text-white font-bold text-[15px] tracking-tight">S</span>
+        <div className="w-9 h-9 rounded-xl flex items-center justify-center shadow-monday-md mb-3 overflow-hidden">
+          <img src="/logo.png" alt="Sunday" className="w-full h-full object-contain" />
         </div>
 
         {navIcons.map(({ id, icon, label }) => (
@@ -68,8 +129,13 @@ function App() {
             key={id}
             title={label}
             onClick={() => {
-              if (['board', 'inbox', 'dashboard'].includes(id)) {
-                setActivePage(id as any);
+              if (id === 'admin') {
+                setShowAdminPanel(true);
+                return;
+              }
+              const pageIds = ['board', 'inbox', 'dashboard', 'search', 'docs', 'team', 'notifications'];
+              if (pageIds.includes(id)) {
+                setActivePage(id as typeof activePage);
                 setSidebarOpen(true);
               }
             }}
@@ -157,6 +223,36 @@ function App() {
                 Agregar tablero
               </button>
             </>
+          ) : activePage === 'inbox' ? (
+            <div className="p-3">
+              <p className="text-white/40 text-[11px] font-semibold px-2 mb-2 uppercase tracking-wider">Bandeja</p>
+              <p className="text-white/60 text-[12px] px-2">Tareas asignadas a ti.</p>
+            </div>
+          ) : activePage === 'team' ? (
+            <div className="p-3">
+              <p className="text-white/40 text-[11px] font-semibold px-2 mb-2 uppercase tracking-wider">Equipo</p>
+              <p className="text-white/60 text-[12px] px-2">Miembros del workspace.</p>
+            </div>
+          ) : activePage === 'search' ? (
+            <div className="p-3">
+              <p className="text-white/40 text-[11px] font-semibold px-2 mb-2 uppercase tracking-wider">Buscar</p>
+              <p className="text-white/60 text-[12px] px-2">Busca en todos los tableros.</p>
+            </div>
+          ) : activePage === 'dashboard' ? (
+            <div className="p-3">
+              <p className="text-white/40 text-[11px] font-semibold px-2 mb-2 uppercase tracking-wider">Panel</p>
+              <p className="text-white/60 text-[12px] px-2">Resumen y estadísticas.</p>
+            </div>
+          ) : activePage === 'docs' ? (
+            <div className="p-3">
+              <p className="text-white/40 text-[11px] font-semibold px-2 mb-2 uppercase tracking-wider">Docs</p>
+              <p className="text-white/60 text-[12px] px-2">Documentación del equipo.</p>
+            </div>
+          ) : activePage === 'notifications' ? (
+            <div className="p-3">
+              <p className="text-white/40 text-[11px] font-semibold px-2 mb-2 uppercase tracking-wider">Notificaciones</p>
+              <p className="text-white/60 text-[12px] px-2">Actualizaciones recientes.</p>
+            </div>
           ) : (
             <div className="p-4 text-center text-white/50 text-[13px]">
               Menú de {activePage}
@@ -189,16 +285,31 @@ function App() {
                 </div>
 
                 <div className="flex items-center px-6 gap-1 text-[13px]">
-                  {[{ id: 'table', label: '⊞ Tabla principal' }, { id: 'kanban', label: '▦ Kanban' }].map(tab => (
+                  {[
+                    { id: 'table' as const, label: '⊞ Tabla principal' },
+                    { id: 'kanban' as const, label: '▦ Kanban' },
+                    ...(enabledViews.includes('calendar') ? [{ id: 'calendar' as const, label: '📅 Calendario' }] : []),
+                  ].map(tab => (
                     <button
                       key={tab.id}
-                      onClick={() => setCurrentView(tab.id as 'table' | 'kanban')}
+                      onClick={() => setCurrentView(tab.id)}
                       className={`py-2.5 px-3 border-b-2 transition-colors font-medium rounded-t-md ${currentView === tab.id ? 'border-monday-blue text-monday-blue' : 'border-transparent text-monday-subtext hover:text-monday-text hover:bg-monday-hover'}`}
                     >
                       {tab.label}
                     </button>
                   ))}
-                  <button className="py-2.5 px-2 text-monday-subtext hover:text-monday-blue transition-colors"><Plus size={16} /></button>
+                  <AddViewDropdown
+                    enabledViews={enabledViews}
+                    onAddView={(view) => {
+                      if (!enabledViews.includes(view)) {
+                        setEnabledViews([...enabledViews, view]);
+                        setCurrentView(view);
+                      }
+                      setShowAddViewPopover(false);
+                    }}
+                    open={showAddViewPopover}
+                    onOpenChange={setShowAddViewPopover}
+                  />
                 </div>
               </header>
 
@@ -206,9 +317,21 @@ function App() {
                 <BoardContainer boardId={activeBoardId} onRowClick={setSelectedItem} viewMode={currentView} />
               </div>
             </>
+          ) : activePage === 'inbox' ? (
+            <InboxPage onItemClick={setSelectedItem} />
+          ) : activePage === 'notifications' ? (
+            <NotificationsPage />
+          ) : activePage === 'search' ? (
+            <SearchPage onItemClick={setSelectedItem} />
+          ) : activePage === 'docs' ? (
+            <DocsPage />
+          ) : activePage === 'dashboard' ? (
+            <DashboardPage />
+          ) : activePage === 'team' ? (
+            <TeamPage />
           ) : (
             <div className="flex-1 flex flex-col items-center justify-center text-monday-subtext">
-              {activePage === 'inbox' ? <Inbox size={48} className="mb-4 opacity-50" /> : <BarChart2 size={48} className="mb-4 opacity-50" />}
+              <BarChart2 size={48} className="mb-4 opacity-50" />
               <h2 className="text-xl font-semibold text-monday-text mb-2">Próximamente</h2>
               <p className="text-[14px]">Esta vista "({activePage})" estará disponible en futuras actualizaciones.</p>
             </div>

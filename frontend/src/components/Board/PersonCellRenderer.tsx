@@ -86,7 +86,7 @@ export const PersonCellRenderer: React.FC<Props> = ({ item, column, value }) => 
                 </div>
                 <div className="flex flex-col min-w-0">
                   <span className="text-[13px] text-monday-text font-medium truncate leading-tight">{u.name}</span>
-                  <span className="text-[11px] text-monday-subtext truncate leading-tight">{u.email}</span>
+                  <span className="text-[11px] text-monday-subtext truncate leading-tight">@{u.username}</span>
                 </div>
               </button>
             ))}

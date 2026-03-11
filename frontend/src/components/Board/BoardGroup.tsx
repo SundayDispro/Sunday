@@ -15,6 +15,8 @@ import { ColumnTypePicker } from './ColumnTypePicker';
 import { socket } from '../../store/socket';
 import * as Popover from '@radix-ui/react-popover';
 import { PersonCellRenderer } from './PersonCellRenderer';
+import { DateCellRenderer } from './DateCellRenderer';
+import { Paperclip } from 'lucide-react';
 
 interface Props {
   group: Group;
@@ -26,6 +28,46 @@ interface Props {
 }
 
 const columnHelper = createColumnHelper<Item>();
+
+// ── Editable text cell for text columns ───────────────────────────────────
+const TextCell: React.FC<{ content: string; item: Item; column: BoardColumn }> = ({ content, item, column }) => {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(content);
+  const inputRef = useRef<HTMLInputElement>(null);
+  React.useEffect(() => { if (!editing) setDraft(content); }, [content, editing]);
+
+  const commit = () => {
+    setEditing(false);
+    if (draft !== content) {
+      socket.emit('update_column_value', { itemId: item.id, columnId: column.id, value: draft });
+    } else {
+      setDraft(content);
+    }
+  };
+
+  if (editing) {
+    return (
+      <input
+        ref={inputRef}
+        autoFocus
+        value={draft}
+        onChange={e => setDraft(e.target.value)}
+        onBlur={commit}
+        onKeyDown={e => { if (e.key === 'Enter') commit(); if (e.key === 'Escape') { setDraft(content); setEditing(false); } }}
+        onClick={e => e.stopPropagation()}
+        className="w-full h-full min-h-[38px] bg-white border border-monday-blue rounded outline-none text-[13px] text-monday-text px-2"
+      />
+    );
+  }
+  return (
+    <div
+      className="w-full h-full min-h-[38px] flex items-center px-2 cursor-pointer hover:bg-monday-hover transition-colors"
+      onClick={e => { e.stopPropagation(); setEditing(true); setTimeout(() => inputRef.current?.focus(), 0); }}
+    >
+      <span className="text-[13px] text-monday-text truncate">{content || <span className="text-monday-subtext">—</span>}</span>
+    </div>
+  );
+};
 
 // ── Inline text cell (item name) ──────────────────────────────────────────
 const InlineNameCell: React.FC<{ item: Item; onOpen: () => void; allGroups?: Group[]; currentGroupId: string }> = ({ item, onOpen, allGroups, currentGroupId }) => {
@@ -67,9 +109,15 @@ const InlineNameCell: React.FC<{ item: Item; onOpen: () => void; allGroups?: Gro
     <div className="flex items-center gap-2 group/item h-full w-full px-2">
       <button
         className="text-[13px] text-left text-monday-text hover:text-monday-blue transition-colors truncate flex-1 min-w-0"
-        onClick={e => { e.stopPropagation(); onOpen(); }}
-        onDoubleClick={e => { e.stopPropagation(); setEditing(true); setTimeout(() => inputRef.current?.select(), 0); }}
-        title="Clic: abrir panel · Doble clic: renombrar"
+        onClick={e => {
+          e.stopPropagation();
+          setEditing(true);
+          setTimeout(() => {
+            inputRef.current?.focus();
+            inputRef.current?.select();
+          }, 0);
+        }}
+        title="Clic para editar nombre"
       >
         {item.name}
       </button>
@@ -78,7 +126,7 @@ const InlineNameCell: React.FC<{ item: Item; onOpen: () => void; allGroups?: Gro
         <button
           className="text-monday-border hover:text-monday-blue shrink-0 p-1"
           onClick={e => { e.stopPropagation(); onOpen(); }}
-          title="Abrir panel"
+          title="Abrir panel de detalles"
         >
           <MessageSquare size={14} />
         </button>
@@ -327,38 +375,52 @@ export const BoardGroup: React.FC<Props> = ({ group, allGroups, columns, hiddenC
           return <StatusCellRenderer item={item} column={col} value={cv} />;
         }
         if (col.type === 'date') {
-          return (
-            <div
-              className="w-full h-full flex items-center justify-center text-[13px] text-monday-subtext hover:bg-monday-hover cursor-pointer transition-colors"
-              onClick={e => e.stopPropagation()}
-            >
-              {cv?.value || <span className="text-monday-border text-[12px]">— —</span>}
-            </div>
-          );
+          return <DateCellRenderer item={item} column={col} value={cv} />;
         }
         if (col.type === 'person') {
           return <PersonCellRenderer item={item} column={col} value={cv} />;
         }
         if (col.type === 'timeline') {
+          let label = '— —';
+          if (cv?.value) {
+            try {
+              const parsed = JSON.parse(cv.value);
+              const start = parsed.start ? new Date(parsed.start) : null;
+              const end = parsed.end ? new Date(parsed.end) : null;
+              if (start && !isNaN(start.getTime())) {
+                const s = start.toLocaleDateString('es', { day: 'numeric', month: 'short' });
+                const e = end && !isNaN(end.getTime()) ? end.toLocaleDateString('es', { day: 'numeric', month: 'short' }) : s;
+                label = `${s} – ${e}`;
+              }
+            } catch {
+              label = cv.value.length > 20 ? cv.value.slice(0, 20) + '…' : cv.value;
+            }
+          }
           return (
             <div className="w-full px-2 h-full flex items-center justify-center" onClick={e => e.stopPropagation()}>
-              <div className="w-full bg-monday-blue rounded-full h-5 text-white text-[10px] flex items-center justify-center font-medium">
-                mar. 10 – 15
+              <div className="w-full max-w-full bg-monday-blue rounded-full h-5 text-white text-[10px] flex items-center justify-center font-medium px-2 truncate" title={label}>
+                {label}
               </div>
             </div>
           );
         }
         if (col.type === 'text') {
-          return (
-            <div className="w-full h-full flex items-center px-2" onClick={e => e.stopPropagation()}>
-              <span className="text-[13px] text-monday-text truncate">{cv?.value || ''}</span>
-            </div>
-          );
+          return <TextCell content={cv?.value ?? ''} item={item} column={col} />;
         }
         if (col.type === 'number') {
           return (
             <div className="w-full h-full flex items-center justify-center" onClick={e => e.stopPropagation()}>
               <span className="text-[13px] text-monday-text font-medium">{cv?.value || ''}</span>
+            </div>
+          );
+        }
+        if (col.type === 'file') {
+          return (
+            <div className="w-full h-full flex items-center justify-center px-2" onClick={e => e.stopPropagation()}>
+              <span className="text-[12px] text-monday-subtext flex items-center gap-1.5">
+                <Paperclip size={14} />
+                {cv?.value ? 'Archivo adjunto' : 'Sin archivos'}
+              </span>
             </div>
           );
         }

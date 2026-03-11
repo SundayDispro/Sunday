@@ -20,13 +20,14 @@ import {
   sortableKeyboardCoordinates,
 } from '@dnd-kit/sortable';
 import { KanbanView } from './KanbanView';
+import { CalendarView } from './CalendarView';
 import { useUser } from '../../store/UserContext';
 import * as Popover from '@radix-ui/react-popover';
 
 interface Props {
   boardId: string;
   onRowClick: (item: Item) => void;
-  viewMode: 'table' | 'kanban';
+  viewMode: 'table' | 'kanban' | 'calendar';
 }
 
 const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode }) => {
@@ -443,6 +444,8 @@ const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode }) => {
       <div className="flex-1 overflow-auto custom-scrollbar px-6 py-5">
         {viewMode === 'kanban' ? (
           <KanbanView board={board} onRowClick={onRowClick} />
+        ) : viewMode === 'calendar' ? (
+          <CalendarView board={board} onRowClick={onRowClick} />
         ) : (
           <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
             <div className="flex flex-col gap-8">

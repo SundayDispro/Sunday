@@ -1,7 +1,7 @@
 import React from 'react';
 import * as Popover from '@radix-ui/react-popover';
 import {
-  Tag, Calendar, User, AlignLeft, Clock, Hash, BarChart2, X
+  Tag, Calendar, User, AlignLeft, Clock, Hash, BarChart2, X, Paperclip
 } from 'lucide-react';
 
 interface ColumnType {
@@ -20,6 +20,7 @@ const COLUMN_TYPES: ColumnType[] = [
   { id: 'text',     label: 'Texto',      icon: <AlignLeft size={18} />, color: '#676879', description: 'Escribe cualquier nota corta' },
   { id: 'number',   label: 'Número',     icon: <Hash size={18} />,      color: '#e2445c', description: 'Valores numéricos y cálculos' },
   { id: 'timeline', label: 'Cronograma', icon: <Clock size={18} />,     color: '#5559df', description: 'Rango de fechas de inicio y fin' },
+  { id: 'file',     label: 'Archivos',   icon: <Paperclip size={18} />, color: '#676879', description: 'Adjuntar archivos a la tarea' },
 ];
 
 interface Props {
