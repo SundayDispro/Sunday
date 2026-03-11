@@ -25,6 +25,7 @@ import { CalendarView } from './CalendarView';
 import { FacturacionBoardView } from './FacturacionBoardView';
 import { useUser } from '../../store/UserContext';
 import * as Popover from '@radix-ui/react-popover';
+import * as Dialog from '@radix-ui/react-dialog';
 
 interface Props {
   boardId: string;
@@ -51,6 +52,7 @@ const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode }) => {
     try { return localStorage.getItem('sunday-multiselect-hint') !== 'dismissed'; } catch { return true; }
   });
   const [showMovePopover, setShowMovePopover] = useState(false);
+  const [showDeleteItemsConfirm, setShowDeleteItemsConfirm] = useState(false);
 
   const fetchBoard = async () => {
     try {
@@ -228,11 +230,31 @@ const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode }) => {
     clearSelection();
   };
 
-  const handleDeleteSelected = () => {
+  const openDeleteConfirm = () => {
     if (selectedItemIds.size === 0) return;
-    if (!window.confirm(`¿Eliminar ${selectedItemIds.size} elemento(s) seleccionado(s)?`)) return;
-    selectedItemIds.forEach(itemId => socket.emit('delete_item', { itemId }));
+    setShowDeleteItemsConfirm(true);
+  };
+
+  const confirmDeleteSelected = () => {
+    if (selectedItemIds.size === 0 || !board) return;
+    const idsToDelete = Array.from(selectedItemIds);
+
+    // Actualización optimista: quitar los elementos del estado de inmediato
+    setBoard(prev => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        groups: prev.groups.map(g => ({
+          ...g,
+          items: g.items.filter(i => !idsToDelete.includes(i.id)),
+        })),
+      };
+    });
     clearSelection();
+    setShowDeleteItemsConfirm(false);
+
+    // Enviar al backend para persistir
+    idsToDelete.forEach(itemId => socket.emit('delete_item', { itemId }));
   };
 
   const handleMoveSelected = (targetGroupId: string) => {
@@ -849,7 +871,7 @@ const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode }) => {
               </button>
               <button
                 type="button"
-                onClick={handleDeleteSelected}
+                onClick={openDeleteConfirm}
                 className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-monday text-[12px] text-monday-red hover:bg-red-50"
                 title="Eliminar"
               >
@@ -899,6 +921,41 @@ const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode }) => {
             </button>
           </div>
         )}
+
+        {/* Diálogo de confirmación eliminar elementos (interno, estilo app) */}
+        <Dialog.Root open={showDeleteItemsConfirm} onOpenChange={setShowDeleteItemsConfirm}>
+          <Dialog.Portal>
+            <Dialog.Overlay className="fixed inset-0 bg-black/40 z-[150] fade-in" />
+            <Dialog.Content
+              className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 bg-white rounded-xl shadow-monday-xl border border-monday-border p-6 w-[400px] max-w-[90vw] z-[151] zoom-in"
+              onCloseAutoFocus={(e) => e.preventDefault()}
+            >
+              <Dialog.Title className="text-lg font-bold text-monday-text mb-1">
+                Eliminar elementos
+              </Dialog.Title>
+              <Dialog.Description className="text-[14px] text-monday-subtext mb-6">
+                ¿Eliminar {selectedItemIds.size} elemento{selectedItemIds.size !== 1 ? 's' : ''} seleccionado{selectedItemIds.size !== 1 ? 's' : ''}? Esta acción no se puede deshacer.
+              </Dialog.Description>
+              <div className="flex justify-end gap-2">
+                <Dialog.Close asChild>
+                  <button
+                    type="button"
+                    className="px-4 py-2 text-[13px] font-medium text-monday-text bg-monday-hover hover:bg-monday-border rounded-lg transition-colors"
+                  >
+                    Cancelar
+                  </button>
+                </Dialog.Close>
+                <button
+                  type="button"
+                  onClick={confirmDeleteSelected}
+                  className="px-4 py-2 text-[13px] font-medium text-white bg-monday-red hover:bg-red-600 rounded-lg transition-colors"
+                >
+                  Eliminar
+                </button>
+              </div>
+            </Dialog.Content>
+          </Dialog.Portal>
+        </Dialog.Root>
       </div>
     </div>
   );

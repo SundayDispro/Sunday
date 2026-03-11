@@ -756,7 +756,7 @@ if (ok && data && typeof data.id === 'string') {
               }}
             />
           ) : activePage === 'docs' ? (
-            <DocsPage workspaceId={activeWorkspaceId} boards={boards} />
+            <DocsPage workspaceId={activeWorkspaceId ?? workspaces[0]?.id ?? null} boards={boards} />
           ) : activePage === 'dashboard' ? (
             <DashboardPage />
           ) : activePage === 'team' ? (

@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { BookOpen, FileText, Table2, Plus, Trash2 } from 'lucide-react';
 import { Board, Doc } from '../../types';
 
-const API_BASE = 'http://localhost:3001';
+const API_BASE = import.meta.env.DEV ? '' : 'http://localhost:3001';
 
 interface Props {
   workspaceId: string | null;
@@ -98,7 +98,11 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards }) => {
       setSelectedId(data.id);
     } catch (e) {
       console.error('Error creating doc', e);
-      setError(e instanceof Error ? e.message : 'No se pudo crear el documento.');
+      const msg = e instanceof Error ? e.message : 'No se pudo crear el documento.';
+      const hint = msg.includes('fetch') || msg.includes('Failed to fetch') || msg === 'No se pudo crear el documento.'
+        ? ' Comprueba que el backend esté en marcha (puerto 3001).'
+        : '';
+      setError(msg + hint);
     } finally {
       setSaving(false);
     }

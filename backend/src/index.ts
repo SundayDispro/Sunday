@@ -853,11 +853,17 @@ io.on('connection', (socket) => {
 
   socket.on('delete_item', async (data) => {
     try {
-      const { itemId } = data;
-      await prisma.columnValue.deleteMany({ where: { itemId } });
-      await prisma.update.deleteMany({ where: { itemId } });
-      await prisma.notification.deleteMany({ where: { itemId } });
-      await prisma.item.delete({ where: { id: itemId } });
+      const itemId = typeof data?.itemId === 'string' ? data.itemId : null;
+      if (!itemId) {
+        console.error('delete_item: itemId inválido', data);
+        return;
+      }
+      await prisma.$transaction([
+        prisma.columnValue.deleteMany({ where: { itemId } }),
+        prisma.update.deleteMany({ where: { itemId } }),
+        prisma.notification.deleteMany({ where: { itemId } }),
+        prisma.item.delete({ where: { id: itemId } }),
+      ]);
       io.emit('item_deleted', { itemId });
     } catch (e) {
       console.error('Error deleting item:', e);
