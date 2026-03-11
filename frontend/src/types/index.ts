@@ -32,7 +32,7 @@ export interface Item {
 export interface BoardColumn {
   id: string;
   title: string;
-  type: 'status' | 'date' | 'person' | 'priority' | 'text' | 'timeline' | 'number' | 'file';
+  type: 'status' | 'date' | 'person' | 'priority' | 'text' | 'timeline' | 'number' | 'file' | 'contact' | 'excel' | 'docs';
   position: number;
   boardId: string;
   settings?: string;

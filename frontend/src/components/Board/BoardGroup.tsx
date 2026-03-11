@@ -14,8 +14,13 @@ import { StatusCellRenderer } from './StatusCellRenderer';
 import { ColumnTypePicker } from './ColumnTypePicker';
 import { socket } from '../../store/socket';
 import * as Popover from '@radix-ui/react-popover';
+import * as Dialog from '@radix-ui/react-dialog';
 import { PersonCellRenderer } from './PersonCellRenderer';
 import { DateCellRenderer } from './DateCellRenderer';
+import { ContactCellRenderer } from './ContactCellRenderer';
+import { ExcelCellRenderer } from './ExcelCellRenderer';
+import { DocsCellRenderer } from './DocsCellRenderer';
+import { TimelineCellRenderer } from './TimelineCellRenderer';
 import { Paperclip } from 'lucide-react';
 
 interface Props {
@@ -252,6 +257,7 @@ export const BoardGroup: React.FC<Props> = ({ group, allGroups, columns, hiddenC
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [isRenamingGroup, setIsRenamingGroup] = useState(false);
   const [groupNameDraft, setGroupNameDraft] = useState(group.name);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const addInputRef = useRef<HTMLInputElement>(null);
 
   const {
@@ -381,38 +387,19 @@ export const BoardGroup: React.FC<Props> = ({ group, allGroups, columns, hiddenC
           return <PersonCellRenderer item={item} column={col} value={cv} />;
         }
         if (col.type === 'timeline') {
-          let label = '— —';
-          if (cv?.value) {
-            try {
-              const parsed = JSON.parse(cv.value);
-              const start = parsed.start ? new Date(parsed.start) : null;
-              const end = parsed.end ? new Date(parsed.end) : null;
-              if (start && !isNaN(start.getTime())) {
-                const s = start.toLocaleDateString('es', { day: 'numeric', month: 'short' });
-                const e = end && !isNaN(end.getTime()) ? end.toLocaleDateString('es', { day: 'numeric', month: 'short' }) : s;
-                label = `${s} – ${e}`;
-              }
-            } catch {
-              label = cv.value.length > 20 ? cv.value.slice(0, 20) + '…' : cv.value;
-            }
-          }
-          return (
-            <div className="w-full px-2 h-full flex items-center justify-center" onClick={e => e.stopPropagation()}>
-              <div className="w-full max-w-full bg-monday-blue rounded-full h-5 text-white text-[10px] flex items-center justify-center font-medium px-2 truncate" title={label}>
-                {label}
-              </div>
-            </div>
-          );
+          return <TimelineCellRenderer item={item} column={col} value={cv} />;
         }
         if (col.type === 'text') {
           return <TextCell content={cv?.value ?? ''} item={item} column={col} />;
         }
-        if (col.type === 'number') {
-          return (
-            <div className="w-full h-full flex items-center justify-center" onClick={e => e.stopPropagation()}>
-              <span className="text-[13px] text-monday-text font-medium">{cv?.value || ''}</span>
-            </div>
-          );
+        if (col.type === 'contact' || col.type === 'number') {
+          return <ContactCellRenderer item={item} column={col} value={cv} />;
+        }
+        if (col.type === 'excel') {
+          return <ExcelCellRenderer item={item} column={col} value={cv} />;
+        }
+        if (col.type === 'docs') {
+          return <DocsCellRenderer item={item} column={col} value={cv} />;
         }
         if (col.type === 'file') {
           return (
@@ -519,9 +506,7 @@ export const BoardGroup: React.FC<Props> = ({ group, allGroups, columns, hiddenC
         <button
           onClick={e => {
             e.stopPropagation();
-            if (window.confirm(`¿Eliminar el grupo "${group.name}" y todas sus tareas? Esta acción no se puede deshacer.`)) {
-              socket.emit('delete_group', { groupId: group.id });
-            }
+            setShowDeleteConfirm(true);
           }}
           className="ml-auto p-1.5 rounded-lg text-monday-subtext hover:text-monday-red hover:bg-red-50 transition-colors"
           title="Eliminar grupo"
@@ -529,6 +514,44 @@ export const BoardGroup: React.FC<Props> = ({ group, allGroups, columns, hiddenC
           <Trash2 size={16} />
         </button>
       </div>
+
+      {/* Diálogo de confirmación eliminar grupo */}
+      <Dialog.Root open={showDeleteConfirm} onOpenChange={setShowDeleteConfirm}>
+        <Dialog.Portal>
+          <Dialog.Overlay className="fixed inset-0 bg-black/40 z-[100] fade-in" />
+          <Dialog.Content
+            className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 bg-white rounded-xl shadow-monday-xl border border-monday-border p-6 w-[400px] max-w-[90vw] z-[101] zoom-in"
+            onCloseAutoFocus={(e) => e.preventDefault()}
+          >
+            <Dialog.Title className="text-lg font-bold text-monday-text mb-1">
+              Eliminar grupo
+            </Dialog.Title>
+            <Dialog.Description className="text-[14px] text-monday-subtext mb-6">
+              ¿Eliminar el grupo &quot;{group.name}&quot; y todas sus tareas? Esta acción no se puede deshacer.
+            </Dialog.Description>
+            <div className="flex justify-end gap-2">
+              <Dialog.Close asChild>
+                <button
+                  type="button"
+                  className="px-4 py-2 text-[13px] font-medium text-monday-text bg-monday-hover hover:bg-monday-border rounded-lg transition-colors"
+                >
+                  Cancelar
+                </button>
+              </Dialog.Close>
+              <button
+                type="button"
+                onClick={() => {
+                  socket.emit('delete_group', { groupId: group.id });
+                  setShowDeleteConfirm(false);
+                }}
+                className="px-4 py-2 text-[13px] font-medium text-white bg-monday-red hover:bg-red-600 rounded-lg transition-colors"
+              >
+                Eliminar
+              </button>
+            </div>
+          </Dialog.Content>
+        </Dialog.Portal>
+      </Dialog.Root>
 
       {/* ── Table ───────────────────────────────────────────────── */}
       {!isCollapsed && (
