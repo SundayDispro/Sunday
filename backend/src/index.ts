@@ -253,13 +253,13 @@ io.on('connection', (socket) => {
 
   socket.on('add_board', async (data) => {
     try {
-      const workspace = await prisma.workspace.findFirst();
+      let workspace = await prisma.workspace.findFirst();
       if (!workspace) {
-        console.error('No workspace found');
-        return;
+        workspace = await prisma.workspace.create({
+          data: { name: 'Main Workspace' },
+        });
       }
       const name = (data.name && String(data.name).trim()) || 'Nuevo tablero';
-      const maxPos = await prisma.board.findFirst({ orderBy: { createdAt: 'desc' }, select: { id: true } });
       const newBoard = await prisma.board.create({
         data: { name, workspaceId: workspace.id },
       });
