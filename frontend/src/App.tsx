@@ -199,6 +199,8 @@ function App() {
 
   const activeWorkspaceName =
     workspaces.find(w => w.id === activeWorkspaceId)?.name || 'Main Workspace';
+  const activeWorkspaceInitial =
+    workspaces.find(w => w.id === activeWorkspaceId)?.name.charAt(0).toUpperCase() || 'M';
 
   const navIcons = [
     { id: 'board', icon: <Home size={20} />, label: 'Inicio' },
@@ -316,7 +318,9 @@ function App() {
           <Popover.Root open={workspaceSelectorOpen} onOpenChange={setWorkspaceSelectorOpen}>
             <Popover.Trigger asChild>
               <button className="w-full flex items-center gap-2 text-white/90 hover:bg-monday-sidebarHover rounded-lg px-2 py-1.5 transition-colors">
-                <div className="w-6 h-6 rounded bg-monday-purple/80 flex items-center justify-center text-white text-xs font-bold">E</div>
+                <div className="w-6 h-6 rounded bg-monday-purple/80 flex items-center justify-center text-white text-xs font-bold">
+                  {activeWorkspaceInitial}
+                </div>
                 <span className="text-[13px] font-semibold flex-1 text-left truncate">
                   {activeWorkspaceName}
                 </span>
@@ -421,7 +425,7 @@ if (ok && data && typeof data.id === 'string') {
               <div className="flex items-center justify-between mb-4 px-2">
                 <h2 className="text-[17px] font-bold text-monday-text tracking-tight flex items-center gap-2">
                   <div className="w-5 h-5 rounded bg-gradient-to-br from-monday-blue to-[#1d60f5] flex items-center justify-center text-white text-xs shadow-sm">
-                    M
+                    {activeWorkspaceInitial}
                   </div>
                   {activeWorkspaceName}
                 </h2>

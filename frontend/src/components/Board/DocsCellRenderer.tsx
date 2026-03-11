@@ -50,6 +50,7 @@ export const DocsCellRenderer: React.FC<Props> = ({ item, column, value }) => {
   const cotizacionFileRef = useRef<HTMLInputElement>(null);
   const hojaFileRef = useRef<HTMLInputElement>(null);
   const levantamientoFileRef = useRef<HTMLInputElement>(null);
+  const [viewerUrl, setViewerUrl] = useState<string | null>(null);
 
   const hasAny = !!(parsed.cotizacion?.trim() || parsed.hojaTrabajo?.trim() || parsed.levantamiento?.trim());
   const hasHoja = !!parsed.hojaTrabajo?.trim();
@@ -74,7 +75,7 @@ export const DocsCellRenderer: React.FC<Props> = ({ item, column, value }) => {
 
   const openUrl = (url: string) => {
     const href = url.startsWith('/') ? API_BASE + url : url.startsWith('http') ? url : 'https://' + url;
-    window.open(href, '_blank', 'noopener');
+    setViewerUrl(href);
   };
 
   const openEditDialog = (e: React.MouseEvent) => {
@@ -122,6 +123,7 @@ export const DocsCellRenderer: React.FC<Props> = ({ item, column, value }) => {
 
   const isUploadUrl = (url: string) => url.trim().startsWith('/uploads/');
   const previewUrl = (url: string) => (url.trim().startsWith('/') ? API_BASE + url : url);
+  const isPdf = (url: string) => url.toLowerCase().endsWith('.pdf');
 
   return (
     <>
@@ -226,7 +228,7 @@ export const DocsCellRenderer: React.FC<Props> = ({ item, column, value }) => {
             className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 bg-white rounded-xl shadow-monday-xl border border-monday-border p-4 w-[360px] max-w-[90vw] z-[201] zoom-in"
           >
             <Dialog.Title className="text-[14px] font-semibold text-monday-text mb-3">
-              Documentos (imágenes JPG)
+              Documentos (JPG o PDF)
             </Dialog.Title>
 
             {/* Cotización */}
@@ -235,7 +237,7 @@ export const DocsCellRenderer: React.FC<Props> = ({ item, column, value }) => {
               <input
                 ref={cotizacionFileRef}
                 type="file"
-                accept="image/jpeg,image/jpg"
+                accept="image/jpeg,image/jpg,application/pdf"
                 className="hidden"
                 id="docs-cotizacion-file"
                 onChange={e => {
@@ -248,10 +250,10 @@ export const DocsCellRenderer: React.FC<Props> = ({ item, column, value }) => {
                 className="inline-flex items-center gap-1.5 text-[12px] text-monday-blue font-medium cursor-pointer hover:underline"
               >
                 {uploading === 'cotizacion' ? <Loader2 size={14} className="animate-spin" /> : <Upload size={14} />}
-                Subir imagen JPG
+                Subir archivo JPG/PDF
               </label>
             </div>
-            {cotizacion.trim() && isUploadUrl(cotizacion) && (
+            {cotizacion.trim() && isUploadUrl(cotizacion) && !isPdf(cotizacion) && (
               <div className="mb-3 rounded-lg overflow-hidden border border-monday-border bg-monday-hover/30">
                 <img src={previewUrl(cotizacion)} alt="Vista previa cotización" className="max-h-24 w-full object-contain" />
               </div>
@@ -263,7 +265,7 @@ export const DocsCellRenderer: React.FC<Props> = ({ item, column, value }) => {
               <input
                 ref={hojaFileRef}
                 type="file"
-                accept="image/jpeg,image/jpg"
+                accept="image/jpeg,image/jpg,application/pdf"
                 className="hidden"
                 id="docs-hoja-file"
                 onChange={e => {
@@ -276,10 +278,10 @@ export const DocsCellRenderer: React.FC<Props> = ({ item, column, value }) => {
                 className="inline-flex items-center gap-1.5 text-[12px] text-monday-blue font-medium cursor-pointer hover:underline"
               >
                 {uploading === 'hoja' ? <Loader2 size={14} className="animate-spin" /> : <Upload size={14} />}
-                Subir imagen JPG
+                Subir archivo JPG/PDF
               </label>
             </div>
-            {hojaTrabajo.trim() && isUploadUrl(hojaTrabajo) && (
+            {hojaTrabajo.trim() && isUploadUrl(hojaTrabajo) && !isPdf(hojaTrabajo) && (
               <div className="mb-3 rounded-lg overflow-hidden border border-monday-border bg-monday-hover/30">
                 <img src={previewUrl(hojaTrabajo)} alt="Vista previa hoja de trabajo" className="max-h-24 w-full object-contain" />
               </div>
@@ -291,7 +293,7 @@ export const DocsCellRenderer: React.FC<Props> = ({ item, column, value }) => {
               <input
                 ref={levantamientoFileRef}
                 type="file"
-                accept="image/jpeg,image/jpg"
+                accept="image/jpeg,image/jpg,application/pdf"
                 className="hidden"
                 id="docs-levantamiento-file"
                 onChange={e => {
@@ -304,10 +306,10 @@ export const DocsCellRenderer: React.FC<Props> = ({ item, column, value }) => {
                 className="inline-flex items-center gap-1.5 text-[12px] text-monday-blue font-medium cursor-pointer hover:underline"
               >
                 {uploading === 'levantamiento' ? <Loader2 size={14} className="animate-spin" /> : <Upload size={14} />}
-                Subir imagen JPG
+                Subir archivo JPG/PDF
               </label>
             </div>
-            {levantamiento.trim() && isUploadUrl(levantamiento) && (
+            {levantamiento.trim() && isUploadUrl(levantamiento) && !isPdf(levantamiento) && (
               <div className="mb-3 rounded-lg overflow-hidden border border-monday-border bg-monday-hover/30">
                 <img src={previewUrl(levantamiento)} alt="Vista previa levantamiento" className="max-h-24 w-full object-contain" />
               </div>
@@ -333,6 +335,31 @@ export const DocsCellRenderer: React.FC<Props> = ({ item, column, value }) => {
                 Guardar
               </button>
             </div>
+          </Dialog.Content>
+        </Dialog.Portal>
+      </Dialog.Root>
+
+      <Dialog.Root open={!!viewerUrl} onOpenChange={open => { if (!open) setViewerUrl(null); }}>
+        <Dialog.Portal>
+          <Dialog.Overlay className="fixed inset-0 bg-black/40 z-[210] fade-in" />
+          <Dialog.Content className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 bg-white rounded-xl shadow-monday-xl border border-monday-border w-[80vw] h-[80vh] max-w-[1200px] z-[211] overflow-hidden">
+            <div className="flex items-center justify-between px-4 py-2 border-b border-monday-border">
+              <span className="text-[13px] font-medium text-monday-text">Vista de documento</span>
+              <button
+                type="button"
+                onClick={() => setViewerUrl(null)}
+                className="text-monday-subtext hover:text-monday-text text-[13px]"
+              >
+                Cerrar
+              </button>
+            </div>
+            {viewerUrl && (
+              <iframe
+                src={viewerUrl}
+                title="Vista de documento"
+                className="w-full h-full"
+              />
+            )}
           </Dialog.Content>
         </Dialog.Portal>
       </Dialog.Root>

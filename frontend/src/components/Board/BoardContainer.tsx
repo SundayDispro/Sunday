@@ -43,6 +43,8 @@ const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode }) => {
   const [showSort, setShowSort] = useState(false);
   const [showHide, setShowHide] = useState(false);
   const [exporting, setExporting] = useState(false);
+  const [newMenuOpen, setNewMenuOpen] = useState(false);
+  const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({});
 
   const fetchBoard = async () => {
     try {
@@ -349,6 +351,10 @@ const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode }) => {
         : null,
     [board, filteredGroups, visibleColumns]
   );
+  const toggleGroupCollapse = (id: string) => {
+    setCollapsedGroups(prev => ({ ...prev, [id]: !prev[id] }));
+  };
+
 
   const handleExportFolders = async () => {
     if (!board || !currentUser) return;
@@ -390,9 +396,41 @@ const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode }) => {
             + Nuevo elemento
           </button>
           <div className="w-px h-5 bg-white/30" />
-          <button className="text-white px-2 py-1.5 hover:bg-monday-blue/90 rounded-r-monday transition-colors">
-            <ChevronDown size={14} />
-          </button>
+          <Popover.Root open={newMenuOpen} onOpenChange={setNewMenuOpen}>
+            <Popover.Trigger asChild>
+              <button className="text-white px-2 py-1.5 hover:bg-monday-blue/90 rounded-r-monday transition-colors">
+                <ChevronDown size={14} />
+              </button>
+            </Popover.Trigger>
+            <Popover.Portal>
+              <Popover.Content
+                className="z-50 bg-white rounded-xl shadow-monday-lg border border-monday-border w-44 p-1 mt-1"
+                sideOffset={4}
+                align="start"
+              >
+                <button
+                  type="button"
+                  onClick={() => {
+                    setNewMenuOpen(false);
+                    handleAddItemFromToolbar();
+                  }}
+                  className="w-full text-left px-3 py-2 text-[13px] hover:bg-monday-hover rounded-md"
+                >
+                  Nuevo elemento
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setNewMenuOpen(false);
+                    handleAddGroup();
+                  }}
+                  className="w-full text-left px-3 py-2 text-[13px] hover:bg-monday-hover rounded-md"
+                >
+                  Nuevo grupo
+                </button>
+              </Popover.Content>
+            </Popover.Portal>
+          </Popover.Root>
         </div>
         )}
 
@@ -553,36 +591,44 @@ const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode }) => {
           <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
             <div className="flex flex-col gap-8">
               <SortableContext items={rootFilteredGroups.map(g => g.id)} strategy={verticalListSortingStrategy}>
-                {rootFilteredGroups.map(group => (
-                  <React.Fragment key={group.id}>
-                    <BoardGroup
-                      group={group}
-                      allGroups={board.groups}
-                      columns={visibleColumns}
-                      hiddenColumns={isTaller ? [] : hiddenColumns}
-                      boardId={board.id}
-                      onRowClick={onRowClick}
-                      showAddColumn={!isTaller}
-                      showAddRow={!isTaller}
-                    />
-                    {filteredGroups
-                      .filter(g => g.parentGroupId === group.id)
-                      .map(sub => (
-                        <BoardGroup
-                          key={sub.id}
-                          group={sub}
-                          allGroups={board.groups}
-                          columns={visibleColumns}
-                          hiddenColumns={isTaller ? [] : hiddenColumns}
-                          boardId={board.id}
-                          onRowClick={onRowClick}
-                          showAddColumn={!isTaller}
-                          showAddRow={!isTaller}
-                          isSubgroup
-                        />
-                      ))}
-                  </React.Fragment>
-                ))}
+                {rootFilteredGroups.map(group => {
+                  const isCollapsed = !!collapsedGroups[group.id];
+                  return (
+                    <React.Fragment key={group.id}>
+                      <BoardGroup
+                        group={group}
+                        allGroups={board.groups}
+                        columns={visibleColumns}
+                        hiddenColumns={isTaller ? [] : hiddenColumns}
+                        boardId={board.id}
+                        onRowClick={onRowClick}
+                        showAddColumn={!isTaller}
+                        showAddRow={!isTaller}
+                        collapsed={isCollapsed}
+                        onToggleCollapse={() => toggleGroupCollapse(group.id)}
+                      />
+                      {!isCollapsed &&
+                        filteredGroups
+                          .filter(g => g.parentGroupId === group.id)
+                          .map(sub => (
+                            <BoardGroup
+                              key={sub.id}
+                              group={sub}
+                              allGroups={board.groups}
+                              columns={visibleColumns}
+                              hiddenColumns={isTaller ? [] : hiddenColumns}
+                              boardId={board.id}
+                              onRowClick={onRowClick}
+                              showAddColumn={!isTaller}
+                              showAddRow={!isTaller}
+                              isSubgroup
+                              collapsed={!!collapsedGroups[sub.id]}
+                              onToggleCollapse={() => toggleGroupCollapse(sub.id)}
+                            />
+                          ))}
+                    </React.Fragment>
+                  );
+                })}
               </SortableContext>
 
               {searchQuery.trim() === '' && !isTaller && (

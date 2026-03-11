@@ -27,17 +27,26 @@ try {
 
 const storage = multer.diskStorage({
   destination: (_req, _file, cb) => cb(null, UPLOAD_DIR),
-  filename: (_req, _file, cb) =>
-    cb(null, `${Date.now()}-${Math.random().toString(36).slice(2, 9)}.jpg`),
+  filename: (_req, file, cb) => {
+    const safeExt = (() => {
+      if (file.mimetype === 'application/pdf') return '.pdf';
+      if (file.mimetype === 'image/jpeg' || file.mimetype === 'image/jpg') return '.jpg';
+      return path.extname(file.originalname || '').toLowerCase() || '.bin';
+    })();
+    cb(null, `${Date.now()}-${Math.random().toString(36).slice(2, 9)}${safeExt}`);
+  },
 });
 
 const upload = multer({
   storage,
   limits: { fileSize: MAX_FILE_SIZE },
   fileFilter: (_req, file, cb) => {
-    const ok = file.mimetype === 'image/jpeg' || file.mimetype === 'image/jpg';
+    const ok =
+      file.mimetype === 'image/jpeg' ||
+      file.mimetype === 'image/jpg' ||
+      file.mimetype === 'application/pdf';
     if (ok) cb(null, true);
-    else cb(new Error('Solo se permiten archivos JPG (image/jpeg).'));
+    else cb(new Error('Solo se permiten archivos JPG (image/jpeg) o PDF (application/pdf).'));
   },
 });
 
@@ -52,7 +61,7 @@ app.get('/api/health', (_req, res) => {
   res.status(200).json({ ok: true });
 });
 
-// Subir imagen JPG (multipart/form-data, field: "file"); responde con la URL pública
+// Subir documento (JPG o PDF) (multipart/form-data, field: "file"); responde con la URL pública
 app.post('/api/upload', (req, res) => {
   const sendError = (status: number, message: string) => {
     res.status(status).json({ error: message });

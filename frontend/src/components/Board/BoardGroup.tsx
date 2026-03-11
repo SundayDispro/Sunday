@@ -35,6 +35,8 @@ interface Props {
   /** Si false (ej. vista Taller), no se muestra la fila "Agregar elemento" */
   showAddRow?: boolean;
   isSubgroup?: boolean;
+  collapsed?: boolean;
+  onToggleCollapse?: () => void;
 }
 
 const columnHelper = createColumnHelper<Item>();
@@ -256,10 +258,21 @@ const ColumnHeader: React.FC<{ col: BoardColumn }> = ({ col }) => {
 };
 
 // ── Main BoardGroup ────────────────────────────────────────────────────────
-export const BoardGroup: React.FC<Props> = ({ group, allGroups, columns, hiddenColumns, boardId, onRowClick, showAddColumn = true, showAddRow = true, isSubgroup = false }) => {
+export const BoardGroup: React.FC<Props> = ({
+  group,
+  allGroups,
+  columns,
+  hiddenColumns,
+  boardId,
+  onRowClick,
+  showAddColumn = true,
+  showAddRow = true,
+  isSubgroup = false,
+  collapsed,
+  onToggleCollapse,
+}) => {
   const [newTaskName, setNewTaskName] = useState('');
   const [isAddingTask, setIsAddingTask] = useState(false);
-  const [isCollapsed, setIsCollapsed] = useState(false);
   const [isRenamingGroup, setIsRenamingGroup] = useState(false);
   const [groupNameDraft, setGroupNameDraft] = useState(group.name);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
@@ -273,6 +286,8 @@ export const BoardGroup: React.FC<Props> = ({ group, allGroups, columns, hiddenC
     transition,
     isDragging,
   } = useSortable({ id: group.id });
+
+  const isCollapsed = collapsed ?? false;
 
   const style = {
     transform: CSS.Transform.toString(transform),
@@ -460,7 +475,7 @@ export const BoardGroup: React.FC<Props> = ({ group, allGroups, columns, hiddenC
           <GripVertical size={16} />
         </div>
         <button
-          onClick={() => setIsCollapsed(v => !v)}
+          onClick={() => onToggleCollapse?.()}
           className="text-monday-subtext hover:text-monday-text transition-colors"
           title={isCollapsed ? 'Expandir' : 'Colapsar'}
         >
