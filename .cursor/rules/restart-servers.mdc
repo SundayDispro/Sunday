@@ -1,0 +1,14 @@
+---
+description: Reiniciar servidores cuando los cambios lo requieran
+alwaysApply: true
+---
+
+# Reinicio de servidores
+
+Cuando implementes cambios que requieran que backend o frontend recarguen (cambios en backend, env, configuración de Vite, etc.):
+
+1. **Reinicia los servidores** tras aplicar los cambios.
+2. En Windows PowerShell usa `;` para encadenar comandos (no `&&`).
+3. Backend: liberar puerto 3001 si hace falta, luego `Set-Location <ruta-backend>; npm run dev` en segundo plano.
+4. Frontend: liberar 5173/5174 si hace falta, luego `Set-Location <ruta-frontend>; npm run dev` en segundo plano.
+5. Considera necesario reiniciar cuando cambies: `backend/src/**`, `backend/package.json`, variables de entorno, `vite.config.*`, o cuando el usuario indique que algo no se aplica sin reiniciar.

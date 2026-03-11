@@ -610,6 +610,26 @@ if (ok && data && typeof data.id === 'string') {
                   })
                   .catch(() => {});
               }}
+              onBoardDeleted={() => {
+                const url = activeWorkspaceId
+                  ? `http://localhost:3001/api/boards?workspaceId=${encodeURIComponent(
+                      activeWorkspaceId
+                    )}`
+                  : 'http://localhost:3001/api/boards';
+
+                fetch(url)
+                  .then(r => r.json())
+                  .then((data: Board[]) => {
+                    if (!Array.isArray(data)) return;
+                    setBoards(data);
+                    setActiveBoardId(prev => {
+                      if (!prev) return null;
+                      const exists = data.some(b => b.id === prev);
+                      return exists ? prev : data[0]?.id ?? null;
+                    });
+                  })
+                  .catch(() => {});
+              }}
             />
           ) : activePage === 'board' && boards.length === 0 ? (
             <div className="flex-1 flex flex-col items-center justify-center text-monday-subtext p-8">

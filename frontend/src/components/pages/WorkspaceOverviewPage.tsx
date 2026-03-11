@@ -14,6 +14,7 @@ interface WorkspaceOverviewPageProps {
   onSelectBoard: (boardId: string) => void;
   onWorkspaceUpdated: (w: WorkspaceType) => void;
   onWorkspaceDeleted: () => void;
+  onBoardDeleted: () => void;
 }
 
 export const WorkspaceOverviewPage: React.FC<WorkspaceOverviewPageProps> = ({
@@ -22,6 +23,7 @@ export const WorkspaceOverviewPage: React.FC<WorkspaceOverviewPageProps> = ({
   onSelectBoard,
   onWorkspaceUpdated,
   onWorkspaceDeleted,
+  onBoardDeleted,
 }) => {
   const [tab, setTab] = useState<TabId>('recent');
   const [description, setDescription] = useState(workspace?.description ?? '');
@@ -38,6 +40,10 @@ export const WorkspaceOverviewPage: React.FC<WorkspaceOverviewPageProps> = ({
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [boardToDelete, setBoardToDelete] = useState<Board | null>(null);
+  const [boardDeleteOpen, setBoardDeleteOpen] = useState(false);
+  const [boardDeleting, setBoardDeleting] = useState(false);
+  const [boardDeleteError, setBoardDeleteError] = useState<string | null>(null);
 
   const saveDescription = async () => {
     if (!workspace?.id) return;
@@ -113,6 +119,48 @@ export const WorkspaceOverviewPage: React.FC<WorkspaceOverviewPageProps> = ({
       setDeleteError(err instanceof Error ? err.message : 'No se pudo conectar. Comprueba que el backend esté en marcha.');
     } finally {
       setDeleting(false);
+    }
+  };
+
+  const deleteBoard = async () => {
+    if (!boardToDelete) return;
+    setBoardDeleting(true);
+    setBoardDeleteError(null);
+    try {
+      const res = await fetch(`${API_BASE}/api/boards/${boardToDelete.id}`, { method: 'DELETE' });
+      if (res.ok) {
+        setBoardDeleteOpen(false);
+        setBoardToDelete(null);
+        onBoardDeleted();
+      } else {
+        const text = await res.text();
+        let msg = `Error ${res.status}`;
+        try {
+          const json = text ? JSON.parse(text) : {};
+          if (json?.error) msg = json.error;
+        } catch {
+          if (text) {
+            if (text.trimStart().startsWith('<!') || text.includes('</html>')) {
+              const preMatch = text.match(/<pre[^>]*>([\s\\s]*?)<\\/pre>/i);
+              const raw = preMatch ? preMatch[1].trim() : '';
+              msg = raw.startsWith('Cannot DELETE')
+                ? 'El backend no reconoce la eliminación de tableros. Asegúrate de tener el backend de Sunday en ejecución (npm run dev en la carpeta backend, puerto 3001) y de haber guardado los cambios.'
+                : raw || 'El servidor no pudo eliminar el tablero. Comprueba que el backend esté en marcha.';
+            } else {
+              msg = text.length > 200 ? `${text.slice(0, 200)}…` : text;
+            }
+          }
+        }
+        setBoardDeleteError(msg);
+      }
+    } catch (err) {
+      setBoardDeleteError(
+        err instanceof Error
+          ? err.message
+          : 'No se pudo conectar. Comprueba que el backend esté en marcha.'
+      );
+    } finally {
+      setBoardDeleting(false);
     }
   };
 
@@ -290,16 +338,28 @@ export const WorkspaceOverviewPage: React.FC<WorkspaceOverviewPageProps> = ({
               <p className="text-[13px] text-monday-subtext">No hay tableros en este workspace.</p>
             ) : (
               boards.map(b => (
-                <li key={b.id}>
+                <li key={b.id} className="flex items-center justify-between gap-2">
                   <button
                     type="button"
                     onClick={() => onSelectBoard(b.id)}
-                    className="w-full flex items-center gap-3 px-3 py-2.5 rounded-monday hover:bg-monday-hover text-left transition-colors"
+                    className="flex-1 flex items-center gap-3 px-3 py-2.5 rounded-monday hover:bg-monday-hover text-left transition-colors"
                   >
                     <div className="w-8 h-8 rounded-lg bg-monday-hover flex items-center justify-center text-monday-subtext">
                       <LayoutGrid size={16} />
                     </div>
                     <span className="text-[14px] font-medium text-monday-text">{b.name}</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setBoardToDelete(b);
+                      setBoardDeleteError(null);
+                      setBoardDeleteOpen(true);
+                    }}
+                    className="p-2 rounded-full text-monday-subtext hover:text-red-600 hover:bg-red-50 shrink-0"
+                    aria-label={`Eliminar tablero ${b.name}`}
+                  >
+                    <Trash2 size={16} />
                   </button>
                 </li>
               ))
@@ -313,6 +373,50 @@ export const WorkspaceOverviewPage: React.FC<WorkspaceOverviewPageProps> = ({
           <p className="text-[13px] text-monday-subtext">Permisos del espacio de trabajo.</p>
         )}
       </div>
+
+      <Dialog.Root
+        open={boardDeleteOpen}
+        onOpenChange={open => {
+          setBoardDeleteOpen(open);
+          if (!open) {
+            setBoardDeleteError(null);
+            setBoardToDelete(null);
+          }
+        }}
+      >
+        <Dialog.Portal>
+          <Dialog.Overlay className="fixed inset-0 bg-black/50 z-40" />
+          <Dialog.Content className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-50 w-full max-w-md bg-white rounded-xl shadow-xl p-6">
+            <Dialog.Title className="text-[18px] font-semibold text-monday-text">
+              Eliminar tablero
+            </Dialog.Title>
+            <Dialog.Description className="text-[14px] text-monday-subtext mt-2">
+              ¿Estás seguro? Se eliminará el tablero &quot;{boardToDelete?.name}&quot; y todo su contenido.
+              Esta acción no se puede deshacer.
+            </Dialog.Description>
+            {boardDeleteError && (
+              <p className="mt-3 px-3 py-2 rounded-lg bg-red-50 text-red-700 text-[13px]" role="alert">
+                {boardDeleteError}
+              </p>
+            )}
+            <div className="flex justify-end gap-2 mt-6">
+              <Dialog.Close asChild>
+                <button className="px-4 py-2 text-[13px] text-monday-subtext hover:bg-monday-hover rounded-lg">
+                  Cancelar
+                </button>
+              </Dialog.Close>
+              <button
+                type="button"
+                onClick={deleteBoard}
+                disabled={boardDeleting}
+                className="px-4 py-2 text-[13px] font-medium bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50"
+              >
+                {boardDeleting ? 'Eliminando...' : 'Eliminar'}
+              </button>
+            </div>
+          </Dialog.Content>
+        </Dialog.Portal>
+      </Dialog.Root>
 
       <Dialog.Root
         open={deleteConfirmOpen}
