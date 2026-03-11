@@ -413,7 +413,7 @@ export const NotificationsPage: React.FC<NotificationsPageProps> = ({
               </section>
             )}
 
-            {!loading && tab === 'all' && filteredAssignments.length === 0 && filteredMentions.length === 0 && (
+            {!loading && tab === 'all' && assignments.length === 0 && filteredMentions.length === 0 && (
               <div className="flex flex-col items-center justify-center py-16 text-monday-subtext">
                 <div className="w-16 h-16 rounded-full bg-monday-hover flex items-center justify-center mb-4">
                   <Bell size={28} className="opacity-60" />

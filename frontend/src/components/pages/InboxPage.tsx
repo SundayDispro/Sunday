@@ -26,6 +26,8 @@ export const InboxPage: React.FC<{ onItemClick?: (item: Item) => void }> = ({ on
   const [users, setUsers] = useState<User[]>([]);
   const [posting, setPosting] = useState(false);
   const [postError, setPostError] = useState<string | null>(null);
+  const [onlyUnread, setOnlyUnread] = useState(false);
+  const [readPostIds, setReadPostIds] = useState<string[]>([]);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const fetchFeed = () => {
@@ -151,6 +153,16 @@ export const InboxPage: React.FC<{ onItemClick?: (item: Item) => void }> = ({ on
     return parts;
   };
 
+  const handleMarkPostAsRead = (id: string) => {
+    setReadPostIds(prev => (prev.includes(id) ? prev : [...prev, id]));
+  };
+
+  const handleMarkAllAsRead = () => {
+    setReadPostIds(posts.map(p => p.id));
+  };
+
+  const visiblePosts = (onlyUnread ? posts.filter(p => !readPostIds.includes(p.id)) : posts);
+
   return (
     <div className="flex-1 flex flex-col overflow-hidden">
       <div className="p-6 border-b border-monday-border">
@@ -236,10 +248,19 @@ export const InboxPage: React.FC<{ onItemClick?: (item: Item) => void }> = ({ on
 
         <div className="flex items-center justify-between mt-3 text-[12px] text-monday-subtext">
           <label className="flex items-center gap-2 cursor-pointer">
-            <CheckSquare size={14} />
-            Mostrar actualizaciones no leídas
+            <input
+              type="checkbox"
+              checked={onlyUnread}
+              onChange={e => setOnlyUnread(e.target.checked)}
+              className="rounded border-monday-border text-monday-blue focus:ring-monday-blue"
+            />
+            Mostrar solo no leídas
           </label>
-          <button type="button" className="hover:text-monday-text transition-colors">
+          <button
+            type="button"
+            onClick={handleMarkAllAsRead}
+            className="hover:text-monday-text transition-colors"
+          >
             Marcar todas como leídas
           </button>
         </div>
@@ -250,7 +271,7 @@ export const InboxPage: React.FC<{ onItemClick?: (item: Item) => void }> = ({ on
           <div className="flex justify-center py-12">
             <div className="w-8 h-8 border-2 border-monday-blue border-t-transparent rounded-full animate-spin" />
           </div>
-        ) : posts.length === 0 ? (
+        ) : visiblePosts.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-16 text-monday-subtext">
             <div className="w-16 h-16 rounded-full bg-monday-hover flex items-center justify-center mb-4">
               <Inbox size={28} className="opacity-60" />
@@ -264,10 +285,14 @@ export const InboxPage: React.FC<{ onItemClick?: (item: Item) => void }> = ({ on
           </div>
         ) : (
           <ul className="space-y-4">
-            {posts.map(post => (
+            {visiblePosts.map(post => {
+              const isRead = readPostIds.includes(post.id);
+              return (
               <li
                 key={post.id}
-                className="bg-white border border-monday-border rounded-monday p-4 shadow-monday-sm hover:border-monday-border/80 transition-colors"
+                className={`bg-white border border-monday-border rounded-monday p-4 shadow-monday-sm hover:border-monday-border/80 transition-colors ${
+                  isRead ? 'opacity-70' : ''
+                }`}
               >
                 <div className="flex items-start gap-3">
                   <div
@@ -287,16 +312,19 @@ export const InboxPage: React.FC<{ onItemClick?: (item: Item) => void }> = ({ on
                       {renderContent(post.content)}
                     </div>
                   </div>
-                  <button
-                    type="button"
-                    title="Marcar como leída"
-                    className="p-1.5 rounded-monday text-monday-subtext hover:text-monday-blue hover:bg-monday-hover transition-colors"
-                  >
-                    <CheckSquare size={18} />
-                  </button>
+                  {!isRead && (
+                    <button
+                      type="button"
+                      title="Marcar como leída"
+                      onClick={() => handleMarkPostAsRead(post.id)}
+                      className="p-1.5 rounded-monday text-monday-subtext hover:text-monday-blue hover:bg-monday-hover transition-colors"
+                    >
+                      <CheckSquare size={18} />
+                    </button>
+                  )}
                 </div>
               </li>
-            ))}
+            );})}
           </ul>
         )}
       </div>
