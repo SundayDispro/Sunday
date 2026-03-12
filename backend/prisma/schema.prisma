@@ -24,6 +24,7 @@ model Workspace {
   id          String   @id @default(uuid())
   name        String
   description String?
+  panelNotes  String?  // JSON array: [{ id, x, y, title, body }] para vista general de Docs
   boards      Board[]
   docs        Doc[]
   createdAt   DateTime @default(now())
