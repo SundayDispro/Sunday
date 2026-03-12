@@ -14,6 +14,8 @@ import {
   useSensor,
   useSensors,
   DragEndEvent,
+  DragOverlay,
+  useDndContext,
 } from '@dnd-kit/core';
 import {
   SortableContext,
@@ -32,6 +34,23 @@ interface Props {
   boardId: string;
   onRowClick: (item: Item) => void;
   viewMode: 'table' | 'kanban' | 'calendar' | 'facturacion';
+}
+
+function GroupDragOverlay({ groups }: { groups: Group[] }) {
+  const { active } = useDndContext();
+  const group = active?.id ? groups.find(g => g.id === active.id) : null;
+  if (!group) return null;
+  return (
+    <DragOverlay>
+      <div
+        className="bg-white rounded-lg border border-monday-border shadow-monday-lg px-4 py-3 flex items-center gap-3 min-w-[200px]"
+        style={{ borderLeftWidth: 4, borderLeftColor: group.color }}
+      >
+        <span className="font-medium text-monday-text truncate">{group.name}</span>
+        <span className="text-monday-subtext text-[13px] shrink-0">{group.items.length} elementos</span>
+      </div>
+    </DragOverlay>
+  );
 }
 
 const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode }) => {
@@ -67,6 +86,45 @@ const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode }) => {
   const registerOpenCalendarEvent = useCallback((open: (opts: { date: Date; eventType: CalendarEventKind }) => void) => {
     openCalendarEventRef.current = open;
   }, []);
+
+  /** Tabla: grupo cuyo header sticky está “pegado” arriba → z-index alto para que no lo tapen filas de otros grupos */
+  const [activeStickyGroupId, setActiveStickyGroupId] = useState<string | null>(null);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const groupRefsMap = useRef<Map<string, HTMLElement>>(new Map());
+  const registerGroupRef = useCallback((groupId: string, el: HTMLElement | null) => {
+    if (el) groupRefsMap.current.set(groupId, el);
+    else groupRefsMap.current.delete(groupId);
+  }, []);
+  const updateActiveStickyGroup = useCallback(() => {
+    const scrollEl = scrollContainerRef.current;
+    if (!scrollEl || viewMode !== 'table') return;
+    const scrollRect = scrollEl.getBoundingClientRect();
+    const stickyThreshold = scrollRect.top + 60; // ~altura del header
+    // Grupo activo = el que está “pegado” arriba (su top está en o por encima del umbral)
+    let bestId: string | null = null;
+    let bestTop = -Infinity;
+    groupRefsMap.current.forEach((el, groupId) => {
+      const top = el.getBoundingClientRect().top;
+      if (top <= stickyThreshold && top > bestTop) {
+        bestTop = top;
+        bestId = groupId;
+      }
+    });
+    setActiveStickyGroupId(prev => (prev !== bestId ? bestId : prev));
+  }, [viewMode]);
+  useEffect(() => {
+    if (viewMode !== 'table') return;
+    const scrollEl = scrollContainerRef.current;
+    if (!scrollEl) return;
+    const onScroll = () => updateActiveStickyGroup();
+    // Ejecutar tras montaje (refs de grupos ya registrados) y al hacer scroll
+    const t = setTimeout(updateActiveStickyGroup, 0);
+    scrollEl.addEventListener('scroll', onScroll, { passive: true });
+    return () => {
+      clearTimeout(t);
+      scrollEl.removeEventListener('scroll', onScroll);
+    };
+  }, [viewMode, updateActiveStickyGroup, board?.id]);
 
   const fetchBoard = async () => {
     try {
@@ -911,7 +969,7 @@ const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode }) => {
       </div>
 
       {/* ── Board Content ───────────────────────────────────────── */}
-      <div className="flex-1 overflow-auto custom-scrollbar px-6 py-5">
+      <div ref={scrollContainerRef} className="flex-1 overflow-auto custom-scrollbar px-6 py-5">
         {viewMode === 'kanban' && boardForView ? (
           <KanbanView board={boardForView} onRowClick={onRowClick} />
         ) : viewMode === 'calendar' && boardForView ? (
@@ -926,9 +984,10 @@ const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode }) => {
           <FacturacionBoardView board={board} onRowClick={onRowClick} />
         ) : (
           <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+            <GroupDragOverlay groups={filteredGroups} />
             <div className="flex flex-col gap-8">
               <SortableContext items={rootFilteredGroups.map(g => g.id)} strategy={verticalListSortingStrategy}>
-                {rootFilteredGroups.map(group => {
+                {rootFilteredGroups.map((group, idx) => {
                   const isCollapsed = !!collapsedGroups[group.id];
                   return (
                     <React.Fragment key={group.id}>
@@ -946,6 +1005,9 @@ const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode }) => {
                         selectedItemIds={selectedItemIds}
                         onToggleItem={toggleItemSelection}
                         onToggleGroupAll={toggleGroupAll}
+                        stackIndex={idx}
+                        activeStickyGroupId={viewMode === 'table' ? activeStickyGroupId : null}
+                        registerGroupRef={viewMode === 'table' ? registerGroupRef : undefined}
                       />
                       {!isCollapsed &&
                         filteredGroups
@@ -967,6 +1029,9 @@ const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode }) => {
                               selectedItemIds={selectedItemIds}
                               onToggleItem={toggleItemSelection}
                               onToggleGroupAll={toggleGroupAll}
+                              stackIndex={idx}
+                              activeStickyGroupId={viewMode === 'table' ? activeStickyGroupId : null}
+                              registerGroupRef={viewMode === 'table' ? registerGroupRef : undefined}
                             />
                           ))}
                     </React.Fragment>
@@ -1153,6 +1218,9 @@ const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode }) => {
                   </button>
                 </Dialog.Close>
               </div>
+              <Dialog.Description className="text-[13px] text-monday-subtext mb-1 sr-only">
+                Elige grupo, posición y nombre del elemento a crear.
+              </Dialog.Description>
 
               <div className="flex flex-col gap-4">
                 {/* Grupo */}

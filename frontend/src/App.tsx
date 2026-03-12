@@ -4,7 +4,7 @@ import BoardContainer from './components/Board/BoardContainer';
 import { ItemDetailsPanel } from './components/Board/ItemDetailsPanel';
 import {
   Home, Bell, Search, Settings, ChevronDown, ChevronRight,
-  LayoutGrid, Users, BookOpen, BarChart2, Inbox, Star, Plus, Receipt, Calendar,
+  LayoutGrid, Users, BookOpen, BarChart2, Inbox, Star, Plus, Receipt, Calendar, Folder,
 } from 'lucide-react';
 import { Item, Board, Workspace } from './types';
 import { useUser } from './store/UserContext';
@@ -87,8 +87,49 @@ function App() {
   const { currentUser, logout } = useUser();
   const [selectedItem, setSelectedItem] = useState<Item | null>(null);
   const canSeeFacturacionView = currentUser?.role === 'ADMIN' || currentUser?.role === 'VENTAS';
-  const [currentView, setCurrentView] = useState<ViewMode>('table');
-  const [enabledViews, setEnabledViews] = useState<ViewMode[]>(['table', 'kanban']);
+
+  const [currentView, setCurrentViewState] = useState<ViewMode>(() => {
+    try {
+      const raw = localStorage.getItem('sunday-views');
+      if (!raw) return 'table';
+      const parsed = JSON.parse(raw) as { currentView?: ViewMode; enabledViews?: ViewMode[] };
+      if (parsed.currentView && ['table', 'kanban', 'calendar', 'facturacion'].includes(parsed.currentView)) return parsed.currentView;
+    } catch { /* ignore */ }
+    return 'table';
+  });
+  const [enabledViews, setEnabledViewsState] = useState<ViewMode[]>(() => {
+    try {
+      const raw = localStorage.getItem('sunday-views');
+      if (!raw) return ['table', 'kanban'];
+      const parsed = JSON.parse(raw) as { currentView?: ViewMode; enabledViews?: ViewMode[] };
+      if (Array.isArray(parsed.enabledViews) && parsed.enabledViews.length > 0) {
+        const valid = parsed.enabledViews.filter((v): v is ViewMode => ['table', 'kanban', 'calendar', 'facturacion'].includes(v));
+        if (valid.length > 0) return valid;
+      }
+    } catch { /* ignore */ }
+    return ['table', 'kanban'];
+  });
+
+  const setCurrentView = (v: ViewMode) => {
+    setCurrentViewState(v);
+    try {
+      const raw = localStorage.getItem('sunday-views');
+      const prev = raw ? JSON.parse(raw) as { currentView?: ViewMode; enabledViews?: ViewMode[] } : {};
+      localStorage.setItem('sunday-views', JSON.stringify({ ...prev, currentView: v }));
+    } catch { /* ignore */ }
+  };
+  const setEnabledViews = (v: ViewMode[] | ((prev: ViewMode[]) => ViewMode[])) => {
+    setEnabledViewsState(prev => {
+      const next = typeof v === 'function' ? v(prev) : v;
+      try {
+        const raw = localStorage.getItem('sunday-views');
+        const data = raw ? JSON.parse(raw) as { currentView?: ViewMode; enabledViews?: ViewMode[] } : {};
+        localStorage.setItem('sunday-views', JSON.stringify({ ...data, enabledViews: next }));
+      } catch { /* ignore */ }
+      return next;
+    });
+  };
+
   const [showAddViewPopover, setShowAddViewPopover] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   
@@ -203,14 +244,14 @@ function App() {
     workspaces.find(w => w.id === activeWorkspaceId)?.name.charAt(0).toUpperCase() || 'M';
 
   const navIcons = [
-    { id: 'board', icon: <Home size={20} />, label: 'Inicio' },
-    { id: 'inbox', icon: <Inbox size={20} />, label: 'Bandeja' },
-    { id: 'notifications', icon: <Bell size={20} />, label: 'Notificaciones' },
-    { id: 'search', icon: <Search size={20} />, label: 'Buscar' },
-    { id: 'docs', icon: <BookOpen size={20} />, label: 'Docs' },
-    { id: 'dashboard', icon: <BarChart2 size={20} />, label: 'Panel' },
-    { id: 'team', icon: <Users size={20} />, label: 'Equipo' },
-    { id: 'admin', icon: <Settings size={20} />, label: 'Admin' },
+    { id: 'board', icon: <Home size={22} strokeWidth={2.25} />, label: 'Inicio' },
+    { id: 'inbox', icon: <Inbox size={22} strokeWidth={2.25} />, label: 'Bandeja' },
+    { id: 'notifications', icon: <Bell size={22} strokeWidth={2.25} />, label: 'Notificaciones' },
+    { id: 'search', icon: <Search size={22} strokeWidth={2.25} />, label: 'Buscar' },
+    { id: 'docs', icon: <BookOpen size={22} strokeWidth={2.25} />, label: 'Docs' },
+    { id: 'dashboard', icon: <BarChart2 size={22} strokeWidth={2.25} />, label: 'Panel' },
+    { id: 'team', icon: <Users size={22} strokeWidth={2.25} />, label: 'Equipo' },
+    { id: 'admin', icon: <Settings size={22} strokeWidth={2.25} />, label: 'Admin' },
   ];
 
   const handleCreateBoard = async () => {
@@ -264,7 +305,7 @@ function App() {
       {/* ─── Left Nav Rail ─────────────────────────────────────── */}
       <aside className="w-[56px] min-w-[56px] bg-monday-sidebar flex flex-col items-center py-3 gap-1 z-30">
         {/* Logo */}
-        <div className="w-12 h-12 rounded-xl flex items-center justify-center shadow-monday-md mb-3 overflow-hidden">
+        <div className="w-14 h-14 rounded-xl flex items-center justify-center shadow-monday-md mb-3 overflow-hidden">
           <img src="/logo.png" alt="Sunday" className="w-full h-full object-contain" />
         </div>
 
@@ -284,7 +325,7 @@ function App() {
                 if (id === 'notifications') fetchUnreadNotifications();
               }
             }}
-            className={`relative w-9 h-9 flex items-center justify-center rounded-lg transition-all duration-150 ${activePage === id ? 'bg-monday-sidebarHover text-white' : 'text-white/50 hover:text-white hover:bg-monday-sidebarHover'}`}
+            className={`relative w-10 h-10 flex items-center justify-center rounded-lg transition-all duration-150 ${activePage === id ? 'bg-monday-sidebarHover text-white shadow-sm' : 'text-white/70 hover:text-white hover:bg-monday-sidebarHover'}`}
           >
             {icon}
             {id === 'notifications' && unreadNotifCount > 0 && (
@@ -300,51 +341,49 @@ function App() {
         <button 
           title={`Cerrar sesión (${currentUser.name})`} 
           onClick={logout}
-          className="w-8 h-8 rounded-full flex items-center justify-center text-white text-[11px] font-semibold shadow-sm mb-1 hover:opacity-80 transition-opacity"
+          className="w-9 h-9 rounded-full flex items-center justify-center text-white text-[12px] font-semibold shadow-sm mb-1 hover:opacity-90 transition-opacity ring-2 ring-white/20"
           style={{ backgroundColor: currentUser.color }}
         >
           {currentUser.initials}
         </button>
-        <button title="Apps" className="w-9 h-9 flex items-center justify-center rounded-lg text-white/50 hover:text-white hover:bg-monday-sidebarHover transition-all duration-150">
-          <LayoutGrid size={20} />
+        <button title="Apps" className="w-10 h-10 flex items-center justify-center rounded-lg text-white/70 hover:text-white hover:bg-monday-sidebarHover transition-all duration-150">
+          <LayoutGrid size={22} strokeWidth={2.25} />
         </button>
       </aside>
 
       {/* ─── Workspace Sidebar ─────────────────────────────────── */}
       <aside
-        className={`${sidebarOpen ? 'w-[232px] min-w-[232px]' : 'w-0 min-w-0'} bg-monday-sidebar flex flex-col overflow-hidden transition-all duration-200 z-20 border-r border-white/10`}
+        className={`${sidebarOpen ? 'w-[232px] min-w-[232px]' : 'w-0 min-w-0'} bg-monday-sidebarPanel flex flex-col overflow-hidden transition-all duration-200 z-20 border-r border-l border-monday-border`}
       >
-        <div className="px-3 py-3 border-b border-white/10">
+        <div className="px-3 py-3 border-b border-monday-border">
           <Popover.Root open={workspaceSelectorOpen} onOpenChange={setWorkspaceSelectorOpen}>
             <Popover.Trigger asChild>
-              <button className="w-full flex items-center gap-2 text-white/90 hover:bg-monday-sidebarHover rounded-lg px-2 py-1.5 transition-colors">
-                <div className="w-6 h-6 rounded bg-monday-purple/80 flex items-center justify-center text-white text-xs font-bold">
-                  {activeWorkspaceInitial}
+              <button className="w-full flex items-center gap-2.5 text-monday-text hover:bg-monday-hover rounded-lg px-2.5 py-2 transition-colors shadow-sm">
+                <div className="w-7 h-7 rounded-lg bg-monday-blue flex items-center justify-center text-white shrink-0 shadow-sm">
+                  <Folder size={16} />
                 </div>
-                <span className="text-[13px] font-semibold flex-1 text-left truncate">
-                  {activeWorkspaceName}
-                </span>
-                <ChevronDown size={15} className="text-white/50" />
+                <span className="text-[13px] font-semibold flex-1 text-left text-monday-text">Workspaces</span>
+                <ChevronDown size={16} className="text-monday-subtext shrink-0" strokeWidth={2.5} />
               </button>
             </Popover.Trigger>
             <Popover.Portal>
               <Popover.Content
-                className="z-50 w-64 rounded-xl shadow-monday-lg border border-white/10 bg-monday-sidebar p-2"
+                className="z-50 w-64 rounded-xl shadow-monday-lg border border-monday-border bg-white p-2"
                 sideOffset={8}
                 align="start"
                 onClick={e => e.stopPropagation()}
               >
-                <p className="text-[11px] font-semibold text-white/40 px-1 mb-1 uppercase tracking-wider">
+                <p className="text-[11px] font-semibold text-monday-subtext px-1.5 mb-1.5 uppercase tracking-wider">
                   Workspaces
                 </p>
                 <div className="flex flex-col gap-0.5 max-h-64 overflow-y-auto custom-scrollbar">
                   {workspaces.map(ws => (
                     <button
                       key={ws.id}
-                      className={`w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-[13px] transition-colors ${
+                      className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-[13px] transition-colors ${
                         ws.id === activeWorkspaceId
-                          ? 'bg-white/10 text-white'
-                          : 'text-white/70 hover:bg-white/5 hover:text-white'
+                          ? 'bg-monday-blue/15 text-monday-blue font-medium'
+                          : 'text-monday-text hover:bg-monday-hover'
                       }`}
                       onClick={() => {
                         setActiveWorkspaceId(ws.id);
@@ -352,19 +391,19 @@ function App() {
                         setWorkspaceSelectorOpen(false);
                       }}
                     >
-                      <div className="w-6 h-6 rounded bg-monday-purple/80 flex items-center justify-center text-white text-xs font-bold">
+                      <div className="w-6 h-6 rounded-md bg-monday-blue flex items-center justify-center text-white text-xs font-bold shrink-0">
                         {ws.name.charAt(0).toUpperCase()}
                       </div>
                       <span className="flex-1 text-left truncate">{ws.name}</span>
                     </button>
                   ))}
                   {workspaces.length === 0 && (
-                    <p className="text-[12px] text-white/50 px-2 py-1.5">
+                    <p className="text-[12px] text-monday-subtext px-2 py-1.5">
                       No hay workspaces disponibles.
                     </p>
                   )}
                 </div>
-                <div className="mt-2 pt-2 border-t border-white/10">
+                <div className="mt-2 pt-2 border-t border-monday-border">
                   <input
                     ref={newWorkspaceInputRef}
                     type="text"
@@ -372,7 +411,7 @@ function App() {
                     onChange={e => { setNewWorkspaceName(e.target.value); setWorkspaceError(null); }}
                     onKeyDown={e => { if (e.key === 'Enter') e.preventDefault(); }}
                     placeholder="Nuevo workspace"
-                    className="w-full px-2 py-1.5 rounded-lg bg-white/10 border border-white/20 text-[13px] text-white placeholder:text-white/40 focus:outline-none focus:ring-1 focus:ring-monday-blue mb-1.5"
+                    className="w-full px-2 py-1.5 rounded-lg bg-monday-bg border border-monday-border text-[13px] text-monday-text placeholder:text-monday-subtext focus:outline-none focus:ring-1 focus:ring-monday-blue mb-1.5"
                     disabled={creatingWorkspace}
                   />
                   {workspaceError && <p className="text-red-400 text-[11px] mb-1.5">{workspaceError}</p>}
@@ -446,18 +485,18 @@ if (ok && data && typeof data.id === 'string') {
                 <input
                   type="text"
                   placeholder="Buscar tableros..."
-                  className="w-full pl-9 pr-3 py-1.5 rounded-lg bg-monday-input text-white text-[13px] placeholder-monday-subtext focus:outline-none focus:ring-2 focus:ring-monday-blue"
+                  className="w-full pl-9 pr-3 py-1.5 rounded-lg bg-white border border-monday-border text-[13px] text-monday-text placeholder:text-monday-subtext focus:outline-none focus:ring-2 focus:ring-monday-blue"
                   value={boardSearch}
                   onChange={(e) => setBoardSearch(e.target.value)}
                 />
               </div>
 
-              <p className="text-white/40 text-[11px] font-semibold px-2 mb-1 mt-2 uppercase tracking-wider">Tableros</p>
+              <p className="text-monday-subtext text-[11px] font-semibold px-2 mb-1 mt-2 uppercase tracking-wider">Tableros</p>
               <button
                 onClick={() => setActiveBoardId(null)}
-                className={`w-full flex items-center gap-2 text-[13px] px-2 py-1.5 rounded-lg transition-colors mb-0.5 ${activeBoardId === null ? 'bg-monday-blue/80 text-white font-medium' : 'text-white/60 hover:bg-monday-sidebarHover hover:text-white'}`}
+                className={`w-full flex items-center gap-2 text-[13px] px-2.5 py-2 rounded-lg transition-colors mb-0.5 ${activeBoardId === null ? 'bg-monday-blue text-white font-medium' : 'text-monday-text hover:bg-monday-hover'}`}
               >
-                <LayoutGrid size={14} className="shrink-0" />
+                <LayoutGrid size={15} className="shrink-0" strokeWidth={2.25} />
                 Vista general
               </button>
               {boards
@@ -466,7 +505,7 @@ if (ok && data && typeof data.id === 'string') {
                 <button
                   key={b.id}
                   onClick={() => setActiveBoardId(b.id)}
-                  className={`w-full flex items-center gap-2 text-[13px] px-2 py-1.5 rounded-lg transition-colors mb-0.5 ${activeBoardId === b.id ? 'bg-monday-blue/80 text-white font-medium' : 'text-white/60 hover:bg-monday-sidebarHover hover:text-white'}`}
+                  className={`w-full flex items-center gap-2 text-[13px] px-2.5 py-2 rounded-lg transition-colors mb-0.5 ${activeBoardId === b.id ? 'bg-monday-blue text-white font-medium' : 'text-monday-text hover:bg-monday-hover'}`}
                 >
                   <span className="w-1.5 h-1.5 rounded-full bg-current opacity-60 shrink-0" />
                   {b.name}
@@ -481,14 +520,14 @@ if (ok && data && typeof data.id === 'string') {
                 }}
               >
                 <Popover.Trigger asChild>
-                  <button type="button" className="w-full flex items-center gap-2 text-[12px] px-2 py-1.5 text-white/40 hover:text-white/70 transition-colors mt-1">
+                  <button type="button" className="w-full flex items-center gap-2 text-[12px] px-2 py-1.5 text-monday-subtext hover:text-monday-text hover:bg-monday-hover transition-colors mt-1 rounded-lg">
                     <Plus size={14} />
                     Agregar tablero
                   </button>
                 </Popover.Trigger>
                 <Popover.Portal>
                   <Popover.Content
-                    className="z-50 w-[280px] rounded-xl shadow-monday-lg border border-white/10 bg-monday-sidebar p-0 overflow-hidden"
+                    className="z-50 w-[280px] rounded-xl shadow-monday-lg border border-monday-border bg-white p-0 overflow-hidden"
                     sideOffset={8}
                     align="start"
                     onOpenAutoFocus={(e) => {
@@ -497,8 +536,8 @@ if (ok && data && typeof data.id === 'string') {
                     }}
                   >
                     <div className="px-4 pt-4 pb-2">
-                      <p className="text-[13px] font-semibold text-white/90">Nuevo tablero</p>
-                      <p className="text-[12px] text-white/50 mt-0.5">Asigna un nombre a tu tablero</p>
+                      <p className="text-[13px] font-semibold text-monday-text">Nuevo tablero</p>
+                      <p className="text-[12px] text-monday-subtext mt-0.5">Asigna un nombre a tu tablero</p>
                     </div>
                     <form
                       className="px-4 pb-4"
@@ -513,7 +552,7 @@ if (ok && data && typeof data.id === 'string') {
                         value={newBoardName}
                         onChange={e => setNewBoardName(e.target.value)}
                         placeholder="Nombre del tablero"
-                        className="w-full px-3 py-2.5 rounded-lg bg-white/10 border border-white/20 text-[13px] text-white placeholder:text-white/40 focus:outline-none focus:ring-2 focus:ring-monday-blue focus:border-transparent mb-4"
+                        className="w-full px-3 py-2.5 rounded-lg bg-monday-bg border border-monday-border text-[13px] text-monday-text placeholder:text-monday-subtext focus:outline-none focus:ring-2 focus:ring-monday-blue focus:border-transparent mb-4"
                         disabled={creatingBoard}
                         aria-describedby={createBoardError ? 'create-board-error' : undefined}
                       />
@@ -546,41 +585,41 @@ if (ok && data && typeof data.id === 'string') {
             </>
           ) : activePage === 'inbox' ? (
             <div className="p-3">
-              <p className="text-white/40 text-[11px] font-semibold px-2 mb-2 uppercase tracking-wider">Bandeja</p>
-              <p className="text-white/60 text-[12px] px-2">Tareas asignadas a ti.</p>
+              <p className="text-monday-subtext text-[11px] font-semibold px-2 mb-2 uppercase tracking-wider">Bandeja</p>
+              <p className="text-monday-text text-[12px] px-2">Tareas asignadas a ti.</p>
             </div>
           ) : activePage === 'team' ? (
             <div className="p-3">
-              <p className="text-white/40 text-[11px] font-semibold px-2 mb-2 uppercase tracking-wider">Equipo</p>
-              <p className="text-white/60 text-[12px] px-2">Miembros del workspace.</p>
+              <p className="text-monday-subtext text-[11px] font-semibold px-2 mb-2 uppercase tracking-wider">Equipo</p>
+              <p className="text-monday-text text-[12px] px-2">Miembros del workspace.</p>
             </div>
           ) : activePage === 'search' ? (
             <div className="p-3">
-              <p className="text-white/40 text-[11px] font-semibold px-2 mb-2 uppercase tracking-wider">Buscar</p>
-              <p className="text-white/60 text-[12px] px-2">Busca en todos los tableros.</p>
+              <p className="text-monday-subtext text-[11px] font-semibold px-2 mb-2 uppercase tracking-wider">Buscar</p>
+              <p className="text-monday-text text-[12px] px-2">Busca en todos los tableros.</p>
             </div>
           ) : activePage === 'dashboard' ? (
             <div className="p-3">
-              <p className="text-white/40 text-[11px] font-semibold px-2 mb-2 uppercase tracking-wider">Panel</p>
-              <p className="text-white/60 text-[12px] px-2">Resumen y estadísticas.</p>
+              <p className="text-monday-subtext text-[11px] font-semibold px-2 mb-2 uppercase tracking-wider">Panel</p>
+              <p className="text-monday-text text-[12px] px-2">Resumen y estadísticas.</p>
             </div>
           ) : activePage === 'docs' ? (
             <div className="p-3">
-              <p className="text-white/40 text-[11px] font-semibold px-2 mb-2 uppercase tracking-wider">Docs</p>
-              <p className="text-white/60 text-[12px] px-2">Documentación del equipo.</p>
+              <p className="text-monday-subtext text-[11px] font-semibold px-2 mb-2 uppercase tracking-wider">Docs</p>
+              <p className="text-monday-text text-[12px] px-2">Documentación del equipo.</p>
             </div>
           ) : activePage === 'notifications' ? (
             <div className="p-3">
-              <p className="text-white/40 text-[11px] font-semibold px-2 mb-2 uppercase tracking-wider">Notificaciones</p>
-              <p className="text-white/60 text-[12px] px-2">Actualizaciones recientes.</p>
+              <p className="text-monday-subtext text-[11px] font-semibold px-2 mb-2 uppercase tracking-wider">Notificaciones</p>
+              <p className="text-monday-text text-[12px] px-2">Actualizaciones recientes.</p>
             </div>
           ) : activePage === 'facturacion' ? (
             <div className="p-3">
-              <p className="text-white/40 text-[11px] font-semibold px-2 mb-2 uppercase tracking-wider">Facturación</p>
-              <p className="text-white/60 text-[12px] px-2">Proyectos aprobados.</p>
+              <p className="text-monday-subtext text-[11px] font-semibold px-2 mb-2 uppercase tracking-wider">Facturación</p>
+              <p className="text-monday-text text-[12px] px-2">Proyectos aprobados.</p>
             </div>
           ) : (
-            <div className="p-4 text-center text-white/50 text-[13px]">
+            <div className="p-4 text-center text-monday-subtext text-[13px]">
               Menú de {activePage}
             </div>
           )}

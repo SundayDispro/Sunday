@@ -20,8 +20,9 @@ export default {
           subtext:      '#676879',
           border:       '#d0d4e4',
           hover:        '#e6e9ef',
-          sidebar:      '#292f4c',
-          sidebarHover: '#3d4475',
+          sidebar:      '#1d2a4b',
+          sidebarHover: '#2a3655',
+          sidebarPanel: '#f5f6fa',
           pill:         '#e8ecf5',
         }
       },

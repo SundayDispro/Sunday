@@ -1,4 +1,4 @@
-import React, { useMemo, useRef, useState } from 'react';
+import React, { useCallback, useMemo, useRef, useState } from 'react';
 import { Group, BoardColumn, Item } from '../../types';
 import {
   createColumnHelper,
@@ -43,6 +43,12 @@ interface Props {
   selectedItemIds?: Set<string>;
   onToggleItem?: (itemId: string, checked: boolean) => void;
   onToggleGroupAll?: (groupId: string, checked: boolean) => void;
+  /** Índice para apilamiento: grupos con índice mayor se pintan encima al hacer scroll. */
+  stackIndex?: number;
+  /** ID del grupo cuyo header sticky está pegado arriba (recibe z-index alto). */
+  activeStickyGroupId?: string | null;
+  /** Registro del nodo del grupo para detectar cuál header está sticky. */
+  registerGroupRef?: (groupId: string, el: HTMLElement | null) => void;
 }
 
 const columnHelper = createColumnHelper<Item>();
@@ -316,6 +322,9 @@ export const BoardGroup: React.FC<Props> = ({
   selectedItemIds = new Set(),
   onToggleItem,
   onToggleGroupAll,
+  stackIndex = 0,
+  activeStickyGroupId = null,
+  registerGroupRef,
 }) => {
   const [newTaskName, setNewTaskName] = useState('');
   const [isAddingTask, setIsAddingTask] = useState(false);
@@ -342,6 +351,8 @@ export const BoardGroup: React.FC<Props> = ({
     zIndex: isDragging ? 50 : 1,
     opacity: isDragging ? 0.5 : 1,
   };
+  // No aplicar style al root: el transform rompe position:sticky del header.
+  // Cuando isDragging, el grupo se oculta y BoardContainer muestra DragOverlay.
 
   const emitAddItem = (name: string) => {
     if (!name.trim()) return;
@@ -531,10 +542,26 @@ export const BoardGroup: React.FC<Props> = ({
     getCoreRowModel: getCoreRowModel(),
   });
 
+  // El grupo cuyo header está sticky arriba recibe z-index 1000 para que ninguna fila (suyas ni de otros grupos) lo tape.
+  const effectiveZIndex = activeStickyGroupId === group.id ? 1000 : stackIndex;
+  const refCallback = useCallback(
+    (el: HTMLDivElement | null) => {
+      setNodeRef(el);
+      registerGroupRef?.(group.id, el);
+    },
+    [group.id, setNodeRef, registerGroupRef]
+  );
   return (
-    <div ref={setNodeRef} style={style} className="mb-6 relative">
-      {/* ── Group Header (sticky al desplazarse para mantener el título visible) ─────────────────────────────────────────── */}
-      <div className={`sticky top-0 z-10 flex items-center gap-1.5 py-1.5 -mt-1.5 pt-2 mb-1.5 bg-white border-b border-monday-border group/header ${isSubgroup ? 'ml-6' : ''}`}>
+    <div
+      ref={refCallback}
+      className={`mb-6 relative ${isDragging ? 'opacity-0 pointer-events-none' : ''}`}
+      style={{ zIndex: effectiveZIndex }}
+    >
+      {/* ── Group Header (sticky; z muy alto para que NUNCA lo tapen filas del mismo u otro grupo) ─────────────────────────── */}
+      <div
+        className={`sticky top-0 z-[9999] isolate flex items-center gap-1.5 py-1.5 pt-2 pb-2 mb-1.5 bg-white border-b border-monday-border shadow-[0_2px_6px_0_rgba(0,0,0,0.08)] group/header ${isSubgroup ? 'ml-6' : ''}`}
+        style={{ transform: 'translateZ(0)', backfaceVisibility: 'hidden' as const }}
+      >
         <div 
           {...attributes} 
           {...listeners} 
@@ -680,9 +707,9 @@ export const BoardGroup: React.FC<Props> = ({
         />
       )}
 
-      {/* ── Table ───────────────────────────────────────────────── */}
+      {/* ── Table (z-0; sin transform en filas para no crear stacking contexts que tapen el header) ──────── */}
       {!isCollapsed && (
-        <div className="w-full overflow-x-auto rounded-l-md shadow-monday-sm border border-monday-border">
+        <div className="relative z-0 w-full overflow-x-auto rounded-l-md shadow-monday-sm border border-monday-border">
           <table className="w-max text-left border-collapse whitespace-nowrap table-fixed">
             {/* Header */}
             <thead>
@@ -762,7 +789,7 @@ export const BoardGroup: React.FC<Props> = ({
       {/* Collapsed summary bar */}
       {isCollapsed && (
         <button
-          onClick={() => setIsCollapsed(false)}
+          onClick={() => onToggleCollapse?.()}
           className="text-[12px] text-monday-subtext hover:text-monday-text flex items-center gap-1.5 mt-1 px-2 py-1 hover:bg-monday-hover rounded-monday transition-colors"
         >
           <ChevronDown size={14} className="-rotate-90" />
