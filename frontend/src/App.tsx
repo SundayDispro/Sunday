@@ -4,7 +4,7 @@ import BoardContainer from './components/Board/BoardContainer';
 import { ItemDetailsPanel } from './components/Board/ItemDetailsPanel';
 import {
   Home, Bell, Search, ChevronDown, ChevronRight,
-  LayoutGrid, Users, BookOpen, BarChart2, Inbox, Star, Plus, Receipt, Calendar, Folder, PieChart, FolderOpen, UserCheck, GanttChart,
+  LayoutGrid, Users, BookOpen, BarChart2, Inbox, Star, Plus, Receipt, Calendar, Folder, PieChart, FolderOpen, UserCheck, GanttChart, Check,
 } from 'lucide-react';
 import { Item, Board, Workspace, User } from './types';
 import { useUser } from './store/UserContext';
@@ -47,7 +47,7 @@ function AddViewDropdown({
       <Popover.Trigger asChild>
         <button
           className="py-2.5 px-2 text-monday-subtext hover:text-monday-blue transition-colors rounded-t-md"
-          title="Añadir vista"
+          title="AÃƒÂ±adir vista"
         >
           <Plus size={16} />
         </button>
@@ -59,7 +59,7 @@ function AddViewDropdown({
           align="start"
         >
           <div className="text-[12px] font-semibold text-monday-subtext mb-2 px-2 uppercase tracking-tight">
-            Añadir vista
+            AÃƒÂ±adir vista
           </div>
           {canAddFact && (
             <button
@@ -67,7 +67,7 @@ function AddViewDropdown({
               className="w-full flex items-center gap-2.5 px-3 py-2 rounded-monday hover:bg-monday-hover transition-colors text-left text-[13px] text-monday-text"
             >
               <Receipt size={16} className="text-monday-blue shrink-0" />
-              Facturación
+              FacturaciÃƒÂ³n
             </button>
           )}
           {canAddCalendar && (
@@ -116,7 +116,7 @@ function AddViewDropdown({
             </button>
           )}
           {!hasAny && (
-            <p className="text-[12px] text-monday-subtext px-2 py-2">Todas las vistas están activas.</p>
+            <p className="text-[12px] text-monday-subtext px-2 py-2">Todas las vistas estÃƒÂ¡n activas.</p>
           )}
         </Popover.Content>
       </Popover.Portal>
@@ -187,7 +187,7 @@ function App() {
     });
   };
 
-  // Rol TALLER: forzar solo tabla y calendario (vista y pestañas permitidas)
+  // Rol TALLER: forzar solo tabla y calendario (vista y pestaÃƒÂ±as permitidas)
   useEffect(() => {
     if (!isTaller) return;
     setCurrentViewState(prev => (prev === 'table' || prev === 'calendar' ? prev : 'table'));
@@ -197,7 +197,7 @@ function App() {
     });
   }, [isTaller]);
 
-  // Si el rol no puede ver facturación, limpiar vista/pestaña de facturación
+  // Si el rol no puede ver facturaciÃƒÂ³n, limpiar vista/pestaÃƒÂ±a de facturaciÃƒÂ³n
   useEffect(() => {
     if (canSeeFacturacionView) return;
     setCurrentViewState(prev => (prev === 'facturacion' ? 'table' : prev));
@@ -237,6 +237,35 @@ function App() {
     itemId: string;
   } | null>(null);
 
+  // Tareas personales (panel-notes) por workspace, visibles en Docs
+  interface TaskItem {
+    id: string;
+    text: string;
+    done: boolean;
+    important?: boolean;
+  }
+
+  interface TaskWindow {
+    id: string;
+    title: string;
+    ownerId?: string;
+    color?: string;
+    tasks: TaskItem[];
+  }
+
+  const TASK_WINDOW_COLORS = [
+    '#fef08a', '#fde047', '#facc15', '#bbf7d0', '#86efac', '#4ade80',
+    '#bfdbfe', '#93c5fd', '#60a5fa', '#fbcfe8', '#f9a8d4', '#e9d5ff', '#d8b4fe',
+    '#fed7aa', '#fdba74', '#fb923c',
+  ];
+  const DEFAULT_TASK_WINDOW_COLOR = '#fef08a';
+
+  const [taskWindows, setTaskWindows] = useState<TaskWindow[]>([]);
+  const [tasksLoading, setTasksLoading] = useState(false);
+  const taskWindowsRef = useRef<TaskWindow[]>([]);
+  taskWindowsRef.current = taskWindows;
+  const savePanelNotesTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   const fetchUnreadNotifications = React.useCallback(async () => {
     if (!currentUser?.id) return;
     try {
@@ -264,7 +293,95 @@ function App() {
     };
   }, [currentUser?.id, fetchUnreadNotifications]);
 
-  // Navegación desde columnas de Docs / Facturación hacia la pestaña interna de Docs
+  // Carga y guardado de tareas (panel-notes) por workspace
+  const savePanelNotesToApi = React.useCallback((notes: TaskWindow[], wid: string) => {
+    const toSave = notes.map(n => ({
+      id: n.id,
+      title: n.title,
+      ownerId: n.ownerId,
+      color: n.color,
+      tasks: (n.tasks ?? []).map(t => ({
+        id: t.id,
+        text: t.text,
+        done: t.done,
+        important: t.important,
+      })),
+    }));
+    fetch(`http://localhost:3001/api/workspaces/${wid}/panel-notes`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ panelNotes: toSave }),
+    }).catch(err => console.error('Panel notes save failed:', err));
+  }, []);
+
+  const scheduleSavePanelNotes = React.useCallback(() => {
+    if (!activeWorkspaceId) return;
+    if (savePanelNotesTimeoutRef.current) {
+      clearTimeout(savePanelNotesTimeoutRef.current);
+    }
+    savePanelNotesTimeoutRef.current = setTimeout(() => {
+      savePanelNotesTimeoutRef.current = null;
+      if (activeWorkspaceId) {
+        savePanelNotesToApi(taskWindowsRef.current, activeWorkspaceId);
+      }
+    }, 500);
+  }, [activeWorkspaceId, savePanelNotesToApi]);
+
+  useEffect(() => {
+    if (!activeWorkspaceId) {
+      setTaskWindows([]);
+      setTasksLoading(false);
+      return;
+    }
+    setTasksLoading(true);
+    fetch(`http://localhost:3001/api/workspaces/${activeWorkspaceId}/panel-notes`)
+      .then(r => r.json())
+      .then(data => {
+        const raw = Array.isArray(data?.panelNotes) ? data.panelNotes : [];
+        const normalized: TaskWindow[] = raw.map((item: any, index: number) => ({
+          id: typeof item.id === 'string' ? item.id : `w-${index}`,
+          title: typeof item.title === 'string' ? item.title : 'Mis tareas',
+          ownerId: typeof item.ownerId === 'string' ? item.ownerId : undefined,
+          color: typeof item.color === 'string' && /^#[0-9A-Fa-f]{6}$/.test(item.color) ? item.color : DEFAULT_TASK_WINDOW_COLOR,
+          tasks: Array.isArray(item.tasks)
+            ? item.tasks.map((t: any, i: number) => ({
+                id: typeof t.id === 'string' ? t.id : `t-${i}`,
+                text: typeof t.text === 'string' ? t.text : '',
+                done: !!t.done,
+                important: !!t.important,
+              }))
+            : [],
+        }));
+        setTaskWindows(normalized);
+      })
+      .catch(() => setTaskWindows([]))
+      .finally(() => setTasksLoading(false));
+  }, [activeWorkspaceId]);
+
+  // Flush de tareas al cambiar workspace o cerrar pestaÃƒÂ±a
+  useEffect(() => {
+    return () => {
+      if (savePanelNotesTimeoutRef.current) {
+        clearTimeout(savePanelNotesTimeoutRef.current);
+        savePanelNotesTimeoutRef.current = null;
+      }
+      if (activeWorkspaceId && taskWindowsRef.current.length >= 0) {
+        savePanelNotesToApi(taskWindowsRef.current, activeWorkspaceId);
+      }
+    };
+  }, [activeWorkspaceId, savePanelNotesToApi]);
+
+  useEffect(() => {
+    const onBeforeUnload = () => {
+      if (activeWorkspaceId && taskWindowsRef.current.length >= 0) {
+        savePanelNotesToApi(taskWindowsRef.current, activeWorkspaceId);
+      }
+    };
+    window.addEventListener('beforeunload', onBeforeUnload);
+    return () => window.removeEventListener('beforeunload', onBeforeUnload);
+  }, [activeWorkspaceId, savePanelNotesToApi]);
+
+  // NavegaciÃƒÂ³n desde columnas de Docs / FacturaciÃƒÂ³n hacia la pestaÃƒÂ±a interna de Docs
   useEffect(() => {
     const handler = (event: Event) => {
       const ev = event as CustomEvent<{
@@ -325,7 +442,7 @@ function App() {
       setBoards(prev => prev.map(b => b.id === updated.id ? { ...b, name: updated.name } : b));
     });
     socket.on('board_added', (newBoard: Board) => {
-      // Sólo añadimos automáticamente si pertenece al workspace activo (o si no hay ninguno activo)
+      // SÃƒÂ³lo aÃƒÂ±adimos automÃƒÂ¡ticamente si pertenece al workspace activo (o si no hay ninguno activo)
       if (!activeWorkspaceId || newBoard.workspaceId === activeWorkspaceId) {
         setBoards(prev => [...prev, newBoard]);
         setActiveBoardId(newBoard.id);
@@ -373,7 +490,7 @@ function App() {
         throw new Error(typeof data?.error === 'string' ? data.error : `Error del servidor (${res.status})`);
       }
       if (!data?.id) {
-        throw new Error('El servidor no devolvió un tablero válido');
+        throw new Error('El servidor no devolviÃƒÂ³ un tablero vÃƒÂ¡lido');
       }
       const board: Board = {
         id: data.id,
@@ -394,7 +511,7 @@ function App() {
         (typeof message === 'string' && (message.includes('fetch') || message.includes('network')));
       setCreateBoardError(
         isNetwork
-          ? 'No se pudo conectar con el servidor. Comprueba que el backend esté en marcha (puerto 3001).'
+          ? 'No se pudo conectar con el servidor. Comprueba que el backend estÃƒÂ© en marcha (puerto 3001).'
           : message
       );
       console.error('Error creating board:', err);
@@ -403,9 +520,38 @@ function App() {
     }
   };
 
+  const addTaskWindow = () => {
+    if (!activeWorkspaceId) return;
+    const newWindow: TaskWindow = {
+      id: crypto.randomUUID(),
+      title: 'Mis tareas',
+      ownerId: currentUser.id,
+      color: DEFAULT_TASK_WINDOW_COLOR,
+      tasks: [],
+    };
+    setTaskWindows(prev => [...prev, newWindow]);
+    scheduleSavePanelNotes();
+  };
+
+  const updateTaskWindow = (id: string, patch: Partial<TaskWindow>) => {
+    setTaskWindows(prev => {
+      const next = prev.map(n => (n.id === id ? { ...n, ...patch } : n));
+      scheduleSavePanelNotes();
+      return next;
+    });
+  };
+
+  const removeTaskWindow = (id: string) => {
+    setTaskWindows(prev => {
+      const next = prev.filter(n => n.id !== id);
+      scheduleSavePanelNotes();
+      return next;
+    });
+  };
+
   return (
     <div className="flex h-screen bg-monday-bg overflow-hidden font-sans">
-      {/* ─── Left Nav Rail ─────────────────────────────────────── */}
+      {/* Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ Left Nav Rail Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ */}
       <aside className="w-[56px] min-w-[56px] bg-monday-sidebar flex flex-col items-center py-3 gap-1 z-30">
         {/* Logo */}
         <div className="w-14 h-14 rounded-xl flex items-center justify-center shadow-monday-md mb-3 overflow-hidden">
@@ -458,7 +604,7 @@ function App() {
         </button>
       </aside>
 
-      {/* ─── Workspace Sidebar ─────────────────────────────────── */}
+      {/* Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ Workspace Sidebar Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ */}
       <aside
         className={`${sidebarOpen ? 'w-[232px] min-w-[232px]' : 'w-0 min-w-0'} bg-monday-sidebarPanel flex flex-col overflow-hidden transition-all duration-200 z-20 border-r border-l border-monday-border`}
       >
@@ -707,10 +853,135 @@ if (ok && data && typeof data.id === 'string') {
               <p className="text-monday-text text-[12px] px-2">Resumen y estadísticas.</p>
             </div>
           ) : activePage === 'docs' ? (
-            <div className="p-3">
-              <p className="text-monday-subtext text-[11px] font-semibold px-2 mb-2 uppercase tracking-wider">Docs</p>
-              <p className="text-monday-text text-[12px] px-2">Documentación del equipo.</p>
-            </div>
+            <>
+              <div className="p-3">
+                <p className="text-monday-subtext text-[11px] font-semibold px-2 mb-2 uppercase tracking-wider">Docs</p>
+                <p className="text-monday-text text-[12px] px-2">Documentación del equipo.</p>
+              </div>
+              <p className="text-[11px] font-semibold text-monday-subtext uppercase tracking-wider px-2 mb-1 mt-2">Tus tareas</p>
+              {tasksLoading && (
+                <p className="text-[12px] text-monday-subtext px-2 mb-2">Cargando tareas...</p>
+              )}
+              {!tasksLoading && taskWindows.length === 0 && (
+                <p className="text-[12px] text-monday-subtext px-2 mb-2">No hay tareas. Usa "Añadir tarea" en Docs.</p>
+              )}
+              <div className="space-y-3 mb-3">
+                {taskWindows.map(win => (
+                  <div
+                    key={win.id}
+                    className="rounded-xl border border-monday-border/80 shadow-monday-sm p-2.5 transition-shadow hover:shadow-monday-md"
+                    style={{ backgroundColor: win.color ?? DEFAULT_TASK_WINDOW_COLOR }}
+                  >
+                    <div className="flex items-center gap-1.5 mb-2">
+                      <input
+                        type="text"
+                        value={win.title}
+                        onChange={e => updateTaskWindow(win.id, { title: e.target.value })}
+                        className="flex-1 min-w-0 text-[12px] font-medium text-monday-text bg-transparent border-0 outline-none placeholder:text-monday-subtext/70"
+                        placeholder="Lista sin título"
+                      />
+                      <Popover.Root>
+                        <Popover.Trigger asChild>
+                          <button
+                            type="button"
+                            className="w-5 h-5 rounded-md border border-monday-border/60 shadow-inner flex-shrink-0 hover:ring-2 ring-monday-blue/40 transition-shadow"
+                            style={{ backgroundColor: win.color ?? DEFAULT_TASK_WINDOW_COLOR }}
+                            title="Cambiar color"
+                          />
+                        </Popover.Trigger>
+                        <Popover.Portal>
+                          <Popover.Content className="z-50 p-2 rounded-lg shadow-lg border border-monday-border bg-white" sideOffset={6}>
+                            <div className="grid grid-cols-4 gap-1">
+                              {TASK_WINDOW_COLORS.map(c => (
+                                <button
+                                  key={c}
+                                  type="button"
+                                  className="w-6 h-6 rounded border border-monday-border hover:ring-2 ring-monday-blue transition-shadow"
+                                  style={{ backgroundColor: c }}
+                                  onClick={() => updateTaskWindow(win.id, { color: c })}
+                                />
+                              ))}
+                            </div>
+                          </Popover.Content>
+                        </Popover.Portal>
+                      </Popover.Root>
+                    </div>
+                    <div className="space-y-0.5">
+                      {win.tasks.map(task => (
+                        <div key={task.id} className="flex items-start gap-2 group/task py-0.5">
+                          <button
+                            type="button"
+                            role="checkbox"
+                            aria-checked={!!task.done}
+                            onClick={() =>
+                              updateTaskWindow(win.id, {
+                                tasks: win.tasks.map(t =>
+                                  t.id === task.id ? { ...t, done: !t.done } : t,
+                                ),
+                              })
+                            }
+                            className={`mt-0.5 w-4 h-4 rounded-md flex items-center justify-center flex-shrink-0 transition-all duration-200 active:scale-90 ${
+                              task.done
+                                ? 'bg-monday-blue text-white border-0 shadow-inner'
+                                : 'bg-white/90 border border-monday-border text-transparent hover:border-monday-blue/50'
+                            }`}
+                          >
+                            <Check size={10} strokeWidth={3} className={`transition-all duration-200 ${task.done ? 'opacity-100 scale-100' : 'opacity-0 scale-75'}`} />
+                          </button>
+                          <textarea
+                            value={task.text}
+                            onChange={e => {
+                              updateTaskWindow(win.id, {
+                                tasks: win.tasks.map(t =>
+                                  t.id === task.id ? { ...t, text: e.target.value } : t,
+                                ),
+                              });
+                            }}
+                            rows={Math.max(2, Math.min(6, (task.text.match(/\n/g)?.length ?? 0) + 2))}
+                            className={`flex-1 min-w-0 text-[12px] border-0 bg-transparent outline-none resize-none overflow-hidden placeholder:text-monday-subtext/80 transition-opacity ${
+                              task.done ? 'opacity-60 line-through' : ''
+                            }`}
+                            placeholder="Nueva tarea..."
+                          />
+                          <button
+                            type="button"
+                            onClick={() =>
+                              updateTaskWindow(win.id, {
+                                tasks: win.tasks.filter(t => t.id !== task.id),
+                              })
+                            }
+                            className="text-monday-subtext hover:text-monday-red text-[11px] opacity-0 group-hover/task:opacity-100 transition-opacity p-0.5 rounded"
+                          >
+                            ×
+                          </button>
+                        </div>
+                      ))}
+                      <button
+                        type="button"
+                        onClick={() =>
+                          updateTaskWindow(win.id, {
+                            tasks: [
+                              ...win.tasks,
+                              { id: crypto.randomUUID(), text: '', done: false },
+                            ],
+                          })
+                        }
+                        className="text-[11px] text-monday-blue hover:underline mt-1.5 font-medium"
+                      >
+                        + Añadir tarea
+                      </button>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => removeTaskWindow(win.id)}
+                      className="mt-2 text-[11px] text-monday-subtext hover:text-monday-red transition-colors"
+                    >
+                      Eliminar lista
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </>
           ) : activePage === 'notifications' ? (
             <div className="p-3">
               <p className="text-monday-subtext text-[11px] font-semibold px-2 mb-2 uppercase tracking-wider">Notificaciones</p>
@@ -729,7 +1000,7 @@ if (ok && data && typeof data.id === 'string') {
         </div>
       </aside>
 
-      {/* ─── Main Content ───────────────────────────────────────── */}
+      {/* Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ Main Content Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ */}
       <main className="flex-1 flex flex-col min-w-0 p-3 pl-0 bg-monday-bg overflow-hidden">
         <div className="flex-1 flex flex-col bg-white rounded-2xl shadow-monday-sm border border-monday-border overflow-hidden">
           
@@ -780,7 +1051,7 @@ if (ok && data && typeof data.id === 'string') {
           ) : activePage === 'board' && boards.length === 0 ? (
             <div className="flex-1 flex flex-col items-center justify-center text-monday-subtext p-8">
               <p className="text-[15px] font-medium text-monday-text mb-2">No hay tableros</p>
-              <p className="text-[13px] mb-4">Crea uno desde el menú de la izquierda con &quot;Agregar tablero&quot;.</p>
+              <p className="text-[13px] mb-4">Crea uno desde el menÃƒÂº de la izquierda con &quot;Agregar tablero&quot;.</p>
               <button
                 onClick={() => setShowAddBoard(true)}
                 className="px-4 py-2 bg-monday-blue text-white text-[13px] font-medium rounded-monday hover:bg-monday-blue/90"
@@ -847,7 +1118,7 @@ if (ok && data && typeof data.id === 'string') {
                             body: JSON.stringify({ userId: currentUser.id, boardId: activeBoardId }),
                           });
                           if (!res.ok) throw new Error('Export failed');
-                          alert('Exportación de carpetas lanzada. Revisa la carpeta SundayExports en tu usuario.');
+                          alert('ExportaciÃƒÂ³n de carpetas lanzada. Revisa la carpeta SundayExports en tu usuario.');
                         } catch (e) {
                           console.error('Error exporting folders', e);
                           alert('No se pudo exportar la estructura de carpetas.');
@@ -860,14 +1131,14 @@ if (ok && data && typeof data.id === 'string') {
                       title="Exportar estructura de carpetas del tablero"
                     >
                       <Folder size={16} />
-                      <span>{exportingFolders ? 'Exportando…' : 'Exportar carpetas'}</span>
+                      <span>{exportingFolders ? 'ExportandoÃ¢â‚¬Â¦' : 'Exportar carpetas'}</span>
                     </button>
                     <div className="w-px h-5 bg-monday-border" />
                     <button
                       type="button"
                       onClick={() => setActivePage('search')}
                       className="toolbar-btn"
-                      title="Buscar en la aplicación"
+                      title="Buscar en la aplicaciÃƒÂ³n"
                     >
                       <Search size={16} />
                       <span>Buscar</span>
@@ -877,16 +1148,16 @@ if (ok && data && typeof data.id === 'string') {
 
                 <div className="flex items-center px-6 gap-1 text-[13px] flex-wrap">
                   {[
-                    { id: 'table' as const, label: '⊞ Tabla principal' },
-                    ...(!isTaller ? [{ id: 'kanban' as const, label: '▦ Kanban' }] : []),
+                    { id: 'table' as const, label: 'Ã¢Å Å¾ Tabla principal' },
+                    ...(!isTaller ? [{ id: 'kanban' as const, label: 'Ã¢â€“Â¦ Kanban' }] : []),
                     ...(enabledViews.includes('facturacion') && canSeeFacturacionView
-                      ? [{ id: 'facturacion' as const, label: '🧾 Facturación' }]
+                      ? [{ id: 'facturacion' as const, label: 'Ã°Å¸Â§Â¾ FacturaciÃƒÂ³n' }]
                       : []),
-                    ...(enabledViews.includes('calendar') ? [{ id: 'calendar' as const, label: '📅 Calendario' }] : []),
-                    ...(enabledViews.includes('resumen') ? [{ id: 'resumen' as const, label: '📊 Resumen' }] : []),
-                    ...(enabledViews.includes('archivos') ? [{ id: 'archivos' as const, label: '📁 Archivos' }] : []),
-                    ...(enabledViews.includes('miTrabajo') ? [{ id: 'miTrabajo' as const, label: '👤 Mi trabajo' }] : []),
-                    ...(enabledViews.includes('timeline') ? [{ id: 'timeline' as const, label: '📈 Timeline' }] : []),
+                    ...(enabledViews.includes('calendar') ? [{ id: 'calendar' as const, label: 'Ã°Å¸â€œâ€¦ Calendario' }] : []),
+                    ...(enabledViews.includes('resumen') ? [{ id: 'resumen' as const, label: 'Ã°Å¸â€œÅ  Resumen' }] : []),
+                    ...(enabledViews.includes('archivos') ? [{ id: 'archivos' as const, label: 'Ã°Å¸â€œÂ Archivos' }] : []),
+                    ...(enabledViews.includes('miTrabajo') ? [{ id: 'miTrabajo' as const, label: 'Ã°Å¸â€˜Â¤ Mi trabajo' }] : []),
+                    ...(enabledViews.includes('timeline') ? [{ id: 'timeline' as const, label: 'Ã°Å¸â€œË† Timeline' }] : []),
                   ].map(tab => (
                     <button
                       key={tab.id}
@@ -949,6 +1220,7 @@ if (ok && data && typeof data.id === 'string') {
               boards={boards}
               initialCreateFromBoard={pendingDocFromBoard}
               onConsumeInitialCreateFromBoard={() => setPendingDocFromBoard(null)}
+              onAddTaskList={addTaskWindow}
             />
           ) : activePage === 'dashboard' ? (
             <DashboardPage />
@@ -971,14 +1243,14 @@ if (ok && data && typeof data.id === 'string') {
           ) : (
             <div className="flex-1 flex flex-col items-center justify-center text-monday-subtext">
               <BarChart2 size={48} className="mb-4 opacity-50" />
-              <h2 className="text-xl font-semibold text-monday-text mb-2">Próximamente</h2>
-              <p className="text-[14px]">Esta vista "({activePage})" estará disponible en futuras actualizaciones.</p>
+              <h2 className="text-xl font-semibold text-monday-text mb-2">PrÃƒÂ³ximamente</h2>
+              <p className="text-[14px]">Esta vista "({activePage})" estarÃƒÂ¡ disponible en futuras actualizaciones.</p>
             </div>
           )}
         </div>
       </main>
 
-      {/* ─── Item Details Panel ─────────────────────────────────── */}
+      {/* Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ Item Details Panel Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ */}
       {selectedItem && (
         <div className="absolute top-0 right-0 h-full z-50 panel-slide-in">
           <ItemDetailsPanel item={selectedItem} onClose={() => setSelectedItem(null)} />

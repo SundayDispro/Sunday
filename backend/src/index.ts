@@ -1003,6 +1003,12 @@ app.post('/api/docs', async (req, res) => {
   }
 });
 
+// --- Configuración de plantilla de cotización (por workspace) ----------------
+
+// Endpoints antiguos de configuración de plantilla de cotización se han
+// eliminado para simplificar el flujo. Ahora la generación usa únicamente
+// la plantilla PDF base y las posiciones definidas en templatePdfGenerator.ts.
+
 app.get('/api/docs/:id', async (req, res) => {
   try {
     const { id } = req.params;
@@ -1079,7 +1085,10 @@ app.post('/api/templates/:kind/generate', async (req, res) => {
     }
     const content = (req.body?.content ?? {}) as Record<string, unknown>;
     const { generatePdfFromTemplate } = await import('./templatePdfGenerator');
-    const buffer = await generatePdfFromTemplate(kind as 'cotizacion' | 'levantamiento' | 'hoja_trabajo', content);
+    const buffer = await generatePdfFromTemplate(
+      kind as 'cotizacion' | 'levantamiento' | 'hoja_trabajo',
+      content
+    );
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', 'inline; filename="' + kind + '.pdf"');
     res.send(buffer);

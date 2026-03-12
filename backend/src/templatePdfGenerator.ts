@@ -1,13 +1,23 @@
 import fs from 'fs';
 import path from 'path';
-import { PDFDocument, rgb, StandardFonts } from 'pdf-lib';
+import { PDFDocument, rgb } from 'pdf-lib';
 
 const TEMPLATES_DIR = path.join(process.cwd(), 'templates');
+const FONTS_DIR = path.join(process.cwd(), 'assets', 'fonts', 'AvertaStd');
 
 export type TemplateKind = 'cotizacion' | 'levantamiento' | 'hoja_trabajo';
 
 /** Posición y opciones para dibujar un campo en el PDF (y en puntos, origen abajo-izquierda) */
 export interface FieldPosition {
+  x: number;
+  y: number;
+  fontSize?: number;
+  maxWidth?: number;
+  weight?: 'regular' | 'bold';
+}
+
+/** Posiciones enviadas desde el editor (0-1, origen arriba-izquierda). Si existen se usan en lugar de TEMPLATE_FIELD_POSITIONS */
+export interface ContentFieldPosition {
   x: number;
   y: number;
   fontSize?: number;
@@ -74,17 +84,34 @@ export async function generatePdfFromTemplate(
 
   const page = pdfDoc.getPage(pageIndex);
   const { width, height } = page.getSize();
-  const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
+  // Embed AvertaStd fonts (fall back to default font if something goes wrong)
+  const [avertaRegular, avertaBold] = await (async () => {
+    try {
+      const regularBytes = fs.readFileSync(path.join(FONTS_DIR, 'AvertaStd-Regular.ttf'));
+      const boldBytes = fs.readFileSync(path.join(FONTS_DIR, 'AvertaStd-Bold.ttf'));
+      const regularFont = await pdfDoc.embedFont(regularBytes);
+      const boldFont = await pdfDoc.embedFont(boldBytes);
+      return [regularFont, boldFont];
+    } catch {
+      // Si por alguna razón no se pueden cargar las fuentes personalizadas,
+      // usamos la fuente estándar incorporada.
+      const { StandardFonts } = await import('pdf-lib');
+      const fallback = await pdfDoc.embedFont(StandardFonts.Helvetica);
+      return [fallback, fallback];
+    }
+  })();
 
   function drawText(
     text: string,
     x: number,
     y: number,
     fontSize: number,
-    maxWidth?: number
+    maxWidth?: number,
+    weight: 'regular' | 'bold' = 'regular'
   ): void {
     if (!text) return;
     const safeText = String(text).slice(0, 500);
+    const font = weight === 'bold' ? avertaBold : avertaRegular;
     const size = fontSize;
     let yy = height - y;
     if (maxWidth && safeText.length * (size / 2) > maxWidth) {
@@ -109,6 +136,8 @@ export async function generatePdfFromTemplate(
     }
   }
 
+  const fieldPositionsFromContent = (content.fieldPositions ?? {}) as Record<string, ContentFieldPosition>;
+
   for (const [key, pos] of Object.entries(positions)) {
     const value = content[key];
     if (value === undefined || value === null) continue;
@@ -116,7 +145,21 @@ export async function generatePdfFromTemplate(
     if (Array.isArray(value)) continue; // items se dibujan aparte
     const text = String(value).trim();
     if (!text) continue;
-    drawText(text, pos.x, pos.y, pos.fontSize ?? 10, pos.maxWidth);
+    const custom = fieldPositionsFromContent[key];
+    let xPts: number;
+    let yPts: number;
+    let fontSize = pos.fontSize ?? 10;
+    let maxWidth = pos.maxWidth;
+    if (custom && typeof custom.x === 'number' && typeof custom.y === 'number') {
+      xPts = custom.x * width;
+      yPts = custom.y * height;
+      if (typeof custom.fontSize === 'number') fontSize = custom.fontSize;
+      if (typeof custom.maxWidth === 'number') maxWidth = custom.maxWidth;
+    } else {
+      xPts = pos.x;
+      yPts = pos.y;
+    }
+    drawText(text, xPts, yPts, fontSize, maxWidth, pos.weight ?? 'regular');
   }
 
   // Caso especial: ítems de cotización (tabla)
@@ -132,7 +175,7 @@ export async function generatePdfFromTemplate(
           x: colX.desc,
           y: height - rowY,
           size: fontSize,
-          font,
+          font: avertaRegular,
           color: rgb(0, 0, 0),
         });
       if (it.cantidad)
@@ -140,7 +183,7 @@ export async function generatePdfFromTemplate(
           x: colX.cant,
           y: height - rowY,
           size: fontSize,
-          font,
+          font: avertaRegular,
           color: rgb(0, 0, 0),
         });
       if (it.precio)
@@ -148,7 +191,7 @@ export async function generatePdfFromTemplate(
           x: colX.precio,
           y: height - rowY,
           size: fontSize,
-          font,
+          font: avertaRegular,
           color: rgb(0, 0, 0),
         });
       if (it.total)
@@ -156,7 +199,7 @@ export async function generatePdfFromTemplate(
           x: colX.total,
           y: height - rowY,
           size: fontSize,
-          font,
+          font: avertaBold,
           color: rgb(0, 0, 0),
         });
       rowY += 22;
