@@ -9,7 +9,7 @@ import {
 import { SortableContext, verticalListSortingStrategy, useSortable, horizontalListSortingStrategy } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { DraggableRow } from './DraggableRow';
-import { GripVertical, MessageSquare, Plus, ChevronDown, MoreHorizontal, Pencil, Trash2 } from 'lucide-react';
+import { GripVertical, MessageSquare, Plus, ChevronDown, MoreHorizontal, Pencil, Trash2, Tag } from 'lucide-react';
 import { StatusCellRenderer } from './StatusCellRenderer';
 import { ColumnTypePicker } from './ColumnTypePicker';
 import { socket } from '../../store/socket';
@@ -23,6 +23,7 @@ import { DocsCellRenderer } from './DocsCellRenderer';
 import { TimelineCellRenderer } from './TimelineCellRenderer';
 import { FileCellRenderer } from './FileCellRenderer';
 import { GroupColorPicker, GROUP_PALETTE } from './GroupColorPicker';
+import { StatusLabelsEditor } from './StatusLabelsEditor';
 
 interface Props {
   group: Group;
@@ -193,7 +194,7 @@ const InlineNameCell: React.FC<{ item: Item; onOpen: () => void; allGroups?: Gro
 };
 
 // ── Column header with rename / delete + drag ─────────────────────────────
-const ColumnHeader: React.FC<{ col: BoardColumn }> = ({ col }) => {
+const ColumnHeader: React.FC<{ col: BoardColumn; onEditLabels?: (col: BoardColumn) => void }> = ({ col, onEditLabels }) => {
   const [menuOpen, setMenuOpen] = useState(false);
   const [renaming, setRenaming] = useState(false);
   const [draft, setDraft] = useState(col.title);
@@ -276,6 +277,15 @@ const ColumnHeader: React.FC<{ col: BoardColumn }> = ({ col }) => {
             <Pencil size={14} className="text-monday-subtext" />
             Renombrar
           </button>
+          {(col.type === 'status' || col.type === 'priority') && onEditLabels && (
+            <button
+              className="w-full flex items-center gap-2.5 text-[13px] text-monday-text hover:bg-monday-hover px-3 py-2 rounded-monday"
+              onClick={() => { setMenuOpen(false); onEditLabels(col); }}
+            >
+              <Tag size={14} className="text-monday-subtext" />
+              Editar etiquetas
+            </button>
+          )}
           <button
             className="w-full flex items-center gap-2.5 text-[13px] text-monday-red hover:bg-red-50 px-3 py-2 rounded-monday"
             onClick={() => { setMenuOpen(false); socket.emit('delete_column', { columnId: col.id }); }}
@@ -312,6 +322,7 @@ export const BoardGroup: React.FC<Props> = ({
   const [isRenamingGroup, setIsRenamingGroup] = useState(false);
   const [groupNameDraft, setGroupNameDraft] = useState(group.name);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [columnEditingLabels, setColumnEditingLabels] = useState<BoardColumn | null>(null);
   const addInputRef = useRef<HTMLInputElement>(null);
 
   const {
@@ -373,16 +384,16 @@ export const BoardGroup: React.FC<Props> = ({
     } else if (type === 'priority') {
       settings = JSON.stringify({
         options: [
-          { id: 'critical', label: 'Crítica',  color: '#e2445c' },
-          { id: 'high',     label: 'Alta',     color: '#fdab3d' },
-          { id: 'medium',   label: 'Media',    color: '#5559df' },
-          { id: 'low',      label: 'Baja',     color: '#00c875' },
-          { id: 'default',  label: '',         color: '#c4c4c4' },
+          { id: 'sin-respuesta', label: 'Sin respuesta', color: '#fdab3d' },
+          { id: 'aprobado',      label: 'Aprobado',     color: '#00c875' },
+          { id: 'default',      label: '',             color: '#c4c4c4' },
         ]
       });
     }
 
-    socket.emit('add_column', { boardId, title: label, type, position: newPosition, settings });
+    const emitType = type === 'colocacion' ? 'date' : type;
+    const emitTitle = type === 'colocacion' ? 'Colocación' : label;
+    socket.emit('add_column', { boardId, title: emitTitle, type: emitType, position: newPosition, settings });
   };
 
   const tableColumns = useMemo(() => {
@@ -450,7 +461,7 @@ export const BoardGroup: React.FC<Props> = ({
 
     const dynamicCols = visibleColumns.map(col => columnHelper.display({
       id: col.id,
-      header: () => <ColumnHeader col={col} />,
+      header: () => <ColumnHeader col={col} onEditLabels={setColumnEditingLabels} />,
       cell: (info) => {
         const item = info.row.original;
         const cv = item.columnValues.find(v => v.columnId === col.id);
@@ -522,8 +533,8 @@ export const BoardGroup: React.FC<Props> = ({
 
   return (
     <div ref={setNodeRef} style={style} className="mb-6 relative">
-      {/* ── Group Header ─────────────────────────────────────────── */}
-      <div className={`flex items-center gap-1.5 mb-1.5 group/header ${isSubgroup ? 'ml-6' : ''}`}>
+      {/* ── Group Header (sticky al desplazarse para mantener el título visible) ─────────────────────────────────────────── */}
+      <div className={`sticky top-0 z-10 flex items-center gap-1.5 py-1.5 -mt-1.5 pt-2 mb-1.5 bg-white border-b border-monday-border group/header ${isSubgroup ? 'ml-6' : ''}`}>
         <div 
           {...attributes} 
           {...listeners} 
@@ -548,7 +559,7 @@ export const BoardGroup: React.FC<Props> = ({
             <GroupColorPicker
               value={group.color}
               onChange={color => socket.emit('rename_group', { groupId: group.id, name: group.name, color })}
-              swatchClassName="w-4 h-4 shrink-0"
+              swatchClassName="w-3 h-3 shrink-0"
             />
             <input
               autoFocus
@@ -573,7 +584,7 @@ export const BoardGroup: React.FC<Props> = ({
             <GroupColorPicker
               value={group.color}
               onChange={color => socket.emit('rename_group', { groupId: group.id, name: group.name, color })}
-              swatchClassName="w-4 h-4 shrink-0"
+              swatchClassName="w-3 h-3 shrink-0"
             />
             <h3
               className="text-[26px] font-normal leading-tight cursor-pointer hover:opacity-80 transition-opacity select-none font-averta truncate"
@@ -660,6 +671,14 @@ export const BoardGroup: React.FC<Props> = ({
           </Dialog.Content>
         </Dialog.Portal>
       </Dialog.Root>
+
+      {columnEditingLabels && (
+        <StatusLabelsEditor
+          column={columnEditingLabels}
+          open={!!columnEditingLabels}
+          onOpenChange={open => !open && setColumnEditingLabels(null)}
+        />
+      )}
 
       {/* ── Table ───────────────────────────────────────────────── */}
       {!isCollapsed && (

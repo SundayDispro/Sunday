@@ -1,10 +1,10 @@
-import React, { useEffect, useState, useMemo } from 'react';
+import React, { useEffect, useState, useMemo, useRef, useCallback } from 'react';
 import { Board, Group, BoardColumn, Item } from '../../types';
 import { socket } from '../../store/socket';
 import { BoardGroup } from './BoardGroup';
 import {
   Plus, Search, Filter, ArrowUpDown, EyeOff, ChevronDown, X, Folder,
-  Copy, Download, Archive, Trash2, ArrowRightLeft,
+  Copy, Download, Archive, Trash2, ArrowRightLeft, Circle, ListOrdered, FileText,
 } from 'lucide-react';
 import {
   DndContext,
@@ -22,7 +22,7 @@ import {
 } from '@dnd-kit/sortable';
 import { GROUP_PALETTE } from './GroupColorPicker';
 import { KanbanView } from './KanbanView';
-import { CalendarView } from './CalendarView';
+import { CalendarView, type CalendarEventKind } from './CalendarView';
 import { FacturacionBoardView } from './FacturacionBoardView';
 import { useUser } from '../../store/UserContext';
 import * as Popover from '@radix-ui/react-popover';
@@ -45,6 +45,8 @@ const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode }) => {
   const [sortConfig, setSortConfig] = useState<{ columnId: string, direction: 'asc' | 'desc' } | null>(null);
   const [showSort, setShowSort] = useState(false);
   const [showHide, setShowHide] = useState(false);
+  const [showFilter, setShowFilter] = useState(false);
+  const [filterByStatusOptionId, setFilterByStatusOptionId] = useState<string | null>(null);
   const [exporting, setExporting] = useState(false);
   const [newMenuOpen, setNewMenuOpen] = useState(false);
   const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({});
@@ -54,6 +56,17 @@ const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode }) => {
   });
   const [showMovePopover, setShowMovePopover] = useState(false);
   const [showDeleteItemsConfirm, setShowDeleteItemsConfirm] = useState(false);
+  const [addToProjectOpen, setAddToProjectOpen] = useState(false);
+  const [addToProjectGroupId, setAddToProjectGroupId] = useState<string>('');
+  const [addToProjectAfterItemId, setAddToProjectAfterItemId] = useState<string>('');
+  const [addToProjectName, setAddToProjectName] = useState('');
+  const [addToProjectSubmitting, setAddToProjectSubmitting] = useState(false);
+
+  /** Ref para abrir el modal de evento de calendario con tipo (desde la barra en vista calendario). */
+  const openCalendarEventRef = useRef<((opts: { date: Date; eventType: CalendarEventKind }) => void) | null>(null);
+  const registerOpenCalendarEvent = useCallback((open: (opts: { date: Date; eventType: CalendarEventKind }) => void) => {
+    openCalendarEventRef.current = open;
+  }, []);
 
   const fetchBoard = async () => {
     try {
@@ -139,6 +152,9 @@ const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode }) => {
     socket.on('column_renamed', (col: BoardColumn) => {
       setBoard(prev => prev ? { ...prev, columns: prev.columns.map(c => c.id === col.id ? col : c) } : prev);
     });
+    socket.on('column_settings_updated', (col: BoardColumn) => {
+      setBoard(prev => prev ? { ...prev, columns: prev.columns.map(c => c.id === col.id ? col : c) } : prev);
+    });
     socket.on('column_deleted', ({ columnId }: { columnId: string }) => {
       setBoard(prev => prev ? { ...prev, columns: prev.columns.filter(c => c.id !== columnId) } : prev);
     });
@@ -185,6 +201,7 @@ const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode }) => {
       socket.off('item_moved');
       socket.off('column_added');
       socket.off('column_renamed');
+      socket.off('column_settings_updated');
       socket.off('column_deleted');
       socket.off('item_deleted');
       socket.off('group_renamed');
@@ -310,6 +327,36 @@ const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode }) => {
     socket.emit('add_item', { groupId: firstGroup.id, name: 'Nueva tarea', position: newPosition });
   };
 
+  const openAddToProject = () => {
+    setNewMenuOpen(false);
+    if (!board || board.groups.length === 0) return;
+    setAddToProjectGroupId(board.groups[0].id);
+    setAddToProjectAfterItemId('');
+    setAddToProjectName('');
+    setAddToProjectOpen(true);
+  };
+
+  const handleAddToProjectSubmit = () => {
+    if (!board || !addToProjectGroupId || !addToProjectName.trim()) return;
+    const group = board.groups.find(g => g.id === addToProjectGroupId);
+    if (!group) return;
+    let newPosition: number;
+    if (addToProjectAfterItemId) {
+      const afterItem = group.items.find(i => i.id === addToProjectAfterItemId);
+      newPosition = afterItem ? afterItem.position + 512 : (group.items.reduce((max, i) => Math.max(max, i.position), 0) + 1024);
+    } else {
+      newPosition = group.items.length > 0 ? Math.min(...group.items.map(i => i.position)) - 512 : 1024;
+      if (newPosition < 0) newPosition = group.items.reduce((max, i) => Math.max(max, i.position), 0) + 1024;
+    }
+    setAddToProjectSubmitting(true);
+    socket.emit('add_item', { groupId: addToProjectGroupId, name: addToProjectName.trim(), position: newPosition });
+    setAddToProjectOpen(false);
+    setAddToProjectName('');
+    setAddToProjectSubmitting(false);
+  };
+
+  const selectedGroupForProject = board?.groups.find(g => g.id === addToProjectGroupId);
+
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
@@ -428,6 +475,20 @@ const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode }) => {
     () => (board?.columns ?? []).filter(c => c.type === 'status').map(c => c.id),
     [board?.columns]
   );
+
+  /** Opciones de estado para el filtro (primera columna de tipo status) */
+  const filterStatusOptions = useMemo(() => {
+    if (!board) return [];
+    const statusCol = board.columns.find(c => c.type === 'status');
+    if (!statusCol?.settings) return [];
+    try {
+      const s = JSON.parse(statusCol.settings);
+      const opts = (s?.options ?? []) as { id: string; label: string; color?: string }[];
+      return opts;
+    } catch {
+      return [];
+    }
+  }, [board]);
   const isItemApproved = useMemo(() => {
     return (item: Item) =>
       statusColumnIds.some(cid => {
@@ -474,7 +535,28 @@ const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode }) => {
         .filter(g => g.items.length > 0);
     }
 
-    // 2. Sort by column
+    // 2. Filter by status (si hay columna de estado y se eligió una opción)
+    if (filterByStatusOptionId && statusColumnIds.length > 0) {
+      result = result
+        .map(g => ({
+          ...g,
+          items: g.items.filter(i =>
+            statusColumnIds.some(cid => {
+              const cv = i.columnValues.find(v => v.columnId === cid)?.value;
+              if (!cv) return filterByStatusOptionId === '__sin_estado__';
+              try {
+                const p = JSON.parse(cv);
+                return (p?.optionId ?? cv) === filterByStatusOptionId;
+              } catch {
+                return cv === filterByStatusOptionId;
+              }
+            })
+          ),
+        }))
+        .filter(g => g.items.length > 0);
+    }
+
+    // 3. Sort by column
     if (sortConfig) {
       result = result.map(g => {
         const sortedItems = [...g.items].sort((a, b) => {
@@ -496,7 +578,7 @@ const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode }) => {
     }
 
     return result;
-  }, [board, searchQuery, sortConfig, isTaller, isItemApproved]);
+  }, [board, searchQuery, sortConfig, filterByStatusOptionId, statusColumnIds, isTaller, isItemApproved]);
 
   const rootFilteredGroups = useMemo(
     () => filteredGroups.filter(g => !g.parentGroupId),
@@ -549,17 +631,16 @@ const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode }) => {
 
   return (
     <div className="h-full flex flex-col">
-      {/* ── Action Toolbar (oculta en vista Facturación) ─────────────────────────────────────── */}
-      {viewMode !== 'facturacion' && (
-      <div className="px-6 py-2.5 border-b border-monday-border flex items-center gap-2 shrink-0 bg-white">
-        {/* Primary CTA (oculto para rol Taller) */}
-        {!isTaller && (
+      {/* ── Action Toolbar: adaptada por vista (tabla = todo; kanban = filtrar y ordenar; calendario = Crear Tarea + eventos; facturación = Crear Tarea) ─────────────────────────────────────── */}
+      <div className="px-6 py-2.5 border-b border-monday-border flex items-center gap-2 shrink-0 bg-white flex-wrap">
+        {/* Primary CTA: en tabla "+ Nuevo elemento", en calendario/facturación "Crear Tarea"; oculto en Kanban. Abre modal o dropdown con opciones. */}
+        {!isTaller && viewMode !== 'kanban' && (
         <div className="flex items-center bg-monday-blue rounded-monday shadow-monday-sm mr-2">
           <button
-            onClick={handleAddItemFromToolbar}
+            onClick={openAddToProject}
             className="text-white text-[13px] font-semibold px-3.5 py-1.5 hover:bg-monday-blue/90 rounded-l-monday transition-colors"
           >
-            + Nuevo elemento
+            {viewMode === 'facturacion' || viewMode === 'calendar' ? 'Crear Tarea' : '+ Nuevo elemento'}
           </button>
           <div className="w-px h-5 bg-white/30" />
           <Popover.Root open={newMenuOpen} onOpenChange={setNewMenuOpen}>
@@ -574,25 +655,74 @@ const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode }) => {
                 sideOffset={4}
                 align="start"
               >
+                {viewMode === 'table' && (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setNewMenuOpen(false);
+                        handleAddItemFromToolbar();
+                      }}
+                      className="w-full text-left px-3 py-2 text-[13px] hover:bg-monday-hover rounded-md"
+                    >
+                      Nuevo elemento
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setNewMenuOpen(false);
+                        handleAddGroup();
+                      }}
+                      className="w-full text-left px-3 py-2 text-[13px] hover:bg-monday-hover rounded-md"
+                    >
+                      Nuevo grupo
+                    </button>
+                  </>
+                )}
+                {viewMode === 'calendar' && (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setNewMenuOpen(false);
+                        openCalendarEventRef.current?.({ date: new Date(), eventType: 'levantamiento' });
+                      }}
+                      className="w-full text-left px-3 py-2 text-[13px] hover:bg-monday-hover rounded-md flex items-center gap-2"
+                      style={{ borderLeft: '3px solid #6e3cbb' }}
+                    >
+                      Levantamiento
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setNewMenuOpen(false);
+                        openCalendarEventRef.current?.({ date: new Date(), eventType: 'pendiente' });
+                      }}
+                      className="w-full text-left px-3 py-2 text-[13px] hover:bg-monday-hover rounded-md flex items-center gap-2"
+                      style={{ borderLeft: '3px solid #ec4899' }}
+                    >
+                      Pendiente
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setNewMenuOpen(false);
+                        openCalendarEventRef.current?.({ date: new Date(), eventType: 'colocacion' });
+                      }}
+                      className="w-full text-left px-3 py-2 text-[13px] hover:bg-monday-hover rounded-md flex items-center gap-2"
+                      style={{ borderLeft: '3px solid #0f766e' }}
+                    >
+                      Entrega
+                    </button>
+                  </>
+                )}
                 <button
                   type="button"
-                  onClick={() => {
-                    setNewMenuOpen(false);
-                    handleAddItemFromToolbar();
-                  }}
-                  className="w-full text-left px-3 py-2 text-[13px] hover:bg-monday-hover rounded-md"
+                  onClick={openAddToProject}
+                  className="w-full text-left px-3 py-2 text-[13px] hover:bg-monday-hover rounded-md flex items-center gap-2"
                 >
-                  Nuevo elemento
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setNewMenuOpen(false);
-                    handleAddGroup();
-                  }}
-                  className="w-full text-left px-3 py-2 text-[13px] hover:bg-monday-hover rounded-md"
-                >
-                  Nuevo grupo
+                  <Folder size={14} className="text-monday-subtext shrink-0" />
+                  Añadir a proyecto
                 </button>
               </Popover.Content>
             </Popover.Portal>
@@ -602,8 +732,8 @@ const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode }) => {
 
         <div className="w-px h-5 bg-monday-border" />
 
-        {/* Search */}
-        {showSearch ? (
+        {/* Búsqueda: solo en vista tabla */}
+        {viewMode === 'table' && (showSearch ? (
           <div className="flex items-center gap-1.5 bg-monday-hover border border-monday-border rounded-monday px-2.5 py-1 fade-in">
             <Search size={14} className="text-monday-subtext shrink-0" />
             <input
@@ -627,14 +757,46 @@ const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode }) => {
             <Search size={15} />
             <span>Buscar</span>
           </button>
+        ))}
+
+        {/* Filtrar: tabla y kanban (por estado) */}
+        {(viewMode === 'table' || viewMode === 'kanban') && (
+        <Popover.Root open={showFilter} onOpenChange={setShowFilter}>
+          <Popover.Trigger asChild>
+            <button className={`toolbar-btn ${filterByStatusOptionId ? 'bg-blue-50 text-monday-blue border-blue-200' : ''}`}>
+              <Filter size={15} />
+              <span>Filtrar {filterByStatusOptionId && <span className="w-1.5 h-1.5 rounded-full bg-monday-blue ml-1 inline-block" />}</span>
+            </button>
+          </Popover.Trigger>
+          <Popover.Portal>
+            <Popover.Content className="z-50 bg-white rounded-xl shadow-monday-lg border border-monday-border w-52 p-2 fade-in mt-1" sideOffset={5}>
+              <div className="text-[12px] font-semibold text-monday-subtext px-2 py-1 uppercase tracking-tight">Filtrar por estado</div>
+              <button
+                type="button"
+                onClick={() => { setFilterByStatusOptionId(null); setShowFilter(false); }}
+                className={`w-full text-left px-2 py-1.5 text-[13px] rounded-md transition-colors ${!filterByStatusOptionId ? 'bg-blue-50 text-monday-blue font-medium' : 'hover:bg-monday-hover text-monday-text'}`}
+              >
+                Todos los estados
+              </button>
+              {filterStatusOptions.map((opt) => (
+                <button
+                  key={opt.id}
+                  type="button"
+                  onClick={() => { setFilterByStatusOptionId(opt.id); setShowFilter(false); }}
+                  className={`w-full text-left px-2 py-1.5 text-[13px] rounded-md transition-colors flex items-center gap-2 ${filterByStatusOptionId === opt.id ? 'bg-blue-50 text-monday-blue font-medium' : 'hover:bg-monday-hover text-monday-text'}`}
+                >
+                  <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: opt.color ?? '#c4c4c4' }} />
+                  {opt.label}
+                </button>
+              ))}
+            </Popover.Content>
+          </Popover.Portal>
+        </Popover.Root>
         )}
 
-        <button className="toolbar-btn">
-          <Filter size={15} />
-          <span>Filtrar</span>
-        </button>
-
-        {/* Sort Popover */}
+        {/* Sort Popover: tabla y kanban */}
+        {(viewMode === 'table' || viewMode === 'kanban') && (
+        <>
         <Popover.Root open={showSort} onOpenChange={setShowSort}>
           <Popover.Trigger asChild>
             <button className={`toolbar-btn ${sortConfig ? 'bg-blue-50 text-monday-blue border-blue-200' : ''}`}>
@@ -694,7 +856,8 @@ const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode }) => {
           </Popover.Portal>
         </Popover.Root>
 
-        {/* Hide Popover */}
+        {/* Ocultar columnas: solo en vista tabla */}
+        {viewMode === 'table' && (
         <Popover.Root open={showHide} onOpenChange={setShowHide}>
           <Popover.Trigger asChild>
             <button className={`toolbar-btn ${hiddenColumns.length > 0 ? 'bg-blue-50 text-monday-blue border-blue-200' : ''}`}>
@@ -730,6 +893,9 @@ const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode }) => {
             </Popover.Content>
           </Popover.Portal>
         </Popover.Root>
+        )}
+        </>
+        )}
 
         <div className="ml-auto flex items-center gap-2">
           <button
@@ -743,14 +909,19 @@ const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode }) => {
           </button>
         </div>
       </div>
-      )}
 
       {/* ── Board Content ───────────────────────────────────────── */}
       <div className="flex-1 overflow-auto custom-scrollbar px-6 py-5">
         {viewMode === 'kanban' && boardForView ? (
           <KanbanView board={boardForView} onRowClick={onRowClick} />
         ) : viewMode === 'calendar' && boardForView ? (
-          <CalendarView board={boardForView} onRowClick={onRowClick} isTallerView={isTaller} />
+          <CalendarView
+            board={boardForView}
+            onRowClick={onRowClick}
+            isTallerView={isTaller}
+            onOpenAddToProject={() => setAddToProjectOpen(true)}
+            onRegisterOpenCalendarEvent={registerOpenCalendarEvent}
+          />
         ) : viewMode === 'facturacion' && board ? (
           <FacturacionBoardView board={board} onRowClick={onRowClick} />
         ) : (
@@ -958,6 +1129,107 @@ const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode }) => {
                   className="px-4 py-2 text-[13px] font-medium text-white bg-monday-red hover:bg-red-600 rounded-lg transition-colors"
                 >
                   Eliminar
+                </button>
+              </div>
+            </Dialog.Content>
+          </Dialog.Portal>
+        </Dialog.Root>
+
+        {/* Modal Añadir a proyecto / Crear Tarea: unificado en todas las vistas; adaptativo por viewMode */}
+        <Dialog.Root open={addToProjectOpen} onOpenChange={(open) => { setAddToProjectOpen(open); if (!open) setAddToProjectName(''); }}>
+          <Dialog.Portal>
+            <Dialog.Overlay className="fixed inset-0 bg-black/40 z-[150]" />
+            <Dialog.Content
+              className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 bg-white rounded-xl shadow-monday-xl border border-monday-border p-6 w-[400px] max-w-[90vw] z-[151] sm:w-[400px]"
+              onCloseAutoFocus={(e) => e.preventDefault()}
+            >
+              <div className="flex items-start justify-between gap-4 mb-4">
+                <Dialog.Title className="text-[18px] font-bold text-monday-text">
+                  {viewMode === 'facturacion' ? 'Añadir elemento a proyecto' : 'Agregar Elemento'}
+                </Dialog.Title>
+                <Dialog.Close asChild>
+                  <button type="button" className="p-1 rounded-monday text-monday-subtext hover:bg-monday-hover hover:text-monday-text">
+                    <X size={20} />
+                  </button>
+                </Dialog.Close>
+              </div>
+
+              <div className="flex flex-col gap-4">
+                {/* Grupo */}
+                <div className="flex items-center gap-3">
+                  <Circle size={18} className="text-amber-500 shrink-0" fill="currentColor" />
+                  <div className="flex-1 min-w-0">
+                    <label className="block text-[12px] font-medium text-monday-subtext mb-1">Grupo</label>
+                    <div className="flex items-center gap-2 px-3 py-2 border border-monday-border rounded-lg bg-monday-hover/20">
+                      {selectedGroupForProject && (
+                        <span
+                          className="w-3 h-3 rounded-full shrink-0"
+                          style={{ backgroundColor: selectedGroupForProject.color }}
+                        />
+                      )}
+                      <select
+                        value={addToProjectGroupId}
+                        onChange={(e) => { setAddToProjectGroupId(e.target.value); setAddToProjectAfterItemId(''); }}
+                        className="flex-1 min-w-0 bg-transparent text-[13px] text-monday-text outline-none focus:ring-0 border-0 p-0 cursor-pointer"
+                      >
+                        {board?.groups.map((g) => (
+                          <option key={g.id} value={g.id}>{g.name}</option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Insertar después de */}
+                <div className="flex items-center gap-3">
+                  <ListOrdered size={18} className="text-monday-subtext shrink-0" />
+                  <div className="flex-1 min-w-0">
+                    <label className="block text-[12px] font-medium text-monday-subtext mb-1">Insertar después de</label>
+                    <select
+                      value={addToProjectAfterItemId}
+                      onChange={(e) => setAddToProjectAfterItemId(e.target.value)}
+                      className="w-full px-3 py-2 text-[13px] border border-monday-border rounded-lg bg-white text-monday-text outline-none focus:ring-2 focus:ring-monday-blue/30 focus:border-monday-blue"
+                    >
+                      <option value="">Al inicio del grupo</option>
+                      {selectedGroupForProject?.items.map((item) => (
+                        <option key={item.id} value={item.id}>{item.name}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+
+                {/* Nombre */}
+                <div className="flex items-center gap-3">
+                  <FileText size={18} className="text-monday-subtext shrink-0" />
+                  <div className="flex-1 min-w-0">
+                    <label className="block text-[12px] font-medium text-monday-subtext mb-1">Nombre del elemento</label>
+                    <input
+                      type="text"
+                      value={addToProjectName}
+                      onChange={(e) => setAddToProjectName(e.target.value)}
+                      placeholder="Ej. Nueva tarea"
+                      className="w-full px-3 py-2 text-[13px] border border-monday-border rounded-lg bg-white text-monday-text placeholder:text-monday-subtext outline-none focus:ring-2 focus:ring-monday-blue/30 focus:border-monday-blue"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex justify-end gap-2 mt-6 pt-4 border-t border-monday-border">
+                <Dialog.Close asChild>
+                  <button
+                    type="button"
+                    className="px-4 py-2 text-[13px] font-medium text-monday-subtext hover:bg-monday-hover rounded-lg transition-colors"
+                  >
+                    Cancelar
+                  </button>
+                </Dialog.Close>
+                <button
+                  type="button"
+                  onClick={handleAddToProjectSubmit}
+                  disabled={addToProjectSubmitting || !addToProjectName.trim()}
+                  className="px-4 py-2 text-[13px] font-medium text-white bg-monday-blue hover:bg-monday-blue/90 rounded-lg transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+                >
+                  {addToProjectSubmitting ? 'Creando…' : (viewMode === 'facturacion' ? 'Añadir' : 'Crear Tarea')}
                 </button>
               </div>
             </Dialog.Content>
