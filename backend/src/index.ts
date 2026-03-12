@@ -980,8 +980,11 @@ io.on('connection', (socket) => {
 
   socket.on('rename_group', async (data) => {
     try {
-      const { groupId, name } = data;
-      const updated = await prisma.group.update({ where: { id: groupId }, data: { name } });
+      const { groupId, name, color } = data;
+      const updateData: { name?: string; color?: string } = {};
+      if (name !== undefined) updateData.name = name;
+      if (color !== undefined) updateData.color = color;
+      const updated = await prisma.group.update({ where: { id: groupId }, data: updateData });
       io.emit('group_renamed', updated);
     } catch (e) {
       console.error('Error renaming group:', e);

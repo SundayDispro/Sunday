@@ -22,6 +22,7 @@ import { ExcelCellRenderer } from './ExcelCellRenderer';
 import { DocsCellRenderer } from './DocsCellRenderer';
 import { TimelineCellRenderer } from './TimelineCellRenderer';
 import { FileCellRenderer } from './FileCellRenderer';
+import { GroupColorPicker, GROUP_PALETTE } from './GroupColorPicker';
 
 interface Props {
   group: Group;
@@ -543,32 +544,46 @@ export const BoardGroup: React.FC<Props> = ({
         </button>
 
         {isRenamingGroup ? (
-          <input
-            autoFocus
-            value={groupNameDraft}
-            onChange={e => setGroupNameDraft(e.target.value)}
-            onBlur={() => {
-              setIsRenamingGroup(false);
-              if (groupNameDraft.trim() && groupNameDraft !== group.name) {
-                socket.emit('rename_group', { groupId: group.id, name: groupNameDraft.trim() });
-              } else setGroupNameDraft(group.name);
-            }}
-            onKeyDown={e => {
-              if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
-              if (e.key === 'Escape') { setGroupNameDraft(group.name); setIsRenamingGroup(false); }
-            }}
-            className="text-[26px] font-normal bg-transparent border-b-2 outline-none px-0 min-w-[120px] font-averta"
-            style={{ color: group.color, borderColor: group.color }}
-          />
+          <div className="flex items-center gap-2 min-w-0">
+            <GroupColorPicker
+              value={group.color}
+              onChange={color => socket.emit('rename_group', { groupId: group.id, name: group.name, color })}
+              swatchClassName="w-5 h-5 shrink-0"
+            />
+            <input
+              autoFocus
+              value={groupNameDraft}
+              onChange={e => setGroupNameDraft(e.target.value)}
+              onBlur={() => {
+                setIsRenamingGroup(false);
+                if (groupNameDraft.trim() && groupNameDraft !== group.name) {
+                  socket.emit('rename_group', { groupId: group.id, name: groupNameDraft.trim(), color: group.color });
+                } else setGroupNameDraft(group.name);
+              }}
+              onKeyDown={e => {
+                if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
+                if (e.key === 'Escape') { setGroupNameDraft(group.name); setIsRenamingGroup(false); }
+              }}
+              className="text-[26px] font-normal bg-transparent border-b-2 outline-none px-0 min-w-[120px] font-averta flex-1"
+              style={{ color: group.color, borderColor: group.color }}
+            />
+          </div>
         ) : (
-          <h3
-            className="text-[26px] font-normal leading-tight cursor-pointer hover:opacity-80 transition-opacity select-none font-averta"
-            style={{ color: group.color }}
-            onDoubleClick={() => setIsRenamingGroup(true)}
-            title="Doble clic para renombrar"
-          >
-            {group.name}
-          </h3>
+          <div className="flex items-center gap-2 min-w-0">
+            <GroupColorPicker
+              value={group.color}
+              onChange={color => socket.emit('rename_group', { groupId: group.id, name: group.name, color })}
+              swatchClassName="w-5 h-5 shrink-0"
+            />
+            <h3
+              className="text-[26px] font-normal leading-tight cursor-pointer hover:opacity-80 transition-opacity select-none font-averta truncate"
+              style={{ color: group.color }}
+              onDoubleClick={() => setIsRenamingGroup(true)}
+              title="Doble clic para renombrar"
+            >
+              {group.name}
+            </h3>
+          </div>
         )}
 
         <span className="text-[14px] text-monday-subtext font-normal">
@@ -580,8 +595,7 @@ export const BoardGroup: React.FC<Props> = ({
           <button
             type="button"
             onClick={() => {
-              const colors = ['#00c875', '#fdab3d', '#e2445c', '#5559df', '#6e3cbb', '#0073ea'];
-              const randomColor = colors[Math.floor(Math.random() * colors.length)];
+              const randomColor = GROUP_PALETTE[Math.floor(Math.random() * GROUP_PALETTE.length)];
               const newPosition = (group.position || 0) + 0.5;
               socket.emit('add_group', {
                 boardId,

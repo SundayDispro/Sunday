@@ -20,6 +20,7 @@ import {
   verticalListSortingStrategy,
   sortableKeyboardCoordinates,
 } from '@dnd-kit/sortable';
+import { GROUP_PALETTE } from './GroupColorPicker';
 import { KanbanView } from './KanbanView';
 import { CalendarView } from './CalendarView';
 import { FacturacionBoardView } from './FacturacionBoardView';
@@ -160,12 +161,14 @@ const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode }) => {
       });
     });
 
-    socket.on('group_renamed', (updated: { id: string; name: string }) => {
+    socket.on('group_renamed', (updated: { id: string; name: string; color?: string }) => {
       setBoard(prev => {
         if (!prev) return prev;
         return {
           ...prev,
-          groups: prev.groups.map(g => g.id === updated.id ? { ...g, name: updated.name } : g),
+          groups: prev.groups.map(g =>
+            g.id === updated.id ? { ...g, name: updated.name, ...(updated.color != null && { color: updated.color }) } : g
+          ),
         };
       });
     });
@@ -293,8 +296,7 @@ const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode }) => {
 
   const handleAddGroup = () => {
     if (!board) return;
-    const colors = ['#00c875', '#fdab3d', '#e2445c', '#5559df', '#6e3cbb', '#0073ea'];
-    const randomColor = colors[Math.floor(Math.random() * colors.length)];
+    const randomColor = GROUP_PALETTE[Math.floor(Math.random() * GROUP_PALETTE.length)];
     const newPosition = board.groups.length > 0 ? board.groups.reduce((max, g) => Math.max(max, g.position), 0) + 1024 : 1024;
     socket.emit('add_group', { boardId: board.id, name: 'Nuevo grupo', color: randomColor, position: newPosition });
   };
