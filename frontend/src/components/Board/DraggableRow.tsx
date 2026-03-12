@@ -27,10 +27,18 @@ export const DraggableRow: React.FC<DraggableRowProps> = ({ row, groupColor, isS
     },
   });
 
-  const style = {
-    transform: CSS.Transform.toString(transform),
-    transition,
-    ...(isDragging ? { zIndex: 999, position: 'relative' as const, opacity: 0.5 } : {}),
+  // Solo aplicar transform al arrastrar: si siempre aplicamos transform, cada fila crea un stacking
+  // context y puede pintarse por encima del header sticky de otro grupo.
+  const style: React.CSSProperties = {
+    ...(isDragging
+      ? {
+          transform: CSS.Transform.toString(transform),
+          transition,
+          zIndex: 50,
+          position: 'relative' as const,
+          opacity: 0.5,
+        }
+      : { transition }),
   };
 
   return (
