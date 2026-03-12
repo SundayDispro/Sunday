@@ -4,7 +4,7 @@ import BoardContainer from './components/Board/BoardContainer';
 import { ItemDetailsPanel } from './components/Board/ItemDetailsPanel';
 import {
   Home, Bell, Search, ChevronDown, ChevronRight,
-  LayoutGrid, Users, BookOpen, BarChart2, Inbox, Star, Plus, Receipt, Calendar, Folder,
+  LayoutGrid, Users, BookOpen, BarChart2, Inbox, Star, Plus, Receipt, Calendar, Folder, PieChart, FolderOpen, UserCheck, GanttChart,
 } from 'lucide-react';
 import { Item, Board, Workspace, User } from './types';
 import { useUser } from './store/UserContext';
@@ -20,7 +20,7 @@ import { TeamPage } from './components/pages/TeamPage';
 import { FacturacionPage } from './components/pages/FacturacionPage';
 import { WorkspaceOverviewPage } from './components/pages/WorkspaceOverviewPage';
 import * as Popover from '@radix-ui/react-popover';
-type ViewMode = 'table' | 'kanban' | 'calendar' | 'facturacion';
+type ViewMode = 'table' | 'kanban' | 'calendar' | 'facturacion' | 'resumen' | 'archivos' | 'miTrabajo' | 'timeline';
 
 function AddViewDropdown({
   enabledViews,
@@ -37,7 +37,11 @@ function AddViewDropdown({
 }) {
   const canAddCalendar = !enabledViews.includes('calendar');
   const canAddFact = canAddFacturacion && !enabledViews.includes('facturacion');
-  const hasAny = canAddCalendar || canAddFact;
+  const canAddResumen = !enabledViews.includes('resumen');
+  const canAddArchivos = !enabledViews.includes('archivos');
+  const canAddMiTrabajo = !enabledViews.includes('miTrabajo');
+  const canAddTimeline = !enabledViews.includes('timeline');
+  const hasAny = canAddCalendar || canAddFact || canAddResumen || canAddArchivos || canAddMiTrabajo || canAddTimeline;
   return (
     <Popover.Root open={open} onOpenChange={onOpenChange}>
       <Popover.Trigger asChild>
@@ -50,7 +54,7 @@ function AddViewDropdown({
       </Popover.Trigger>
       <Popover.Portal>
         <Popover.Content
-          className="z-50 bg-white rounded-xl shadow-monday-lg border border-monday-border w-52 p-2 fade-in"
+          className="z-50 bg-white rounded-xl shadow-monday-lg border border-monday-border w-52 p-2 fade-in max-h-[70vh] overflow-y-auto"
           sideOffset={6}
           align="start"
         >
@@ -75,6 +79,42 @@ function AddViewDropdown({
               Calendario
             </button>
           )}
+          {canAddResumen && (
+            <button
+              onClick={() => onAddView('resumen')}
+              className="w-full flex items-center gap-2.5 px-3 py-2 rounded-monday hover:bg-monday-hover transition-colors text-left text-[13px] text-monday-text"
+            >
+              <PieChart size={16} className="text-monday-blue shrink-0" />
+              Resumen
+            </button>
+          )}
+          {canAddArchivos && (
+            <button
+              onClick={() => onAddView('archivos')}
+              className="w-full flex items-center gap-2.5 px-3 py-2 rounded-monday hover:bg-monday-hover transition-colors text-left text-[13px] text-monday-text"
+            >
+              <FolderOpen size={16} className="text-monday-blue shrink-0" />
+              Archivos
+            </button>
+          )}
+          {canAddMiTrabajo && (
+            <button
+              onClick={() => onAddView('miTrabajo')}
+              className="w-full flex items-center gap-2.5 px-3 py-2 rounded-monday hover:bg-monday-hover transition-colors text-left text-[13px] text-monday-text"
+            >
+              <UserCheck size={16} className="text-monday-blue shrink-0" />
+              Mi trabajo
+            </button>
+          )}
+          {canAddTimeline && (
+            <button
+              onClick={() => onAddView('timeline')}
+              className="w-full flex items-center gap-2.5 px-3 py-2 rounded-monday hover:bg-monday-hover transition-colors text-left text-[13px] text-monday-text"
+            >
+              <GanttChart size={16} className="text-monday-blue shrink-0" />
+              Timeline
+            </button>
+          )}
           {!hasAny && (
             <p className="text-[12px] text-monday-subtext px-2 py-2">Todas las vistas están activas.</p>
           )}
@@ -97,7 +137,7 @@ function App() {
       const raw = localStorage.getItem('sunday-views');
       if (!raw) return 'table';
       const parsed = JSON.parse(raw) as { currentView?: ViewMode; enabledViews?: ViewMode[] };
-      const stored = parsed.currentView && ['table', 'kanban', 'calendar', 'facturacion'].includes(parsed.currentView) ? parsed.currentView : 'table';
+      const stored = parsed.currentView && ['table', 'kanban', 'calendar', 'facturacion', 'resumen', 'archivos', 'miTrabajo', 'timeline'].includes(parsed.currentView) ? parsed.currentView : 'table';
       if (isTaller && !['table', 'calendar'].includes(stored)) return 'table';
       if (!canSeeFacturacionView && stored === 'facturacion') return 'table';
       return stored;
@@ -110,7 +150,7 @@ function App() {
       if (!raw) return defaultViewsForRole;
       const parsed = JSON.parse(raw) as { currentView?: ViewMode; enabledViews?: ViewMode[] };
       if (Array.isArray(parsed.enabledViews) && parsed.enabledViews.length > 0) {
-        const valid = parsed.enabledViews.filter((v): v is ViewMode => ['table', 'kanban', 'calendar', 'facturacion'].includes(v));
+        const valid = parsed.enabledViews.filter((v): v is ViewMode => ['table', 'kanban', 'calendar', 'facturacion', 'resumen', 'archivos', 'miTrabajo', 'timeline'].includes(v));
         let forRole = isTaller ? valid.filter(v => v === 'table' || v === 'calendar') : valid;
         if (!canSeeFacturacionView) {
           forRole = forRole.filter(v => v !== 'facturacion');
@@ -165,6 +205,7 @@ function App() {
   }, [canSeeFacturacionView]);
 
   const [showAddViewPopover, setShowAddViewPopover] = useState(false);
+  const [exportingFolders, setExportingFolders] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   
   // Navigation state
@@ -794,13 +835,47 @@ if (ok && data && typeof data.id === 'string') {
                   </div>
 
                   <div className="flex items-center gap-2">
-                    <button className="toolbar-btn"><Users size={16} /><span>Invitar / {Object.keys(navIcons).length}</span></button>
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        if (!currentUser || !activeBoardId) return;
+                        try {
+                          setExportingFolders(true);
+                          const res = await fetch(`http://localhost:3001/api/export/folders`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ userId: currentUser.id, boardId: activeBoardId }),
+                          });
+                          if (!res.ok) throw new Error('Export failed');
+                          alert('Exportación de carpetas lanzada. Revisa la carpeta SundayExports en tu usuario.');
+                        } catch (e) {
+                          console.error('Error exporting folders', e);
+                          alert('No se pudo exportar la estructura de carpetas.');
+                        } finally {
+                          setExportingFolders(false);
+                        }
+                      }}
+                      disabled={!activeBoardId || exportingFolders}
+                      className="toolbar-btn"
+                      title="Exportar estructura de carpetas del tablero"
+                    >
+                      <Folder size={16} />
+                      <span>{exportingFolders ? 'Exportando…' : 'Exportar carpetas'}</span>
+                    </button>
                     <div className="w-px h-5 bg-monday-border" />
-                    <button className="toolbar-btn"><Search size={16} /></button>
+                    <button
+                      type="button"
+                      onClick={() => setActivePage('search')}
+                      className="toolbar-btn"
+                      title="Buscar en la aplicación"
+                    >
+                      <Search size={16} />
+                      <span>Buscar</span>
+                    </button>
                   </div>
                 </div>
 
-                <div className="flex items-center px-6 gap-1 text-[13px]">
+                <div className="flex items-center px-6 gap-1 text-[13px] flex-wrap">
                   {[
                     { id: 'table' as const, label: '⊞ Tabla principal' },
                     ...(!isTaller ? [{ id: 'kanban' as const, label: '▦ Kanban' }] : []),
@@ -808,6 +883,10 @@ if (ok && data && typeof data.id === 'string') {
                       ? [{ id: 'facturacion' as const, label: '🧾 Facturación' }]
                       : []),
                     ...(enabledViews.includes('calendar') ? [{ id: 'calendar' as const, label: '📅 Calendario' }] : []),
+                    ...(enabledViews.includes('resumen') ? [{ id: 'resumen' as const, label: '📊 Resumen' }] : []),
+                    ...(enabledViews.includes('archivos') ? [{ id: 'archivos' as const, label: '📁 Archivos' }] : []),
+                    ...(enabledViews.includes('miTrabajo') ? [{ id: 'miTrabajo' as const, label: '👤 Mi trabajo' }] : []),
+                    ...(enabledViews.includes('timeline') ? [{ id: 'timeline' as const, label: '📈 Timeline' }] : []),
                   ].map(tab => (
                     <button
                       key={tab.id}

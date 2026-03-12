@@ -1,7 +1,7 @@
 import React from 'react';
 import * as Popover from '@radix-ui/react-popover';
 import {
-  Tag, Calendar, User, AlignLeft, Clock, BarChart2, X, Paperclip, Mail, FileSpreadsheet, FileText
+  Tag, Calendar, User, AlignLeft, Clock, BarChart2, X, Paperclip, Mail, FileSpreadsheet, FileText, Hash
 } from 'lucide-react';
 import { useUser } from '../../store/UserContext';
 
@@ -19,6 +19,7 @@ const COLUMN_TYPES: ColumnType[] = [
   { id: 'date',       label: 'Fecha',      icon: <Calendar size={18} />,     color: '#0073ea', description: 'Fecha de entrada del proyecto' },
   { id: 'person',     label: 'Personas',   icon: <User size={18} />,         color: '#6e3cbb', description: 'Asigna miembros del equipo' },
   { id: 'text',       label: 'Texto',      icon: <AlignLeft size={18} />,     color: '#676879', description: 'Escribe cualquier nota corta' },
+  { id: 'folio',      label: 'Folio',      icon: <Hash size={18} />,          color: '#0f766e', description: 'Número de folio del proyecto' },
   { id: 'contact',    label: 'Contacto',   icon: <Mail size={18} />,          color: '#e2445c', description: 'Correo, teléfono o enlace a WhatsApp' },
   { id: 'timeline',   label: 'Producción', icon: <Clock size={18} />,       color: '#5559df', description: 'Rango de fechas de tiempo de producción (se marca en el calendario)' },
   { id: 'excel',      label: 'Excel',      icon: <FileSpreadsheet size={18} />, color: '#217346', description: 'Enlace al archivo Excel del proyecto' },

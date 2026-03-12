@@ -26,6 +26,9 @@ import { GROUP_PALETTE } from './GroupColorPicker';
 import { KanbanView } from './KanbanView';
 import CalendarView, { type CalendarEventKind } from './CalendarView';
 import { FacturacionBoardView } from './FacturacionBoardView';
+import { ResumenBoardView } from './ResumenBoardView';
+import { ArchivosBoardView } from './ArchivosBoardView';
+import { TimelineBoardView } from './TimelineBoardView';
 import { useUser } from '../../store/UserContext';
 import * as Popover from '@radix-ui/react-popover';
 import * as Dialog from '@radix-ui/react-dialog';
@@ -33,7 +36,7 @@ import * as Dialog from '@radix-ui/react-dialog';
 interface Props {
   boardId: string;
   onRowClick: (item: Item) => void;
-  viewMode: 'table' | 'kanban' | 'calendar' | 'facturacion';
+  viewMode: 'table' | 'kanban' | 'calendar' | 'facturacion' | 'resumen' | 'archivos' | 'miTrabajo' | 'timeline';
 }
 
 function GroupDragOverlay({ groups }: { groups: Group[] }) {
@@ -66,7 +69,6 @@ const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode }) => {
   const [showHide, setShowHide] = useState(false);
   const [showFilter, setShowFilter] = useState(false);
   const [filterByStatusOptionId, setFilterByStatusOptionId] = useState<string | null>(null);
-  const [exporting, setExporting] = useState(false);
   const [newMenuOpen, setNewMenuOpen] = useState(false);
   const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({});
   const [selectedItemIds, setSelectedItemIds] = useState<Set<string>>(new Set());
@@ -557,12 +559,12 @@ const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode }) => {
     return board.columns
       .filter(c => !hiddenColumns.includes(c.id))
       .filter(c => {
-        // Columnas de facturación solo visibles para ADMIN y VENTAS
-        if (c.title === 'Estado Facturación') return isAdminOrVentas;
-        if (c.type === 'billing_docs' || c.title === 'Documentos Facturación') return isAdminOrVentas;
+        // Estado Facturación y Documentos Facturación solo en vista Facturación, no en vista general
+        if (c.title === 'Estado Facturación') return false;
+        if (c.type === 'billing_docs' || c.title === 'Documentos Facturación') return false;
         return true;
       });
-  }, [board, hiddenColumns, isTaller, isAdminOrVentas]);
+  }, [board, hiddenColumns, isTaller]);
 
   // ─── Client-side search + sort filter ─────────────────────────────────────
   const filteredGroups = useMemo(() => {
@@ -642,6 +644,28 @@ const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode }) => {
     );
   };
 
+  // Vista "Mi trabajo": solo elementos asignados al usuario actual (columna Personas/Responsable).
+  const groupsForView = useMemo(() => {
+    if (viewMode !== 'miTrabajo' || !currentUser || !board) return filteredGroups;
+    const personCol = board.columns.find(c => c.type === 'person');
+    if (!personCol) return filteredGroups;
+    return filteredGroups
+      .map(g => ({
+        ...g,
+        items: g.items.filter(item => {
+          const cv = item.columnValues.find(v => v.columnId === personCol.id);
+          if (!cv?.value) return false;
+          try {
+            const ids = JSON.parse(cv.value) as string[];
+            return Array.isArray(ids) && ids.includes(currentUser.id);
+          } catch {
+            return cv.value === currentUser.id;
+          }
+        }),
+      }))
+      .filter(g => g.items.length > 0);
+  }, [viewMode, currentUser, filteredGroups, board]);
+
   // Board con grupos filtrados; para vista de calendario usamos siempre todas las columnas originales
   // para que pueda seguir accediendo a columnas ocultas (ej. "Estado") al calcular aprobados/producción.
   const boardForView = useMemo(
@@ -649,11 +673,17 @@ const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode }) => {
       board
         ? {
             ...board,
-            groups: filteredGroups,
+            groups: viewMode === 'miTrabajo' ? groupsForView : filteredGroups,
             columns: viewMode === 'calendar' ? board.columns : visibleColumns,
           }
         : null,
-    [board, filteredGroups, visibleColumns, viewMode]
+    [board, filteredGroups, visibleColumns, viewMode, groupsForView]
+  );
+
+  const displayGroups = viewMode === 'miTrabajo' ? groupsForView : filteredGroups;
+  const rootDisplayGroups = useMemo(
+    () => displayGroups.filter(g => !g.parentGroupId),
+    [displayGroups]
   );
 
   // Asegurar que exista una columna "Estado Taller" con las opciones específicas.
@@ -739,24 +769,6 @@ const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode }) => {
   };
 
 
-  const handleExportFolders = async () => {
-    if (!board || !currentUser) return;
-    try {
-      setExporting(true);
-      await fetch('http://localhost:3001/api/export/folders', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userId: currentUser.id, boardId: board.id }),
-      });
-      alert('Exportación de carpetas lanzada. Revisa la carpeta SundayExports en tu usuario.');
-    } catch (e) {
-      console.error('Error exporting folders', e);
-      alert('No se pudo exportar la estructura de carpetas.');
-    } finally {
-      setExporting(false);
-    }
-  };
-
   if (!board) return (
     <div className="flex items-center justify-center h-full text-monday-subtext text-sm gap-2">
       <div className="w-5 h-5 border-2 border-monday-blue border-t-transparent rounded-full animate-spin" />
@@ -769,7 +781,7 @@ const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode }) => {
       {/* ── Action Toolbar: adaptada por vista (tabla = todo; kanban = filtrar y ordenar; calendario = Crear Tarea + eventos; facturación = Crear Tarea) ─────────────────────────────────────── */}
       <div className="px-6 py-2.5 border-b border-monday-border flex items-center gap-2 shrink-0 bg-white flex-wrap">
         {/* Primary CTA: en tabla "+ Nuevo elemento", en calendario "Crear Tarea"; oculto en Kanban y Facturación. */}
-        {!isTaller && viewMode !== 'kanban' && viewMode !== 'facturacion' && (
+        {!isTaller && viewMode !== 'kanban' && viewMode !== 'facturacion' && viewMode !== 'resumen' && viewMode !== 'archivos' && viewMode !== 'timeline' && (
         <div className="flex items-center bg-monday-blue rounded-monday shadow-monday-sm mr-2">
           <button
             onClick={openAddToProject}
@@ -867,8 +879,8 @@ const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode }) => {
 
         <div className="w-px h-5 bg-monday-border" />
 
-        {/* Búsqueda: solo en vista tabla */}
-        {viewMode === 'table' && (showSearch ? (
+        {/* Búsqueda: vista tabla y Mi trabajo */}
+        {(viewMode === 'table' || viewMode === 'miTrabajo') && (showSearch ? (
           <div className="flex items-center gap-1.5 bg-monday-hover border border-monday-border rounded-monday px-2.5 py-1 fade-in">
             <Search size={14} className="text-monday-subtext shrink-0" />
             <input
@@ -894,8 +906,8 @@ const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode }) => {
           </button>
         ))}
 
-        {/* Filtrar: tabla y kanban (por estado) */}
-        {(viewMode === 'table' || viewMode === 'kanban') && (
+        {/* Filtrar: tabla, kanban y Mi trabajo (por estado) */}
+        {(viewMode === 'table' || viewMode === 'kanban' || viewMode === 'miTrabajo') && (
         <Popover.Root open={showFilter} onOpenChange={setShowFilter}>
           <Popover.Trigger asChild>
             <button className={`toolbar-btn ${filterByStatusOptionId ? 'bg-blue-50 text-monday-blue border-blue-200' : ''}`}>
@@ -929,8 +941,8 @@ const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode }) => {
         </Popover.Root>
         )}
 
-        {/* Sort Popover: tabla y kanban */}
-        {(viewMode === 'table' || viewMode === 'kanban') && (
+        {/* Sort Popover: tabla, kanban y Mi trabajo */}
+        {(viewMode === 'table' || viewMode === 'kanban' || viewMode === 'miTrabajo') && (
         <>
         <Popover.Root open={showSort} onOpenChange={setShowSort}>
           <Popover.Trigger asChild>
@@ -991,8 +1003,8 @@ const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode }) => {
           </Popover.Portal>
         </Popover.Root>
 
-        {/* Ocultar columnas: solo en vista tabla */}
-        {viewMode === 'table' && (
+        {/* Ocultar columnas: vista tabla y Mi trabajo */}
+        {(viewMode === 'table' || viewMode === 'miTrabajo') && (
         <Popover.Root open={showHide} onOpenChange={setShowHide}>
           <Popover.Trigger asChild>
             <button className={`toolbar-btn ${hiddenColumns.length > 0 ? 'bg-blue-50 text-monday-blue border-blue-200' : ''}`}>
@@ -1032,17 +1044,6 @@ const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode }) => {
         </>
         )}
 
-        <div className="ml-auto flex items-center gap-2">
-          <button
-            type="button"
-            onClick={handleExportFolders}
-            disabled={exporting}
-            className="toolbar-btn border border-monday-border"
-          >
-            <Folder size={15} />
-            <span>{exporting ? 'Exportando…' : 'Exportar carpetas'}</span>
-          </button>
-        </div>
       </div>
 
       {/* ── Board Content ───────────────────────────────────────── */}
@@ -1059,91 +1060,61 @@ const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode }) => {
           />
         ) : viewMode === 'facturacion' && board ? (
           <FacturacionBoardView board={board} onRowClick={onRowClick} />
-        ) : (
+        ) : viewMode === 'resumen' && board ? (
+          <ResumenBoardView board={board} onRowClick={onRowClick} />
+        ) : viewMode === 'archivos' && board ? (
+          <ArchivosBoardView board={board} onRowClick={onRowClick} />
+        ) : viewMode === 'timeline' && board ? (
+          <TimelineBoardView board={board} onRowClick={onRowClick} />
+        ) : (viewMode === 'table' || viewMode === 'miTrabajo') && board ? (
+          rootDisplayGroups.length === 0 && viewMode === 'miTrabajo' ? (
+            <div className="flex-1 flex flex-col items-center justify-center p-6 text-monday-subtext text-[13px]">
+              <p className="font-medium text-monday-text">Mi trabajo</p>
+              <p className="mt-1">No tienes elementos asignados en este tablero (columna Personas/Responsable).</p>
+            </div>
+          ) : (
           <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
-            <GroupDragOverlay groups={filteredGroups} />
+            <GroupDragOverlay groups={displayGroups} />
             <div className="flex flex-col">
-              <SortableContext items={rootFilteredGroups.map(g => g.id)} strategy={verticalListSortingStrategy}>
-                {rootFilteredGroups.map((group, idx) => {
+              <SortableContext items={rootDisplayGroups.map(g => g.id)} strategy={verticalListSortingStrategy}>
+                {rootDisplayGroups.map((group, idx) => {
                   const isCollapsed = !!collapsedGroups[group.id];
                   const childGroups = !isCollapsed
-                    ? filteredGroups.filter(g => g.parentGroupId === group.id)
+                    ? displayGroups.filter(g => g.parentGroupId === group.id)
                     : [];
 
                   return (
                     <React.Fragment key={group.id}>
-                      {/* Vista tabla: una sección por grupo raíz; el grupo y sus subgrupos van dentro de la misma sección (subgrupos indentados) */}
-                      {viewMode === 'table' ? (
-                        <section
-                          className="min-h-0 flex flex-col max-h-[calc(100vh-180px)] overflow-y-auto custom-scrollbar mb-6 rounded-lg border border-monday-border"
-                          style={{ contain: 'layout' }}
-                        >
-                          <BoardGroup
-                            group={group}
-                            allGroups={board.groups}
-                            columns={visibleColumns}
-                            hiddenColumns={isTaller ? [] : hiddenColumns}
-                            boardId={board.id}
-                            onRowClick={onRowClick}
-                            showAddColumn={!isTaller}
-                            showAddRow={!isTaller}
-                            collapsed={isCollapsed}
-                            onToggleCollapse={() => toggleGroupCollapse(group.id)}
-                            selectedItemIds={selectedItemIds}
-                            onToggleItem={toggleItemSelection}
-                            onToggleGroupAll={toggleGroupAll}
-                            stackIndex={idx}
-                          />
-                          {childGroups.map(sub => (
-                            <div
-                              key={sub.id}
-                              className="ml-6 mt-2 pl-4 border-l-2 border-monday-border/60 bg-monday-hover/20 rounded-r-md py-1"
-                              style={{ borderLeftColor: group.color }}
-                            >
-                              <BoardGroup
-                                group={sub}
-                                allGroups={board.groups}
-                                columns={visibleColumns}
-                                hiddenColumns={isTaller ? [] : hiddenColumns}
-                                boardId={board.id}
-                                onRowClick={onRowClick}
-                                showAddColumn={!isTaller}
-                                showAddRow={!isTaller}
-                                isSubgroup
-                                indentFromParent
-                                collapsed={!!collapsedGroups[sub.id]}
-                                onToggleCollapse={() => toggleGroupCollapse(sub.id)}
-                                selectedItemIds={selectedItemIds}
-                                onToggleItem={toggleItemSelection}
-                                onToggleGroupAll={toggleGroupAll}
-                                stackIndex={idx}
-                              />
-                            </div>
-                          ))}
-                        </section>
-                      ) : (
-                        <>
-                          <BoardGroup
-                            group={group}
-                            allGroups={board.groups}
-                            columns={visibleColumns}
-                            hiddenColumns={isTaller ? [] : hiddenColumns}
-                            boardId={board.id}
-                            onRowClick={onRowClick}
-                            showAddColumn={!isTaller}
-                            showAddRow={!isTaller}
-                            collapsed={isCollapsed}
-                            onToggleCollapse={() => toggleGroupCollapse(group.id)}
-                            selectedItemIds={selectedItemIds}
-                            onToggleItem={toggleItemSelection}
-                            onToggleGroupAll={toggleGroupAll}
-                            stackIndex={idx}
-                          />
-                          {childGroups.map(sub => (
+                      {/* Vista tabla / Mi trabajo: una sección por grupo raíz */}
+                      <section
+                        className="min-h-0 flex flex-col max-h-[calc(100vh-180px)] overflow-y-auto custom-scrollbar mb-6 rounded-lg border border-monday-border"
+                        style={{ contain: 'layout' }}
+                      >
+                        <BoardGroup
+                          group={group}
+                          allGroups={displayGroups}
+                          columns={visibleColumns}
+                          hiddenColumns={isTaller ? [] : hiddenColumns}
+                          boardId={board.id}
+                          onRowClick={onRowClick}
+                          showAddColumn={!isTaller}
+                          showAddRow={!isTaller}
+                          collapsed={isCollapsed}
+                          onToggleCollapse={() => toggleGroupCollapse(group.id)}
+                          selectedItemIds={selectedItemIds}
+                          onToggleItem={toggleItemSelection}
+                          onToggleGroupAll={toggleGroupAll}
+                          stackIndex={idx}
+                        />
+                        {childGroups.map(sub => (
+                          <div
+                            key={sub.id}
+                            className="ml-6 mt-2 pl-4 border-l-2 border-monday-border/60 bg-monday-hover/20 rounded-r-md py-1"
+                            style={{ borderLeftColor: group.color }}
+                          >
                             <BoardGroup
-                              key={sub.id}
                               group={sub}
-                              allGroups={board.groups}
+                              allGroups={displayGroups}
                               columns={visibleColumns}
                               hiddenColumns={isTaller ? [] : hiddenColumns}
                               boardId={board.id}
@@ -1151,6 +1122,7 @@ const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode }) => {
                               showAddColumn={!isTaller}
                               showAddRow={!isTaller}
                               isSubgroup
+                              indentFromParent
                               collapsed={!!collapsedGroups[sub.id]}
                               onToggleCollapse={() => toggleGroupCollapse(sub.id)}
                               selectedItemIds={selectedItemIds}
@@ -1158,9 +1130,9 @@ const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode }) => {
                               onToggleGroupAll={toggleGroupAll}
                               stackIndex={idx}
                             />
-                          ))}
-                        </>
-                      )}
+                          </div>
+                        ))}
+                      </section>
                     </React.Fragment>
                   );
                 })}
@@ -1179,10 +1151,11 @@ const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode }) => {
               )}
             </div>
           </DndContext>
-        )}
+          )
+        ) : null}
 
         {/* Hint: selección múltiple (solo primera vez) */}
-        {viewMode === 'table' && showMultiSelectHint && selectedItemIds.size > 0 && (
+        {(viewMode === 'table' || viewMode === 'miTrabajo') && showMultiSelectHint && selectedItemIds.size > 0 && (
           <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/30" onClick={dismissMultiSelectHint}>
             <div
               className="bg-white rounded-xl shadow-monday-xl border border-monday-border p-6 max-w-sm mx-4 text-center"
@@ -1206,7 +1179,7 @@ const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode }) => {
         )}
 
         {/* Barra flotante de acciones múltiples (sin IA) */}
-        {viewMode === 'table' && selectedItemIds.size > 0 && (
+        {(viewMode === 'table' || viewMode === 'miTrabajo') && selectedItemIds.size > 0 && (
           <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[100] flex items-center gap-4 px-4 py-3 bg-white rounded-xl shadow-monday-lg border border-monday-border">
             <span className="text-[13px] font-medium text-monday-text whitespace-nowrap">
               {selectedItemIds.size} elemento{selectedItemIds.size !== 1 ? 's' : ''} seleccionado{selectedItemIds.size !== 1 ? 's' : ''}

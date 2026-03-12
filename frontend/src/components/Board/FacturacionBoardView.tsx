@@ -76,18 +76,10 @@ export const FacturacionBoardView: React.FC<Props> = ({ board, onRowClick }) => 
     return rows;
   }, [facturacionRows, searchQuery, filterEstadoFacturacion, estadoFacturacionColumn]);
 
-  if (facturacionRows.length === 0) {
-    return (
-      <div className="flex flex-col items-center justify-center py-16 text-monday-subtext flex-1">
-        <p className="text-[15px] font-medium text-monday-text">Sin elementos para facturación</p>
-        <p className="text-[13px] mt-1">No hay elementos con Estado Taller &quot;Colocado&quot; en este tablero.</p>
-      </div>
-    );
-  }
-
   return (
-    <div className="flex-1 overflow-auto p-6">
-      <div className="flex items-center justify-between mb-3 gap-3">
+    <div className="flex-1 overflow-auto p-6 flex flex-col">
+      {/* Filtros siempre visibles */}
+      <div className="flex items-center justify-between mb-3 gap-3 shrink-0 flex-wrap">
         <div className="flex items-center gap-2">
           <input
             type="text"
@@ -116,6 +108,12 @@ export const FacturacionBoardView: React.FC<Props> = ({ board, onRowClick }) => 
         )}
       </div>
 
+      {facturacionRows.length === 0 ? (
+        <div className="flex flex-col items-center justify-center py-16 text-monday-subtext flex-1">
+          <p className="text-[15px] font-medium text-monday-text">Sin elementos para facturación</p>
+          <p className="text-[13px] mt-1">No hay elementos con Estado Taller &quot;Colocado&quot; en este tablero.</p>
+        </div>
+      ) : (
       <div className="border border-monday-border rounded-xl overflow-hidden shadow-monday-sm">
         <table className="w-full text-left border-collapse">
           <thead>
@@ -196,6 +194,7 @@ export const FacturacionBoardView: React.FC<Props> = ({ board, onRowClick }) => 
           </tbody>
         </table>
       </div>
+      )}
     </div>
   );
 };

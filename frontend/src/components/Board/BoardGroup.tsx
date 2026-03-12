@@ -546,7 +546,7 @@ export const BoardGroup: React.FC<Props> = ({
             currentGroupId={group.id}
           />
         ),
-        size: 300,
+        size: 220,
       }),
     ];
 
@@ -571,7 +571,7 @@ export const BoardGroup: React.FC<Props> = ({
         if (col.type === 'timeline') {
           return <TimelineCellRenderer item={item} column={col} value={cv} />;
         }
-        if (col.type === 'text') {
+        if (col.type === 'text' || col.type === 'folio') {
           return <TextCell content={cv?.value ?? ''} item={item} column={col} />;
         }
         if (col.type === 'contact' || col.type === 'number') {
@@ -596,7 +596,7 @@ export const BoardGroup: React.FC<Props> = ({
           />
         );
       },
-      size: 140,
+      size: col.type === 'folio' ? 100 : 140,
     }));
 
     // "+" add column button (oculto en vista Taller)

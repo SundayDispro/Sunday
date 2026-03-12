@@ -34,7 +34,7 @@ export interface Item {
 export interface BoardColumn {
   id: string;
   title: string;
-  type: 'status' | 'date' | 'person' | 'priority' | 'text' | 'timeline' | 'number' | 'file' | 'contact' | 'excel' | 'docs';
+  type: 'status' | 'date' | 'person' | 'priority' | 'text' | 'timeline' | 'number' | 'file' | 'contact' | 'excel' | 'docs' | 'billing_docs' | 'folio';
   position: number;
   boardId: string;
   settings?: string;
