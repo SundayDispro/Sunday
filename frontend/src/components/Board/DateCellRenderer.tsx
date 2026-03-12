@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Item, BoardColumn, ColumnValue } from '../../types';
 import { socket } from '../../store/socket';
 import { Calendar } from 'lucide-react';
+import { useUser } from '../../store/UserContext';
 
 interface Props {
   item: Item;
@@ -21,6 +22,8 @@ function formatDisplayDate(value: string | undefined): string {
 }
 
 export const DateCellRenderer: React.FC<Props> = ({ item, column, value }) => {
+  const { currentUser } = useUser();
+  const isTaller = currentUser?.role === 'TALLER';
   const [open, setOpen] = useState(false);
   const raw = value?.value ?? '';
   const display = formatDisplayDate(raw);
@@ -39,10 +42,31 @@ export const DateCellRenderer: React.FC<Props> = ({ item, column, value }) => {
     setOpen(false);
   };
 
+  // Para TALLER la fecha es solo lectura (sin editor ni popover)
+  if (isTaller) {
+    return (
+      <div className="w-full h-full min-h-[42px] flex items-center justify-center px-2">
+        <span className="text-[13px] text-monday-text flex items-center gap-1.5">
+          {display ? (
+            <>
+              <Calendar size={14} className="text-monday-subtext shrink-0" />
+              {display}
+            </>
+          ) : (
+            <span className="text-monday-subtext text-[12px]">— —</span>
+          )}
+        </span>
+      </div>
+    );
+  }
+
   return (
     <div
       className="w-full h-full min-h-[42px] flex items-center justify-center cursor-pointer hover:bg-monday-hover transition-colors px-2"
-      onClick={e => { e.stopPropagation(); setOpen(true); }}
+      onClick={e => {
+        e.stopPropagation();
+        setOpen(true);
+      }}
     >
       {open ? (
         <input

@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Item, BoardColumn, ColumnValue } from '../../types';
 import { socket } from '../../store/socket';
 import { Clock } from 'lucide-react';
+import { useUser } from '../../store/UserContext';
 
 interface TimelineValue {
   start?: string;
@@ -47,6 +48,8 @@ interface Props {
 }
 
 export const TimelineCellRenderer: React.FC<Props> = ({ item, column, value }) => {
+  const { currentUser } = useUser();
+  const isTaller = currentUser?.role === 'TALLER';
   const [editing, setEditing] = useState(false);
   const parsed = parseTimelineValue(value?.value);
   const [start, setStart] = useState(toInputValue(parsed.start));
@@ -78,6 +81,20 @@ export const TimelineCellRenderer: React.FC<Props> = ({ item, column, value }) =
       ? `${displayStart} – ${displayEnd}`
       : displayStart
     : '— —';
+
+  // Para TALLER el timeline es solo lectura (sin ediciones)
+  if (isTaller) {
+    return (
+      <div className="w-full h-full min-h-[38px] flex items-center justify-center px-2">
+        <div className="w-full max-w-full flex items-center gap-1.5">
+          <Clock size={14} className="text-monday-subtext shrink-0" />
+          <span className="text-[12px] text-monday-text truncate" title={label}>
+            {label}
+          </span>
+        </div>
+      </div>
+    );
+  }
 
   if (editing) {
     return (

@@ -24,6 +24,7 @@ import { TimelineCellRenderer } from './TimelineCellRenderer';
 import { FileCellRenderer } from './FileCellRenderer';
 import { GroupColorPicker, GROUP_PALETTE } from './GroupColorPicker';
 import { StatusLabelsEditor } from './StatusLabelsEditor';
+import { useUser } from '../../store/UserContext';
 
 interface Props {
   group: Group;
@@ -53,10 +54,26 @@ const columnHelper = createColumnHelper<Item>();
 
 // ── Editable text cell for text columns ───────────────────────────────────
 const TextCell: React.FC<{ content: string; item: Item; column: BoardColumn }> = ({ content, item, column }) => {
+  const { currentUser } = useUser();
+  const isTaller = currentUser?.role === 'TALLER';
+
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(content);
   const inputRef = useRef<HTMLInputElement>(null);
-  React.useEffect(() => { if (!editing) setDraft(content); }, [content, editing]);
+  React.useEffect(() => {
+    if (!editing) setDraft(content);
+  }, [content, editing]);
+
+  // Para TALLER, los textos son solo lectura
+  if (isTaller) {
+    return (
+      <div className="w-full h-full min-h-[38px] flex items-center px-2">
+        <span className="text-[13px] text-monday-text truncate">
+          {content || <span className="text-monday-subtext">—</span>}
+        </span>
+      </div>
+    );
+  }
 
   const commit = () => {
     setEditing(false);
@@ -75,7 +92,13 @@ const TextCell: React.FC<{ content: string; item: Item; column: BoardColumn }> =
         value={draft}
         onChange={e => setDraft(e.target.value)}
         onBlur={commit}
-        onKeyDown={e => { if (e.key === 'Enter') commit(); if (e.key === 'Escape') { setDraft(content); setEditing(false); } }}
+        onKeyDown={e => {
+          if (e.key === 'Enter') commit();
+          if (e.key === 'Escape') {
+            setDraft(content);
+            setEditing(false);
+          }
+        }}
         onClick={e => e.stopPropagation()}
         className="w-full h-full min-h-[38px] bg-white border border-monday-blue rounded outline-none text-[13px] text-monday-text px-2"
       />
@@ -84,15 +107,29 @@ const TextCell: React.FC<{ content: string; item: Item; column: BoardColumn }> =
   return (
     <div
       className="w-full h-full min-h-[38px] flex items-center px-2 cursor-pointer hover:bg-monday-hover transition-colors"
-      onClick={e => { e.stopPropagation(); setEditing(true); setTimeout(() => inputRef.current?.focus(), 0); }}
+      onClick={e => {
+        e.stopPropagation();
+        setEditing(true);
+        setTimeout(() => inputRef.current?.focus(), 0);
+      }}
     >
-      <span className="text-[13px] text-monday-text truncate">{content || <span className="text-monday-subtext">—</span>}</span>
+      <span className="text-[13px] text-monday-text truncate">
+        {content || <span className="text-monday-subtext">—</span>}
+      </span>
     </div>
   );
 };
 
 // ── Inline text cell (item name) ──────────────────────────────────────────
-const InlineNameCell: React.FC<{ item: Item; onOpen: () => void; allGroups?: Group[]; currentGroupId: string }> = ({ item, onOpen, allGroups, currentGroupId }) => {
+const InlineNameCell: React.FC<{
+  item: Item;
+  onOpen: () => void;
+  allGroups?: Group[];
+  currentGroupId: string;
+}> = ({ item, onOpen, allGroups, currentGroupId }) => {
+  const { currentUser } = useUser();
+  const isTaller = currentUser?.role === 'TALLER';
+
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(item.name);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -112,6 +149,34 @@ const InlineNameCell: React.FC<{ item: Item; onOpen: () => void; allGroups?: Gro
     socket.emit('move_item', { itemId: item.id, newGroupId: targetGroupId, newPosition: 999999 });
   };
 
+  // Para TALLER: el nombre es solo lectura, pero puede abrir el panel de detalles.
+  if (isTaller) {
+    return (
+      <div className="flex items-center gap-2 group/item h-full w-full px-2">
+        <button
+          className="text-[13px] text-left text-monday-text hover:text-monday-blue transition-colors truncate flex-1 min-w-0"
+          onClick={e => {
+            e.stopPropagation();
+            onOpen();
+          }}
+          title={item.name}
+        >
+          {item.name}
+        </button>
+        <button
+          className="text-monday-border hover:text-monday-blue shrink-0 p-1 opacity-0 group-hover/item:opacity-100 transition-all"
+          onClick={e => {
+            e.stopPropagation();
+            onOpen();
+          }}
+          title="Abrir panel de detalles"
+        >
+          <MessageSquare size={14} />
+        </button>
+      </div>
+    );
+  }
+
   if (editing) {
     return (
       <input
@@ -120,7 +185,13 @@ const InlineNameCell: React.FC<{ item: Item; onOpen: () => void; allGroups?: Gro
         value={draft}
         onChange={e => setDraft(e.target.value)}
         onBlur={commit}
-        onKeyDown={e => { if (e.key === 'Enter') commit(); if (e.key === 'Escape') { setDraft(item.name); setEditing(false); } }}
+        onKeyDown={e => {
+          if (e.key === 'Enter') commit();
+          if (e.key === 'Escape') {
+            setDraft(item.name);
+            setEditing(false);
+          }
+        }}
         onClick={e => e.stopPropagation()}
         className="w-full bg-white border border-monday-blue rounded-sm outline-none text-[13px] text-monday-text px-1 py-0.5 shadow-monday-sm"
       />
@@ -143,19 +214,22 @@ const InlineNameCell: React.FC<{ item: Item; onOpen: () => void; allGroups?: Gro
       >
         {item.name}
       </button>
-      
+
       <div className="flex items-center gap-0.5 opacity-0 group-hover/item:opacity-100 transition-all">
         <button
           className="text-monday-border hover:text-monday-blue shrink-0 p-1"
-          onClick={e => { e.stopPropagation(); onOpen(); }}
+          onClick={e => {
+            e.stopPropagation();
+            onOpen();
+          }}
           title="Abrir panel de detalles"
         >
           <MessageSquare size={14} />
         </button>
-        
+
         <Popover.Root open={menuOpen} onOpenChange={setMenuOpen}>
           <Popover.Trigger asChild>
-            <button 
+            <button
               className="text-monday-border hover:text-monday-blue shrink-0 p-1"
               onClick={e => e.stopPropagation()}
             >
@@ -163,9 +237,9 @@ const InlineNameCell: React.FC<{ item: Item; onOpen: () => void; allGroups?: Gro
             </button>
           </Popover.Trigger>
           <Popover.Portal>
-            <Popover.Content 
-              className="z-[100] bg-white rounded-xl shadow-monday-lg border border-monday-border w-48 p-1.5 fade-in box-border" 
-              sideOffset={5} 
+            <Popover.Content
+              className="z-[100] bg-white rounded-xl shadow-monday-lg border border-monday-border w-48 p-1.5 fade-in box-border"
+              sideOffset={5}
               align="start"
               onClick={e => e.stopPropagation()}
             >
