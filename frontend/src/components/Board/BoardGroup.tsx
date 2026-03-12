@@ -20,6 +20,7 @@ import { DateCellRenderer } from './DateCellRenderer';
 import { ContactCellRenderer } from './ContactCellRenderer';
 import { ExcelCellRenderer } from './ExcelCellRenderer';
 import { DocsCellRenderer } from './DocsCellRenderer';
+import { BillingDocsCellRenderer } from './BillingDocsCellRenderer';
 import { TimelineCellRenderer } from './TimelineCellRenderer';
 import { FileCellRenderer } from './FileCellRenderer';
 import { GroupColorPicker, GROUP_PALETTE } from './GroupColorPicker';
@@ -404,6 +405,8 @@ export const BoardGroup: React.FC<Props> = ({
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [columnEditingLabels, setColumnEditingLabels] = useState<BoardColumn | null>(null);
   const addInputRef = useRef<HTMLInputElement>(null);
+  const { currentUser } = useUser();
+  const isAdminOrVentas = currentUser?.role === 'ADMIN' || currentUser?.role === 'VENTAS';
 
   const {
     attributes,
@@ -447,6 +450,9 @@ export const BoardGroup: React.FC<Props> = ({
   };
 
   const handleAddColumn = (type: string, label: string) => {
+    if (type === 'billing_docs' && !isAdminOrVentas) {
+      return;
+    }
     const newPosition = columns.length > 0
       ? columns.reduce((max, c) => Math.max(max, c.position), 0) + 1024
       : 1024;
@@ -473,8 +479,13 @@ export const BoardGroup: React.FC<Props> = ({
       });
     }
 
-    const emitType = type === 'colocacion' ? 'date' : type;
-    const emitTitle = type === 'colocacion' ? 'Colocación' : label;
+    const emitType = type === 'colocacion' ? 'date' : type === 'billing_docs' ? 'billing_docs' : type;
+    const emitTitle =
+      type === 'colocacion'
+        ? 'Colocación'
+        : type === 'billing_docs'
+        ? 'Documentos Facturación'
+        : label;
     socket.emit('add_column', { boardId, title: emitTitle, type: emitType, position: newPosition, settings });
   };
 
@@ -571,6 +582,9 @@ export const BoardGroup: React.FC<Props> = ({
         }
         if (col.type === 'docs') {
           return <DocsCellRenderer item={item} column={col} value={cv} />;
+        }
+        if (col.type === 'billing_docs') {
+          return <BillingDocsCellRenderer item={item} column={col} value={cv} />;
         }
         if (col.type === 'file') {
           return <FileCellRenderer item={item} column={col} value={cv} />;

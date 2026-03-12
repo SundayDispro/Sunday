@@ -99,6 +99,7 @@ function App() {
       const parsed = JSON.parse(raw) as { currentView?: ViewMode; enabledViews?: ViewMode[] };
       const stored = parsed.currentView && ['table', 'kanban', 'calendar', 'facturacion'].includes(parsed.currentView) ? parsed.currentView : 'table';
       if (isTaller && !['table', 'calendar'].includes(stored)) return 'table';
+      if (!canSeeFacturacionView && stored === 'facturacion') return 'table';
       return stored;
     } catch { /* ignore */ }
     return 'table';
@@ -110,7 +111,10 @@ function App() {
       const parsed = JSON.parse(raw) as { currentView?: ViewMode; enabledViews?: ViewMode[] };
       if (Array.isArray(parsed.enabledViews) && parsed.enabledViews.length > 0) {
         const valid = parsed.enabledViews.filter((v): v is ViewMode => ['table', 'kanban', 'calendar', 'facturacion'].includes(v));
-        const forRole = isTaller ? valid.filter(v => v === 'table' || v === 'calendar') : valid;
+        let forRole = isTaller ? valid.filter(v => v === 'table' || v === 'calendar') : valid;
+        if (!canSeeFacturacionView) {
+          forRole = forRole.filter(v => v !== 'facturacion');
+        }
         if (forRole.length > 0) return forRole;
       }
     } catch { /* ignore */ }
@@ -118,7 +122,10 @@ function App() {
   });
 
   const setCurrentView = (v: ViewMode) => {
-    const allowed = isTaller ? (v === 'table' || v === 'calendar' ? v : 'table') : v;
+    let allowed: ViewMode = isTaller ? (v === 'table' || v === 'calendar' ? v : 'table') : v;
+    if (!canSeeFacturacionView && allowed === 'facturacion') {
+      allowed = 'table';
+    }
     setCurrentViewState(allowed);
     try {
       const raw = localStorage.getItem('sunday-views');
@@ -130,6 +137,7 @@ function App() {
     setEnabledViewsState(prev => {
       let next = typeof v === 'function' ? v(prev) : v;
       if (isTaller) next = next.filter(x => x === 'table' || x === 'calendar');
+      if (!canSeeFacturacionView) next = next.filter(x => x !== 'facturacion');
       try {
         const raw = localStorage.getItem('sunday-views');
         const data = raw ? JSON.parse(raw) as { currentView?: ViewMode; enabledViews?: ViewMode[] } : {};
@@ -148,6 +156,13 @@ function App() {
       return next.length > 0 ? next : ['table', 'calendar'];
     });
   }, [isTaller]);
+
+  // Si el rol no puede ver facturación, limpiar vista/pestaña de facturación
+  useEffect(() => {
+    if (canSeeFacturacionView) return;
+    setCurrentViewState(prev => (prev === 'facturacion' ? 'table' : prev));
+    setEnabledViewsState(prev => prev.filter(v => v !== 'facturacion'));
+  }, [canSeeFacturacionView]);
 
   const [showAddViewPopover, setShowAddViewPopover] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(true);
@@ -763,7 +778,9 @@ if (ok && data && typeof data.id === 'string') {
                   {[
                     { id: 'table' as const, label: '⊞ Tabla principal' },
                     ...(!isTaller ? [{ id: 'kanban' as const, label: '▦ Kanban' }] : []),
-                    ...(enabledViews.includes('facturacion') ? [{ id: 'facturacion' as const, label: '🧾 Facturación' }] : []),
+                    ...(enabledViews.includes('facturacion') && canSeeFacturacionView
+                      ? [{ id: 'facturacion' as const, label: '🧾 Facturación' }]
+                      : []),
                     ...(enabledViews.includes('calendar') ? [{ id: 'calendar' as const, label: '📅 Calendario' }] : []),
                   ].map(tab => (
                     <button

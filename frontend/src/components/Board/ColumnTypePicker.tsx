@@ -3,6 +3,7 @@ import * as Popover from '@radix-ui/react-popover';
 import {
   Tag, Calendar, User, AlignLeft, Clock, BarChart2, X, Paperclip, Mail, FileSpreadsheet, FileText
 } from 'lucide-react';
+import { useUser } from '../../store/UserContext';
 
 interface ColumnType {
   id: string;
@@ -22,6 +23,7 @@ const COLUMN_TYPES: ColumnType[] = [
   { id: 'timeline',   label: 'Producción', icon: <Clock size={18} />,       color: '#5559df', description: 'Rango de fechas de tiempo de producción (se marca en el calendario)' },
   { id: 'excel',      label: 'Excel',      icon: <FileSpreadsheet size={18} />, color: '#217346', description: 'Enlace al archivo Excel del proyecto' },
   { id: 'docs',       label: 'Docs',       icon: <FileText size={18} />,     color: '#4285f4', description: 'Levantamiento, cotización y hoja de trabajo' },
+  { id: 'billing_docs', label: 'Documentos Facturación', icon: <FileText size={18} />, color: '#f97316', description: 'Facturas, comprobantes y otros documentos de cobro' },
   { id: 'file',       label: 'Archivos',   icon: <Paperclip size={18} />,   color: '#676879', description: 'Adjuntar archivos a la tarea' },
   { id: 'colocacion', label: 'Colocación', icon: <Calendar size={18} />,    color: '#00c2e0', description: 'Fecha de colocación del proyecto' },
 ];
@@ -33,6 +35,9 @@ interface Props {
 
 export const ColumnTypePicker: React.FC<Props> = ({ children, onSelect }) => {
   const [open, setOpen] = React.useState(false);
+  const { currentUser } = useUser();
+
+  const isAdminOrVentas = currentUser?.role === 'ADMIN' || currentUser?.role === 'VENTAS';
 
   const handleSelect = (type: ColumnType) => {
     onSelect(type.id, type.label);
@@ -58,7 +63,10 @@ export const ColumnTypePicker: React.FC<Props> = ({ children, onSelect }) => {
             </button>
           </div>
           <div className="grid grid-cols-1 gap-1">
-            {COLUMN_TYPES.map(type => (
+            {COLUMN_TYPES.filter(type => {
+              if (type.id === 'billing_docs' && !isAdminOrVentas) return false;
+              return true;
+            }).map(type => (
               <button
                 key={type.id}
                 onClick={() => handleSelect(type)}

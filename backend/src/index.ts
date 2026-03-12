@@ -1151,6 +1151,81 @@ io.on('connection', (socket) => {
         create: { itemId, columnId, value }
       });
       io.emit('column_value_updated', updated);
+
+      // Si se actualiza "Estado Taller" a "colocado", crear (si no existe) el valor de "Estado Facturación"
+      if (
+        column &&
+        (column.type === 'status' || column.type === 'priority') &&
+        column.title === 'Estado Taller' &&
+        typeof value === 'string' &&
+        value.trim()
+      ) {
+        try {
+          const parsed = JSON.parse(value);
+          const optionId = parsed?.optionId as string | undefined;
+          if (optionId === 'colocado') {
+            // Asegurar que exista la columna "Estado Facturación" en el mismo board
+            let billingColumn = await prisma.boardColumn.findFirst({
+              where: {
+                boardId: column.boardId,
+                title: 'Estado Facturación',
+                type: 'status',
+              },
+            });
+
+            if (!billingColumn) {
+              const lastCol = await prisma.boardColumn.findFirst({
+                where: { boardId: column.boardId },
+                orderBy: { position: 'desc' },
+              });
+              const newPosition = (lastCol?.position ?? 0) + 1024;
+              const settings = JSON.stringify({
+                options: [
+                  { id: 'pendiente_factura', label: 'Pendiente de facturar', color: '#fdab3d' },
+                  { id: 'facturado', label: 'Facturado', color: '#579bfc' },
+                  { id: 'cobrado', label: 'Cobrado', color: '#00c875' },
+                  { id: 'default', label: '', color: '#c4c4c4' },
+                ],
+              });
+              billingColumn = await prisma.boardColumn.create({
+                data: {
+                  boardId: column.boardId,
+                  title: 'Estado Facturación',
+                  type: 'status',
+                  position: newPosition,
+                  settings,
+                },
+              });
+              io.emit('column_added', billingColumn);
+            }
+
+            if (billingColumn) {
+              const existingBilling = await prisma.columnValue.findUnique({
+                where: {
+                  itemId_columnId: {
+                    itemId,
+                    columnId: billingColumn.id,
+                  },
+                },
+              });
+
+              if (!existingBilling) {
+                const billingValue = await prisma.columnValue.create({
+                  data: {
+                    itemId,
+                    columnId: billingColumn.id,
+                    value: JSON.stringify({ optionId: 'pendiente_factura' }),
+                  },
+                });
+                io.emit('column_value_updated', billingValue);
+              }
+            }
+          }
+        } catch {
+          // Si el valor no es JSON de status, ignorar
+        }
+      }
+
       // Notificación al usuario asignado cuando se actualiza columna Personas
       if (column?.type === 'person' && value && typeof value === 'string' && value.trim()) {
         const assignedUserId = value.trim();

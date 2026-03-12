@@ -492,6 +492,7 @@ const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode }) => {
   };
 
   const isTaller = currentUser?.role === 'TALLER';
+  const isAdminOrVentas = currentUser?.role === 'ADMIN' || currentUser?.role === 'VENTAS';
   const statusColumnIds = useMemo(
     () => {
       const cols = board?.columns ?? [];
@@ -553,8 +554,15 @@ const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode }) => {
         return false;
       });
     }
-    return board.columns.filter(c => !hiddenColumns.includes(c.id));
-  }, [board, hiddenColumns, isTaller]);
+    return board.columns
+      .filter(c => !hiddenColumns.includes(c.id))
+      .filter(c => {
+        // Columnas de facturación solo visibles para ADMIN y VENTAS
+        if (c.title === 'Estado Facturación') return isAdminOrVentas;
+        if (c.type === 'billing_docs' || c.title === 'Documentos Facturación') return isAdminOrVentas;
+        return true;
+      });
+  }, [board, hiddenColumns, isTaller, isAdminOrVentas]);
 
   // ─── Client-side search + sort filter ─────────────────────────────────────
   const filteredGroups = useMemo(() => {
@@ -678,6 +686,54 @@ const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode }) => {
       settings,
     });
   }, [board]);
+  // Asegurar columnas de facturación (solo Admin / Ventas)
+  useEffect(() => {
+    if (!board || !isAdminOrVentas) return;
+
+    // Estado Facturación
+    const hasEstadoFacturacion = board.columns.some(
+      c => c.type === 'status' && c.title === 'Estado Facturación'
+    );
+    if (!hasEstadoFacturacion) {
+      const newPosition =
+        board.columns.length > 0
+          ? board.columns.reduce((max, c) => Math.max(max, c.position), 0) + 1024
+          : 1024;
+      const settings = JSON.stringify({
+        options: [
+          { id: 'pendiente_factura', label: 'Pendiente de facturar', color: '#fdab3d' },
+          { id: 'facturado', label: 'Facturado', color: '#579bfc' },
+          { id: 'cobrado', label: 'Cobrado', color: '#00c875' },
+          { id: 'default', label: '', color: '#c4c4c4' },
+        ],
+      });
+      socket.emit('add_column', {
+        boardId: board.id,
+        title: 'Estado Facturación',
+        type: 'status',
+        position: newPosition,
+        settings,
+      });
+    }
+
+    // Documentos Facturación
+    const hasBillingDocs = board.columns.some(
+      c => c.type === 'billing_docs' || c.title === 'Documentos Facturación'
+    );
+    if (!hasBillingDocs) {
+      const newPosition =
+        board.columns.length > 0
+          ? board.columns.reduce((max, c) => Math.max(max, c.position), 0) + 1024
+          : 1024;
+      socket.emit('add_column', {
+        boardId: board.id,
+        title: 'Documentos Facturación',
+        type: 'billing_docs',
+        position: newPosition,
+        settings: null,
+      });
+    }
+  }, [board, isAdminOrVentas]);
   const toggleGroupCollapse = (id: string) => {
     setCollapsedGroups(prev => ({ ...prev, [id]: !prev[id] }));
   };
@@ -712,14 +768,14 @@ const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode }) => {
     <div className="h-full flex flex-col">
       {/* ── Action Toolbar: adaptada por vista (tabla = todo; kanban = filtrar y ordenar; calendario = Crear Tarea + eventos; facturación = Crear Tarea) ─────────────────────────────────────── */}
       <div className="px-6 py-2.5 border-b border-monday-border flex items-center gap-2 shrink-0 bg-white flex-wrap">
-        {/* Primary CTA: en tabla "+ Nuevo elemento", en calendario/facturación "Crear Tarea"; oculto en Kanban. Abre modal o dropdown con opciones. */}
-        {!isTaller && viewMode !== 'kanban' && (
+        {/* Primary CTA: en tabla "+ Nuevo elemento", en calendario "Crear Tarea"; oculto en Kanban y Facturación. */}
+        {!isTaller && viewMode !== 'kanban' && viewMode !== 'facturacion' && (
         <div className="flex items-center bg-monday-blue rounded-monday shadow-monday-sm mr-2">
           <button
             onClick={openAddToProject}
             className="text-white text-[13px] font-semibold px-3.5 py-1.5 hover:bg-monday-blue/90 rounded-l-monday transition-colors"
           >
-            {viewMode === 'facturacion' || viewMode === 'calendar' ? 'Crear Tarea' : '+ Nuevo elemento'}
+            {viewMode === 'calendar' ? 'Crear Tarea' : '+ Nuevo elemento'}
           </button>
           <div className="w-px h-5 bg-white/30" />
           <Popover.Root open={newMenuOpen} onOpenChange={setNewMenuOpen}>

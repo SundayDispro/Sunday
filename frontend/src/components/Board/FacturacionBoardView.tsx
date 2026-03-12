@@ -1,36 +1,8 @@
-import React from 'react';
+import React, { useMemo, useState } from 'react';
 import { Board, Item, BoardColumn, Group, StatusSettings } from '../../types';
-
-function getStatusLabel(item: Item, statusColumns: BoardColumn[]): string {
-  for (const col of statusColumns) {
-    const cv = item.columnValues.find(v => v.columnId === col.id);
-    if (!cv?.value) continue;
-    try {
-      const parsed = JSON.parse(cv.value);
-      const optionId = parsed.optionId;
-      const settings: StatusSettings = col.settings ? JSON.parse(col.settings) : { options: [] };
-      const opt = settings.options.find(o => o.id === optionId);
-      if (opt) return opt.label || optionId;
-      return optionId;
-    } catch {
-      return cv.value;
-    }
-  }
-  return '—';
-}
-
-function isItemApproved(item: Item, statusColumnIds: string[]): boolean {
-  return statusColumnIds.some(cid => {
-    const cv = item.columnValues.find(v => v.columnId === cid);
-    if (!cv?.value) return false;
-    try {
-      const p = JSON.parse(cv.value);
-      return p.optionId === 'aprobado';
-    } catch {
-      return false;
-    }
-  });
-}
+import { DocsCellRenderer } from './DocsCellRenderer';
+import { StatusCellRenderer } from './StatusCellRenderer';
+import { BillingDocsCellRenderer } from './BillingDocsCellRenderer';
 
 interface Props {
   board: Board;
@@ -38,60 +10,189 @@ interface Props {
 }
 
 export const FacturacionBoardView: React.FC<Props> = ({ board, onRowClick }) => {
-  const statusColumns = board.columns.filter(c => c.type === 'status');
-  const statusColumnIds = statusColumns.map(c => c.id);
+  const estadoTallerColumn: BoardColumn | undefined = board.columns.find(
+    c => (c.type === 'status' || c.type === 'priority') && c.title === 'Estado Taller'
+  );
+  const docsColumn: BoardColumn | undefined = board.columns.find(
+    c => c.type === 'docs'
+  );
+  const billingDocsColumn: BoardColumn | undefined = board.columns.find(
+    c => c.type === 'billing_docs' || c.title === 'Documentos Facturación'
+  );
+  const estadoFacturacionColumn: BoardColumn | undefined = board.columns.find(
+    c => c.type === 'status' && c.title === 'Estado Facturación'
+  );
 
-  const approvedRows: { item: Item; group: Group; statusLabel: string }[] = [];
-  board.groups.forEach(group => {
-    group.items.forEach(item => {
-      if (isItemApproved(item, statusColumnIds)) {
-        approvedRows.push({
-          item,
-          group,
-          statusLabel: getStatusLabel(item, statusColumns),
-        });
-      }
+  const facturacionRows: { item: Item; group: Group }[] = [];
+
+  if (estadoTallerColumn) {
+    board.groups.forEach(group => {
+      group.items.forEach(item => {
+        const cv = item.columnValues.find(v => v.columnId === estadoTallerColumn.id);
+        if (!cv?.value) return;
+        try {
+          const parsed = JSON.parse(cv.value);
+          if (parsed?.optionId === 'colocado') {
+            facturacionRows.push({ item, group });
+          }
+        } catch {
+          // ignorar valores no JSON
+        }
+      });
     });
-  });
+  }
 
-  if (approvedRows.length === 0) {
+  const [searchQuery, setSearchQuery] = useState('');
+  const [filterEstadoFacturacion, setFilterEstadoFacturacion] = useState<string | null>(null);
+
+  const estadoFacturacionOptions = useMemo(() => {
+    if (!estadoFacturacionColumn?.settings) return [];
+    try {
+      const parsed = JSON.parse(estadoFacturacionColumn.settings) as StatusSettings;
+      return parsed.options ?? [];
+    } catch {
+      return [];
+    }
+  }, [estadoFacturacionColumn]);
+
+  const filteredRows = useMemo(() => {
+    let rows = facturacionRows;
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase();
+      rows = rows.filter(({ item }) => item.name.toLowerCase().includes(q));
+    }
+    if (filterEstadoFacturacion && estadoFacturacionColumn) {
+      rows = rows.filter(({ item }) => {
+        const cv = item.columnValues.find(v => v.columnId === estadoFacturacionColumn.id);
+        if (!cv?.value) return false;
+        try {
+          const p = JSON.parse(cv.value);
+          return (p?.optionId ?? cv.value) === filterEstadoFacturacion;
+        } catch {
+          return cv.value === filterEstadoFacturacion;
+        }
+      });
+    }
+    return rows;
+  }, [facturacionRows, searchQuery, filterEstadoFacturacion, estadoFacturacionColumn]);
+
+  if (facturacionRows.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center py-16 text-monday-subtext flex-1">
-        <p className="text-[15px] font-medium text-monday-text">Sin proyectos aprobados</p>
-        <p className="text-[13px] mt-1">No hay elementos con estado Aprobado en este tablero.</p>
+        <p className="text-[15px] font-medium text-monday-text">Sin elementos para facturación</p>
+        <p className="text-[13px] mt-1">No hay elementos con Estado Taller &quot;Colocado&quot; en este tablero.</p>
       </div>
     );
   }
 
   return (
     <div className="flex-1 overflow-auto p-6">
+      <div className="flex items-center justify-between mb-3 gap-3">
+        <div className="flex items-center gap-2">
+          <input
+            type="text"
+            value={searchQuery}
+            onChange={e => setSearchQuery(e.target.value)}
+            placeholder="Buscar elemento..."
+            className="px-3 py-1.5 text-[13px] border border-monday-border rounded-lg bg-white text-monday-text placeholder:text-monday-subtext outline-none focus:ring-2 focus:ring-monday-blue/30 focus:border-monday-blue min-w-[220px]"
+          />
+        </div>
+        {estadoFacturacionColumn && estadoFacturacionOptions.length > 0 && (
+          <div className="flex items-center gap-2">
+            <span className="text-[12px] text-monday-subtext">Estado facturación:</span>
+            <select
+              value={filterEstadoFacturacion ?? ''}
+              onChange={e => setFilterEstadoFacturacion(e.target.value || null)}
+              className="px-3 py-1.5 text-[13px] border border-monday-border rounded-lg bg-white text-monday-text outline-none focus:ring-2 focus:ring-monday-blue/30 focus:border-monday-blue min-w-[200px]"
+            >
+              <option value="">Todos</option>
+              {estadoFacturacionOptions.map(opt => (
+                <option key={opt.id} value={opt.id}>
+                  {opt.label || opt.id}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
+      </div>
+
       <div className="border border-monday-border rounded-xl overflow-hidden shadow-monday-sm">
         <table className="w-full text-left border-collapse">
           <thead>
             <tr className="bg-monday-hover/60 border-b border-monday-border">
               <th className="text-[12px] font-semibold text-monday-subtext uppercase tracking-wider px-4 py-3">
-                Proyecto
+                Elemento
               </th>
               <th className="text-[12px] font-semibold text-monday-subtext uppercase tracking-wider px-4 py-3">
-                Grupo
+                Docs
               </th>
+              {billingDocsColumn && (
+                <th className="text-[12px] font-semibold text-monday-subtext uppercase tracking-wider px-4 py-3">
+                  Documentos Facturación
+                </th>
+              )}
               <th className="text-[12px] font-semibold text-monday-subtext uppercase tracking-wider px-4 py-3">
-                Estatus
+                Estado Facturación
               </th>
             </tr>
           </thead>
           <tbody>
-            {approvedRows.map(({ item, group, statusLabel }) => (
+            {filteredRows.map(({ item }) => {
+              const docsValue = docsColumn
+                ? item.columnValues.find(v => v.columnId === docsColumn.id)
+                : undefined;
+              const facturacionValue = estadoFacturacionColumn
+                ? item.columnValues.find(v => v.columnId === estadoFacturacionColumn.id)
+                : undefined;
+              return (
               <tr
                 key={item.id}
-                className="border-b border-monday-border last:border-0 hover:bg-monday-hover/50 transition-colors cursor-pointer"
-                onClick={() => onRowClick(item)}
+                className="border-b border-monday-border last:border-0 hover:bg-monday-hover/30 transition-colors"
               >
-                <td className="px-4 py-3 text-[13px] font-medium text-monday-blue">{item.name}</td>
-                <td className="px-4 py-3 text-[13px] text-monday-text">{group.name}</td>
-                <td className="px-4 py-3 text-[13px] text-monday-text font-medium">{statusLabel}</td>
+                <td className="px-4 py-3 text-[13px] font-medium text-monday-blue">
+                  <button
+                    type="button"
+                    className="hover:underline"
+                    onClick={() => onRowClick(item)}
+                  >
+                    {item.name}
+                  </button>
+                </td>
+                <td className="px-4 py-3 text-[13px] text-monday-text align-middle">
+                  {docsColumn && docsValue ? (
+                    <div className="max-w-xs">
+                      <DocsCellRenderer item={item} column={docsColumn} value={docsValue} />
+                    </div>
+                  ) : (
+                    <span className="text-monday-subtext text-[13px]">Sin hoja de trabajo</span>
+                  )}
+                </td>
+                {billingDocsColumn && (
+                  <td className="px-4 py-3 text-[13px] text-monday-text align-middle">
+                    <div className="max-w-xs">
+                      <BillingDocsCellRenderer
+                        item={item}
+                        column={billingDocsColumn}
+                        value={
+                          item.columnValues.find(v => v.columnId === billingDocsColumn.id)
+                        }
+                      />
+                    </div>
+                  </td>
+                )}
+                <td className="px-4 py-3 text-[13px] text-monday-text font-medium align-middle">
+                  {estadoFacturacionColumn && (
+                    <div className="min-w-[140px] max-w-xs">
+                      <StatusCellRenderer
+                        item={item}
+                        column={estadoFacturacionColumn}
+                        value={facturacionValue}
+                      />
+                    </div>
+                  )}
+                </td>
               </tr>
-            ))}
+            ); })}
           </tbody>
         </table>
       </div>

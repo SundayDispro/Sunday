@@ -13,6 +13,7 @@ interface Props {
 export const StatusCellRenderer: React.FC<Props> = ({ item, column, value }) => {
   const { currentUser } = useUser();
   const isTaller = currentUser?.role === 'TALLER';
+  const isDiseno = currentUser?.role === 'DISENO';
 
   const settings: StatusSettings = column.settings ? JSON.parse(column.settings) : { options: [] };
   const currentOptionId = value?.value ? JSON.parse(value.value).optionId : 'default';
@@ -22,7 +23,16 @@ export const StatusCellRenderer: React.FC<Props> = ({ item, column, value }) => 
 
   const [open, setOpen] = useState(false);
 
-  const canEdit = !isTaller || column.title === 'Estado Taller';
+  const isEstadoTaller = column.title === 'Estado Taller';
+
+  let canEdit = true;
+  if (isTaller) {
+    // TALLER solo puede editar "Estado Taller"
+    canEdit = isEstadoTaller;
+  } else if (isDiseno && isEstadoTaller) {
+    // DISEÑO ve "Estado Taller" solo lectura
+    canEdit = false;
+  }
 
   const handleSelect = (optionId: string) => {
     if (!canEdit) return;
