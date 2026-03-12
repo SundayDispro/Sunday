@@ -7,17 +7,70 @@ import path from 'path';
 import fs from 'fs';
 import multer from 'multer';
 import { PrismaClient } from '@prisma/client';
+import webpush from 'web-push';
 import { getTemplatePathIfExists } from './templatePdfGenerator';
 
 const prisma = new PrismaClient();
 const app = express();
 const httpServer = createServer(app);
+
+// ALLOWED_ORIGINS puede ser '*' o una lista separada por comas de dominios.
+// Ejemplo: ALLOWED_ORIGINS=https://app.midominio.com,https://www.midominio.com
+const rawOrigins = process.env.ALLOWED_ORIGINS || '*';
+const allowedOrigins: string[] | '*' =
+  rawOrigins.trim() === '*'
+    ? '*'
+    : rawOrigins.split(',').map((s) => s.trim()).filter(Boolean);
+
 const io = new Server(httpServer, {
   cors: {
-    origin: '*',
+    origin: allowedOrigins,
     methods: ['GET', 'POST', 'PUT', 'DELETE'],
   },
 });
+
+// Configuración Web Push (VAPID)
+const VAPID_PUBLIC_KEY = process.env.VAPID_PUBLIC_KEY;
+const VAPID_PRIVATE_KEY = process.env.VAPID_PRIVATE_KEY;
+const VAPID_SUBJECT = process.env.VAPID_SUBJECT || 'mailto:admin@example.com';
+
+if (VAPID_PUBLIC_KEY && VAPID_PRIVATE_KEY) {
+  webpush.setVapidDetails(VAPID_SUBJECT, VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY);
+}
+
+// Helper: envía una notificación Web Push a todas las suscripciones de un usuario
+async function sendWebPushToUser(
+  userId: string,
+  payload: { title: string; body: string; url?: string; tag?: string }
+): Promise<void> {
+  if (!VAPID_PUBLIC_KEY || !VAPID_PRIVATE_KEY) return;
+  try {
+    const subs = await prisma.pushSubscription.findMany({ where: { userId } });
+    const data = JSON.stringify(payload);
+    await Promise.all(
+      subs.map(async (sub) => {
+        try {
+          await webpush.sendNotification(
+            {
+              endpoint: sub.endpoint,
+              keys: { p256dh: sub.p256dh, auth: sub.auth },
+            },
+            data
+          );
+        } catch (err: any) {
+          // 410/404 => suscripción inválida: eliminarla
+          if (err?.statusCode === 410 || err?.statusCode === 404) {
+            await prisma.pushSubscription.delete({ where: { id: sub.id } }).catch(() => {});
+          } else {
+            console.error('Error enviando Web Push:', err);
+          }
+        }
+      })
+    );
+  } catch (e) {
+    console.error('Error en sendWebPushToUser:', e);
+  }
+}
 
 const UPLOAD_DIR = path.join(process.cwd(), 'uploads');
 const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5 MB
@@ -56,7 +109,11 @@ const upload = multer({
   },
 });
 
-app.use(cors());
+app.use(
+  cors({
+    origin: allowedOrigins === '*' ? true : allowedOrigins,
+  })
+);
 app.use(express.json());
 
 // Servir archivos subidos (URL pública: /uploads/nombre.jpg)
@@ -472,6 +529,31 @@ app.post('/api/feed', async (req, res) => {
       include: { author: true },
     });
     res.status(201).json({ ...post, mentionedUserIds: ids });
+
+    // Notificaciones Web Push a los usuarios mencionados (en background, no bloquea la respuesta)
+    if (ids.length > 0) {
+      const mentionedExcludingAuthor = ids.filter((id: string) => id !== authorId);
+      if (mentionedExcludingAuthor.length > 0) {
+        prisma.user
+          .findMany({
+            where: { id: { in: mentionedExcludingAuthor } },
+            select: { id: true },
+          })
+          .then(async (mentionedUsers) => {
+            const preview =
+              content.length > 120 ? content.slice(0, 120) + '…' : content;
+            for (const mu of mentionedUsers) {
+              await sendWebPushToUser(mu.id, {
+                title: 'Te mencionaron en Sunday',
+                body: preview,
+                url: '/inbox',
+                tag: `mention-${post.id}`,
+              });
+            }
+          })
+          .catch((e) => console.error('Error enviando Web Push por mención:', e));
+      }
+    }
   } catch (error) {
     console.error('Feed post error:', error);
     res.status(500).json({ error: 'Failed to create post' });
@@ -680,6 +762,69 @@ app.patch('/api/notifications/read-all', async (req, res) => {
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: 'Failed' });
+  }
+});
+
+// --- Web Push API (suscripciones PWA) ---
+
+// Devuelve la clave pública VAPID para que el frontend pueda suscribirse
+app.get('/api/push/public-key', (_req, res) => {
+  if (!VAPID_PUBLIC_KEY) {
+    return res.status(503).json({ error: 'Web Push no configurado (falta VAPID_PUBLIC_KEY)' });
+  }
+  res.json({ publicKey: VAPID_PUBLIC_KEY });
+});
+
+// Registrar/actualizar una suscripción Web Push para un usuario
+app.post('/api/push/subscribe', async (req, res) => {
+  try {
+    const { userId, subscription } = req.body ?? {};
+    if (!userId || !subscription?.endpoint || !subscription?.keys?.p256dh || !subscription?.keys?.auth) {
+      return res.status(400).json({ error: 'userId y subscription válidos son obligatorios' });
+    }
+    const { endpoint, keys } = subscription;
+    const existing = await prisma.pushSubscription.findFirst({
+      where: { userId: String(userId), endpoint: String(endpoint) },
+    });
+    if (existing) {
+      const updated = await prisma.pushSubscription.update({
+        where: { id: existing.id },
+        data: {
+          p256dh: String(keys.p256dh),
+          auth: String(keys.auth),
+        },
+      });
+      return res.json(updated);
+    }
+    const created = await prisma.pushSubscription.create({
+      data: {
+        userId: String(userId),
+        endpoint: String(endpoint),
+        p256dh: String(keys.p256dh),
+        auth: String(keys.auth),
+      },
+    });
+    res.status(201).json(created);
+  } catch (e) {
+    console.error('Error registrando suscripción push:', e);
+    res.status(500).json({ error: 'Error al registrar suscripción push' });
+  }
+});
+
+// Eliminar una suscripción (opcional)
+app.post('/api/push/unsubscribe', async (req, res) => {
+  try {
+    const { userId, endpoint } = req.body ?? {};
+    if (!userId || !endpoint) {
+      return res.status(400).json({ error: 'userId y endpoint son obligatorios' });
+    }
+    await prisma.pushSubscription.deleteMany({
+      where: { userId: String(userId), endpoint: String(endpoint) },
+    });
+    res.json({ ok: true });
+  } catch (e) {
+    console.error('Error eliminando suscripción push:', e);
+    res.status(500).json({ error: 'Error al eliminar suscripción push' });
   }
 });
 
@@ -1226,13 +1371,20 @@ io.on('connection', (socket) => {
         }
       }
 
-      // Notificación al usuario asignado cuando se actualiza columna Personas
+      // Notificación Web Push al usuario asignado cuando se actualiza columna Personas
       if (column?.type === 'person' && value && typeof value === 'string' && value.trim()) {
         const assignedUserId = value.trim();
         const notif = await prisma.notification.create({
           data: { userId: assignedUserId, itemId, type: 'assigned', read: false },
         });
         io.emit('notification_created', notif);
+
+        await sendWebPushToUser(assignedUserId, {
+          title: 'Te asignaron un elemento',
+          body: 'Revisa tus notificaciones en Sunday.',
+          url: '/inbox',
+          tag: `assigned-${itemId}`,
+        });
       }
     } catch (e) {
       console.error('Error updating column value:', e);
@@ -1370,12 +1522,46 @@ io.on('connection', (socket) => {
       const newUpdate = await prisma.update.create({
         data: { itemId, content, authorId: authorId }
       });
-      
-      // Let's also fetch the author user to send back the full object
-      const user = await prisma.user.findUnique({ where: { id: authorId } });
+
+      const [user, item] = await Promise.all([
+        prisma.user.findUnique({ where: { id: authorId } }),
+        prisma.item.findUnique({
+          where: { id: itemId },
+          select: {
+            name: true,
+            group: { include: { board: { select: { name: true } } } },
+            columnValues: {
+              where: { column: { type: 'person' } },
+              select: { value: true },
+            },
+          },
+        }),
+      ]);
       const enrichedUpdate = { ...newUpdate, authorUser: user };
-      
       io.emit('update_added', enrichedUpdate);
+
+      // Notificaciones Web Push a los usuarios asignados al item (excepto el propio autor)
+      if (item && user) {
+        const assignedUserIds = item.columnValues
+          .map((cv) => cv.value?.trim())
+          .filter((v): v is string => !!v && v !== authorId);
+
+        if (assignedUserIds.length > 0) {
+          const assignedUsers = await prisma.user.findMany({
+            where: { id: { in: assignedUserIds } },
+            select: { id: true },
+          });
+          const preview = content.length > 100 ? content.slice(0, 100) + '…' : content;
+          for (const au of assignedUsers) {
+            await sendWebPushToUser(au.id, {
+              title: 'Nuevo comentario en un elemento asignado',
+              body: preview,
+              url: '/inbox',
+              tag: `comment-${item.id}`,
+            });
+          }
+        }
+      }
     } catch (e) {
       console.error('Error adding update:', e);
     }

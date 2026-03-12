@@ -9,6 +9,7 @@ interface UserContextType {
   setUserStatus: (status: UserStatus) => Promise<void>;
   users: User[];
   fetchUsers: () => Promise<void>;
+  ensurePushSubscription: () => Promise<void>;
 }
 
 const UserContext = createContext<UserContextType | undefined>(undefined);
@@ -33,6 +34,62 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
+  const getVapidPublicKey = async (): Promise<string | null> => {
+    try {
+      const res = await fetch(`${API_BASE}/api/push/public-key`);
+      const data = await parseResponse<{ publicKey: string }>(res);
+      if (data && data.publicKey) return data.publicKey;
+    } catch (e) {
+      console.error('Error obteniendo VAPID public key', e);
+    }
+    return null;
+  };
+
+  const urlBase64ToUint8Array = (base64String: string): Uint8Array => {
+    const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
+    const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+    const rawData = window.atob(base64);
+    const outputArray = new Uint8Array(rawData.length);
+    for (let i = 0; i < rawData.length; ++i) {
+      outputArray[i] = rawData.charCodeAt(i);
+    }
+    return outputArray;
+  };
+
+  const ensurePushSubscription = async () => {
+    try {
+      if (!currentUser) return;
+      if (!('serviceWorker' in navigator) || !('PushManager' in window) || typeof Notification === 'undefined') {
+        return;
+      }
+      const permission = await Notification.requestPermission();
+      if (permission !== 'granted') return;
+
+      const reg = await navigator.serviceWorker.ready;
+      const existingSub = await reg.pushManager.getSubscription();
+      let subscription = existingSub;
+
+      if (!subscription) {
+        const vapidKey = await getVapidPublicKey();
+        if (!vapidKey) return;
+        subscription = await reg.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey: urlBase64ToUint8Array(vapidKey),
+        });
+      }
+
+      if (subscription) {
+        await fetch(`${API_BASE}/api/push/subscribe`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ userId: currentUser.id, subscription }),
+        });
+      }
+    } catch (e) {
+      console.error('Error asegurando suscripción push', e);
+    }
+  };
+
   const login = async (username: string, password: string) => {
     try {
       const res = await fetch(`${API_BASE}/api/login`, {
@@ -45,6 +102,7 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setCurrentUser(data);
         localStorage.setItem('sunday_user', JSON.stringify(data));
         await fetchUsers();
+        await ensurePushSubscription();
       }
       // Si !res.ok, parseResponse ya lanzó con el mensaje de error
     } catch (e) {
@@ -96,7 +154,7 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   return (
-    <UserContext.Provider value={{ currentUser, login, logout, setUserStatus, users, fetchUsers }}>
+    <UserContext.Provider value={{ currentUser, login, logout, setUserStatus, users, fetchUsers, ensurePushSubscription }}>
       {children}
     </UserContext.Provider>
   );

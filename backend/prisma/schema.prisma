@@ -8,17 +8,18 @@ datasource db {
 }
 
 model User {
-  id             String         @id @default(uuid())
-  username       String         @unique
-  name           String
-  initials       String
-  color          String
-  password       String
-  role           String         @default("USER") // 'ADMIN' | 'VENTAS' | 'DISENO' | 'TALLER' | 'USER'
-  status         String         @default("offline") // 'available' | 'busy' | 'offline'
-  createdAt      DateTime       @default(now())
-  notifications  Notification[]
-  feedPosts      FeedPost[]
+  id               String         @id @default(uuid())
+  username         String         @unique
+  name             String
+  initials         String
+  color            String
+  password         String
+  role             String         @default("USER") // 'ADMIN' | 'VENTAS' | 'DISENO' | 'TALLER' | 'USER'
+  status           String         @default("offline") // 'available' | 'busy' | 'offline'
+  createdAt        DateTime       @default(now())
+  notifications    Notification[]
+  feedPosts        FeedPost[]
+  pushSubscriptions PushSubscription[]
 }
 
 model Workspace {
@@ -148,4 +149,17 @@ model Doc {
   createdBy   String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+}
+
+/// Suscripciones Web Push por usuario (para PWA / notificaciones push)
+model PushSubscription {
+  id        String   @id @default(uuid())
+  endpoint  String
+  p256dh    String
+  auth      String
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@unique([endpoint, userId])
 }
