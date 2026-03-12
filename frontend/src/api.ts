@@ -1,7 +1,14 @@
 /**
- * Base URL del backend. Usar variable de entorno en producción.
+ * Base URL del backend.
+ * - Desarrollo: usa VITE_API_URL si está definido, o cae a localhost:3001.
+ * - Producción: si VITE_API_URL no está seteado se usa cadena vacía (mismo origen),
+ *   ya que el backend sirve el frontend estático directamente.
  */
-export const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:3001';
+export const API_BASE: string = import.meta.env.VITE_API_URL
+  ? (import.meta.env.VITE_API_URL as string)
+  : import.meta.env.DEV
+  ? 'http://localhost:3001'
+  : '';
 
 /**
  * Parsea la respuesta de fetch de forma segura:
