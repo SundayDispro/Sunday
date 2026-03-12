@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useRef, useState } from 'react';
+import React, { useMemo, useRef, useState } from 'react';
 import { Group, BoardColumn, Item } from '../../types';
 import {
   createColumnHelper,
@@ -45,10 +45,8 @@ interface Props {
   onToggleGroupAll?: (groupId: string, checked: boolean) => void;
   /** Índice para apilamiento: grupos con índice mayor se pintan encima al hacer scroll. */
   stackIndex?: number;
-  /** ID del grupo cuyo header sticky está pegado arriba (recibe z-index alto). */
-  activeStickyGroupId?: string | null;
-  /** Registro del nodo del grupo para detectar cuál header está sticky. */
-  registerGroupRef?: (groupId: string, el: HTMLElement | null) => void;
+  /** Si true, el subgrupo ya está dentro de un contenedor indentado (v. tabla) y no se añade ml-6 al header. */
+  indentFromParent?: boolean;
 }
 
 const columnHelper = createColumnHelper<Item>();
@@ -323,8 +321,7 @@ export const BoardGroup: React.FC<Props> = ({
   onToggleItem,
   onToggleGroupAll,
   stackIndex = 0,
-  activeStickyGroupId = null,
-  registerGroupRef,
+  indentFromParent = false,
 }) => {
   const [newTaskName, setNewTaskName] = useState('');
   const [isAddingTask, setIsAddingTask] = useState(false);
@@ -542,24 +539,16 @@ export const BoardGroup: React.FC<Props> = ({
     getCoreRowModel: getCoreRowModel(),
   });
 
-  // El grupo cuyo header está sticky arriba recibe z-index 1000 para que ninguna fila (suyas ni de otros grupos) lo tape.
-  const effectiveZIndex = activeStickyGroupId === group.id ? 1000 : stackIndex;
-  const refCallback = useCallback(
-    (el: HTMLDivElement | null) => {
-      setNodeRef(el);
-      registerGroupRef?.(group.id, el);
-    },
-    [group.id, setNodeRef, registerGroupRef]
-  );
+  const effectiveZIndex = (stackIndex + 1) * 10;
   return (
     <div
-      ref={refCallback}
+      ref={setNodeRef}
       className={`mb-6 relative ${isDragging ? 'opacity-0 pointer-events-none' : ''}`}
       style={{ zIndex: effectiveZIndex }}
     >
-      {/* ── Group Header (sticky; z muy alto para que NUNCA lo tapen filas del mismo u otro grupo) ─────────────────────────── */}
+      {/* ── Group Header (sticky): siempre visible por encima de las filas; cada grupo tiene su propio scroll en vista tabla. */}
       <div
-        className={`sticky top-0 z-[9999] isolate flex items-center gap-1.5 py-1.5 pt-2 pb-2 mb-1.5 bg-white border-b border-monday-border shadow-[0_2px_6px_0_rgba(0,0,0,0.08)] group/header ${isSubgroup ? 'ml-6' : ''}`}
+        className={`sticky top-0 z-10 isolate flex items-center gap-1.5 py-1.5 pt-2 pb-2 mb-1.5 bg-white border-b border-monday-border shadow-[0_2px_6px_0_rgba(0,0,0,0.08)] group/header ${isSubgroup && !indentFromParent ? 'ml-6' : ''}`}
         style={{ transform: 'translateZ(0)', backfaceVisibility: 'hidden' as const }}
       >
         <div 

@@ -87,44 +87,7 @@ const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode }) => {
     openCalendarEventRef.current = open;
   }, []);
 
-  /** Tabla: grupo cuyo header sticky está “pegado” arriba → z-index alto para que no lo tapen filas de otros grupos */
-  const [activeStickyGroupId, setActiveStickyGroupId] = useState<string | null>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
-  const groupRefsMap = useRef<Map<string, HTMLElement>>(new Map());
-  const registerGroupRef = useCallback((groupId: string, el: HTMLElement | null) => {
-    if (el) groupRefsMap.current.set(groupId, el);
-    else groupRefsMap.current.delete(groupId);
-  }, []);
-  const updateActiveStickyGroup = useCallback(() => {
-    const scrollEl = scrollContainerRef.current;
-    if (!scrollEl || viewMode !== 'table') return;
-    const scrollRect = scrollEl.getBoundingClientRect();
-    const stickyThreshold = scrollRect.top + 60; // ~altura del header
-    // Grupo activo = el que está “pegado” arriba (su top está en o por encima del umbral)
-    let bestId: string | null = null;
-    let bestTop = -Infinity;
-    groupRefsMap.current.forEach((el, groupId) => {
-      const top = el.getBoundingClientRect().top;
-      if (top <= stickyThreshold && top > bestTop) {
-        bestTop = top;
-        bestId = groupId;
-      }
-    });
-    setActiveStickyGroupId(prev => (prev !== bestId ? bestId : prev));
-  }, [viewMode]);
-  useEffect(() => {
-    if (viewMode !== 'table') return;
-    const scrollEl = scrollContainerRef.current;
-    if (!scrollEl) return;
-    const onScroll = () => updateActiveStickyGroup();
-    // Ejecutar tras montaje (refs de grupos ya registrados) y al hacer scroll
-    const t = setTimeout(updateActiveStickyGroup, 0);
-    scrollEl.addEventListener('scroll', onScroll, { passive: true });
-    return () => {
-      clearTimeout(t);
-      scrollEl.removeEventListener('scroll', onScroll);
-    };
-  }, [viewMode, updateActiveStickyGroup, board?.id]);
 
   const fetchBoard = async () => {
     try {
@@ -985,34 +948,84 @@ const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode }) => {
         ) : (
           <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
             <GroupDragOverlay groups={filteredGroups} />
-            <div className="flex flex-col gap-8">
+            <div className="flex flex-col">
               <SortableContext items={rootFilteredGroups.map(g => g.id)} strategy={verticalListSortingStrategy}>
                 {rootFilteredGroups.map((group, idx) => {
                   const isCollapsed = !!collapsedGroups[group.id];
+                  const childGroups = !isCollapsed
+                    ? filteredGroups.filter(g => g.parentGroupId === group.id)
+                    : [];
+
                   return (
                     <React.Fragment key={group.id}>
-                      <BoardGroup
-                        group={group}
-                        allGroups={board.groups}
-                        columns={visibleColumns}
-                        hiddenColumns={isTaller ? [] : hiddenColumns}
-                        boardId={board.id}
-                        onRowClick={onRowClick}
-                        showAddColumn={!isTaller}
-                        showAddRow={!isTaller}
-                        collapsed={isCollapsed}
-                        onToggleCollapse={() => toggleGroupCollapse(group.id)}
-                        selectedItemIds={selectedItemIds}
-                        onToggleItem={toggleItemSelection}
-                        onToggleGroupAll={toggleGroupAll}
-                        stackIndex={idx}
-                        activeStickyGroupId={viewMode === 'table' ? activeStickyGroupId : null}
-                        registerGroupRef={viewMode === 'table' ? registerGroupRef : undefined}
-                      />
-                      {!isCollapsed &&
-                        filteredGroups
-                          .filter(g => g.parentGroupId === group.id)
-                          .map(sub => (
+                      {/* Vista tabla: una sección por grupo raíz; el grupo y sus subgrupos van dentro de la misma sección (subgrupos indentados) */}
+                      {viewMode === 'table' ? (
+                        <section
+                          className="min-h-0 flex flex-col max-h-[calc(100vh-180px)] overflow-y-auto custom-scrollbar mb-6 rounded-lg border border-monday-border"
+                          style={{ contain: 'layout' }}
+                        >
+                          <BoardGroup
+                            group={group}
+                            allGroups={board.groups}
+                            columns={visibleColumns}
+                            hiddenColumns={isTaller ? [] : hiddenColumns}
+                            boardId={board.id}
+                            onRowClick={onRowClick}
+                            showAddColumn={!isTaller}
+                            showAddRow={!isTaller}
+                            collapsed={isCollapsed}
+                            onToggleCollapse={() => toggleGroupCollapse(group.id)}
+                            selectedItemIds={selectedItemIds}
+                            onToggleItem={toggleItemSelection}
+                            onToggleGroupAll={toggleGroupAll}
+                            stackIndex={idx}
+                          />
+                          {childGroups.map(sub => (
+                            <div
+                              key={sub.id}
+                              className="ml-6 mt-2 pl-4 border-l-2 border-monday-border/60 bg-monday-hover/20 rounded-r-md py-1"
+                              style={{ borderLeftColor: group.color }}
+                            >
+                              <BoardGroup
+                                group={sub}
+                                allGroups={board.groups}
+                                columns={visibleColumns}
+                                hiddenColumns={isTaller ? [] : hiddenColumns}
+                                boardId={board.id}
+                                onRowClick={onRowClick}
+                                showAddColumn={!isTaller}
+                                showAddRow={!isTaller}
+                                isSubgroup
+                                indentFromParent
+                                collapsed={!!collapsedGroups[sub.id]}
+                                onToggleCollapse={() => toggleGroupCollapse(sub.id)}
+                                selectedItemIds={selectedItemIds}
+                                onToggleItem={toggleItemSelection}
+                                onToggleGroupAll={toggleGroupAll}
+                                stackIndex={idx}
+                              />
+                            </div>
+                          ))}
+                        </section>
+                      ) : (
+                        <>
+                          <BoardGroup
+                            group={group}
+                            allGroups={board.groups}
+                            columns={visibleColumns}
+                            hiddenColumns={isTaller ? [] : hiddenColumns}
+                            boardId={board.id}
+                            onRowClick={onRowClick}
+                            showAddColumn={!isTaller}
+                            showAddRow={!isTaller}
+                            collapsed={isCollapsed}
+                            onToggleCollapse={() => toggleGroupCollapse(group.id)}
+                            selectedItemIds={selectedItemIds}
+                            onToggleItem={toggleItemSelection}
+                            onToggleGroupAll={toggleGroupAll}
+                            stackIndex={idx}
+                          />
+                          {childGroups.map(sub => (
                             <BoardGroup
                               key={sub.id}
                               group={sub}
@@ -1030,10 +1043,10 @@ const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode }) => {
                               onToggleItem={toggleItemSelection}
                               onToggleGroupAll={toggleGroupAll}
                               stackIndex={idx}
-                              activeStickyGroupId={viewMode === 'table' ? activeStickyGroupId : null}
-                              registerGroupRef={viewMode === 'table' ? registerGroupRef : undefined}
                             />
                           ))}
+                        </>
+                      )}
                     </React.Fragment>
                   );
                 })}

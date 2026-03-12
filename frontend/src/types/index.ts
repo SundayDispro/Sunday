@@ -51,10 +51,12 @@ export interface CalendarEvent {
   updatedAt?: string;
 }
 
+export type DocType = 'text' | 'sheet' | 'cotizacion' | 'levantamiento' | 'hoja_trabajo';
+
 export interface Doc {
   id: string;
   title: string;
-  type: 'text' | 'sheet';
+  type: DocType;
   content: string;
   boardId?: string | null;
   workspaceId: string;

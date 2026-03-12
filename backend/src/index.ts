@@ -7,6 +7,7 @@ import path from 'path';
 import fs from 'fs';
 import multer from 'multer';
 import { PrismaClient } from '@prisma/client';
+import { getTemplatePathIfExists } from './templatePdfGenerator';
 
 const prisma = new PrismaClient();
 const app = express();
@@ -122,6 +123,46 @@ app.post('/api/workspaces', async (req, res) => {
   } catch (error) {
     console.error('Error creating workspace:', error);
     res.status(500).json({ error: 'Failed to create workspace' });
+  }
+});
+
+// Panel de Docs: notas adhesivas (rutas específicas ANTES del :id genérico)
+app.get('/api/workspaces/:workspaceId/panel-notes', async (req, res) => {
+  try {
+    const { workspaceId } = req.params;
+    const w = await prisma.workspace.findUnique({ where: { id: workspaceId }, select: { panelNotes: true } });
+    if (!w) return res.status(404).json({ error: 'Workspace no encontrado' });
+    let panelNotes: unknown[] = [];
+    if (w.panelNotes && String(w.panelNotes).trim()) {
+      try {
+        const parsed = JSON.parse(w.panelNotes);
+        panelNotes = Array.isArray(parsed) ? parsed : [];
+      } catch {
+        panelNotes = [];
+      }
+    }
+    res.json({ panelNotes });
+  } catch (e) {
+    console.error('Error fetching panel notes:', e);
+    res.status(500).json({ error: 'Failed to fetch panel notes' });
+  }
+});
+
+app.patch('/api/workspaces/:workspaceId/panel-notes', async (req, res) => {
+  try {
+    const { workspaceId } = req.params;
+    const body = req.body ?? {};
+    const panelNotes = Array.isArray(body.panelNotes) ? body.panelNotes : undefined;
+    if (panelNotes === undefined) return res.status(400).json({ error: 'panelNotes es obligatorio (array)' });
+    const workspace = await prisma.workspace.update({
+      where: { id: workspaceId },
+      data: { panelNotes: JSON.stringify(panelNotes) },
+    });
+    res.json({ panelNotes: JSON.parse(workspace.panelNotes || '[]') });
+  } catch (e) {
+    if ((e as { code?: string })?.code === 'P2025') return res.status(404).json({ error: 'Workspace no encontrado' });
+    console.error('Error updating panel notes:', e);
+    res.status(500).json({ error: 'Failed to update panel notes' });
   }
 });
 
@@ -808,6 +849,42 @@ app.delete('/api/docs/:id', async (req, res) => {
       return res.status(404).json({ error: 'Doc no encontrado' });
     }
     res.status(500).json({ error: 'Failed to delete doc' });
+  }
+});
+
+// ── Templates (PDF plantillas para cotización, levantamiento, hoja de trabajo) ────────────────
+const TEMPLATE_KINDS = ['cotizacion', 'levantamiento', 'hoja_trabajo'] as const;
+
+app.get('/api/templates/:kind', (req, res) => {
+  const kind = req.params.kind as string;
+  if (!TEMPLATE_KINDS.includes(kind as (typeof TEMPLATE_KINDS)[number])) {
+    return res.status(400).json({ error: 'Tipo de plantilla no válido' });
+  }
+  const templatePath = getTemplatePathIfExists(kind as (typeof TEMPLATE_KINDS)[number]);
+  if (!templatePath) {
+    return res.status(404).json({ error: 'Plantilla no encontrada. Coloca el PDF en backend/templates/' + kind + '.pdf' });
+  }
+  res.setHeader('Content-Type', 'application/pdf');
+  res.sendFile(templatePath, (err) => {
+    if (err) res.status(500).json({ error: 'Error al enviar plantilla' });
+  });
+});
+
+app.post('/api/templates/:kind/generate', async (req, res) => {
+  try {
+    const kind = req.params.kind as string;
+    if (!TEMPLATE_KINDS.includes(kind as (typeof TEMPLATE_KINDS)[number])) {
+      return res.status(400).json({ error: 'Tipo de plantilla no válido' });
+    }
+    const content = (req.body?.content ?? {}) as Record<string, unknown>;
+    const { generatePdfFromTemplate } = await import('./templatePdfGenerator');
+    const buffer = await generatePdfFromTemplate(kind as 'cotizacion' | 'levantamiento' | 'hoja_trabajo', content);
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', 'inline; filename="' + kind + '.pdf"');
+    res.send(buffer);
+  } catch (e) {
+    console.error('Error generating PDF:', e);
+    res.status(500).json({ error: e instanceof Error ? e.message : 'Error al generar PDF' });
   }
 });
 
