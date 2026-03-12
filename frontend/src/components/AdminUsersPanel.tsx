@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
 import { User } from '../types';
 import { useUser } from '../store/UserContext';
-import { X, Plus, ShieldAlert } from 'lucide-react';
+import { API_BASE, parseResponse } from '../api';
+import { X, Plus, ShieldAlert, Trash2 } from 'lucide-react';
 import * as Dialog from '@radix-ui/react-dialog';
 
 interface Props {
@@ -18,9 +19,35 @@ export const AdminUsersPanel: React.FC<Props> = ({ open, onOpenChange }) => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [userPendingDelete, setUserPendingDelete] = useState<User | null>(null);
 
   // Security fallback, theoretically the button shouldn't exist if not admin
   if (currentUser?.role !== 'ADMIN') return null;
+
+  const confirmDeleteUser = async () => {
+    if (!userPendingDelete || !currentUser) return;
+    setDeleting(true);
+    setError('');
+    try {
+      const res = await fetch(
+        `${API_BASE}/api/users/${userPendingDelete.id}?adminId=${encodeURIComponent(currentUser.id)}`,
+        {
+        method: 'DELETE',
+        }
+      );
+      if (res.ok) {
+        fetchUsers();
+      } else {
+        await parseResponse(res);
+      }
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Error de conexión');
+    } finally {
+      setDeleting(false);
+      setUserPendingDelete(null);
+    }
+  };
 
   const handleCreateUser = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -34,26 +61,23 @@ export const AdminUsersPanel: React.FC<Props> = ({ open, onOpenChange }) => {
     setSuccess(false);
 
     try {
-      const res = await fetch('http://localhost:3001/api/users', {
+      const res = await fetch(`${API_BASE}/api/users`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ username, name, password, adminId: currentUser.id, role })
       });
 
-      if (!res.ok) {
-        const data = await res.json();
-        throw new Error(data.error || 'Error al crear usuario');
-      }
+      await parseResponse<User>(res);
 
       setSuccess(true);
       setUsername('');
       setName('');
       setPassword('');
-      fetchUsers(); // Refresh the list
-      
+      fetchUsers();
+
       setTimeout(() => setSuccess(false), 3000);
-    } catch (err: any) {
-      setError(err.message || 'Error de conexión');
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Error de conexión');
     } finally {
       setLoading(false);
     }
@@ -146,16 +170,32 @@ export const AdminUsersPanel: React.FC<Props> = ({ open, onOpenChange }) => {
             {/* User List */}
             <div className="flex flex-col">
               <h3 className="text-[14px] font-bold text-monday-text mb-4">Usuarios ({users.length})</h3>
+              {error && <div className="text-[12px] text-red-500 font-medium mb-2">{error}</div>}
               <div className="flex flex-col gap-2 overflow-y-auto max-h-[250px] custom-scrollbar pr-2">
                 {users.map(user => (
-                  <div key={user.id} className="flex items-center gap-2 p-2 rounded-md hover:bg-monday-bg transition-colors border border-transparent hover:border-monday-border">
-                    <div 
-                      className="w-7 h-7 rounded-full flex items-center justify-center text-[11px] font-medium text-white shrink-0 shadow-sm"
-                      style={{ backgroundColor: user.color }}
-                    >
-                      {user.initials}
+                  <div
+                    key={user.id}
+                    className="relative flex items-center gap-2 p-2 rounded-md hover:bg-monday-bg transition-colors border border-transparent hover:border-monday-border group"
+                  >
+                    <div className="relative">
+                      <div
+                        className="w-7 h-7 rounded-full flex items-center justify-center text-[11px] font-medium text-white shrink-0 shadow-sm"
+                        style={{ backgroundColor: user.color }}
+                      >
+                        {user.initials}
+                      </div>
+                      <span
+                        className={`absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full border-2 border-white ${
+                          user.status === 'available'
+                            ? 'bg-green-500'
+                            : user.status === 'busy'
+                            ? 'bg-yellow-400'
+                            : 'bg-gray-300'
+                        }`}
+                        aria-hidden="true"
+                      />
                     </div>
-                    <div className="flex flex-col overflow-hidden">
+                    <div className="flex flex-col overflow-hidden flex-1 min-w-0">
                       <span className="text-[13px] text-monday-text font-medium truncate leading-tight">{user.name}</span>
                       <div className="flex items-center gap-1">
                         {user.role === 'ADMIN' && (
@@ -176,6 +216,42 @@ export const AdminUsersPanel: React.FC<Props> = ({ open, onOpenChange }) => {
                         <span className="text-[11px] text-monday-subtext truncate leading-tight">{user.username}</span>
                       </div>
                     </div>
+                    {user.id !== currentUser.id && (
+                      <button
+                        type="button"
+                        onClick={() => setUserPendingDelete(user)}
+                        disabled={deleting}
+                        className="p-1.5 rounded text-monday-subtext hover:text-red-600 hover:bg-red-50 transition-colors opacity-0 group-hover:opacity-100 disabled:opacity-50"
+                        title="Eliminar usuario"
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    )}
+                    {userPendingDelete?.id === user.id && (
+                      <div className="absolute inset-x-2 -bottom-10 bg-white border border-monday-border rounded-md shadow-monday-lg px-3 py-2 flex items-center justify-between gap-2 text-[11px]">
+                        <span className="text-monday-text truncate">
+                          ¿Eliminar a <span className="font-semibold">{user.name}</span>?
+                        </span>
+                        <div className="flex items-center gap-1">
+                          <button
+                            type="button"
+                            disabled={deleting}
+                            onClick={confirmDeleteUser}
+                            className="px-2 py-1 rounded bg-red-500 text-white font-semibold disabled:opacity-50 text-[11px]"
+                          >
+                            Eliminar
+                          </button>
+                          <button
+                            type="button"
+                            disabled={deleting}
+                            onClick={() => setUserPendingDelete(null)}
+                            className="px-2 py-1 rounded border border-monday-border text-monday-subtext text-[11px] bg-white hover:bg-monday-hover"
+                          >
+                            Cancelar
+                          </button>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 ))}
               </div>

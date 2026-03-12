@@ -3,7 +3,11 @@ import { Users, UserCircle2 } from 'lucide-react';
 import { User } from '../../types';
 import { useUser } from '../../store/UserContext';
 
-export const TeamPage: React.FC = () => {
+interface Props {
+  onOpenInboxForUser?: (user: User) => void;
+}
+
+export const TeamPage: React.FC<Props> = ({ onOpenInboxForUser }) => {
   const { users, fetchUsers } = useUser();
 
   useEffect(() => {
@@ -34,13 +38,26 @@ export const TeamPage: React.FC = () => {
             {users.map((u: User) => (
               <li
                 key={u.id}
-                className="flex items-center gap-4 p-4 rounded-monday bg-white border border-monday-border hover:border-monday-blue/30 transition-colors"
+                className="flex items-center gap-4 p-4 rounded-monday bg-white border border-monday-border hover:border-monday-blue/30 transition-colors cursor-pointer"
+                onClick={() => onOpenInboxForUser?.(u)}
               >
-                <div
-                  className="w-10 h-10 rounded-full text-white text-sm font-semibold flex items-center justify-center shrink-0"
-                  style={{ backgroundColor: u.color }}
-                >
-                  {u.initials}
+                <div className="relative">
+                  <div
+                    className="w-10 h-10 rounded-full text-white text-sm font-semibold flex items-center justify-center shrink-0"
+                    style={{ backgroundColor: u.color }}
+                  >
+                    {u.initials}
+                  </div>
+                  <span
+                    className={`absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full border-2 border-white ${
+                      u.status === 'available'
+                        ? 'bg-green-500'
+                        : u.status === 'busy'
+                        ? 'bg-yellow-400'
+                        : 'bg-gray-300'
+                    }`}
+                    aria-hidden="true"
+                  />
                 </div>
                 <div className="min-w-0 flex-1">
                   <p className="text-[14px] font-medium text-monday-text truncate">{u.name}</p>

@@ -24,7 +24,7 @@ import {
 } from '@dnd-kit/sortable';
 import { GROUP_PALETTE } from './GroupColorPicker';
 import { KanbanView } from './KanbanView';
-import { CalendarView, type CalendarEventKind } from './CalendarView';
+import CalendarView, { type CalendarEventKind } from './CalendarView';
 import { FacturacionBoardView } from './FacturacionBoardView';
 import { useUser } from '../../store/UserContext';
 import * as Popover from '@radix-ui/react-popover';
@@ -493,14 +493,27 @@ const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode }) => {
 
   const isTaller = currentUser?.role === 'TALLER';
   const statusColumnIds = useMemo(
-    () => (board?.columns ?? []).filter(c => c.type === 'status').map(c => c.id),
+    () => {
+      const cols = board?.columns ?? [];
+      // Preferir la(s) columna(s) cuyo título es exactamente "Estado" para filtros
+      const estadoCols = cols.filter(c => c.type === 'status' && c.title === 'Estado');
+      if (estadoCols.length > 0) return estadoCols.map(c => c.id);
+      return cols.filter(c => c.type === 'status').map(c => c.id);
+    },
+    [board?.columns]
+  );
+  /** Columnas de estatus o seguimiento (priority) para detectar Aprobado */
+  const statusOrPriorityColumnIds = useMemo(
+    () => (board?.columns ?? []).filter(c => c.type === 'status' || c.type === 'priority').map(c => c.id),
     [board?.columns]
   );
 
-  /** Opciones de estado para el filtro (primera columna de tipo status) */
+  /** Opciones de estado para el filtro (columna "Estado" si existe, si no la primera de tipo status) */
   const filterStatusOptions = useMemo(() => {
     if (!board) return [];
-    const statusCol = board.columns.find(c => c.type === 'status');
+    const statusCol =
+      board.columns.find(c => c.type === 'status' && c.title === 'Estado') ||
+      board.columns.find(c => c.type === 'status');
     if (!statusCol?.settings) return [];
     try {
       const s = JSON.parse(statusCol.settings);
@@ -512,25 +525,34 @@ const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode }) => {
   }, [board]);
   const isItemApproved = useMemo(() => {
     return (item: Item) =>
-      statusColumnIds.some(cid => {
+      statusOrPriorityColumnIds.some(cid => {
         const cv = item.columnValues.find(v => v.columnId === cid);
         if (!cv?.value) return false;
         try {
           const p = JSON.parse(cv.value);
-          return p.optionId === 'aprobado';
+          return (p?.optionId ?? cv) === 'aprobado';
         } catch {
-          return false;
+          return cv === 'aprobado';
         }
       });
-  }, [statusColumnIds]);
+  }, [statusOrPriorityColumnIds]);
 
-  // Columnas visibles: para TALLER solo docs, file, priority, date, timeline (+ nombre implícito)
+  // Columnas visibles: para TALLER nombre, estatus, fecha colocación, periodo producción, archivos, hoja de trabajo (docs)
   const visibleColumns = useMemo(() => {
     if (!board) return [];
-    if (isTaller)
-      return board.columns.filter(c =>
-        ['docs', 'file', 'priority', 'date', 'timeline'].includes(c.type)
-      );
+    if (isTaller) {
+      // Para TALLER: ocultar la columna "Estado" (estado general) y dejar visibles:
+      // - Docs (hoja de trabajo)
+      // - Archivos (Drive)
+      // - Fechas y timelines (solo lectura en los renderers)
+      // - Estado Taller (status/priority identificado por título)
+      return board.columns.filter(c => {
+        if (c.title === 'Estado') return false;
+        if (['docs', 'file', 'date', 'timeline'].includes(c.type)) return true;
+        if ((c.type === 'status' || c.type === 'priority') && c.title === 'Estado Taller') return true;
+        return false;
+      });
+    }
     return board.columns.filter(c => !hiddenColumns.includes(c.id));
   }, [board, hiddenColumns, isTaller]);
 
@@ -612,14 +634,50 @@ const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode }) => {
     );
   };
 
-  // Board con grupos y columnas ya filtrados (búsqueda, orden, vista Taller)
+  // Board con grupos filtrados; para vista de calendario usamos siempre todas las columnas originales
+  // para que pueda seguir accediendo a columnas ocultas (ej. "Estado") al calcular aprobados/producción.
   const boardForView = useMemo(
     () =>
       board
-        ? { ...board, groups: filteredGroups, columns: visibleColumns }
+        ? {
+            ...board,
+            groups: filteredGroups,
+            columns: viewMode === 'calendar' ? board.columns : visibleColumns,
+          }
         : null,
-    [board, filteredGroups, visibleColumns]
+    [board, filteredGroups, visibleColumns, viewMode]
   );
+
+  // Asegurar que exista una columna "Estado Taller" con las opciones específicas.
+  useEffect(() => {
+    if (!board) return;
+    const hasTallerStatus = board.columns.some(
+      c => (c.type === 'status' || c.type === 'priority') && c.title === 'Estado Taller'
+    );
+    if (hasTallerStatus) return;
+
+    const newPosition =
+      board.columns.length > 0
+        ? board.columns.reduce((max, c) => Math.max(max, c.position), 0) + 1024
+        : 1024;
+
+    const settings = JSON.stringify({
+      options: [
+        { id: 'en_proceso', label: 'En proceso', color: '#fdab3d' },
+        { id: 'fabricado', label: 'Fabricado', color: '#579bfc' },
+        { id: 'colocado', label: 'Colocado', color: '#00c875' },
+        { id: 'default', label: '', color: '#c4c4c4' },
+      ],
+    });
+
+    socket.emit('add_column', {
+      boardId: board.id,
+      title: 'Estado Taller',
+      type: 'status',
+      position: newPosition,
+      settings,
+    });
+  }, [board]);
   const toggleGroupCollapse = (id: string) => {
     setCollapsedGroups(prev => ({ ...prev, [id]: !prev[id] }));
   };

@@ -75,9 +75,63 @@ function parseContent(doc: Doc | null): DocContent {
   }
 }
 
-// Editor de documento tipo Word: barra de formato + área de documento
+/** Aplica formato en línea (negrita, cursiva, tachado, subrayado, código) a texto ya escapado. */
+function inlineFormat(escaped: string): string {
+  return escaped
+    .replace(/&lt;u&gt;/g, '<u>')
+    .replace(/&lt;\/u&gt;/g, '</u>')
+    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+    .replace(/\*(.+?)\*/g, '<em>$1</em>')
+    .replace(/_(.+?)_/g, '<em>$1</em>')
+    .replace(/~~(.+?)~~/g, '<s>$1</s>')
+    .replace(/`([^`]+)`/g, '<code class="bg-monday-hover px-1 rounded text-sm">$1</code>');
+}
+
+/** Convierte el markdown simple del doc a HTML para que el formato se vea (negrita, cursiva, etc.). */
+function renderDocMarkdownToHtml(text: string): string {
+  if (!text.trim()) return '';
+  const escape = (s: string) =>
+    s
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  const lines = text.split(/\r?\n/);
+  const out: string[] = [];
+  for (let i = 0; i < lines.length; i++) {
+    const trimmed = lines[i].trimStart();
+    if (/^###\s/.test(trimmed)) {
+      const content = inlineFormat(escape(trimmed.replace(/^###\s*/, '')));
+      out.push(`<h3 class="text-base font-bold mt-3 mb-1 font-averta">${content}</h3>`);
+      continue;
+    }
+    if (/^##\s/.test(trimmed)) {
+      const content = inlineFormat(escape(trimmed.replace(/^##\s*/, '')));
+      out.push(`<h2 class="text-lg font-bold mt-4 mb-1 font-averta">${content}</h2>`);
+      continue;
+    }
+    if (/^#\s/.test(trimmed)) {
+      const content = inlineFormat(escape(trimmed.replace(/^#\s*/, '')));
+      out.push(`<h1 class="text-xl font-bold mt-4 mb-2 font-averta">${content}</h1>`);
+      continue;
+    }
+    if (/^[-*]\s/.test(trimmed) || /^\d+\.\s/.test(trimmed)) {
+      const content = inlineFormat(escape(trimmed.replace(/^[-*]\s|^\d+\.\s/, '')));
+      out.push(`<li class="ml-4 list-disc font-averta">${content}</li>`);
+      continue;
+    }
+    const escaped = escape(lines[i]);
+    const content = inlineFormat(escaped);
+    out.push(content ? `<p class="mb-1 font-averta">${content}</p>` : '<br/>');
+  }
+  return out.join('');
+}
+
+// Editor de documento tipo Word: barra de formato integrada + área de documento
 function WordLikeEditor({ textDraft, setTextDraft }: { textDraft: string; setTextDraft: (v: string) => void }) {
   const textRef = useRef<HTMLTextAreaElement>(null);
+  const [viewMode, setViewMode] = useState<'edit' | 'preview'>('edit');
 
   const wrapSelection = (before: string, after: string) => {
     const el = textRef.current;
@@ -90,128 +144,121 @@ function WordLikeEditor({ textDraft, setTextDraft }: { textDraft: string; setTex
     setTimeout(() => { el.focus(); el.setSelectionRange(start + before.length, end + before.length); }, 0);
   };
 
+  const insertAtStart = (linePrefix: string) => {
+    const el = textRef.current;
+    if (!el) return;
+    const start = el.selectionStart;
+    const lineStart = textDraft.slice(0, start).lastIndexOf('\n') + 1;
+    const newText = textDraft.slice(0, lineStart) + linePrefix + textDraft.slice(lineStart);
+    setTextDraft(newText);
+    setTimeout(() => { el.focus(); el.setSelectionRange(lineStart + linePrefix.length, lineStart + linePrefix.length); }, 0);
+  };
+
+  const formatBarBtn = 'p-2 rounded-monday border-0 text-monday-text hover:bg-monday-hover transition-colors min-w-[32px]';
+
   return (
-    <div className="flex-1 flex flex-col overflow-hidden bg-[#e8e8e8]">
-      <div className="shrink-0 flex items-center gap-0.5 px-2 py-1.5 bg-white border-b border-gray-200 shadow-sm">
-        <button type="button" onClick={() => wrapSelection('**', '**')} className="p-1.5 rounded hover:bg-gray-100" title="Negrita">
-          <span className="text-[14px] font-bold">B</span>
+    <div className="flex-1 flex flex-col overflow-hidden bg-monday-bg/50">
+      <div className="shrink-0 flex items-center gap-0.5 px-3 py-2 bg-white border-b border-monday-border shadow-sm flex-wrap">
+        <button type="button" onClick={() => wrapSelection('**', '**')} className={formatBarBtn} title="Negrita">
+          <span className="text-[13px] font-bold">B</span>
         </button>
-        <button type="button" onClick={() => wrapSelection('_', '_')} className="p-1.5 rounded hover:bg-gray-100" title="Cursiva">
-          <span className="text-[14px] italic font-serif">I</span>
+        <button type="button" onClick={() => wrapSelection('_', '_')} className={formatBarBtn} title="Cursiva">
+          <span className="text-[13px] italic font-serif">I</span>
         </button>
-        <button type="button" onClick={() => wrapSelection('\n- ', '')} className="p-1.5 rounded hover:bg-gray-100" title="Lista">
+        <button type="button" onClick={() => wrapSelection('~~', '~~')} className={formatBarBtn} title="Tachado">
+          <span className="text-[13px] line-through">S</span>
+        </button>
+        <button type="button" onClick={() => wrapSelection('<u>', '</u>')} className={formatBarBtn} title="Subrayado">
+          <span className="text-[13px] underline">U</span>
+        </button>
+        <div className="w-px h-5 bg-monday-border mx-1" />
+        <button type="button" onClick={() => insertAtStart('\n# ')} className={formatBarBtn} title="Título 1">
+          <span className="text-[12px] font-bold">H1</span>
+        </button>
+        <button type="button" onClick={() => insertAtStart('\n## ')} className={formatBarBtn} title="Título 2">
+          <span className="text-[12px] font-bold">H2</span>
+        </button>
+        <button type="button" onClick={() => insertAtStart('\n### ')} className={formatBarBtn} title="Título 3">
+          <span className="text-[12px] font-bold">H3</span>
+        </button>
+        <div className="w-px h-5 bg-monday-border mx-1" />
+        <button type="button" onClick={() => wrapSelection('\n- ', '')} className={formatBarBtn} title="Lista con viñetas">
           <span className="text-[14px]">•</span>
         </button>
-        <div className="w-px h-5 bg-gray-200 mx-1" />
-        <span className="text-[11px] text-gray-500 px-2">Documento</span>
+        <button type="button" onClick={() => insertAtStart('\n1. ')} className={formatBarBtn} title="Lista numerada">
+          <span className="text-[13px] font-medium">1.</span>
+        </button>
+        <button type="button" onClick={() => wrapSelection('`', '`')} className={formatBarBtn} title="Código">
+          <span className="text-[12px] font-mono">&lt;/&gt;</span>
+        </button>
+        <div className="w-px h-5 bg-monday-border mx-1" />
+        <div className="flex rounded-lg border border-monday-border overflow-hidden bg-white">
+          <button
+            type="button"
+            onClick={() => setViewMode('edit')}
+            className={`px-2.5 py-1 text-[12px] ${viewMode === 'edit' ? 'bg-monday-blue text-white' : 'text-monday-subtext hover:bg-monday-hover'}`}
+          >
+            Redacción
+          </button>
+          <button
+            type="button"
+            onClick={() => setViewMode('preview')}
+            className={`px-2.5 py-1 text-[12px] ${viewMode === 'preview' ? 'bg-monday-blue text-white' : 'text-monday-subtext hover:bg-monday-hover'}`}
+          >
+            Vista previa
+          </button>
+        </div>
+        <span className="text-[11px] text-monday-subtext px-2">Documento</span>
       </div>
       <div className="flex-1 overflow-auto p-6 flex justify-center">
-        <div className="w-full max-w-[21cm] min-h-[29.7cm] bg-white shadow-lg px-12 py-14">
-          <textarea
-            ref={textRef}
-            value={textDraft}
-            onChange={e => setTextDraft(e.target.value)}
-            placeholder="Empieza a escribir..."
-            className="w-full min-h-[calc(29.7cm-3.5rem)] resize-none border-0 outline-none text-[11pt] text-gray-800 leading-relaxed font-[Georgia] placeholder:text-gray-400"
-            style={{ fontFamily: 'Georgia, serif' }}
-          />
+        <div className="w-full max-w-[21cm] min-h-[29.7cm] bg-white rounded-lg border border-monday-border shadow-monday-lg px-12 py-14 font-averta">
+          {viewMode === 'edit' ? (
+            <textarea
+              ref={textRef}
+              value={textDraft}
+              onChange={e => setTextDraft(e.target.value)}
+              placeholder="Empieza a escribir..."
+              className="w-full min-h-[calc(29.7cm-3.5rem)] resize-none border-0 outline-none text-[11pt] text-monday-text leading-relaxed font-averta placeholder:text-monday-subtext bg-transparent"
+              style={{ backgroundColor: 'transparent' }}
+            />
+          ) : (
+            <div
+              className="w-full min-h-[calc(29.7cm-3.5rem)] text-[11pt] text-monday-text leading-relaxed font-averta prose prose-sm max-w-none"
+              dangerouslySetInnerHTML={{ __html: renderDocMarkdownToHtml(textDraft) || '<p class="text-monday-subtext">Nada que mostrar. Escribe en la pestaña Redacción.</p>' }}
+            />
+          )}
         </div>
       </div>
     </div>
   );
 }
 
-// Vista general: panel de control con doc cards + notas adhesivas
+// Vista general: panel de control con doc cards + notas adhesivas (estado manejado por padre)
 function DocsOverviewPanel({
   docs,
   workspaceId,
+  panelNotes,
+  loadingNotes,
+  onAddNote,
+  onUpdateNote,
+  onRemoveNote,
   onOpenDoc,
   getDocTypeLabel,
   isPdfDocType,
 }: {
   docs: Doc[];
   workspaceId: string | null;
+  panelNotes: StickyNoteData[];
+  loadingNotes: boolean;
+  onAddNote: () => void;
+  onUpdateNote: (id: string, patch: Partial<StickyNoteData>, skipSave?: boolean) => void;
+  onRemoveNote: (id: string) => void;
   onOpenDoc: (id: string) => void;
   getDocTypeLabel: (t: DocType) => string;
   isPdfDocType: (t: DocType) => boolean;
 }) {
-  const [panelNotes, setPanelNotes] = useState<StickyNoteData[]>([]);
-  const [loadingNotes, setLoadingNotes] = useState(false);
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const dragRef = useRef({ x: 0, y: 0, noteX: 0, noteY: 0 });
-  const notesRef = useRef<StickyNoteData[]>([]);
-  notesRef.current = panelNotes;
-
-  useEffect(() => {
-    if (!workspaceId) { setPanelNotes([]); return; }
-    setLoadingNotes(true);
-    fetch(`${API_BASE}/api/workspaces/${workspaceId}/panel-notes`)
-      .then(r => r.json())
-      .then(data => {
-        const raw = Array.isArray(data?.panelNotes) ? data.panelNotes : [];
-        const normalized = raw.map((item: unknown) => normalizeNote(item)).filter((n): n is StickyNoteData => n !== null);
-        setPanelNotes(normalized);
-      })
-      .catch(() => setPanelNotes([]))
-      .finally(() => setLoadingNotes(false));
-  }, [workspaceId]);
-
-  useEffect(() => {
-    return () => {
-      if (workspaceId && notesRef.current.length >= 0) {
-        fetch(`${API_BASE}/api/workspaces/${workspaceId}/panel-notes`, {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ panelNotes: notesRef.current }),
-        }).catch(() => {});
-      }
-    };
-  }, [workspaceId]);
-
-  const savePanelNotes = useCallback((notes: StickyNoteData[]) => {
-    if (!workspaceId) return;
-    const toSave = notes.map(n => ({ id: n.id, x: n.x, y: n.y, title: n.title, body: n.body, color: n.color ?? DEFAULT_NOTE_COLOR }));
-    fetch(`${API_BASE}/api/workspaces/${workspaceId}/panel-notes`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ panelNotes: toSave }),
-    })
-      .then(res => { if (!res.ok) throw new Error('Error al guardar notas'); })
-      .catch(err => console.error('Panel notes save failed:', err));
-  }, [workspaceId]);
-
-  const addNote = useCallback(() => {
-    const count = panelNotes.length;
-    const col = count % 4;
-    const row = Math.floor(count / 4);
-    const newNote: StickyNoteData = {
-      id: crypto.randomUUID(),
-      x: 24 + col * 220,
-      y: 24 + row * 200,
-      title: 'Nueva nota',
-      body: '',
-      color: DEFAULT_NOTE_COLOR,
-    };
-    const next = [...panelNotes, newNote];
-    setPanelNotes(next);
-    savePanelNotes(next);
-  }, [panelNotes, savePanelNotes]);
-
-  const updateNote = useCallback((id: string, patch: Partial<StickyNoteData>, skipSave?: boolean) => {
-    setPanelNotes(prev => {
-      const next = prev.map(n => (n.id === id ? { ...n, ...patch } : n));
-      if (!skipSave) savePanelNotes(next);
-      return next;
-    });
-  }, [savePanelNotes]);
-
-  const removeNote = useCallback((id: string) => {
-    setPanelNotes(prev => {
-      const next = prev.filter(n => n.id !== id);
-      savePanelNotes(next);
-      return next;
-    });
-  }, [savePanelNotes]);
 
   const onPointerDown = useCallback((e: React.PointerEvent, id: string) => {
     if ((e.target as HTMLElement).closest('input, textarea')) return;
@@ -229,20 +276,16 @@ function DocsOverviewPanel({
     const dy = e.clientY - dragRef.current.y;
     const newX = Math.max(0, dragRef.current.noteX + dx);
     const newY = Math.max(0, dragRef.current.noteY + dy);
-    updateNote(id, { x: newX, y: newY }, true);
+    onUpdateNote(id, { x: newX, y: newY }, true);
     dragRef.current = { x: e.clientX, y: e.clientY, noteX: newX, noteY: newY };
-  }, [draggingId, updateNote]);
+  }, [draggingId, onUpdateNote]);
 
   const onPointerUp = useCallback((e: React.PointerEvent, id: string) => {
     (e.target as HTMLElement).releasePointerCapture?.(e.pointerId);
     setDraggingId(null);
     const { noteX, noteY } = dragRef.current;
-    setPanelNotes(prev => {
-      const next = prev.map(n => (n.id === id ? { ...n, x: noteX, y: noteY } : n));
-      savePanelNotes(next);
-      return next;
-    });
-  }, [savePanelNotes]);
+    onUpdateNote(id, { x: noteX, y: noteY }, false);
+  }, [onUpdateNote]);
 
   if (!workspaceId) {
     return (
@@ -257,7 +300,7 @@ function DocsOverviewPanel({
       <div className="flex items-center gap-2 mb-4">
         <button
           type="button"
-          onClick={addNote}
+          onClick={onAddNote}
           className="flex items-center gap-2 px-3 py-2 rounded-lg bg-[#5034ff] text-white text-[13px] hover:bg-[#4030dd]"
         >
           <Plus size={16} />
@@ -318,7 +361,7 @@ function DocsOverviewPanel({
                 <input
                   type="text"
                   value={note.title}
-                  onChange={e => updateNote(note.id, { title: e.target.value })}
+                  onChange={e => onUpdateNote(note.id, { title: e.target.value })}
                   placeholder="Título"
                   className={`flex-1 min-w-0 bg-transparent text-[12px] font-medium outline-none placeholder:opacity-70 ${isLight ? 'text-gray-900' : 'text-white placeholder:text-white/80'}`}
                   onClick={e => e.stopPropagation()}
@@ -337,7 +380,7 @@ function DocsOverviewPanel({
                             <button
                               key={c}
                               type="button"
-                              onClick={() => updateNote(note.id, { color: c })}
+                              onClick={() => onUpdateNote(note.id, { color: c })}
                               className="w-6 h-6 rounded border-2 border-gray-300 hover:scale-110"
                               style={{ backgroundColor: c }}
                               title={c}
@@ -347,14 +390,14 @@ function DocsOverviewPanel({
                       </Popover.Content>
                     </Popover.Portal>
                   </Popover.Root>
-                  <button type="button" onClick={() => removeNote(note.id)} className={`p-0.5 rounded hover:bg-red-500/30 ${isLight ? 'text-gray-700 hover:text-red-600' : 'text-white/90'}`} title="Eliminar">
+                  <button type="button" onClick={() => onRemoveNote(note.id)} className={`p-0.5 rounded hover:bg-red-500/30 ${isLight ? 'text-gray-700 hover:text-red-600' : 'text-white/90'}`} title="Eliminar">
                     <Trash2 size={12} />
                   </button>
                 </div>
               </div>
               <textarea
                 value={note.body}
-                onChange={e => updateNote(note.id, { body: e.target.value })}
+                onChange={e => onUpdateNote(note.id, { body: e.target.value })}
                 placeholder="Contenido..."
                 rows={3}
                 className={`w-full resize-none border-0 bg-transparent px-2 py-1.5 text-[12px] outline-none placeholder:opacity-70 ${isLight ? 'text-gray-900' : 'text-white placeholder:text-white/80'}`}
@@ -369,7 +412,7 @@ function DocsOverviewPanel({
   );
 }
 
-// Editor de hoja tipo Excel: letras de columna, números de fila, barra de fórmula
+// Editor de hoja tipo Excel: integrado a la interfaz, barra de fórmula y opciones
 function ExcelLikeSheet({
   tableDraft,
   setTableDraft,
@@ -391,31 +434,73 @@ function ExcelLikeSheet({
     return s || 'A';
   };
 
+  const insertRowAbove = () => {
+    if (focusedCell == null) {
+      ensureTableSize(tableDraft.length + 1, tableDraft[0]?.length || 1);
+      return;
+    }
+    setTableDraft(prev => {
+      const newRow = new Array(prev[0]?.length || 1).fill('');
+      const next = [...prev.slice(0, focusedCell.r), newRow, ...prev.slice(focusedCell.r)];
+      return next;
+    });
+    setFocusedCell(prev => prev ? { r: prev.r + 1, c: prev.c } : null);
+  };
+
+  const insertColLeft = () => {
+    if (focusedCell == null) {
+      ensureTableSize(tableDraft.length, (tableDraft[0]?.length || 0) + 1);
+      return;
+    }
+    setTableDraft(prev => prev.map(row => [...row.slice(0, focusedCell.c), '', ...row.slice(focusedCell.c)]));
+    setFocusedCell(prev => prev ? { r: prev.r, c: prev.c + 1 } : null);
+  };
+
+  const sheetBtn = 'px-2.5 py-1.5 rounded-monday border border-monday-border bg-white text-[12px] text-monday-text hover:bg-monday-hover transition-colors';
+
   return (
-    <div className="flex-1 flex flex-col overflow-hidden bg-[#e8e8e8]">
-      <div className="shrink-0 flex items-center gap-2 px-2 py-1.5 bg-white border-b border-gray-200 shadow-sm">
-        <span className="text-[11px] text-gray-500 font-mono w-16">fx</span>
+    <div className="flex-1 flex flex-col overflow-hidden bg-monday-bg/50">
+      <div className="shrink-0 flex items-center gap-2 px-3 py-2 bg-white border-b border-monday-border shadow-sm flex-wrap">
+        <span className="text-[11px] text-monday-subtext font-mono w-8">fx</span>
         <input
           type="text"
           value={displayValue}
           readOnly
-          className="flex-1 max-w-md px-2 py-1 text-[12px] font-mono bg-gray-50 border border-gray-200 rounded"
+          className="flex-1 max-w-md px-2.5 py-1.5 text-[12px] font-averta bg-monday-hover/50 border border-monday-border rounded-monday text-monday-text placeholder:text-monday-subtext"
           placeholder="Celda seleccionada"
         />
         {focusedCell != null && (
-          <span className="text-[11px] text-gray-500 font-mono">
+          <span className="text-[11px] text-monday-subtext font-mono shrink-0">
             {colLetters(focusedCell.c)}{focusedCell.r + 1}
           </span>
         )}
+        <div className="w-px h-5 bg-monday-border" />
+        <button type="button" onClick={() => ensureTableSize(tableDraft.length + 1, tableDraft[0]?.length || 1)} className={sheetBtn}>
+          + Fila
+        </button>
+        <button type="button" onClick={() => ensureTableSize(tableDraft.length, (tableDraft[0]?.length || 0) + 1)} className={sheetBtn}>
+          + Columna
+        </button>
+        {focusedCell != null && (
+          <>
+            <button type="button" onClick={insertRowAbove} className={sheetBtn} title="Insertar fila arriba">
+              Fila ↑
+            </button>
+            <button type="button" onClick={insertColLeft} className={sheetBtn} title="Insertar columna a la izquierda">
+              Col ←
+            </button>
+          </>
+        )}
+        <span className="text-[11px] text-monday-subtext px-2">Hoja</span>
       </div>
       <div className="flex-1 overflow-auto p-4">
-        <div className="inline-block bg-white rounded-sm shadow-md border border-gray-300 overflow-hidden">
+        <div className="inline-block bg-white rounded-lg border border-monday-border shadow-monday-lg overflow-hidden">
           <table className="border-collapse">
             <thead>
               <tr>
-                <th className="w-10 h-7 bg-[#f3f3f3] border border-gray-300 text-[11px] text-gray-600 font-medium" />
+                <th className="w-10 h-8 bg-monday-hover/60 border border-monday-border text-[11px] text-monday-subtext font-medium" />
                 {Array.from({ length: cols }, (_, i) => (
-                  <th key={i} className="min-w-[100px] h-7 px-1 bg-[#f3f3f3] border border-gray-300 text-[11px] text-gray-600 font-medium">
+                  <th key={i} className="min-w-[110px] h-8 px-1 bg-monday-hover/60 border border-monday-border text-[11px] text-monday-subtext font-medium">
                     {colLetters(i)}
                   </th>
                 ))}
@@ -424,11 +509,11 @@ function ExcelLikeSheet({
             <tbody>
               {tableDraft.map((row, rIdx) => (
                 <tr key={rIdx}>
-                  <td className="w-10 h-7 px-0 bg-[#f3f3f3] border border-gray-300 text-[11px] text-gray-600 text-center">
+                  <td className="w-10 h-8 px-0 bg-monday-hover/40 border border-monday-border text-[11px] text-monday-subtext text-center font-medium">
                     {rIdx + 1}
                   </td>
                   {row.map((cell, cIdx) => (
-                    <td key={cIdx} className="border border-gray-300 p-0">
+                    <td key={cIdx} className="border border-monday-border p-0">
                       <input
                         value={cell}
                         onChange={e => {
@@ -441,7 +526,7 @@ function ExcelLikeSheet({
                         }}
                         onFocus={() => setFocusedCell({ r: rIdx, c: cIdx })}
                         onBlur={() => setFocusedCell(null)}
-                        className="w-full min-w-[100px] h-7 px-2 text-[12px] outline-none focus:ring-1 focus:ring-inset focus:ring-blue-400"
+                        className="w-full min-w-[110px] h-8 px-2 text-[12px] font-averta text-monday-text outline-none focus:ring-1 focus:ring-inset focus:ring-monday-blue focus:border-monday-blue bg-white"
                       />
                     </td>
                   ))}
@@ -450,10 +535,7 @@ function ExcelLikeSheet({
             </tbody>
           </table>
         </div>
-        <div className="mt-2 flex gap-2 text-[12px]">
-          <button type="button" onClick={() => ensureTableSize(tableDraft.length + 1, tableDraft[0]?.length || 1)} className="px-2 py-1 rounded border border-gray-300 bg-white hover:bg-gray-50">+ Fila</button>
-          <button type="button" onClick={() => ensureTableSize(tableDraft.length, (tableDraft[0]?.length || 0) + 1)} className="px-2 py-1 rounded border border-gray-300 bg-white hover:bg-gray-50">+ Columna</button>
-        </div>
+        <p className="mt-2 text-[11px] text-monday-subtext">Haz clic en una celda para editar. Usa + Fila / + Columna para ampliar la tabla.</p>
       </div>
     </div>
   );
@@ -478,10 +560,42 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards }) => {
   const [viewMode, setViewMode] = useState<'docs' | 'overview'>('overview');
   const [deleteConfirm, setDeleteConfirm] = useState<{ docId: string } | null>(null);
 
+  // Notas adhesivas: estado en DocsPage para que no se pierdan al cambiar a pestaña Documentos
+  const [panelNotes, setPanelNotes] = useState<StickyNoteData[]>([]);
+  const [loadingNotes, setLoadingNotes] = useState(false);
+  const panelNotesRef = useRef<StickyNoteData[]>([]);
+  panelNotesRef.current = panelNotes;
+  const savePanelNotesTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const savePanelNotesToApi = useCallback((notes: StickyNoteData[], wid: string) => {
+    const toSave = notes.map(n => ({ id: n.id, x: n.x, y: n.y, title: n.title, body: n.body, color: n.color ?? DEFAULT_NOTE_COLOR }));
+    fetch(`${API_BASE}/api/workspaces/${wid}/panel-notes`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ panelNotes: toSave }),
+    })
+      .then(res => { if (!res.ok) throw new Error('Error al guardar notas'); })
+      .catch(err => console.error('Panel notes save failed:', err));
+  }, []);
+
+  const scheduleSavePanelNotes = useCallback(() => {
+    if (!workspaceId) return;
+    if (savePanelNotesTimeoutRef.current) clearTimeout(savePanelNotesTimeoutRef.current);
+    savePanelNotesTimeoutRef.current = setTimeout(() => {
+      savePanelNotesTimeoutRef.current = null;
+      savePanelNotesToApi(panelNotesRef.current, workspaceId);
+    }, 500);
+  }, [workspaceId, savePanelNotesToApi]);
+
   useEffect(() => {
     if (!workspaceId) {
       setDocs([]);
       setSelectedId(null);
+      setPanelNotes([]);
+      if (savePanelNotesTimeoutRef.current) {
+        clearTimeout(savePanelNotesTimeoutRef.current);
+        savePanelNotesTimeoutRef.current = null;
+      }
       return;
     }
     const load = async () => {
@@ -503,6 +617,77 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards }) => {
     };
     load();
   }, [workspaceId]);
+
+  // Cargar notas del workspace al cambiar
+  useEffect(() => {
+    if (!workspaceId) { setPanelNotes([]); setLoadingNotes(false); return; }
+    setLoadingNotes(true);
+    fetch(`${API_BASE}/api/workspaces/${workspaceId}/panel-notes`)
+      .then(r => r.json())
+      .then(data => {
+        const raw = Array.isArray(data?.panelNotes) ? data.panelNotes : [];
+        const normalized = raw.map((item: unknown) => normalizeNote(item)).filter((n): n is StickyNoteData => n !== null);
+        setPanelNotes(normalized);
+      })
+      .catch(() => setPanelNotes([]))
+      .finally(() => setLoadingNotes(false));
+  }, [workspaceId]);
+
+  // Al desmontar o cambiar workspace: guardar notas pendientes de forma síncrona (flush debounce)
+  useEffect(() => {
+    return () => {
+      if (savePanelNotesTimeoutRef.current) {
+        clearTimeout(savePanelNotesTimeoutRef.current);
+        savePanelNotesTimeoutRef.current = null;
+      }
+      if (workspaceId && panelNotesRef.current.length >= 0) {
+        savePanelNotesToApi(panelNotesRef.current, workspaceId);
+      }
+    };
+  }, [workspaceId, savePanelNotesToApi]);
+
+  // Guardar notas antes de recargar/cerrar pestaña
+  useEffect(() => {
+    const onBeforeUnload = () => {
+      if (workspaceId && panelNotesRef.current.length >= 0) {
+        savePanelNotesToApi(panelNotesRef.current, workspaceId);
+      }
+    };
+    window.addEventListener('beforeunload', onBeforeUnload);
+    return () => window.removeEventListener('beforeunload', onBeforeUnload);
+  }, [workspaceId, savePanelNotesToApi]);
+
+  const addPanelNote = useCallback(() => {
+    const count = panelNotes.length;
+    const col = count % 4;
+    const row = Math.floor(count / 4);
+    const newNote: StickyNoteData = {
+      id: crypto.randomUUID(),
+      x: 24 + col * 220,
+      y: 24 + row * 200,
+      title: 'Nueva nota',
+      body: '',
+      color: DEFAULT_NOTE_COLOR,
+    };
+    setPanelNotes(prev => [...prev, newNote]);
+    scheduleSavePanelNotes();
+  }, [panelNotes.length, scheduleSavePanelNotes]);
+
+  const updatePanelNote = useCallback((id: string, patch: Partial<StickyNoteData>, skipSave?: boolean) => {
+    setPanelNotes(prev => {
+      const next = prev.map(n => (n.id === id ? { ...n, ...patch } : n));
+      if (!skipSave) scheduleSavePanelNotes();
+      return next;
+    });
+  }, [scheduleSavePanelNotes]);
+
+  const removePanelNote = useCallback((id: string) => {
+    setPanelNotes(prev => {
+      const next = prev.filter(n => n.id !== id);
+      scheduleSavePanelNotes();
+      return next;
+    });
+  }, [scheduleSavePanelNotes]);
 
   useEffect(() => {
     setTextDraft(parsed.text ?? '');
@@ -720,6 +905,11 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards }) => {
         <DocsOverviewPanel
           docs={docs}
           workspaceId={workspaceId}
+          panelNotes={panelNotes}
+          loadingNotes={loadingNotes}
+          onAddNote={addPanelNote}
+          onUpdateNote={updatePanelNote}
+          onRemoveNote={removePanelNote}
           onOpenDoc={id => { setViewMode('docs'); setSelectedId(id); }}
           getDocTypeLabel={getDocTypeLabel}
           isPdfDocType={isPdfDocType}
@@ -748,10 +938,18 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards }) => {
             )}
             {!loading &&
               docs.map(doc => (
-                <button
+                <div
                   key={doc.id}
+                  role="button"
+                  tabIndex={0}
                   onClick={() => setSelectedId(doc.id)}
-                  className={`w-full flex items-center gap-2 px-3 py-2 text-left text-[13px] border-b border-monday-border/60 hover:bg-monday-hover transition-colors ${
+                  onKeyDown={e => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      setSelectedId(doc.id);
+                    }
+                  }}
+                  className={`w-full flex items-center gap-2 px-3 py-2 text-left text-[13px] border-b border-monday-border/60 hover:bg-monday-hover transition-colors cursor-pointer ${
                     selectedId === doc.id ? 'bg-monday-hover' : 'bg-white'
                   }`}
                 >
@@ -779,7 +977,7 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards }) => {
                   >
                     <Trash2 size={14} />
                   </button>
-                </button>
+                </div>
               ))}
           </div>
         </aside>

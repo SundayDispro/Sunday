@@ -82,6 +82,8 @@ export interface StatusSettings {
   options: StatusOption[];
 }
 
+export type UserStatus = 'available' | 'busy' | 'offline';
+
 export interface User {
   id: string;
   username: string;
@@ -89,6 +91,7 @@ export interface User {
   initials: string;
   color: string;
   role: 'ADMIN' | 'VENTAS' | 'DISENO' | 'TALLER' | 'USER';
+  status?: UserStatus;
 }
 
 export interface Update {

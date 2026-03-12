@@ -1,10 +1,12 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import { User } from '../types';
+import { User, UserStatus } from '../types';
+import { API_BASE, parseResponse } from '../api';
 
 interface UserContextType {
   currentUser: User | null;
   login: (username: string, password: string) => Promise<void>;
   logout: () => void;
+  setUserStatus: (status: UserStatus) => Promise<void>;
   users: User[];
   fetchUsers: () => Promise<void>;
 }
@@ -23,8 +25,9 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const fetchUsers = async () => {
     try {
-      const res = await fetch('http://localhost:3001/api/users');
-      if (res.ok) setUsers(await res.json());
+      const res = await fetch(`${API_BASE}/api/users`);
+      const data = await parseResponse<User[]>(res);
+      if (data != null) setUsers(Array.isArray(data) ? data : []);
     } catch (e) {
       console.error('Failed to fetch users', e);
     }
@@ -32,20 +35,18 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const login = async (username: string, password: string) => {
     try {
-      const res = await fetch('http://localhost:3001/api/login', {
+      const res = await fetch(`${API_BASE}/api/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ username, password })
       });
-      if (res.ok) {
-        const user = await res.json();
-        setCurrentUser(user);
-        localStorage.setItem('sunday_user', JSON.stringify(user));
+      const data = await parseResponse<User>(res);
+      if (data != null) {
+        setCurrentUser(data);
+        localStorage.setItem('sunday_user', JSON.stringify(data));
         await fetchUsers();
-      } else {
-        const data = await res.json();
-        throw new Error(data.error || 'Autenticación fallida');
       }
+      // Si !res.ok, parseResponse ya lanzó con el mensaje de error
     } catch (e) {
       console.error('Login failed', e);
       throw e;
@@ -53,12 +54,49 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const logout = () => {
+    const userId = currentUser?.id;
     setCurrentUser(null);
     localStorage.removeItem('sunday_user');
+    // Marcar como offline en el backend (fire-and-forget)
+    if (userId) {
+      fetch(`${API_BASE}/api/users/${userId}/status`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: 'offline' }),
+      }).catch(() => {});
+    }
+  };
+
+  const setUserStatus = async (status: UserStatus) => {
+    const userId = currentUser?.id;
+    if (!userId) return;
+    const prevUser = currentUser;
+    setCurrentUser((u) => (u ? { ...u, status } : null));
+    localStorage.setItem('sunday_user', JSON.stringify({ ...currentUser, status }));
+    try {
+      const res = await fetch(`${API_BASE}/api/users/${userId}/status`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status }),
+      });
+      const updated = await parseResponse<User>(res);
+      if (updated != null) {
+        setCurrentUser(updated);
+        localStorage.setItem('sunday_user', JSON.stringify(updated));
+        await fetchUsers();
+      } else {
+        setCurrentUser(prevUser);
+        localStorage.setItem('sunday_user', JSON.stringify(prevUser));
+      }
+    } catch (e) {
+      console.error('Failed to update status', e);
+      setCurrentUser(prevUser);
+      localStorage.setItem('sunday_user', JSON.stringify(prevUser));
+    }
   };
 
   return (
-    <UserContext.Provider value={{ currentUser, login, logout, users, fetchUsers }}>
+    <UserContext.Provider value={{ currentUser, login, logout, setUserStatus, users, fetchUsers }}>
       {children}
     </UserContext.Provider>
   );

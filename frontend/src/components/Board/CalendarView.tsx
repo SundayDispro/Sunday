@@ -97,6 +97,34 @@ function getStatusLabel(item: Item, statusColumn: BoardColumn | undefined): stri
   }
 }
 
+/** Devuelve true si el item está en estado Aprobado.
+ *  Se prioriza la columna de título exactamente "Estado"; si no existe,
+ *  se usan otras columnas status/priority EXCLUYENDO "Estado Taller".
+ */
+function isItemAprobado(item: Item, columns: BoardColumn[]): boolean {
+  const estadoCols = columns.filter(
+    c => (c.type === 'status' || c.type === 'priority') && c.title === 'Estado'
+  );
+  const otherStatusOrPriority = columns.filter(
+    c =>
+      (c.type === 'status' || c.type === 'priority') &&
+      c.title !== 'Estado' &&
+      c.title !== 'Estado Taller'
+  );
+  const toCheck = estadoCols.length > 0 ? estadoCols : otherStatusOrPriority;
+
+  return toCheck.some(col => {
+    const cv = item.columnValues.find(v => v.columnId === col.id)?.value;
+    if (!cv) return false;
+    try {
+      const parsed = JSON.parse(cv);
+      return (parsed?.optionId ?? cv) === 'aprobado';
+    } catch {
+      return cv === 'aprobado';
+    }
+  });
+}
+
 type CalendarViewType = 'month' | 'week' | 'day';
 
 export type CalendarEventDetails = { name: string; time: string };
@@ -133,7 +161,7 @@ function formatDateForModal(d: Date): string {
   return `${day} ${month} ${year}`;
 }
 
-export const CalendarView: React.FC<Props> = ({ board, onRowClick, onOpenAddToProject, onRegisterOpenCalendarEvent }) => {
+export const CalendarView: React.FC<Props> = ({ board, onRowClick, isTallerView, onOpenAddToProject, onRegisterOpenCalendarEvent }) => {
   const [viewDate, setViewDate] = useState(() => new Date());
   const [viewType, setViewType] = useState<CalendarViewType>('month');
   const [viewDropdownOpen, setViewDropdownOpen] = useState(false);
@@ -445,6 +473,7 @@ export const CalendarView: React.FC<Props> = ({ board, onRowClick, onOpenAddToPr
       pushed.add(key);
       result.push({ item, start, end, color });
     };
+    const isTaller = !!isTallerView;
 
     board.groups.forEach(group => {
       group.items.forEach(item => {
@@ -460,6 +489,7 @@ export const CalendarView: React.FC<Props> = ({ board, onRowClick, onOpenAddToPr
 
         const pickColor = (defaultColor: string) => eventTypeColor ?? defaultColor;
 
+        // Siempre: fechas de colocación
         const datesColocacion = getDatesFromColumn(item, colocacionColumn);
         if (datesColocacion) {
           const { start, end } = norm(datesColocacion.start, datesColocacion.end);
@@ -468,6 +498,17 @@ export const CalendarView: React.FC<Props> = ({ board, onRowClick, onOpenAddToPr
 
         const datesProduccion = getDatesFromColumn(item, productionColumn);
         const isTrabajandoEnEllo = statusLabel?.toLowerCase().trim() === 'trabajando en ello';
+
+        // Vista Taller: mostrar siempre el periodo de producción si existe.
+        // La tabla de TALLER ya viene filtrada solo a proyectos Aprobados, así que
+        // no necesitamos volver a comprobar el estado aquí.
+        if (isTaller) {
+          if (datesProduccion) {
+            const { start, end } = norm(datesProduccion.start, datesProduccion.end);
+            pushOnce(item, start, end, pickColor('#fdab3d'));
+          }
+          return;
+        }
 
         if (datesProduccion && !isTrabajandoEnEllo) {
           const { start, end } = norm(datesProduccion.start, datesProduccion.end);
@@ -492,14 +533,17 @@ export const CalendarView: React.FC<Props> = ({ board, onRowClick, onOpenAddToPr
       });
     });
     return result;
-  }, [board.groups, statusColumn, colocacionColumn, productionColumn, tipoEventoColumn, firstDateOrTimelineColumn]);
+  }, [board.groups, board.columns, statusColumn, colocacionColumn, productionColumn, tipoEventoColumn, firstDateOrTimelineColumn, isTallerView]);
 
   const calendarOnlyBars = useMemo((): CalendarBarEntry[] => {
     const seen = new Set<string>();
+    const isTaller = !!isTallerView;
     return calendarEvents
       .map(ev => {
         if (seen.has(ev.id)) return null;
         seen.add(ev.id);
+        // En vista Taller solo mostramos eventos de tipo "colocacion"
+        if (isTaller && ev.eventType !== 'colocacion') return null;
         const d = ev.eventDate ? new Date(ev.eventDate) : null;
         if (!d || isNaN(d.getTime())) return null;
         const start = new Date(d.getFullYear(), d.getMonth(), d.getDate());
@@ -507,7 +551,7 @@ export const CalendarView: React.FC<Props> = ({ board, onRowClick, onOpenAddToPr
         return { id: ev.id, name: ev.name, start, end: new Date(start), color, isCalendarOnly: true, calendarEvent: ev };
       })
       .filter((b): b is CalendarBarEntry => b != null);
-  }, [calendarEvents]);
+  }, [calendarEvents, isTallerView]);
 
   const allBars = useMemo((): CalendarBarEntry[] => {
     const fromItems = itemsWithDates.map(({ item, start, end, color }) => ({
@@ -523,13 +567,22 @@ export const CalendarView: React.FC<Props> = ({ board, onRowClick, onOpenAddToPr
   }, [itemsWithDates, calendarOnlyBars]);
 
   const calendarLegend = useMemo(
-    () => [
-      { label: 'Colocación', color: '#00c875' },
-      { label: 'Producción', color: '#fdab3d' },
-      { label: 'Diseño', color: '#0073ea' },
-      ...CALENDAR_EVENT_TYPES.map(t => ({ label: t.label, color: t.color })),
-    ],
-    []
+    () => {
+      const base = [
+        { label: 'Colocación', color: '#00c875' },
+        { label: 'Producción', color: '#fdab3d' },
+      ];
+      if (isTallerView) {
+        // Taller: solo periodos de producción y colocaciones
+        return base;
+      }
+      return [
+        ...base,
+        { label: 'Diseño', color: '#0073ea' },
+        ...CALENDAR_EVENT_TYPES.map(t => ({ label: t.label, color: t.color })),
+      ];
+    },
+    [isTallerView]
   );
 
   const year = effectiveMonthDate.getFullYear();
@@ -1377,3 +1430,5 @@ export const CalendarView: React.FC<Props> = ({ board, onRowClick, onOpenAddToPr
     </div>
   );
 };
+
+export default CalendarView;

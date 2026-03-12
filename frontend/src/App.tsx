@@ -3,13 +3,14 @@ import { socket } from './store/socket';
 import BoardContainer from './components/Board/BoardContainer';
 import { ItemDetailsPanel } from './components/Board/ItemDetailsPanel';
 import {
-  Home, Bell, Search, Settings, ChevronDown, ChevronRight,
+  Home, Bell, Search, ChevronDown, ChevronRight,
   LayoutGrid, Users, BookOpen, BarChart2, Inbox, Star, Plus, Receipt, Calendar, Folder,
 } from 'lucide-react';
-import { Item, Board, Workspace } from './types';
+import { Item, Board, Workspace, User } from './types';
 import { useUser } from './store/UserContext';
 import { Login } from './components/Login';
 import { AdminUsersPanel } from './components/AdminUsersPanel';
+import { UserPanel } from './components/UserPanel';
 import { InboxPage } from './components/pages/InboxPage';
 import { NotificationsPage } from './components/pages/NotificationsPage';
 import { SearchPage } from './components/pages/SearchPage';
@@ -87,40 +88,48 @@ function App() {
   const { currentUser, logout } = useUser();
   const [selectedItem, setSelectedItem] = useState<Item | null>(null);
   const canSeeFacturacionView = currentUser?.role === 'ADMIN' || currentUser?.role === 'VENTAS';
+  const isTaller = currentUser?.role === 'TALLER';
+
+  const defaultViewsForRole = isTaller ? (['table', 'calendar'] as ViewMode[]) : (['table', 'kanban'] as ViewMode[]);
 
   const [currentView, setCurrentViewState] = useState<ViewMode>(() => {
     try {
       const raw = localStorage.getItem('sunday-views');
       if (!raw) return 'table';
       const parsed = JSON.parse(raw) as { currentView?: ViewMode; enabledViews?: ViewMode[] };
-      if (parsed.currentView && ['table', 'kanban', 'calendar', 'facturacion'].includes(parsed.currentView)) return parsed.currentView;
+      const stored = parsed.currentView && ['table', 'kanban', 'calendar', 'facturacion'].includes(parsed.currentView) ? parsed.currentView : 'table';
+      if (isTaller && !['table', 'calendar'].includes(stored)) return 'table';
+      return stored;
     } catch { /* ignore */ }
     return 'table';
   });
   const [enabledViews, setEnabledViewsState] = useState<ViewMode[]>(() => {
     try {
       const raw = localStorage.getItem('sunday-views');
-      if (!raw) return ['table', 'kanban'];
+      if (!raw) return defaultViewsForRole;
       const parsed = JSON.parse(raw) as { currentView?: ViewMode; enabledViews?: ViewMode[] };
       if (Array.isArray(parsed.enabledViews) && parsed.enabledViews.length > 0) {
         const valid = parsed.enabledViews.filter((v): v is ViewMode => ['table', 'kanban', 'calendar', 'facturacion'].includes(v));
-        if (valid.length > 0) return valid;
+        const forRole = isTaller ? valid.filter(v => v === 'table' || v === 'calendar') : valid;
+        if (forRole.length > 0) return forRole;
       }
     } catch { /* ignore */ }
-    return ['table', 'kanban'];
+    return defaultViewsForRole;
   });
 
   const setCurrentView = (v: ViewMode) => {
-    setCurrentViewState(v);
+    const allowed = isTaller ? (v === 'table' || v === 'calendar' ? v : 'table') : v;
+    setCurrentViewState(allowed);
     try {
       const raw = localStorage.getItem('sunday-views');
       const prev = raw ? JSON.parse(raw) as { currentView?: ViewMode; enabledViews?: ViewMode[] } : {};
-      localStorage.setItem('sunday-views', JSON.stringify({ ...prev, currentView: v }));
+      localStorage.setItem('sunday-views', JSON.stringify({ ...prev, currentView: allowed }));
     } catch { /* ignore */ }
   };
   const setEnabledViews = (v: ViewMode[] | ((prev: ViewMode[]) => ViewMode[])) => {
     setEnabledViewsState(prev => {
-      const next = typeof v === 'function' ? v(prev) : v;
+      let next = typeof v === 'function' ? v(prev) : v;
+      if (isTaller) next = next.filter(x => x === 'table' || x === 'calendar');
       try {
         const raw = localStorage.getItem('sunday-views');
         const data = raw ? JSON.parse(raw) as { currentView?: ViewMode; enabledViews?: ViewMode[] } : {};
@@ -129,6 +138,16 @@ function App() {
       return next;
     });
   };
+
+  // Rol TALLER: forzar solo tabla y calendario (vista y pestañas permitidas)
+  useEffect(() => {
+    if (!isTaller) return;
+    setCurrentViewState(prev => (prev === 'table' || prev === 'calendar' ? prev : 'table'));
+    setEnabledViewsState(prev => {
+      const next = prev.filter(v => v === 'table' || v === 'calendar');
+      return next.length > 0 ? next : ['table', 'calendar'];
+    });
+  }, [isTaller]);
 
   const [showAddViewPopover, setShowAddViewPopover] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(true);
@@ -146,6 +165,7 @@ function App() {
   const [workspaceError, setWorkspaceError] = useState<string | null>(null);
   const newWorkspaceInputRef = useRef<HTMLInputElement>(null);
   const [showAdminPanel, setShowAdminPanel] = useState(false);
+  const [showUserPanel, setShowUserPanel] = useState(false);
   const [editingBoardName, setEditingBoardName] = useState(false);
   const [boardNameDraft, setBoardNameDraft] = useState('');
   const [showAddBoard, setShowAddBoard] = useState(false);
@@ -154,6 +174,7 @@ function App() {
   const [createBoardError, setCreateBoardError] = useState<string | null>(null);
   const newBoardNameInputRef = useRef<HTMLInputElement>(null);
   const [unreadNotifCount, setUnreadNotifCount] = useState(0);
+  const [composeToUser, setComposeToUser] = useState<User | null>(null);
 
   const fetchUnreadNotifications = React.useCallback(async () => {
     if (!currentUser?.id) return;
@@ -212,8 +233,8 @@ function App() {
         setBoards(data);
         setActiveBoardId(prev => {
           if (data.length === 0) return null;
-          const exists = data.some(b => b.id === prev);
-          return exists ? prev : data[0].id;
+          const exists = prev && data.some(b => b.id === prev);
+          return exists ? prev : null;
         });
       })
       .catch(err => console.error('Error fetching boards:', err));
@@ -243,7 +264,7 @@ function App() {
   const activeWorkspaceInitial =
     workspaces.find(w => w.id === activeWorkspaceId)?.name.charAt(0).toUpperCase() || 'M';
 
-  const navIcons = [
+  const navIconsAll = [
     { id: 'board', icon: <Home size={22} strokeWidth={2.25} />, label: 'Inicio' },
     { id: 'inbox', icon: <Inbox size={22} strokeWidth={2.25} />, label: 'Bandeja' },
     { id: 'notifications', icon: <Bell size={22} strokeWidth={2.25} />, label: 'Notificaciones' },
@@ -251,8 +272,8 @@ function App() {
     { id: 'docs', icon: <BookOpen size={22} strokeWidth={2.25} />, label: 'Docs' },
     { id: 'dashboard', icon: <BarChart2 size={22} strokeWidth={2.25} />, label: 'Panel' },
     { id: 'team', icon: <Users size={22} strokeWidth={2.25} />, label: 'Equipo' },
-    { id: 'admin', icon: <Settings size={22} strokeWidth={2.25} />, label: 'Admin' },
   ];
+  const navIcons = isTaller ? navIconsAll.filter(n => n.id === 'board') : navIconsAll;
 
   const handleCreateBoard = async () => {
     const name = newBoardName.trim() || 'Nuevo tablero';
@@ -314,10 +335,6 @@ function App() {
             key={id}
             title={label}
             onClick={() => {
-              if (id === 'admin') {
-                setShowAdminPanel(true);
-                return;
-              }
               const pageIds = ['board', 'inbox', 'dashboard', 'search', 'docs', 'team', 'notifications'];
               if (pageIds.includes(id)) {
                 setActivePage(id as typeof activePage);
@@ -338,14 +355,22 @@ function App() {
 
         {/* Spacer + avatar at bottom */}
         <div className="flex-1" />
-        <button 
-          title={`Cerrar sesión (${currentUser.name})`} 
-          onClick={logout}
-          className="w-9 h-9 rounded-full flex items-center justify-center text-white text-[12px] font-semibold shadow-sm mb-1 hover:opacity-90 transition-opacity ring-2 ring-white/20"
-          style={{ backgroundColor: currentUser.color }}
-        >
-          {currentUser.initials}
-        </button>
+        <UserPanel
+          open={showUserPanel}
+          onOpenChange={setShowUserPanel}
+          trigger={
+            <button
+              title={currentUser.name}
+              className="w-9 h-9 rounded-full flex items-center justify-center text-white text-[12px] font-semibold shadow-sm mb-1 hover:opacity-90 transition-opacity ring-2 ring-white/20"
+              style={{ backgroundColor: currentUser.color }}
+            >
+              {currentUser.initials}
+            </button>
+          }
+          boardsCount={boards.length}
+          workspaceName={activeWorkspaceName}
+          onOpenAdmin={() => setShowAdminPanel(true)}
+        />
         <button title="Apps" className="w-10 h-10 flex items-center justify-center rounded-lg text-white/70 hover:text-white hover:bg-monday-sidebarHover transition-all duration-150">
           <LayoutGrid size={22} strokeWidth={2.25} />
         </button>
@@ -468,15 +493,6 @@ if (ok && data && typeof data.id === 'string') {
                   </div>
                   {activeWorkspaceName}
                 </h2>
-                {currentUser?.role === 'ADMIN' && (
-                  <button 
-                    onClick={() => setShowAdminPanel(true)}
-                    className="w-7 h-7 flex items-center justify-center rounded-md hover:bg-monday-bg text-monday-subtext hover:text-monday-blue transition-colors"
-                    title="Gestión de Usuarios"
-                  >
-                    <Users size={16} />
-                  </button>
-                )}
               </div>
 
               {/* Board Search Box */}
@@ -504,7 +520,10 @@ if (ok && data && typeof data.id === 'string') {
                 .map((b) => b && (
                 <button
                   key={b.id}
-                  onClick={() => setActiveBoardId(b.id)}
+                  onClick={() => {
+                    setActiveBoardId(b.id);
+                    setCurrentView('table');
+                  }}
                   className={`w-full flex items-center gap-2 text-[13px] px-2.5 py-2 rounded-lg transition-colors mb-0.5 ${activeBoardId === b.id ? 'bg-monday-blue text-white font-medium' : 'text-monday-text hover:bg-monday-hover'}`}
                 >
                   <span className="w-1.5 h-1.5 rounded-full bg-current opacity-60 shrink-0" />
@@ -586,7 +605,9 @@ if (ok && data && typeof data.id === 'string') {
           ) : activePage === 'inbox' ? (
             <div className="p-3">
               <p className="text-monday-subtext text-[11px] font-semibold px-2 mb-2 uppercase tracking-wider">Bandeja</p>
-              <p className="text-monday-text text-[12px] px-2">Tareas asignadas a ti.</p>
+              <p className="text-monday-text text-[12px] px-2">
+                {composeToUser ? `Enviar mensaje a ${composeToUser.name}` : 'Tareas asignadas a ti.'}
+              </p>
             </div>
           ) : activePage === 'team' ? (
             <div className="p-3">
@@ -741,7 +762,7 @@ if (ok && data && typeof data.id === 'string') {
                 <div className="flex items-center px-6 gap-1 text-[13px]">
                   {[
                     { id: 'table' as const, label: '⊞ Tabla principal' },
-                    { id: 'kanban' as const, label: '▦ Kanban' },
+                    ...(!isTaller ? [{ id: 'kanban' as const, label: '▦ Kanban' }] : []),
                     ...(enabledViews.includes('facturacion') ? [{ id: 'facturacion' as const, label: '🧾 Facturación' }] : []),
                     ...(enabledViews.includes('calendar') ? [{ id: 'calendar' as const, label: '📅 Calendario' }] : []),
                   ].map(tab => (
@@ -753,6 +774,7 @@ if (ok && data && typeof data.id === 'string') {
                       {tab.label}
                     </button>
                   ))}
+                  {!isTaller && (
                   <AddViewDropdown
                     enabledViews={enabledViews}
                     onAddView={(view) => {
@@ -766,6 +788,7 @@ if (ok && data && typeof data.id === 'string') {
                     onOpenChange={setShowAddViewPopover}
                     canAddFacturacion={canSeeFacturacionView}
                   />
+                  )}
                 </div>
               </header>
 
@@ -774,7 +797,11 @@ if (ok && data && typeof data.id === 'string') {
               </div>
             </>
           ) : activePage === 'inbox' ? (
-            <InboxPage onItemClick={setSelectedItem} />
+            <InboxPage
+              onItemClick={setSelectedItem}
+              initialUser={composeToUser}
+              onClearInitialUser={() => setComposeToUser(null)}
+            />
           ) : activePage === 'notifications' ? (
             <NotificationsPage
               onOpenItem={(item, boardId) => {
@@ -799,7 +826,12 @@ if (ok && data && typeof data.id === 'string') {
           ) : activePage === 'dashboard' ? (
             <DashboardPage />
           ) : activePage === 'team' ? (
-            <TeamPage />
+            <TeamPage
+              onOpenInboxForUser={(user) => {
+                setComposeToUser(user);
+                setActivePage('inbox');
+              }}
+            />
           ) : activePage === 'facturacion' ? (
             <FacturacionPage
               boards={boards}

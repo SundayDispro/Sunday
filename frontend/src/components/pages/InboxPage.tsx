@@ -14,7 +14,13 @@ type FeedPost = {
 
 type TabId = 'all' | 'mentions';
 
-export const InboxPage: React.FC<{ onItemClick?: (item: Item) => void }> = ({ onItemClick }) => {
+interface Props {
+  onItemClick?: (item: Item) => void;
+  initialUser?: User | null;
+  onClearInitialUser?: () => void;
+}
+
+export const InboxPage: React.FC<Props> = ({ onItemClick, initialUser, onClearInitialUser }) => {
   const { currentUser } = useUser();
   const [tab, setTab] = useState<TabId>('all');
   const [posts, setPosts] = useState<FeedPost[]>([]);
@@ -47,6 +53,18 @@ export const InboxPage: React.FC<{ onItemClick?: (item: Item) => void }> = ({ on
   useEffect(() => {
     fetchFeed();
   }, [tab, currentUser?.id]);
+
+  useEffect(() => {
+    if (!initialUser) return;
+    const mention = `@${initialUser.name} `;
+    setNewContent(prev => (prev.includes(mention.trim()) ? prev : mention));
+    setTab('all');
+    setTimeout(() => {
+      textareaRef.current?.focus();
+      textareaRef.current?.setSelectionRange(mention.length, mention.length);
+    }, 0);
+    onClearInitialUser?.();
+  }, [initialUser, onClearInitialUser]);
 
   useEffect(() => {
     fetch('http://localhost:3001/api/users')

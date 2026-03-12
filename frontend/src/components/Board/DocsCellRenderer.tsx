@@ -75,6 +75,11 @@ export const DocsCellRenderer: React.FC<Props> = ({ item, column, value }) => {
 
   const openUrl = (url: string) => {
     const href = url.startsWith('/') ? API_BASE + url : url.startsWith('http') ? url : 'https://' + url;
+    if (isTaller && (url.startsWith('http') || href.startsWith('http'))) {
+      window.open(href, '_blank', 'noopener,noreferrer');
+      setOpen(false);
+      return;
+    }
     setViewerUrl(href);
   };
 

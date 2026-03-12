@@ -494,7 +494,13 @@ app.post('/api/login', async (req, res) => {
       return res.status(401).json({ error: 'Credenciales inválidas' });
     }
 
-    res.json(user);
+    // Al iniciar sesión el usuario pasa a Disponible
+    const updated = await prisma.user.update({
+      where: { id: user.id },
+      data: { status: 'available' },
+    });
+    const { password: _p, ...userWithoutPassword } = updated;
+    res.json(userWithoutPassword);
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Error en el login' });
@@ -531,25 +537,75 @@ app.post('/api/users', async (req, res) => {
         initials,
         color,
         password, // Accept password from admin
-        role
+        role,
+        status: 'offline',
       }
     });
 
-    io.emit('user_added', newUser); // Broadcast if needed
-    res.json(newUser);
+    const { password: _p, ...userWithoutPassword } = newUser;
+    io.emit('user_added', userWithoutPassword);
+    res.json(userWithoutPassword);
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Error al crear usuario' });
   }
 });
 
-// Get all users
+// Get all users (sin enviar password)
 app.get('/api/users', async (req, res) => {
   try {
     const users = await prisma.user.findMany({ orderBy: { name: 'asc' } });
-    res.json(users);
+    const safe = users.map(({ password: _p, ...u }) => u);
+    res.json(safe);
   } catch (e) {
     res.status(500).json({ error: 'Failed' });
+  }
+});
+
+// Actualizar estado del usuario (solo el propio usuario)
+app.patch('/api/users/:id/status', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { status } = req.body;
+    const valid = ['available', 'busy', 'offline'];
+    if (!status || !valid.includes(status)) {
+      return res.status(400).json({ error: 'Estado inválido. Use: available, busy u offline' });
+    }
+    const user = await prisma.user.findUnique({ where: { id } });
+    if (!user) return res.status(404).json({ error: 'Usuario no encontrado' });
+    // Cualquier usuario puede cambiar solo su propio estado (no hay auth header, asumimos mismo id desde front)
+    const updated = await prisma.user.update({
+      where: { id },
+      data: { status },
+    });
+    const { password: _p, ...safe } = updated;
+    res.json(safe);
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: 'Error al actualizar estado' });
+  }
+});
+
+// Eliminar usuario (solo ADMIN)
+app.delete('/api/users/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const adminId = req.query.adminId as string | undefined;
+    if (!adminId) return res.status(403).json({ error: 'Se requiere adminId' });
+    const admin = await prisma.user.findUnique({ where: { id: adminId } });
+    if (!admin || admin.role !== 'ADMIN') {
+      return res.status(403).json({ error: 'Solo los administradores pueden eliminar usuarios' });
+    }
+    const target = await prisma.user.findUnique({ where: { id } });
+    if (!target) return res.status(404).json({ error: 'Usuario no encontrado' });
+    if (target.id === adminId) {
+      return res.status(400).json({ error: 'No puedes eliminarte a ti mismo' });
+    }
+    await prisma.user.delete({ where: { id } });
+    res.status(204).send();
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: 'Error al eliminar usuario' });
   }
 });
 

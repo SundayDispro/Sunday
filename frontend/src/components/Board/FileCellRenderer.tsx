@@ -3,6 +3,7 @@ import { Item, BoardColumn, ColumnValue } from '../../types';
 import { socket } from '../../store/socket';
 import * as Popover from '@radix-ui/react-popover';
 import { Paperclip, ExternalLink, Pencil } from 'lucide-react';
+import { useUser } from '../../store/UserContext';
 
 interface Props {
   item: Item;
@@ -11,6 +12,9 @@ interface Props {
 }
 
 export const FileCellRenderer: React.FC<Props> = ({ item, column, value }) => {
+  const { currentUser } = useUser();
+  const isTaller = currentUser?.role === 'TALLER';
+
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(value?.value ?? '');
@@ -28,8 +32,31 @@ export const FileCellRenderer: React.FC<Props> = ({ item, column, value }) => {
     e.stopPropagation();
     if (!url) return;
     const href = url.startsWith('http') ? url : 'https://' + url;
-    window.open(href, '_blank', 'noopener');
+    window.open(href, '_blank', 'noopener,noreferrer');
   };
+
+  // Para TALLER: solo lectura. Puede abrir el enlace de Drive pero no editarlo.
+  if (isTaller) {
+    return (
+      <div
+        className="w-full h-full min-h-[38px] flex items-center gap-2 px-2 cursor-pointer hover:bg-monday-hover transition-colors"
+        onClick={e => {
+          if (!url) {
+            e.stopPropagation();
+            return;
+          }
+          openInNewTab(e);
+        }}
+      >
+        <Paperclip size={16} className="text-monday-subtext shrink-0" />
+        {url ? (
+          <span className="text-[13px] text-monday-text truncate flex-1">Enlace Drive</span>
+        ) : (
+          <span className="text-[13px] text-monday-subtext truncate flex-1">Sin enlace</span>
+        )}
+      </div>
+    );
+  }
 
   return (
     <Popover.Root open={open} onOpenChange={setOpen}>
@@ -76,7 +103,10 @@ export const FileCellRenderer: React.FC<Props> = ({ item, column, value }) => {
                 </button>
                 <button
                   type="button"
-                  onClick={() => { setEditing(false); setDraft(url); }}
+                  onClick={() => {
+                    setEditing(false);
+                    setDraft(url);
+                  }}
                   className="px-2.5 py-1.5 text-[13px] text-monday-subtext hover:bg-monday-hover rounded-lg"
                 >
                   Cancelar
@@ -95,11 +125,16 @@ export const FileCellRenderer: React.FC<Props> = ({ item, column, value }) => {
                   Abrir Drive
                 </button>
               ) : (
-                <p className="text-[12px] text-monday-subtext px-1 py-1">Sin enlace. Agrega una URL de Google Drive.</p>
+                <p className="text-[12px] text-monday-subtext px-1 py-1">
+                  Sin enlace. Agrega una URL de Google Drive.
+                </p>
               )}
               <button
                 type="button"
-                onClick={() => { setEditing(true); setDraft(url); }}
+                onClick={() => {
+                  setEditing(true);
+                  setDraft(url);
+                }}
                 className="w-full mt-2 flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-monday-hover text-[12px] text-monday-blue font-medium"
               >
                 <Pencil size={14} />
