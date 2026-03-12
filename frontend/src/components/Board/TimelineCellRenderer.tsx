@@ -24,13 +24,20 @@ function parseTimelineValue(value: string | undefined): TimelineValue {
 function formatDate(iso: string | undefined): string {
   if (!iso) return '';
   const d = new Date(iso);
-  return isNaN(d.getTime()) ? '' : d.toLocaleDateString('es', { day: 'numeric', month: 'short', year: 'numeric' });
+  if (isNaN(d.getTime())) return '';
+  // Usar UTC para que el día elegido se muestre igual (evita desfase en zonas al oeste de UTC)
+  return d.toLocaleDateString('es', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' });
 }
 
 function toInputValue(iso: string | undefined): string {
   if (!iso) return '';
   const d = new Date(iso);
-  return isNaN(d.getTime()) ? '' : d.toISOString().slice(0, 10);
+  if (isNaN(d.getTime())) return '';
+  // Mantener fecha en UTC (YYYY-MM-DD) para que el input muestre el mismo día elegido
+  const y = d.getUTCFullYear();
+  const m = String(d.getUTCMonth() + 1).padStart(2, '0');
+  const day = String(d.getUTCDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
 }
 
 interface Props {
@@ -54,6 +61,7 @@ export const TimelineCellRenderer: React.FC<Props> = ({ item, column, value }) =
 
   const save = () => {
     setEditing(false);
+    // "YYYY-MM-DD" se interpreta como medianoche UTC en JS; guardamos ISO para el backend
     const startDate = start ? new Date(start) : null;
     const endDate = end ? new Date(end) : null;
     const payload = JSON.stringify({

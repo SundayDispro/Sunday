@@ -154,13 +154,43 @@ export const DocsCellRenderer: React.FC<Props> = ({ item, column, value }) => {
             onPointerDown={e => e.stopPropagation()}
           >
             <FileText size={16} className="text-[#4285f4] shrink-0" />
-            <span className="text-[13px] text-monday-text truncate flex-1">
-              {isTaller
-                ? (hasHoja ? 'Hoja de trabajo' : 'Sin hoja de trabajo')
-                : hasAny
-                  ? 'Cotización / Hoja de trabajo / Levantamiento'
-                  : 'Sin documentos'}
-            </span>
+            {isTaller ? (
+              <span className="text-[13px] text-monday-text truncate flex-1">
+                {hasHoja ? 'Hoja de trabajo' : 'Sin hoja de trabajo'}
+              </span>
+            ) : (
+              <span className="text-[13px] text-monday-text truncate flex-1 flex items-center gap-1.5 flex-wrap">
+                <span className="inline-flex items-center gap-1">
+                  <span
+                    className="w-2 h-2 rounded-full shrink-0"
+                    style={{ backgroundColor: parsed.levantamiento?.trim() ? '#22c55e' : '#ef4444' }}
+                    title={parsed.levantamiento?.trim() ? 'Levantamiento subido' : 'Levantamiento no subido'}
+                    aria-hidden
+                  />
+                  <span>Levantamiento</span>
+                </span>
+                <span className="text-monday-subtext">/</span>
+                <span className="inline-flex items-center gap-1">
+                  <span
+                    className="w-2 h-2 rounded-full shrink-0"
+                    style={{ backgroundColor: parsed.cotizacion?.trim() ? '#22c55e' : '#ef4444' }}
+                    title={parsed.cotizacion?.trim() ? 'Cotización subida' : 'Cotización no subida'}
+                    aria-hidden
+                  />
+                  <span>Cotización</span>
+                </span>
+                <span className="text-monday-subtext">/</span>
+                <span className="inline-flex items-center gap-1">
+                  <span
+                    className="w-2 h-2 rounded-full shrink-0"
+                    style={{ backgroundColor: parsed.hojaTrabajo?.trim() ? '#22c55e' : '#ef4444' }}
+                    title={parsed.hojaTrabajo?.trim() ? 'Hoja de trabajo subida' : 'Hoja de trabajo no subida'}
+                    aria-hidden
+                  />
+                  <span>Hoja de Trabajo</span>
+                </span>
+              </span>
+            )}
             <ChevronDown size={14} className="text-monday-subtext shrink-0" />
           </button>
         </Popover.Trigger>
@@ -174,6 +204,31 @@ export const DocsCellRenderer: React.FC<Props> = ({ item, column, value }) => {
             <div className="text-[11px] font-semibold text-monday-subtext mb-2 px-1 uppercase tracking-wider">
               {isTaller ? 'Hoja de trabajo' : 'Documentos'}
             </div>
+            {!isTaller && parsed.levantamiento?.trim() && (
+              <div className="flex items-center gap-1">
+                <button
+                  type="button"
+                  onClick={e => {
+                    e.stopPropagation();
+                    openUrl(parsed.levantamiento!);
+                    setOpen(false);
+                  }}
+                  className="flex-1 flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-monday-hover text-left text-[13px] text-monday-text"
+                >
+                  <FileText size={14} />
+                  Levantamiento
+                  <ExternalLink size={12} className="ml-auto text-monday-subtext" />
+                </button>
+                <button
+                  type="button"
+                  onClick={e => { e.stopPropagation(); clearField('levantamiento'); }}
+                  className="p-1.5 rounded-lg text-monday-subtext hover:text-monday-red hover:bg-red-50"
+                  title="Eliminar archivo"
+                >
+                  <Trash2 size={12} />
+                </button>
+              </div>
+            )}
             {!isTaller && parsed.cotizacion?.trim() && (
               <div className="flex items-center gap-1">
                 <button
@@ -224,31 +279,6 @@ export const DocsCellRenderer: React.FC<Props> = ({ item, column, value }) => {
                 </button>
               </div>
             )}
-            {!isTaller && parsed.levantamiento?.trim() && (
-              <div className="flex items-center gap-1">
-                <button
-                  type="button"
-                  onClick={e => {
-                    e.stopPropagation();
-                    openUrl(parsed.levantamiento!);
-                    setOpen(false);
-                  }}
-                  className="flex-1 flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-monday-hover text-left text-[13px] text-monday-text"
-                >
-                  <FileText size={14} />
-                  Levantamiento
-                  <ExternalLink size={12} className="ml-auto text-monday-subtext" />
-                </button>
-                <button
-                  type="button"
-                  onClick={e => { e.stopPropagation(); clearField('levantamiento'); }}
-                  className="p-1.5 rounded-lg text-monday-subtext hover:text-monday-red hover:bg-red-50"
-                  title="Eliminar archivo"
-                >
-                  <Trash2 size={12} />
-                </button>
-              </div>
-            )}
             {!parsed.hojaTrabajo?.trim() && !isTaller && !parsed.cotizacion?.trim() && !parsed.levantamiento?.trim() && (
               <p className="text-[12px] text-monday-subtext px-2 py-1">Sin documentos. Agrega desde el botón de abajo.</p>
             )}
@@ -278,6 +308,35 @@ export const DocsCellRenderer: React.FC<Props> = ({ item, column, value }) => {
             <Dialog.Title className="text-[14px] font-semibold text-monday-text mb-3">
               Documentos (JPG o PDF)
             </Dialog.Title>
+
+            {/* Orden: Levantamiento / Cotización / Hoja de Trabajo */}
+            {/* Levantamiento */}
+            <label className="block text-[12px] text-monday-subtext mb-1">Levantamiento</label>
+            <div className="flex items-center gap-2 mb-2">
+              <input
+                ref={levantamientoFileRef}
+                type="file"
+                accept="image/jpeg,image/jpg,application/pdf"
+                className="hidden"
+                id="docs-levantamiento-file"
+                onChange={e => {
+                  const f = e.target.files?.[0];
+                  if (f) handleUpload('levantamiento', f);
+                }}
+              />
+              <label
+                htmlFor="docs-levantamiento-file"
+                className="inline-flex items-center gap-1.5 text-[12px] text-monday-blue font-medium cursor-pointer hover:underline"
+              >
+                {uploading === 'levantamiento' ? <Loader2 size={14} className="animate-spin" /> : <Upload size={14} />}
+                Subir archivo JPG/PDF
+              </label>
+            </div>
+            {levantamiento.trim() && isUploadUrl(levantamiento) && !isPdf(levantamiento) && (
+              <div className="mb-3 rounded-lg overflow-hidden border border-monday-border bg-monday-hover/30">
+                <img src={previewUrl(levantamiento)} alt="Vista previa levantamiento" className="max-h-24 w-full object-contain" />
+              </div>
+            )}
 
             {/* Cotización */}
             <label className="block text-[12px] text-monday-subtext mb-1">Cotización</label>
@@ -332,34 +391,6 @@ export const DocsCellRenderer: React.FC<Props> = ({ item, column, value }) => {
             {hojaTrabajo.trim() && isUploadUrl(hojaTrabajo) && !isPdf(hojaTrabajo) && (
               <div className="mb-3 rounded-lg overflow-hidden border border-monday-border bg-monday-hover/30">
                 <img src={previewUrl(hojaTrabajo)} alt="Vista previa hoja de trabajo" className="max-h-24 w-full object-contain" />
-              </div>
-            )}
-
-            {/* Levantamiento */}
-            <label className="block text-[12px] text-monday-subtext mb-1">Levantamiento</label>
-            <div className="flex items-center gap-2 mb-2">
-              <input
-                ref={levantamientoFileRef}
-                type="file"
-                accept="image/jpeg,image/jpg,application/pdf"
-                className="hidden"
-                id="docs-levantamiento-file"
-                onChange={e => {
-                  const f = e.target.files?.[0];
-                  if (f) handleUpload('levantamiento', f);
-                }}
-              />
-              <label
-                htmlFor="docs-levantamiento-file"
-                className="inline-flex items-center gap-1.5 text-[12px] text-monday-blue font-medium cursor-pointer hover:underline"
-              >
-                {uploading === 'levantamiento' ? <Loader2 size={14} className="animate-spin" /> : <Upload size={14} />}
-                Subir archivo JPG/PDF
-              </label>
-            </div>
-            {levantamiento.trim() && isUploadUrl(levantamiento) && !isPdf(levantamiento) && (
-              <div className="mb-3 rounded-lg overflow-hidden border border-monday-border bg-monday-hover/30">
-                <img src={previewUrl(levantamiento)} alt="Vista previa levantamiento" className="max-h-24 w-full object-contain" />
               </div>
             )}
 

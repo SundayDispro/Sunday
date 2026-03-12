@@ -40,6 +40,17 @@ export interface BoardColumn {
   settings?: string;
 }
 
+/** Evento solo de calendario (no pertenece a ningún grupo ni item del tablero). */
+export interface CalendarEvent {
+  id: string;
+  boardId: string;
+  eventDate: string;
+  name: string;
+  eventType: string;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
 export interface Doc {
   id: string;
   title: string;

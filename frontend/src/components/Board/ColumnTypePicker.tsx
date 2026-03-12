@@ -13,16 +13,17 @@ interface ColumnType {
 }
 
 const COLUMN_TYPES: ColumnType[] = [
-  { id: 'status',   label: 'Estado',     icon: <Tag size={18} />,           color: '#00c875', description: 'Seguimiento de estado con etiquetas de color' },
-  { id: 'priority', label: 'Prioridad',  icon: <BarChart2 size={18} />,    color: '#fdab3d', description: 'Niveles de prioridad: alta, media, baja' },
-  { id: 'date',     label: 'Fecha',      icon: <Calendar size={18} />,     color: '#0073ea', description: 'Fecha de entrada del proyecto' },
-  { id: 'person',   label: 'Personas',   icon: <User size={18} />,         color: '#6e3cbb', description: 'Asigna miembros del equipo' },
-  { id: 'text',     label: 'Texto',      icon: <AlignLeft size={18} />,     color: '#676879', description: 'Escribe cualquier nota corta' },
-  { id: 'contact',  label: 'Contacto',   icon: <Mail size={18} />,          color: '#e2445c', description: 'Correo, teléfono o enlace a WhatsApp' },
-  { id: 'timeline', label: 'Cronograma', icon: <Clock size={18} />,       color: '#5559df', description: 'Rango de fechas de inicio y fin' },
-  { id: 'excel',    label: 'Excel',      icon: <FileSpreadsheet size={18} />, color: '#217346', description: 'Enlace al archivo Excel del proyecto' },
-  { id: 'docs',     label: 'Docs',       icon: <FileText size={18} />,     color: '#4285f4', description: 'Enlaces a cotización y hoja de trabajo' },
-  { id: 'file',     label: 'Archivos',   icon: <Paperclip size={18} />,   color: '#676879', description: 'Adjuntar archivos a la tarea' },
+  { id: 'status',     label: 'Estado',     icon: <Tag size={18} />,           color: '#00c875', description: 'Seguimiento de estado con etiquetas de color' },
+  { id: 'priority',   label: 'Seguimiento', icon: <BarChart2 size={18} />,    color: '#fdab3d', description: 'Etiquetas personalizables: Sin respuesta, Aprobado, etc.' },
+  { id: 'date',       label: 'Fecha',      icon: <Calendar size={18} />,     color: '#0073ea', description: 'Fecha de entrada del proyecto' },
+  { id: 'person',     label: 'Personas',   icon: <User size={18} />,         color: '#6e3cbb', description: 'Asigna miembros del equipo' },
+  { id: 'text',       label: 'Texto',      icon: <AlignLeft size={18} />,     color: '#676879', description: 'Escribe cualquier nota corta' },
+  { id: 'contact',    label: 'Contacto',   icon: <Mail size={18} />,          color: '#e2445c', description: 'Correo, teléfono o enlace a WhatsApp' },
+  { id: 'timeline',   label: 'Producción', icon: <Clock size={18} />,       color: '#5559df', description: 'Rango de fechas de tiempo de producción (se marca en el calendario)' },
+  { id: 'excel',      label: 'Excel',      icon: <FileSpreadsheet size={18} />, color: '#217346', description: 'Enlace al archivo Excel del proyecto' },
+  { id: 'docs',       label: 'Docs',       icon: <FileText size={18} />,     color: '#4285f4', description: 'Levantamiento, cotización y hoja de trabajo' },
+  { id: 'file',       label: 'Archivos',   icon: <Paperclip size={18} />,   color: '#676879', description: 'Adjuntar archivos a la tarea' },
+  { id: 'colocacion', label: 'Colocación', icon: <Calendar size={18} />,    color: '#00c2e0', description: 'Fecha de colocación del proyecto' },
 ];
 
 interface Props {

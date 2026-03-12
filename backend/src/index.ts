@@ -811,6 +811,92 @@ app.delete('/api/docs/:id', async (req, res) => {
   }
 });
 
+// ── Calendar-only events (no se crean en tablero ni grupo) ─────────────────
+app.get('/api/boards/:boardId/calendar-events', async (req, res) => {
+  try {
+    const boardId = req.params.boardId;
+    const events = await prisma.calendarEvent.findMany({
+      where: { boardId },
+      orderBy: { eventDate: 'asc' },
+    });
+    res.json(events);
+  } catch (e) {
+    console.error('Error fetching calendar events:', e);
+    res.status(500).json({ error: 'Failed to fetch calendar events' });
+  }
+});
+
+app.post('/api/boards/:boardId/calendar-events', async (req, res) => {
+  try {
+    const boardId = req.params.boardId;
+    const { name, eventType, date, time } = req.body as { name?: string; eventType?: string; date?: string; time?: string };
+    if (!eventType || !date) {
+      return res.status(400).json({ error: 'eventType y date son obligatorios' });
+    }
+    // Parsear YYYY-MM-DD y HH:mm como día civil + hora (evita desfase por UTC)
+    const parts = String(date).trim().split('-').map(Number);
+    const [y, m, day] = parts.length >= 3 ? [parts[0], parts[1] - 1, parts[2]] : [0, 0, 0];
+    const timeStr = time ? String(time).trim() : '09:00';
+    const [hh, mm] = timeStr.split(':').map(n => (n !== undefined && n !== '' ? Number(n) : NaN));
+    const eventDate = new Date(y, m, day, Number.isFinite(hh) ? hh : 9, Number.isFinite(mm) ? mm : 0, 0, 0);
+    if (isNaN(eventDate.getTime())) {
+      return res.status(400).json({ error: 'Fecha inválida' });
+    }
+    const event = await prisma.calendarEvent.create({
+      data: {
+        boardId,
+        eventDate,
+        name: (name && String(name).trim()) || 'Evento',
+        eventType: String(eventType),
+      },
+    });
+    io.emit('calendar_event_added', event);
+    res.status(201).json(event);
+  } catch (e) {
+    console.error('Error creating calendar event:', e);
+    res.status(500).json({ error: 'Failed to create calendar event' });
+  }
+});
+
+app.patch('/api/boards/:boardId/calendar-events/:eventId', async (req, res) => {
+  try {
+    const { boardId, eventId } = req.params;
+    const { name, eventType, date, time } = req.body as { name?: string; eventType?: string; date?: string; time?: string };
+    const existing = await prisma.calendarEvent.findFirst({ where: { id: eventId, boardId } });
+    if (!existing) return res.status(404).json({ error: 'Evento no encontrado' });
+    const updates: { name?: string; eventType?: string; eventDate?: Date } = {};
+    if (name !== undefined) updates.name = String(name).trim() || existing.name;
+    if (eventType !== undefined) updates.eventType = String(eventType);
+    if (date !== undefined && time !== undefined) {
+      const parts = String(date).trim().split('-').map(Number);
+      const [y, m, day] = parts.length >= 3 ? [parts[0], parts[1] - 1, parts[2]] : [existing.eventDate.getFullYear(), existing.eventDate.getMonth(), existing.eventDate.getDate()];
+      const [hh, mm] = String(time).trim().split(':').map(n => (n !== undefined && n !== '' ? Number(n) : NaN));
+      updates.eventDate = new Date(y, m, day, Number.isFinite(hh) ? hh : 9, Number.isFinite(mm) ? mm : 0, 0, 0);
+    }
+    const event = await prisma.calendarEvent.update({
+      where: { id: eventId },
+      data: updates,
+    });
+    io.emit('calendar_event_updated', event);
+    res.json(event);
+  } catch (e) {
+    console.error('Error updating calendar event:', e);
+    res.status(500).json({ error: 'Failed to update calendar event' });
+  }
+});
+
+app.delete('/api/boards/:boardId/calendar-events/:eventId', async (req, res) => {
+  try {
+    const { boardId, eventId } = req.params;
+    await prisma.calendarEvent.deleteMany({ where: { id: eventId, boardId } });
+    io.emit('calendar_event_deleted', { boardId, eventId });
+    res.status(204).send();
+  } catch (e) {
+    console.error('Error deleting calendar event:', e);
+    res.status(500).json({ error: 'Failed to delete calendar event' });
+  }
+});
+
 // DELETE item (misma lógica que socket delete_item: persistencia en BD)
 app.delete('/api/items/:id', async (req, res) => {
   try {
@@ -855,12 +941,34 @@ io.on('connection', (socket) => {
 
   socket.on('add_item', async (data) => {
     try {
-      const { groupId, name, position } = data;
+      const { groupId, name, position, initialColumnValues } = data as {
+        groupId: string;
+        name: string;
+        position: number;
+        initialColumnValues?: { columnId: string; value: string }[];
+      };
       const newItem = await prisma.item.create({
         data: { groupId, name, position },
         include: { columnValues: true }
       });
-      io.emit('item_added', newItem);
+      if (Array.isArray(initialColumnValues) && initialColumnValues.length > 0) {
+        for (const cv of initialColumnValues) {
+          if (cv?.columnId && typeof cv.value === 'string') {
+            await prisma.columnValue.upsert({
+              where: { itemId_columnId: { itemId: newItem.id, columnId: cv.columnId } },
+              update: { value: cv.value },
+              create: { itemId: newItem.id, columnId: cv.columnId, value: cv.value }
+            });
+          }
+        }
+        const withValues = await prisma.item.findUnique({
+          where: { id: newItem.id },
+          include: { columnValues: true }
+        });
+        io.emit('item_added', withValues ?? newItem);
+      } else {
+        io.emit('item_added', newItem);
+      }
     } catch (e) {
       console.error('Error adding item:', e);
     }
@@ -1022,6 +1130,16 @@ io.on('connection', (socket) => {
       io.emit('column_renamed', updated);
     } catch (e) {
       console.error('Error renaming column:', e);
+    }
+  });
+
+  socket.on('update_column_settings', async (data) => {
+    try {
+      const { columnId, settings } = data;
+      const updated = await prisma.boardColumn.update({ where: { id: columnId }, data: { settings: settings ?? null } });
+      io.emit('column_settings_updated', updated);
+    } catch (e) {
+      console.error('Error updating column settings:', e);
     }
   });
 

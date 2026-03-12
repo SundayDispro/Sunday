@@ -13,9 +13,10 @@ function formatDisplayDate(value: string | undefined): string {
   if (!value?.trim()) return '';
   const d = new Date(value);
   if (isNaN(d.getTime())) return value;
-  const day = d.getDate();
-  const month = d.toLocaleDateString('es', { month: 'short' });
-  const year = d.getFullYear();
+  // Usar UTC para que la fecha elegida (ej. 12) se muestre igual; si no, en zonas al oeste de UTC se vería el día anterior
+  const day = d.getUTCDate();
+  const month = d.toLocaleDateString('es', { month: 'short', timeZone: 'UTC' });
+  const year = d.getUTCFullYear();
   return `${day} ${month} ${year}`;
 }
 
@@ -23,7 +24,8 @@ export const DateCellRenderer: React.FC<Props> = ({ item, column, value }) => {
   const [open, setOpen] = useState(false);
   const raw = value?.value ?? '';
   const display = formatDisplayDate(raw);
-  const inputValue = raw ? raw.slice(0, 10) : '';
+  // Aceptar tanto YYYY-MM-DD como ISO; para el input siempre usar los primeros 10 caracteres
+  const inputValue = raw && /^\d{4}-\d{2}-\d{2}/.test(raw) ? raw.slice(0, 10) : '';
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const v = e.target.value;
@@ -32,11 +34,9 @@ export const DateCellRenderer: React.FC<Props> = ({ item, column, value }) => {
       setOpen(false);
       return;
     }
-    const date = new Date(v);
-    if (!isNaN(date.getTime())) {
-      socket.emit('update_column_value', { itemId: item.id, columnId: column.id, value: date.toISOString() });
-      setOpen(false);
-    }
+    // Guardar como YYYY-MM-DD para evitar desfase por zona horaria (medianoche UTC → día anterior en otras zonas)
+    socket.emit('update_column_value', { itemId: item.id, columnId: column.id, value: v });
+    setOpen(false);
   };
 
   return (

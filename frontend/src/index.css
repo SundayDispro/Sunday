@@ -18,7 +18,7 @@
     -moz-osx-font-smoothing: grayscale;
     background-color: theme('colors.monday.bg');
     color: theme('colors.monday.text');
-    font-family: 'Inter', 'Segoe UI', system-ui, sans-serif;
+    font-family: 'Averta Std', 'Inter', 'Segoe UI', system-ui, sans-serif;
     font-size: 14px;
     overflow: hidden;
   }

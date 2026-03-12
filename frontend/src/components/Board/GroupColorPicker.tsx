@@ -44,18 +44,18 @@ export const GroupColorPicker: React.FC<GroupColorPickerProps> = ({
       </Popover.Trigger>
       <Popover.Portal>
         <Popover.Content
-          className="z-[100] bg-white rounded-xl shadow-monday-lg border border-monday-border p-1.5 fade-in box-border"
+          className="z-[100] bg-white rounded-xl shadow-monday-lg border border-monday-border p-2 fade-in box-border"
           sideOffset={6}
           side="bottom"
           align={align}
           onClick={e => e.stopPropagation()}
         >
-          <div className="grid grid-cols-5 gap-0.5 w-[132px]">
+          <div className="grid grid-cols-5 gap-1 w-[180px]">
             {GROUP_PALETTE.map(color => (
               <button
                 key={color}
                 type="button"
-                className="w-5 h-5 rounded-sm border border-monday-border/60 transition-all hover:scale-110 focus:outline-none focus:ring-1 focus:ring-monday-blue"
+                className="w-8 h-8 rounded-md border-2 transition-all hover:scale-105 focus:outline-none focus:ring-2 focus:ring-monday-blue"
                 style={{
                   backgroundColor: color,
                   borderColor: value === color ? '#401694' : 'transparent',
