@@ -548,7 +548,7 @@ export const BoardGroup: React.FC<Props> = ({
             <GroupColorPicker
               value={group.color}
               onChange={color => socket.emit('rename_group', { groupId: group.id, name: group.name, color })}
-              swatchClassName="w-5 h-5 shrink-0"
+              swatchClassName="w-4 h-4 shrink-0"
             />
             <input
               autoFocus
@@ -573,7 +573,7 @@ export const BoardGroup: React.FC<Props> = ({
             <GroupColorPicker
               value={group.color}
               onChange={color => socket.emit('rename_group', { groupId: group.id, name: group.name, color })}
-              swatchClassName="w-5 h-5 shrink-0"
+              swatchClassName="w-4 h-4 shrink-0"
             />
             <h3
               className="text-[26px] font-normal leading-tight cursor-pointer hover:opacity-80 transition-opacity select-none font-averta truncate"

@@ -161,13 +161,13 @@ const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode }) => {
       });
     });
 
-    socket.on('group_renamed', (updated: { id: string; name: string; color?: string }) => {
+    socket.on('group_renamed', (updated: { id: string; name: string; color: string }) => {
       setBoard(prev => {
         if (!prev) return prev;
         return {
           ...prev,
           groups: prev.groups.map(g =>
-            g.id === updated.id ? { ...g, name: updated.name, ...(updated.color != null && { color: updated.color }) } : g
+            g.id === updated.id ? { ...g, name: updated.name, color: updated.color } : g
           ),
         };
       });
