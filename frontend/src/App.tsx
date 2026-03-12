@@ -190,6 +190,11 @@ function App() {
   const newBoardNameInputRef = useRef<HTMLInputElement>(null);
   const [unreadNotifCount, setUnreadNotifCount] = useState(0);
   const [composeToUser, setComposeToUser] = useState<User | null>(null);
+  const [pendingDocFromBoard, setPendingDocFromBoard] = useState<{
+    type: 'cotizacion' | 'levantamiento' | 'hoja_trabajo' | 'text';
+    boardId: string;
+    itemId: string;
+  } | null>(null);
 
   const fetchUnreadNotifications = React.useCallback(async () => {
     if (!currentUser?.id) return;
@@ -217,6 +222,27 @@ function App() {
       socket.off('notification_created');
     };
   }, [currentUser?.id, fetchUnreadNotifications]);
+
+  // Navegación desde columnas de Docs / Facturación hacia la pestaña interna de Docs
+  useEffect(() => {
+    const handler = (event: Event) => {
+      const ev = event as CustomEvent<{
+        type: 'cotizacion' | 'levantamiento' | 'hoja_trabajo' | 'text';
+        boardId: string;
+        itemId: string;
+      }>;
+      setActivePage('docs');
+      setSidebarOpen(true);
+      if (ev.detail?.boardId) {
+        setActiveBoardId(ev.detail.boardId);
+      }
+      if (ev.detail) {
+        setPendingDocFromBoard(ev.detail);
+      }
+    };
+    window.addEventListener('sunday:create-doc-from-board', handler as EventListener);
+    return () => window.removeEventListener('sunday:create-doc-from-board', handler as EventListener);
+  }, []);
 
   // Load workspaces once user is available
   useEffect(() => {
@@ -839,7 +865,12 @@ if (ok && data && typeof data.id === 'string') {
               }}
             />
           ) : activePage === 'docs' ? (
-            <DocsPage workspaceId={activeWorkspaceId ?? workspaces[0]?.id ?? null} boards={boards} />
+            <DocsPage
+              workspaceId={activeWorkspaceId ?? workspaces[0]?.id ?? null}
+              boards={boards}
+              initialCreateFromBoard={pendingDocFromBoard}
+              onConsumeInitialCreateFromBoard={() => setPendingDocFromBoard(null)}
+            />
           ) : activePage === 'dashboard' ? (
             <DashboardPage />
           ) : activePage === 'team' ? (

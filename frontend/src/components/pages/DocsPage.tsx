@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { BookOpen, FileText, Table2, Plus, Trash2, FileCheck, LayoutDashboard, List, Palette } from 'lucide-react';
+import { BookOpen, FileText, Table2, Plus, Trash2, FileCheck, LayoutDashboard, List, Palette, CheckSquare } from 'lucide-react';
 import * as Popover from '@radix-ui/react-popover';
 import * as Dialog from '@radix-ui/react-dialog';
 import { Board, Doc, DocType } from '../../types';
@@ -11,21 +11,33 @@ import {
   isPdfDocType,
 } from './docs/docTypes';
 import { PdfTemplateEditor } from './docs/PdfTemplateEditor';
+import { useUser } from '../../store/UserContext';
 
 const API_BASE = 'http://localhost:3001';
 
 interface Props {
   workspaceId: string | null;
   boards: Board[];
+  initialCreateFromBoard?: {
+    type: DocType;
+    boardId: string;
+    itemId: string;
+  } | null;
+  onConsumeInitialCreateFromBoard?: () => void;
 }
 
-export interface StickyNoteData {
+export interface TaskItem {
   id: string;
-  x: number;
-  y: number;
+  text: string;
+  done: boolean;
+}
+
+export interface TaskWindow {
+  id: string;
   title: string;
-  body: string;
   color?: string;
+  ownerId?: string;
+  tasks: TaskItem[];
 }
 
 const NOTE_COLORS = [
@@ -48,16 +60,25 @@ function isLightHex(hex: string): boolean {
   return lum > 160;
 }
 
-function normalizeNote(raw: unknown): StickyNoteData | null {
+function normalizeNote(raw: unknown): TaskWindow | null {
   if (!raw || typeof raw !== 'object') return null;
   const o = raw as Record<string, unknown>;
   const id = typeof o.id === 'string' ? o.id : crypto.randomUUID();
-  const x = typeof o.x === 'number' ? o.x : 24;
-  const y = typeof o.y === 'number' ? o.y : 24;
-  const title = typeof o.title === 'string' ? o.title : 'Nueva nota';
-  const body = typeof o.body === 'string' ? o.body : '';
+  const title = typeof o.title === 'string' ? o.title : 'Mis tareas';
   const color = typeof o.color === 'string' ? o.color : DEFAULT_NOTE_COLOR;
-  return { id, x, y, title, body, color };
+  const ownerId = typeof o.ownerId === 'string' ? o.ownerId : undefined;
+  const rawTasks = Array.isArray(o.tasks) ? o.tasks : [];
+  const tasks: TaskItem[] =
+    rawTasks.length > 0
+      ? rawTasks.map((t, index) => {
+          const r = (t ?? {}) as Record<string, unknown>;
+          const tid = typeof r.id === 'string' ? r.id : `${id}-t${index}`;
+          const text = typeof r.text === 'string' ? r.text : '';
+          const done = typeof r.done === 'boolean' ? r.done : false;
+          return { id: tid, text, done };
+        })
+      : [];
+  return { id, title, color, ownerId, tasks };
 }
 
 type DocContent = {
@@ -233,59 +254,32 @@ function WordLikeEditor({ textDraft, setTextDraft }: { textDraft: string; setTex
   );
 }
 
-// Vista general: panel de control con doc cards + notas adhesivas (estado manejado por padre)
+// Vista general: panel de control con doc cards + panel de tareas personales (estado manejado por padre)
 function DocsOverviewPanel({
   docs,
   workspaceId,
-  panelNotes,
-  loadingNotes,
-  onAddNote,
-  onUpdateNote,
-  onRemoveNote,
+  taskWindows,
+  loadingTasks,
+  currentUserId,
+  onAddWindow,
+  onUpdateWindow,
+  onRemoveWindow,
   onOpenDoc,
-  getDocTypeLabel,
-  isPdfDocType,
 }: {
   docs: Doc[];
   workspaceId: string | null;
-  panelNotes: StickyNoteData[];
-  loadingNotes: boolean;
-  onAddNote: () => void;
-  onUpdateNote: (id: string, patch: Partial<StickyNoteData>, skipSave?: boolean) => void;
-  onRemoveNote: (id: string) => void;
+  taskWindows: TaskWindow[];
+  loadingTasks: boolean;
+  currentUserId: string | null;
+  onAddWindow: () => void;
+  onUpdateWindow: (id: string, patch: Partial<TaskWindow>) => void;
+  onRemoveWindow: (id: string) => void;
   onOpenDoc: (id: string) => void;
-  getDocTypeLabel: (t: DocType) => string;
-  isPdfDocType: (t: DocType) => boolean;
 }) {
-  const [draggingId, setDraggingId] = useState<string | null>(null);
-  const dragRef = useRef({ x: 0, y: 0, noteX: 0, noteY: 0 });
-
-  const onPointerDown = useCallback((e: React.PointerEvent, id: string) => {
-    if ((e.target as HTMLElement).closest('input, textarea')) return;
-    e.preventDefault();
-    const note = panelNotes.find(n => n.id === id);
-    if (!note) return;
-    setDraggingId(id);
-    dragRef.current = { x: e.clientX, y: e.clientY, noteX: note.x, noteY: note.y };
-    (e.target as HTMLElement).setPointerCapture?.(e.pointerId);
-  }, [panelNotes]);
-
-  const onPointerMove = useCallback((e: React.PointerEvent, id: string) => {
-    if (draggingId !== id) return;
-    const dx = e.clientX - dragRef.current.x;
-    const dy = e.clientY - dragRef.current.y;
-    const newX = Math.max(0, dragRef.current.noteX + dx);
-    const newY = Math.max(0, dragRef.current.noteY + dy);
-    onUpdateNote(id, { x: newX, y: newY }, true);
-    dragRef.current = { x: e.clientX, y: e.clientY, noteX: newX, noteY: newY };
-  }, [draggingId, onUpdateNote]);
-
-  const onPointerUp = useCallback((e: React.PointerEvent, id: string) => {
-    (e.target as HTMLElement).releasePointerCapture?.(e.pointerId);
-    setDraggingId(null);
-    const { noteX, noteY } = dragRef.current;
-    onUpdateNote(id, { x: noteX, y: noteY }, false);
-  }, [onUpdateNote]);
+  const visibleWindows = useMemo(
+    () => taskWindows.filter(w => !w.ownerId || !currentUserId || w.ownerId === currentUserId),
+    [taskWindows, currentUserId],
+  );
 
   if (!workspaceId) {
     return (
@@ -300,13 +294,13 @@ function DocsOverviewPanel({
       <div className="flex items-center gap-2 mb-4">
         <button
           type="button"
-          onClick={onAddNote}
+          onClick={onAddWindow}
           className="flex items-center gap-2 px-3 py-2 rounded-lg bg-[#5034ff] text-white text-[13px] hover:bg-[#4030dd]"
         >
           <Plus size={16} />
-          Agregar nota adhesiva
+          Agregar lista de tareas
         </button>
-        {loadingNotes && <span className="text-[12px] text-monday-subtext">Cargando notas…</span>}
+        {loadingTasks && <span className="text-[12px] text-monday-subtext">Cargando tareas…</span>}
       </div>
 
       <p className="text-[12px] text-monday-subtext mb-3">Documentos del workspace</p>
@@ -336,40 +330,39 @@ function DocsOverviewPanel({
         )}
       </div>
 
-      <p className="text-[12px] text-monday-subtext mb-2">Notas adhesivas (arrastra para mover)</p>
-      <div className="relative min-h-[200px]" style={{ pointerEvents: 'none' }}>
-        {panelNotes.map(note => {
-          const bg = note.color ?? DEFAULT_NOTE_COLOR;
-          const isLight = isLightHex(bg);
+      <p className="text-[12px] text-monday-subtext mb-2 flex items-center gap-1">
+        <CheckSquare size={13} className="text-monday-blue" />
+        Tus tareas personales
+      </p>
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+        {visibleWindows.map(window => {
+          const bg = window.color ?? DEFAULT_NOTE_COLOR;
+          const light = isLightHex(bg);
+          const tasks = window.tasks ?? [];
           return (
             <div
-              key={note.id}
-              className="absolute w-52 rounded-lg border shadow-md overflow-hidden"
-              style={{
-                left: note.x,
-                top: note.y,
-                pointerEvents: 'auto',
-                backgroundColor: bg,
-                borderColor: 'rgba(0,0,0,0.12)',
-              }}
-              onPointerDown={e => onPointerDown(e, note.id)}
-              onPointerMove={e => onPointerMove(e, note.id)}
-              onPointerUp={e => onPointerUp(e, note.id)}
-              onPointerLeave={e => onPointerUp(e, note.id)}
+              key={window.id}
+              className="rounded-xl border shadow-sm bg-white flex flex-col overflow-hidden"
             >
-              <div className="flex items-center justify-between gap-1 px-2 py-1.5 border-b border-black/10 cursor-grab active:cursor-grabbing" style={{ backgroundColor: 'rgba(0,0,0,0.06)' }}>
+              <div
+                className="flex items-center justify-between gap-1 px-3 py-2 border-b border-black/5"
+                style={{ backgroundColor: bg, color: light ? '#111827' : 'white' }}
+              >
                 <input
                   type="text"
-                  value={note.title}
-                  onChange={e => onUpdateNote(note.id, { title: e.target.value })}
-                  placeholder="Título"
-                  className={`flex-1 min-w-0 bg-transparent text-[12px] font-medium outline-none placeholder:opacity-70 ${isLight ? 'text-gray-900' : 'text-white placeholder:text-white/80'}`}
-                  onClick={e => e.stopPropagation()}
+                  value={window.title}
+                  onChange={e => onUpdateWindow(window.id, { title: e.target.value })}
+                  placeholder="Lista sin título"
+                  className={`flex-1 min-w-0 bg-transparent text-[12px] font-medium outline-none placeholder:opacity-70 ${light ? 'text-gray-900' : 'text-white placeholder:text-white/80'}`}
                 />
-                <div className="flex items-center gap-0.5" onClick={e => e.stopPropagation()}>
+                <div className="flex items-center gap-0.5">
                   <Popover.Root>
                     <Popover.Trigger asChild>
-                      <button type="button" className={`p-0.5 rounded hover:bg-black/10 ${isLight ? 'text-gray-700' : 'text-white/90'}`} title="Color">
+                      <button
+                        type="button"
+                        className={`p-0.5 rounded ${light ? 'text-gray-700 hover:bg-black/5' : 'text-white/90 hover:bg-white/10'}`}
+                        title="Color"
+                      >
                         <Palette size={12} />
                       </button>
                     </Popover.Trigger>
@@ -380,7 +373,7 @@ function DocsOverviewPanel({
                             <button
                               key={c}
                               type="button"
-                              onClick={() => onUpdateNote(note.id, { color: c })}
+                              onClick={() => onUpdateWindow(window.id, { color: c })}
                               className="w-6 h-6 rounded border-2 border-gray-300 hover:scale-110"
                               style={{ backgroundColor: c }}
                               title={c}
@@ -390,20 +383,72 @@ function DocsOverviewPanel({
                       </Popover.Content>
                     </Popover.Portal>
                   </Popover.Root>
-                  <button type="button" onClick={() => onRemoveNote(note.id)} className={`p-0.5 rounded hover:bg-red-500/30 ${isLight ? 'text-gray-700 hover:text-red-600' : 'text-white/90'}`} title="Eliminar">
+                  <button
+                    type="button"
+                    onClick={() => onRemoveWindow(window.id)}
+                    className={`p-0.5 rounded ${light ? 'text-gray-700 hover:bg-red-100 hover:text-red-600' : 'text-white/90 hover:bg-red-500/40'}`}
+                    title="Eliminar lista"
+                  >
                     <Trash2 size={12} />
                   </button>
                 </div>
               </div>
-              <textarea
-                value={note.body}
-                onChange={e => onUpdateNote(note.id, { body: e.target.value })}
-                placeholder="Contenido..."
-                rows={3}
-                className={`w-full resize-none border-0 bg-transparent px-2 py-1.5 text-[12px] outline-none placeholder:opacity-70 ${isLight ? 'text-gray-900' : 'text-white placeholder:text-white/80'}`}
-                style={{ backgroundColor: 'transparent' }}
-                onClick={e => e.stopPropagation()}
-              />
+              <div className="px-3 py-2 space-y-1 max-h-64 overflow-y-auto">
+                {tasks.length === 0 && (
+                  <p className="text-[12px] text-monday-subtext py-1">No hay tareas. Añade la primera abajo.</p>
+                )}
+                {tasks.map(task => (
+                  <div key={task.id} className="flex items-start gap-2 py-1">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const nextTasks = tasks.map(t => (t.id === task.id ? { ...t, done: !t.done } : t));
+                        onUpdateWindow(window.id, { tasks: nextTasks });
+                      }}
+                      className="mt-0.5 w-4 h-4 rounded border border-monday-border flex items-center justify-center text-monday-blue bg-white"
+                    >
+                      {task.done && <CheckSquare size={12} />}
+                    </button>
+                    <textarea
+                      value={task.text}
+                      onChange={e => {
+                        const nextTasks = tasks.map(t => (t.id === task.id ? { ...t, text: e.target.value } : t));
+                        onUpdateWindow(window.id, { tasks: nextTasks });
+                      }}
+                      rows={1}
+                      className="flex-1 resize-none border-0 bg-transparent text-[12px] text-monday-text outline-none px-1 py-0.5 rounded hover:bg-monday-hover/40"
+                      placeholder="Nueva tarea..."
+                    />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const nextTasks = tasks.filter(t => t.id !== task.id);
+                        onUpdateWindow(window.id, { tasks: nextTasks });
+                      }}
+                      className="p-0.5 rounded text-monday-subtext hover:text-monday-red hover:bg-red-50"
+                      title="Eliminar tarea"
+                    >
+                      <Trash2 size={11} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+              <div className="px-3 py-2 border-t border-monday-border/60 bg-monday-bg/40">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const nextTasks = [
+                      ...(tasks ?? []),
+                      { id: crypto.randomUUID(), text: '', done: false },
+                    ];
+                    onUpdateWindow(window.id, { tasks: nextTasks });
+                  }}
+                  className="inline-flex items-center gap-1 text-[12px] text-monday-blue hover:underline"
+                >
+                  <Plus size={12} />
+                  Añadir tarea
+                </button>
+              </div>
             </div>
           );
         })}
@@ -541,7 +586,10 @@ function ExcelLikeSheet({
   );
 }
 
-export const DocsPage: React.FC<Props> = ({ workspaceId, boards }) => {
+export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFromBoard, onConsumeInitialCreateFromBoard }) => {
+  const { currentUser } = useUser();
+  const currentUserId = currentUser?.id ?? null;
+
   const [docs, setDocs] = useState<Doc[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -560,15 +608,21 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards }) => {
   const [viewMode, setViewMode] = useState<'docs' | 'overview'>('overview');
   const [deleteConfirm, setDeleteConfirm] = useState<{ docId: string } | null>(null);
 
-  // Notas adhesivas: estado en DocsPage para que no se pierdan al cambiar a pestaña Documentos
-  const [panelNotes, setPanelNotes] = useState<StickyNoteData[]>([]);
-  const [loadingNotes, setLoadingNotes] = useState(false);
-  const panelNotesRef = useRef<StickyNoteData[]>([]);
-  panelNotesRef.current = panelNotes;
+  // Tareas personales: estado en DocsPage para que no se pierdan al cambiar de pestaña
+  const [taskWindows, setTaskWindows] = useState<TaskWindow[]>([]);
+  const [loadingTasks, setLoadingTasks] = useState(false);
+  const taskWindowsRef = useRef<TaskWindow[]>([]);
+  taskWindowsRef.current = taskWindows;
   const savePanelNotesTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const savePanelNotesToApi = useCallback((notes: StickyNoteData[], wid: string) => {
-    const toSave = notes.map(n => ({ id: n.id, x: n.x, y: n.y, title: n.title, body: n.body, color: n.color ?? DEFAULT_NOTE_COLOR }));
+  const savePanelNotesToApi = useCallback((notes: TaskWindow[], wid: string) => {
+    const toSave = notes.map(n => ({
+      id: n.id,
+      title: n.title,
+      color: n.color ?? DEFAULT_NOTE_COLOR,
+      ownerId: n.ownerId,
+      tasks: (n.tasks ?? []).map(t => ({ id: t.id, text: t.text, done: t.done })),
+    }));
     fetch(`${API_BASE}/api/workspaces/${wid}/panel-notes`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
@@ -583,7 +637,7 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards }) => {
     if (savePanelNotesTimeoutRef.current) clearTimeout(savePanelNotesTimeoutRef.current);
     savePanelNotesTimeoutRef.current = setTimeout(() => {
       savePanelNotesTimeoutRef.current = null;
-      savePanelNotesToApi(panelNotesRef.current, workspaceId);
+      savePanelNotesToApi(taskWindowsRef.current, workspaceId);
     }, 500);
   }, [workspaceId, savePanelNotesToApi]);
 
@@ -591,7 +645,7 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards }) => {
     if (!workspaceId) {
       setDocs([]);
       setSelectedId(null);
-      setPanelNotes([]);
+      setTaskWindows([]);
       if (savePanelNotesTimeoutRef.current) {
         clearTimeout(savePanelNotesTimeoutRef.current);
         savePanelNotesTimeoutRef.current = null;
@@ -618,19 +672,19 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards }) => {
     load();
   }, [workspaceId]);
 
-  // Cargar notas del workspace al cambiar
+  // Cargar tareas del workspace al cambiar
   useEffect(() => {
-    if (!workspaceId) { setPanelNotes([]); setLoadingNotes(false); return; }
-    setLoadingNotes(true);
+    if (!workspaceId) { setTaskWindows([]); setLoadingTasks(false); return; }
+    setLoadingTasks(true);
     fetch(`${API_BASE}/api/workspaces/${workspaceId}/panel-notes`)
       .then(r => r.json())
       .then(data => {
         const raw = Array.isArray(data?.panelNotes) ? data.panelNotes : [];
-        const normalized = raw.map((item: unknown) => normalizeNote(item)).filter((n): n is StickyNoteData => n !== null);
-        setPanelNotes(normalized);
+        const normalized = raw.map((item: unknown) => normalizeNote(item)).filter((n): n is TaskWindow => n !== null);
+        setTaskWindows(normalized);
       })
-      .catch(() => setPanelNotes([]))
-      .finally(() => setLoadingNotes(false));
+      .catch(() => setTaskWindows([]))
+      .finally(() => setLoadingTasks(false));
   }, [workspaceId]);
 
   // Al desmontar o cambiar workspace: guardar notas pendientes de forma síncrona (flush debounce)
@@ -640,8 +694,8 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards }) => {
         clearTimeout(savePanelNotesTimeoutRef.current);
         savePanelNotesTimeoutRef.current = null;
       }
-      if (workspaceId && panelNotesRef.current.length >= 0) {
-        savePanelNotesToApi(panelNotesRef.current, workspaceId);
+      if (workspaceId && taskWindowsRef.current.length >= 0) {
+        savePanelNotesToApi(taskWindowsRef.current, workspaceId);
       }
     };
   }, [workspaceId, savePanelNotesToApi]);
@@ -649,40 +703,36 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards }) => {
   // Guardar notas antes de recargar/cerrar pestaña
   useEffect(() => {
     const onBeforeUnload = () => {
-      if (workspaceId && panelNotesRef.current.length >= 0) {
-        savePanelNotesToApi(panelNotesRef.current, workspaceId);
+      if (workspaceId && taskWindowsRef.current.length >= 0) {
+        savePanelNotesToApi(taskWindowsRef.current, workspaceId);
       }
     };
     window.addEventListener('beforeunload', onBeforeUnload);
     return () => window.removeEventListener('beforeunload', onBeforeUnload);
   }, [workspaceId, savePanelNotesToApi]);
 
-  const addPanelNote = useCallback(() => {
-    const count = panelNotes.length;
-    const col = count % 4;
-    const row = Math.floor(count / 4);
-    const newNote: StickyNoteData = {
+  const addTaskWindow = useCallback(() => {
+    const newWindow: TaskWindow = {
       id: crypto.randomUUID(),
-      x: 24 + col * 220,
-      y: 24 + row * 200,
-      title: 'Nueva nota',
-      body: '',
+      title: 'Mis tareas',
       color: DEFAULT_NOTE_COLOR,
+      ownerId: currentUserId ?? undefined,
+      tasks: [],
     };
-    setPanelNotes(prev => [...prev, newNote]);
+    setTaskWindows(prev => [...prev, newWindow]);
     scheduleSavePanelNotes();
-  }, [panelNotes.length, scheduleSavePanelNotes]);
+  }, [currentUserId, scheduleSavePanelNotes]);
 
-  const updatePanelNote = useCallback((id: string, patch: Partial<StickyNoteData>, skipSave?: boolean) => {
-    setPanelNotes(prev => {
+  const updateTaskWindow = useCallback((id: string, patch: Partial<TaskWindow>) => {
+    setTaskWindows(prev => {
       const next = prev.map(n => (n.id === id ? { ...n, ...patch } : n));
-      if (!skipSave) scheduleSavePanelNotes();
+      scheduleSavePanelNotes();
       return next;
     });
   }, [scheduleSavePanelNotes]);
 
-  const removePanelNote = useCallback((id: string) => {
-    setPanelNotes(prev => {
+  const removeTaskWindow = useCallback((id: string) => {
+    setTaskWindows(prev => {
       const next = prev.filter(n => n.id !== id);
       scheduleSavePanelNotes();
       return next;
@@ -698,7 +748,7 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards }) => {
     }
   }, [parsed, selectedId, selectedDoc?.type]);
 
-  const handleCreate = async (type: DocType) => {
+  async function handleCreate(type: DocType) {
     if (!workspaceId) {
       setError('Selecciona un workspace en la barra lateral para poder crear documentos.');
       return;
@@ -741,7 +791,25 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards }) => {
     } finally {
       setSaving(false);
     }
-  };
+  }
+
+  // Si se dispara desde una columna de Docs/Facturación, crear/abrir automáticamente el doc correspondiente
+  useEffect(() => {
+    if (!workspaceId || !initialCreateFromBoard) return;
+    const { type, boardId } = initialCreateFromBoard;
+    // Si ya hay un documento de ese tipo vinculado al mismo tablero, reusar
+    const existing = docs.find(d => d.type === type && d.boardId === boardId);
+    if (existing) {
+      setViewMode('docs');
+      setSelectedId(existing.id);
+      onConsumeInitialCreateFromBoard?.();
+      return;
+    }
+    setViewMode('docs');
+    handleCreate(type).finally(() => {
+      onConsumeInitialCreateFromBoard?.();
+    });
+  }, [workspaceId, initialCreateFromBoard, docs]);
 
   const handleSave = async () => {
     if (!selectedDoc) return;
@@ -905,14 +973,13 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards }) => {
         <DocsOverviewPanel
           docs={docs}
           workspaceId={workspaceId}
-          panelNotes={panelNotes}
-          loadingNotes={loadingNotes}
-          onAddNote={addPanelNote}
-          onUpdateNote={updatePanelNote}
-          onRemoveNote={removePanelNote}
+          taskWindows={taskWindows}
+          loadingTasks={loadingTasks}
+          currentUserId={currentUserId}
+          onAddWindow={addTaskWindow}
+          onUpdateWindow={updateTaskWindow}
+          onRemoveWindow={removeTaskWindow}
           onOpenDoc={id => { setViewMode('docs'); setSelectedId(id); }}
-          getDocTypeLabel={getDocTypeLabel}
-          isPdfDocType={isPdfDocType}
         />
       ) : (
       <div className="flex-1 flex overflow-hidden">

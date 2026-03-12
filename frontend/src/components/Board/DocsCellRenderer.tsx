@@ -4,7 +4,7 @@ import { socket } from '../../store/socket';
 import { useUser } from '../../store/UserContext';
 import * as Popover from '@radix-ui/react-popover';
 import * as Dialog from '@radix-ui/react-dialog';
-import { FileText, ChevronDown, ExternalLink, Upload, Loader2, Trash2 } from 'lucide-react';
+import { FileText, ChevronDown, ExternalLink, Upload, Loader2, Trash2, FilePenLine } from 'lucide-react';
 
 // En desarrollo Vite hace proxy de /api y /uploads al backend (3001); usar '' para mismo origen
 const API_BASE = import.meta.env.DEV ? '' : 'http://localhost:3001';
@@ -129,6 +129,11 @@ export const DocsCellRenderer: React.FC<Props> = ({ item, column, value }) => {
   const isUploadUrl = (url: string) => url.trim().startsWith('/uploads/');
   const previewUrl = (url: string) => (url.trim().startsWith('/') ? API_BASE + url : url);
   const isPdf = (url: string) => url.toLowerCase().endsWith('.pdf');
+
+  const openDocs = (type: 'levantamiento' | 'cotizacion' | 'hoja_trabajo') => {
+    const detail = { type, boardId: column.boardId, itemId: item.id };
+    window.dispatchEvent(new CustomEvent('sunday:create-doc-from-board', { detail }));
+  };
 
   const clearField = (field: 'cotizacion' | 'hoja' | 'levantamiento') => {
     let nextCot = cotizacion;
@@ -318,6 +323,14 @@ export const DocsCellRenderer: React.FC<Props> = ({ item, column, value }) => {
             {/* Levantamiento */}
             <label className="block text-[12px] text-monday-subtext mb-1">Levantamiento</label>
             <div className="flex items-center gap-2 mb-2">
+              <button
+                type="button"
+                onClick={() => openDocs('levantamiento')}
+                className="inline-flex items-center justify-center w-8 h-8 rounded-full bg-[#4285f4] text-white text-[12px] shadow-sm hover:bg-[#3367d6]"
+                title="Crear documento de levantamiento en Docs"
+              >
+                <FilePenLine size={14} />
+              </button>
               <input
                 ref={levantamientoFileRef}
                 type="file"
@@ -334,7 +347,6 @@ export const DocsCellRenderer: React.FC<Props> = ({ item, column, value }) => {
                 className="inline-flex items-center gap-1.5 text-[12px] text-monday-blue font-medium cursor-pointer hover:underline"
               >
                 {uploading === 'levantamiento' ? <Loader2 size={14} className="animate-spin" /> : <Upload size={14} />}
-                Subir archivo JPG/PDF
               </label>
             </div>
             {levantamiento.trim() && isUploadUrl(levantamiento) && !isPdf(levantamiento) && (
@@ -346,6 +358,14 @@ export const DocsCellRenderer: React.FC<Props> = ({ item, column, value }) => {
             {/* Cotización */}
             <label className="block text-[12px] text-monday-subtext mb-1">Cotización</label>
             <div className="flex items-center gap-2 mb-2">
+              <button
+                type="button"
+                onClick={() => openDocs('cotizacion')}
+                className="inline-flex items-center justify-center w-8 h-8 rounded-full bg-[#4285f4] text-white text-[12px] shadow-sm hover:bg-[#3367d6]"
+                title="Crear cotización en Docs"
+              >
+                <FilePenLine size={14} />
+              </button>
               <input
                 ref={cotizacionFileRef}
                 type="file"
@@ -362,7 +382,6 @@ export const DocsCellRenderer: React.FC<Props> = ({ item, column, value }) => {
                 className="inline-flex items-center gap-1.5 text-[12px] text-monday-blue font-medium cursor-pointer hover:underline"
               >
                 {uploading === 'cotizacion' ? <Loader2 size={14} className="animate-spin" /> : <Upload size={14} />}
-                Subir archivo JPG/PDF
               </label>
             </div>
             {cotizacion.trim() && isUploadUrl(cotizacion) && !isPdf(cotizacion) && (
@@ -374,6 +393,14 @@ export const DocsCellRenderer: React.FC<Props> = ({ item, column, value }) => {
             {/* Hoja de trabajo */}
             <label className="block text-[12px] text-monday-subtext mb-1">Hoja de trabajo</label>
             <div className="flex items-center gap-2 mb-2">
+              <button
+                type="button"
+                onClick={() => openDocs('hoja_trabajo')}
+                className="inline-flex items-center justify-center w-8 h-8 rounded-full bg-[#4285f4] text-white text-[12px] shadow-sm hover:bg-[#3367d6]"
+                title="Crear hoja de trabajo en Docs"
+              >
+                <FilePenLine size={14} />
+              </button>
               <input
                 ref={hojaFileRef}
                 type="file"
@@ -390,7 +417,6 @@ export const DocsCellRenderer: React.FC<Props> = ({ item, column, value }) => {
                 className="inline-flex items-center gap-1.5 text-[12px] text-monday-blue font-medium cursor-pointer hover:underline"
               >
                 {uploading === 'hoja' ? <Loader2 size={14} className="animate-spin" /> : <Upload size={14} />}
-                Subir archivo JPG/PDF
               </label>
             </div>
             {hojaTrabajo.trim() && isUploadUrl(hojaTrabajo) && !isPdf(hojaTrabajo) && (

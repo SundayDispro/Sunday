@@ -4,7 +4,7 @@ import { socket } from '../../store/socket';
 import { useUser } from '../../store/UserContext';
 import * as Popover from '@radix-ui/react-popover';
 import * as Dialog from '@radix-ui/react-dialog';
-import { FileText, ChevronDown, ExternalLink, Upload, Loader2, Trash2 } from 'lucide-react';
+import { FileText, ChevronDown, ExternalLink, Upload, Loader2, Trash2, FilePenLine } from 'lucide-react';
 
 const API_BASE = import.meta.env.DEV ? '' : 'http://localhost:3001';
 
@@ -62,6 +62,11 @@ export const BillingDocsCellRenderer: React.FC<Props> = ({ item, column, value }
       label: label.trim() || undefined,
     });
     socket.emit('update_column_value', { itemId: item.id, columnId: column.id, value: payload });
+  };
+
+  const openDocs = () => {
+    const detail = { type: 'text' as const, boardId: column.boardId, itemId: item.id };
+    window.dispatchEvent(new CustomEvent('sunday:create-doc-from-board', { detail }));
   };
 
   const openUrl = (target: string) => {
@@ -222,6 +227,14 @@ export const BillingDocsCellRenderer: React.FC<Props> = ({ item, column, value }
 
             <label className="block text-[12px] text-monday-subtext mb-1">Archivo</label>
             <div className="flex items-center gap-2 mb-2">
+              <button
+                type="button"
+                onClick={openDocs}
+                className="inline-flex items-center justify-center w-8 h-8 rounded-full bg-[#4285f4] text-white text-[12px] shadow-sm hover:bg-[#3367d6]"
+                title="Crear documento en Google Docs"
+              >
+                <FilePenLine size={14} />
+              </button>
               <input
                 ref={fileRef}
                 type="file"
@@ -238,7 +251,6 @@ export const BillingDocsCellRenderer: React.FC<Props> = ({ item, column, value }
                 className="inline-flex items-center gap-1.5 text-[12px] text-monday-blue font-medium cursor-pointer hover:underline"
               >
                 {uploading ? <Loader2 size={14} className="animate-spin" /> : <Upload size={14} />}
-                Subir archivo JPG/PDF
               </label>
             </div>
 
