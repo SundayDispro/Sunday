@@ -1616,6 +1616,11 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
 
   // Evitar que React StrictMode dispare dos veces la creación desde tablero
   const lastCreateFromBoardKeyRef = useRef<string | null>(null);
+  // Ref para que performSaveNew vea el link actual al guardar (el doc se crea solo al hacer clic en Guardar)
+  const linkToBoardItemRef = useRef<typeof linkToBoardItem>(null);
+  useEffect(() => {
+    linkToBoardItemRef.current = linkToBoardItem;
+  }, [linkToBoardItem]);
 
   const linkDocToBoardItem = useCallback(
     async (opts: {
@@ -1898,14 +1903,17 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
   }, [parsed, selectedId, selectedDoc?.type]);
 
   // Inicializar drafts cuando se abre un documento nuevo (sin id)
+  // Si viene del tablero (linkToBoardItem), no sobrescribir pdfFormDraft: el efecto de creación desde tablero ya lo rellenó con elemento/folio
   useEffect(() => {
     if (!newDocDraft) return;
     const initial = getInitialContentForType(newDocDraft.type);
     setTextDraft(getInitialHtml((initial.text as string) ?? ''));
     setTableDraft(Array.isArray(initial.table) ? (initial.table as string[][]) : [['']]);
     setHeaderImageUrlDraft((initial.headerImageUrl as string | null) ?? null);
-    setPdfFormDraft(initial as Record<string, unknown>);
-  }, [newDocDraft?.type]);
+    if (!(isPdfDocType(newDocDraft.type) && linkToBoardItem)) {
+      setPdfFormDraft(initial as Record<string, unknown>);
+    }
+  }, [newDocDraft?.type, linkToBoardItem]);
 
   const pdfDocType = (selectedDoc && isPdfDocType(selectedDoc.type as DocType) ? selectedDoc.type : newDocDraft && isPdfDocType(newDocDraft.type) ? newDocDraft.type : null) as 'cotizacion' | 'levantamiento' | 'hoja_trabajo' | null;
   useEffect(() => {
@@ -2033,10 +2041,10 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
           let folio = '';
 
           if (item) {
-            const folioCol = board.columns?.find((c) => c.title === 'Folio');
+            const folioCol = board.columns?.find((c) => String(c.title).trim().toLowerCase() === 'folio');
             if (folioCol) {
               const cv = item.columnValues?.find((v) => v.columnId === folioCol.id);
-              if (cv?.value) folio = String(cv.value);
+              if (cv?.value) folio = String(cv.value).trim();
             }
           }
 
@@ -2083,11 +2091,19 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
         }
       } catch (e) {
         console.error('Error preparando contenido inicial desde tablero', e);
-      } finally {
-        await handleCreate(type, undefined, initialContentOverride);
-        onConsumeInitialCreateFromBoard?.();
-        lastCreateFromBoardKeyRef.current = null;
       }
+      // No crear documento en el servidor: solo abrir borrador. El doc se crea al hacer clic en Guardar
+      const initialContent = initialContentOverride ?? getInitialContentForType(type);
+      setNewDocDraft({ type, title: type === 'sheet' ? 'Nueva hoja' : getDocTypeTitle(type) });
+      setPdfFormDraft(initialContent as Record<string, unknown>);
+      if (type === 'sheet') {
+        setTableDraft((initialContent as { table?: unknown })?.table ?? { rows: [], columns: [] });
+      } else if (type === 'text') {
+        setTextDraft((initialContent as { text?: string })?.text ?? '');
+        setHeaderImageUrlDraft((initialContent as { headerImageUrl?: string })?.headerImageUrl ?? '');
+      }
+      onConsumeInitialCreateFromBoard?.();
+      lastCreateFromBoardKeyRef.current = null;
     };
 
     run();
@@ -2277,9 +2293,17 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
     try {
       const docType = selectedDoc.type as 'cotizacion' | 'levantamiento' | 'hoja_trabajo';
       const config = templateConfigByType[docType];
+      // Priorizar posiciones del documento; estilos globales y customBoxes de la config para mantener formato
+      const docFieldPositions = (pdfFormDraft.fieldPositions ?? {}) as Record<string, { x: number; y: number; fontSize?: number; maxWidth?: number }>;
       const contentToSend = config
-        ? { ...pdfFormDraft, fieldPositions: config.fieldPositions, customBoxes: config.customBoxes ?? [] }
-        : pdfFormDraft;
+        ? {
+            ...pdfFormDraft,
+            fieldPositions: { ...config.fieldPositions, ...docFieldPositions },
+            customBoxes: config.customBoxes ?? [],
+            globalFontSize: config.fontSize,
+            globalFontColor: config.fontColor ?? '#000000',
+          }
+        : { ...pdfFormDraft, globalFontSize: 11, globalFontColor: '#000000' };
       const res = await fetch(`${API_BASE}/api/templates/${docType}/generate`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -2372,6 +2396,18 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
       setSelectedId(created.id);
       setNewDocDraft(null);
       setSaveModal(null);
+      const link = linkToBoardItemRef.current;
+      if (link) {
+        await linkDocToBoardItem({
+          boardId: link.boardId,
+          itemId: link.itemId,
+          columnId: link.columnId,
+          type: link.type,
+          docId: created.id,
+        });
+        setLinkToBoardItem(null);
+        linkToBoardItemRef.current = null;
+      }
       if (saveModalGroupId) {
         setAssignments(prev => ({ ...prev, [created.id]: saveModalGroupId }));
         setSubgroupAssignments(prev =>

@@ -15,12 +15,18 @@ export const AdminUsersPanel: React.FC<Props> = ({ open, onOpenChange }) => {
   const [username, setUsername] = useState('');
   const [name, setName] = useState('');
   const [password, setPassword] = useState('');
-  const [role, setRole] = useState<'ADMIN' | 'VENTAS' | 'DISENO' | 'TALLER'>('VENTAS');
+  const [role, setRole] = useState<'ADMIN' | 'VENTAS' | 'DISENO' | 'TALLER' | 'USER'>('VENTAS');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [userPendingDelete, setUserPendingDelete] = useState<User | null>(null);
+  const [editingUser, setEditingUser] = useState<User | null>(null);
+  const [editName, setEditName] = useState('');
+  const [editUsername, setEditUsername] = useState('');
+  const [editPassword, setEditPassword] = useState('');
+  const [editRole, setEditRole] = useState<'ADMIN' | 'VENTAS' | 'DISENO' | 'TALLER' | 'USER'>('VENTAS');
+  const [savingEdit, setSavingEdit] = useState(false);
 
   // Security fallback, theoretically the button shouldn't exist if not admin
   if (currentUser?.role !== 'ADMIN') return null;
@@ -46,6 +52,50 @@ export const AdminUsersPanel: React.FC<Props> = ({ open, onOpenChange }) => {
     } finally {
       setDeleting(false);
       setUserPendingDelete(null);
+    }
+  };
+
+  const startEditUser = (user: User) => {
+    setEditingUser(user);
+    setEditName(user.name);
+    setEditUsername(user.username);
+    setEditPassword('');
+    setEditRole((user.role as any) || 'USER');
+    setError('');
+    setSuccess(false);
+  };
+
+  const handleUpdateUser = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingUser || !currentUser) return;
+    if (!editName.trim() || !editUsername.trim()) {
+      setError('Nombre y usuario son obligatorios');
+      return;
+    }
+    setSavingEdit(true);
+    setError('');
+    setSuccess(false);
+    try {
+      const res = await fetch(`${API_BASE}/api/users/${editingUser.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          adminId: currentUser.id,
+          name: editName.trim(),
+          username: editUsername.trim(),
+          password: editPassword.trim() || undefined,
+          role: editRole,
+        }),
+      });
+      await parseResponse<User>(res);
+      setSuccess(true);
+      setTimeout(() => setSuccess(false), 2000);
+      setEditPassword('');
+      fetchUsers();
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Error de conexión');
+    } finally {
+      setSavingEdit(false);
     }
   };
 
@@ -87,8 +137,8 @@ export const AdminUsersPanel: React.FC<Props> = ({ open, onOpenChange }) => {
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 bg-black/40 z-[100] fade-in" />
-        <Dialog.Content className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 bg-white rounded-xl shadow-monday-xl border border-monday-border p-6 w-[500px] z-[101] zoom-in">
-          
+        <Dialog.Content className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 bg-white rounded-xl shadow-monday-xl border border-monday-border p-6 w-[500px] z-[101] zoom-in" aria-describedby="admin-users-desc">
+          <Dialog.Description id="admin-users-desc" className="sr-only">Crear, editar y eliminar usuarios del sistema</Dialog.Description>
           <div className="flex items-center justify-between mb-6">
             <div className="flex items-center gap-2">
               <ShieldAlert className="text-monday-blue" size={24} />
@@ -150,6 +200,7 @@ export const AdminUsersPanel: React.FC<Props> = ({ open, onOpenChange }) => {
                     <option value="VENTAS">Ventas</option>
                     <option value="DISENO">Diseño</option>
                     <option value="TALLER">Taller</option>
+                    <option value="USER">Usuario</option>
                   </select>
                 </div>
 
@@ -167,15 +218,18 @@ export const AdminUsersPanel: React.FC<Props> = ({ open, onOpenChange }) => {
               </form>
             </div>
 
-            {/* User List */}
+            {/* User List + Edit */}
             <div className="flex flex-col">
               <h3 className="text-[14px] font-bold text-monday-text mb-4">Usuarios ({users.length})</h3>
               {error && <div className="text-[12px] text-red-500 font-medium mb-2">{error}</div>}
-              <div className="flex flex-col gap-2 overflow-y-auto max-h-[250px] custom-scrollbar pr-2">
+              <div className="flex flex-col gap-2 overflow-y-auto max-h-[180px] custom-scrollbar pr-2">
                 {users.map(user => (
                   <div
                     key={user.id}
-                    className="relative flex items-center gap-2 p-2 rounded-md hover:bg-monday-bg transition-colors border border-transparent hover:border-monday-border group"
+                    className={`relative flex items-center gap-2 p-2 rounded-md hover:bg-monday-bg transition-colors border group cursor-pointer ${
+                      editingUser?.id === user.id ? 'border-monday-blue bg-monday-bg' : 'border-transparent hover:border-monday-border'
+                    }`}
+                    onClick={() => startEditUser(user)}
                   >
                     <div className="relative">
                       <div
@@ -255,6 +309,65 @@ export const AdminUsersPanel: React.FC<Props> = ({ open, onOpenChange }) => {
                   </div>
                 ))}
               </div>
+
+              {/* Edit selected user */}
+              {editingUser && (
+                <div className="mt-4 pt-4 border-t border-monday-border">
+                  <h4 className="text-[13px] font-semibold text-monday-text mb-2">
+                    Editar usuario
+                  </h4>
+                  <form onSubmit={handleUpdateUser} className="flex flex-col gap-2">
+                    <div className="flex flex-col gap-1">
+                      <label className="text-[12px] font-semibold text-monday-text ml-1">Nombre</label>
+                      <input
+                        type="text"
+                        value={editName}
+                        onChange={e => setEditName(e.target.value)}
+                        className="w-full h-8 px-2 py-1 text-[13px] border border-monday-border rounded bg-monday-bg outline-none focus:border-monday-blue transition-colors"
+                      />
+                    </div>
+                    <div className="flex flex-col gap-1">
+                      <label className="text-[12px] font-semibold text-monday-text ml-1">Usuario</label>
+                      <input
+                        type="text"
+                        value={editUsername}
+                        onChange={e => setEditUsername(e.target.value)}
+                        className="w-full h-8 px-2 py-1 text-[13px] border border-monday-border rounded bg-monday-bg outline-none focus:border-monday-blue transition-colors"
+                      />
+                    </div>
+                    <div className="flex flex-col gap-1">
+                      <label className="text-[12px] font-semibold text-monday-text ml-1">Nueva contraseña (opcional)</label>
+                      <input
+                        type="password"
+                        value={editPassword}
+                        onChange={e => setEditPassword(e.target.value)}
+                        className="w-full h-8 px-2 py-1 text-[13px] border border-monday-border rounded bg-monday-bg outline-none focus:border-monday-blue transition-colors"
+                      />
+                    </div>
+                    <div className="flex flex-col gap-1 mb-1">
+                      <label className="text-[12px] font-semibold text-monday-text ml-1">Rol</label>
+                      <select
+                        value={editRole}
+                        onChange={e => setEditRole(e.target.value as any)}
+                        className="w-full h-8 px-2 py-1 text-[13px] border border-monday-border rounded bg-monday-bg outline-none focus:border-monday-blue transition-colors"
+                      >
+                        <option value="ADMIN">Admin</option>
+                        <option value="VENTAS">Ventas</option>
+                        <option value="DISENO">Diseño</option>
+                        <option value="TALLER">Taller</option>
+                        <option value="USER">Usuario</option>
+                      </select>
+                    </div>
+                    <button
+                      type="submit"
+                      disabled={savingEdit}
+                      className="w-full h-8 bg-monday-blue text-white rounded text-[13px] font-semibold hover:bg-blue-600 transition-colors flex items-center justify-center gap-1"
+                    >
+                      {savingEdit ? 'Guardando...' : 'Guardar cambios'}
+                    </button>
+                  </form>
+                </div>
+              )}
             </div>
 
           </div>

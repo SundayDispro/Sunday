@@ -1,6 +1,24 @@
 import fs from 'fs';
 import path from 'path';
-import { PDFDocument, rgb } from 'pdf-lib';
+import { PDFDocument, rgb, RGB } from 'pdf-lib';
+
+/** Convierte color hex (#000000 o #fff) a RGB para pdf-lib */
+function hexToRgb(hex: string): RGB {
+  const s = String(hex).replace(/^#/, '');
+  if (s.length === 3) {
+    const r = parseInt(s[0] + s[0], 16) / 255;
+    const g = parseInt(s[1] + s[1], 16) / 255;
+    const b = parseInt(s[2] + s[2], 16) / 255;
+    return rgb(r, g, b);
+  }
+  if (s.length === 6) {
+    const r = parseInt(s.slice(0, 2), 16) / 255;
+    const g = parseInt(s.slice(2, 4), 16) / 255;
+    const b = parseInt(s.slice(4, 6), 16) / 255;
+    return rgb(r, g, b);
+  }
+  return rgb(0, 0, 0);
+}
 
 const TEMPLATES_DIR = path.join(process.cwd(), 'templates');
 const FONTS_DIR = path.join(process.cwd(), 'assets', 'fonts', 'AvertaStd');
@@ -101,42 +119,61 @@ export async function generatePdfFromTemplate(
     }
   })();
 
+  const defaultColor = hexToRgb((content.globalFontColor as string) || '#000000');
+
+  const lineHeight = 1.2;
+
+  /** Dibuja texto respetando saltos de línea (\n) y aplicando word-wrap si maxWidth está definido */
   function drawText(
     text: string,
     x: number,
     y: number,
     fontSize: number,
     maxWidth?: number,
-    weight: 'regular' | 'bold' = 'regular'
+    weight: 'regular' | 'bold' = 'regular',
+    color: RGB = defaultColor
   ): void {
-    if (!text) return;
-    const safeText = String(text).slice(0, 500);
+    if (text == null || String(text).trim() === '') return;
+    const safeText = String(text).slice(0, 2000);
     const font = weight === 'bold' ? avertaBold : avertaRegular;
     const size = fontSize;
     let yy = height - y;
-    if (maxWidth && safeText.length * (size / 2) > maxWidth) {
-      const lines: string[] = [];
-      const words = safeText.split(/\s+/);
-      let line = '';
+
+    const wrapLine = (line: string): string[] => {
+      if (!maxWidth || line.trim() === '') return [line];
+      const words = line.trim().split(/\s+/);
+      if (words.length === 0) return [line];
+      const result: string[] = [];
+      let current = '';
       for (const w of words) {
-        if (font.widthOfTextAtSize(line + w, size) > maxWidth && line) {
-          lines.push(line);
-          line = w;
+        const next = current ? current + ' ' + w : w;
+        if (font.widthOfTextAtSize(next, size) > maxWidth && current) {
+          result.push(current);
+          current = w;
         } else {
-          line = line ? line + ' ' + w : w;
+          current = next;
         }
       }
-      if (line) lines.push(line);
-      for (const l of lines) {
-        page.drawText(l, { x, y: yy, size, font, color: rgb(0, 0, 0) });
-        yy -= size * 1.2;
+      if (current) result.push(current);
+      return result;
+    };
+
+    // Respetar saltos de línea del documento
+    const paragraphs = safeText.split(/\r?\n/);
+    for (const para of paragraphs) {
+      const sublines = wrapLine(para);
+      for (const line of sublines) {
+        if (line.length > 0) {
+          page.drawText(line, { x, y: yy, size, font, color });
+        }
+        yy -= size * lineHeight;
       }
-    } else {
-      page.drawText(safeText, { x, y: yy, size, font, color: rgb(0, 0, 0) });
     }
   }
 
-  const fieldPositionsFromContent = (content.fieldPositions ?? {}) as Record<string, ContentFieldPosition>;
+  // Posiciones: priorizar las del documento (fieldPositions en content), luego las por defecto
+  const docFieldPositions = (content.fieldPositions ?? {}) as Record<string, ContentFieldPosition>;
+  const globalFontSize = typeof content.globalFontSize === 'number' ? content.globalFontSize : undefined;
 
   // Campos estándar basados en TEMPLATE_FIELD_POSITIONS
   for (const [key, pos] of Object.entries(positions)) {
@@ -146,10 +183,10 @@ export async function generatePdfFromTemplate(
     if (Array.isArray(value)) continue; // items se dibujan aparte
     const text = String(value).trim();
     if (!text) continue;
-    const custom = fieldPositionsFromContent[key];
+    const custom = docFieldPositions[key];
     let xPts: number;
     let yPts: number;
-    let fontSize = pos.fontSize ?? 10;
+    let fontSize = globalFontSize ?? pos.fontSize ?? 10;
     let maxWidth = pos.maxWidth;
     if (custom && typeof custom.x === 'number' && typeof custom.y === 'number') {
       xPts = custom.x * width;
@@ -163,7 +200,7 @@ export async function generatePdfFromTemplate(
     drawText(text, xPts, yPts, fontSize, maxWidth, pos.weight ?? 'regular');
   }
 
-  // Cuadros personalizados provenientes del editor (customBoxes + customFieldValues)
+  // Cuadros personalizados: usar posición y estilo del documento (customBoxes con fontSize, fontBold, fontColor)
   const customBoxes = (content.customBoxes ?? []) as Array<
     {
       id: string;
@@ -175,20 +212,25 @@ export async function generatePdfFromTemplate(
       fontSize?: number;
       fontBold?: boolean;
       fontItalic?: boolean;
+      fontColor?: string;
     }
   >;
   const customFieldValues = (content.customFieldValues ?? {}) as Record<string, string>;
+  const defaultBoxFontSize = typeof content.globalFontSize === 'number' ? content.globalFontSize : 11;
   if (Array.isArray(customBoxes) && Object.keys(customFieldValues).length > 0) {
     for (const box of customBoxes) {
       if (!box || (box.kind && box.kind !== 'text')) continue;
       const text = (customFieldValues[box.id] ?? '').trim();
       if (!text) continue;
-      const size = box.fontSize ?? 11;
+      const size = typeof box.fontSize === 'number' ? box.fontSize : defaultBoxFontSize;
       const weight: 'regular' | 'bold' = box.fontBold ? 'bold' : 'regular';
+      const boxColor = typeof box.fontColor === 'string' && box.fontColor
+        ? hexToRgb(box.fontColor)
+        : defaultColor;
       const maxWidth = box.width ? box.width * width : undefined;
       const xPts = (box.x ?? 0) * width;
       const yPts = (box.y ?? 0) * height;
-      drawText(text, xPts, yPts, size, maxWidth, weight);
+      drawText(text, xPts, yPts, size, maxWidth, weight, boxColor);
     }
   }
 

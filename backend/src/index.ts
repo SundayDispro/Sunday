@@ -841,6 +841,73 @@ app.get('/api/users', async (req, res) => {
   }
 });
 
+// Actualizar datos básicos de un usuario (solo ADMIN)
+app.patch('/api/users/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { adminId, name, username, password, role: bodyRole } = req.body ?? {};
+
+    if (!adminId) {
+      return res.status(403).json({ error: 'Se requiere adminId' });
+    }
+
+    const admin = await prisma.user.findUnique({ where: { id: String(adminId) } });
+    if (!admin || admin.role !== 'ADMIN') {
+      return res.status(403).json({ error: 'Solo los administradores pueden editar usuarios' });
+    }
+
+    const data: {
+      name?: string;
+      username?: string;
+      password?: string;
+      role?: string;
+    } = {};
+
+    if (typeof name === 'string' && name.trim()) {
+      data.name = name.trim();
+    }
+
+    if (typeof username === 'string' && username.trim()) {
+      const existingUser = await prisma.user.findUnique({ where: { username } });
+      if (existingUser && existingUser.id !== id) {
+        return res.status(400).json({ error: 'El nombre de usuario ya está en uso' });
+      }
+      data.username = username.trim();
+    }
+
+    if (typeof password === 'string' && password.trim()) {
+      data.password = password;
+    }
+
+    if (typeof bodyRole === 'string') {
+      const allowedRoles = ['ADMIN', 'VENTAS', 'DISENO', 'TALLER', 'USER'];
+      if (!allowedRoles.includes(bodyRole)) {
+        return res.status(400).json({ error: 'Rol inválido' });
+      }
+      data.role = bodyRole;
+    }
+
+    if (Object.keys(data).length === 0) {
+      return res.status(400).json({ error: 'Nada que actualizar' });
+    }
+
+    const updated = await prisma.user.update({
+      where: { id },
+      data,
+    });
+
+    const { password: _p, ...safe } = updated;
+    io.emit('user_updated', safe);
+    res.json(safe);
+  } catch (e) {
+    console.error('Error updating user:', e);
+    if ((e as { code?: string })?.code === 'P2025') {
+      return res.status(404).json({ error: 'Usuario no encontrado' });
+    }
+    res.status(500).json({ error: 'Error al actualizar usuario' });
+  }
+});
+
 // Actualizar estado del usuario (solo el propio usuario)
 app.patch('/api/users/:id/status', async (req, res) => {
   try {
