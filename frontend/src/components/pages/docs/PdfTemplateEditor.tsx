@@ -1,11 +1,12 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Download, Eye, GripVertical, ListOrdered } from 'lucide-react';
+import { GripVertical, Plus, Trash2, Type, Save, Maximize2 } from 'lucide-react';
 import {
   type PdfDocType,
-  PDF_FIELDS,
-  getPositionForField,
-  getFieldPositions,
+  type TemplateConfigState,
+  type CustomBoxDef,
 } from './pdfTemplateConfig';
+import { TextFormatBarForTemplate } from '../../docs/TextFormatBar';
+import { useUser } from '../../../store/UserContext';
 
 const API_BASE = 'http://localhost:3001';
 
@@ -14,29 +15,47 @@ interface Props {
   value: Record<string, unknown>;
   onChange: (v: Record<string, unknown>) => void;
   docId: string;
+  templateConfig?: TemplateConfigState | null;
+  isAdmin?: boolean;
+  onTemplateConfigChange?: (config: TemplateConfigState) => void;
+  onSaveTemplateConfig?: () => Promise<void>;
+  savingTemplateConfig?: boolean;
 }
 
 const PAGE_ASPECT = 595 / 842; // A4
 
-function getItems(value: Record<string, unknown>): { descripcion: string; cantidad: string; precio: string; total: string }[] {
-  const items = value.items;
-  if (Array.isArray(items) && items.length > 0)
-    return items as { descripcion: string; cantidad: string; precio: string; total: string }[];
-  return [{ descripcion: '', cantidad: '', precio: '', total: '' }];
-}
-
-export const PdfTemplateEditor: React.FC<Props> = ({ docType, value, onChange, docId }) => {
-  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+export const PdfTemplateEditor: React.FC<Props> = ({
+  docType,
+  value,
+  onChange,
+  docId,
+  templateConfig = null,
+  isAdmin = false,
+  onTemplateConfigChange,
+  onSaveTemplateConfig,
+  savingTemplateConfig = false,
+}) => {
+  const { currentUser } = useUser();
   const [templatePdfUrl, setTemplatePdfUrl] = useState<string | null>(null);
-  const [showItemsEditor, setShowItemsEditor] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const [dragging, setDragging] = useState<{ fieldKey: string; startX: number; startY: number; startLeft: number; startTop: number } | null>(null);
   const [dragPreview, setDragPreview] = useState<{ x: number; y: number } | null>(null);
+  const [resizing, setResizing] = useState<{ boxId: string; startX: number; startY: number; startW: number; startH: number } | null>(null);
+  const [resizePreview, setResizePreview] = useState<{ width: number; height: number } | null>(null);
+  const [adminMenuOpen, setAdminMenuOpen] = useState(false);
+  const [selectedBoxId, setSelectedBoxId] = useState<string | null>(null);
 
   const update = useCallback(
     (updates: Record<string, unknown>) => onChange({ ...value, ...updates }),
     [value, onChange]
   );
+
+  const fontColor = templateConfig?.fontColor ?? '#000000';
+  const fontFamily = templateConfig?.fontFamily ?? 'Helvetica';
+  const fontSize = templateConfig?.fontSize ?? 11;
+  const fontBold = templateConfig?.fontBold ?? false;
+  const fontItalic = templateConfig?.fontItalic ?? false;
+  const customBoxes = templateConfig?.customBoxes ?? [];
 
   // Cargar URL de plantilla PDF para usarla como fondo
   useEffect(() => {
@@ -62,49 +81,50 @@ export const PdfTemplateEditor: React.FC<Props> = ({ docType, value, onChange, d
     };
   }, [docType]);
 
-  useEffect(() => () => {
-    if (previewUrl) URL.revokeObjectURL(previewUrl);
-  }, [previewUrl]);
+  const handleCustomBoxMouseDown = useCallback((e: React.MouseEvent, box: CustomBoxDef) => {
+    e.preventDefault();
+    setDragging({ fieldKey: box.id, startX: e.clientX, startY: e.clientY, startLeft: box.x, startTop: box.y });
+  }, []);
 
-  const handleGeneratePdf = async (action: 'preview' | 'download') => {
-    try {
-      const res = await fetch(`${API_BASE}/api/templates/${docType}/generate`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ content: value }),
-      });
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        throw new Error((err as { error?: string }).error || 'Error al generar PDF');
-      }
-      const blob = await res.blob();
-      if (action === 'download') {
-        const a = document.createElement('a');
-        a.href = URL.createObjectURL(blob);
-        a.download = `${docType}.pdf`;
-        a.click();
-        URL.revokeObjectURL(a.href);
-      } else {
-        const prev = previewUrl;
-        setPreviewUrl(URL.createObjectURL(blob));
-        if (prev) URL.revokeObjectURL(prev);
-      }
-    } catch (e) {
-      console.error('PDF generate error', e);
-      alert(e instanceof Error ? e.message : 'No se pudo generar el PDF.');
-    }
-  };
+  const addCustomBox = useCallback((singleLine = false) => {
+    if (!templateConfig || !onTemplateConfigChange || !currentUser?.id) return;
+    const newBox: CustomBoxDef = {
+      id: `custom-${Date.now()}`,
+      x: 0.1,
+      y: 0.5,
+      width: 0.4,
+      height: singleLine ? 0.03 : 0.05,
+      kind: 'text',
+      ownerId: currentUser.id,
+      ...(singleLine ? { singleLine: true } : {}),
+    };
+    onTemplateConfigChange({
+      ...templateConfig,
+      customBoxes: [...customBoxes, newBox],
+    });
+    const cf = (value.customFieldValues as Record<string, string>) ?? {};
+    update({ customFieldValues: { ...cf, [newBox.id]: '' } });
+  }, [templateConfig, onTemplateConfigChange, customBoxes, value.customFieldValues, update, currentUser?.id]);
 
-  const fields = PDF_FIELDS[docType];
-
-  const handleBoxMouseDown = useCallback(
-    (e: React.MouseEvent, fieldKey: string) => {
-      e.preventDefault();
-      const pos = getPositionForField(fieldKey, value, docType, fields.find((f) => f.key === fieldKey)!);
-      setDragging({ fieldKey, startX: e.clientX, startY: e.clientY, startLeft: pos.x, startTop: pos.y });
-    },
-    [value, docType, fields]
-  );
+  const addImageBox = useCallback(() => {
+    if (!templateConfig || !onTemplateConfigChange || !currentUser?.id) return;
+    const url = window.prompt('URL de la imagen a mostrar en la plantilla');
+    if (!url) return;
+    const newBox: CustomBoxDef = {
+      id: `img-${Date.now()}`,
+      x: 0.15,
+      y: 0.2,
+      width: 0.3,
+      height: 0.15,
+      kind: 'image',
+      imageUrl: url,
+      ownerId: currentUser.id,
+    };
+    onTemplateConfigChange({
+      ...templateConfig,
+      customBoxes: [...customBoxes, newBox],
+    });
+  }, [templateConfig, onTemplateConfigChange, customBoxes, currentUser?.id]);
 
   useEffect(() => {
     if (!dragging) return;
@@ -124,11 +144,11 @@ export const PdfTemplateEditor: React.FC<Props> = ({ docType, value, onChange, d
     };
     const onUp = () => {
       if (!dragging) return;
-      if (dragPreview !== null) {
-        const positions = getFieldPositions(value, docType);
-        update({
-          fieldPositions: { ...positions, [dragging.fieldKey]: { x: dragPreview.x, y: dragPreview.y } },
-        });
+      if (dragPreview !== null && templateConfig && onTemplateConfigChange) {
+        const nextBoxes = customBoxes.map((b) =>
+          b.id === dragging.fieldKey ? { ...b, x: dragPreview.x, y: dragPreview.y } : b
+        );
+        onTemplateConfigChange({ ...templateConfig, customBoxes: nextBoxes });
       }
       setDragging(null);
       setDragPreview(null);
@@ -139,49 +159,140 @@ export const PdfTemplateEditor: React.FC<Props> = ({ docType, value, onChange, d
       window.removeEventListener('mousemove', onMove);
       window.removeEventListener('mouseup', onUp);
     };
-  }, [dragging, dragPreview, value, docType, update]);
+  }, [dragging, dragPreview, customBoxes, templateConfig, onTemplateConfigChange]);
+
+  const handleResizeStart = useCallback((e: React.MouseEvent, box: CustomBoxDef) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setResizing({ boxId: box.id, startX: e.clientX, startY: e.clientY, startW: box.width, startH: box.height });
+  }, []);
+
+  useEffect(() => {
+    if (!resizing) return;
+    const onMove = (e: MouseEvent) => {
+      const el = containerRef.current;
+      if (!el) return;
+      const rect = el.getBoundingClientRect();
+      const dx = (e.clientX - resizing.startX) / rect.width;
+      const dy = (e.clientY - resizing.startY) / rect.height;
+      let w = resizing.startW + dx;
+      let h = resizing.startH + dy;
+      w = Math.max(0.08, Math.min(0.95, w));
+      h = Math.max(0.04, Math.min(0.9, h));
+      setResizePreview({ width: w, height: h });
+    };
+    const onUp = () => {
+      if (!resizing) return;
+      if (resizePreview !== null && templateConfig && onTemplateConfigChange) {
+        const nextBoxes = customBoxes.map((b) =>
+          b.id === resizing.boxId ? { ...b, width: resizePreview.width, height: resizePreview.height } : b
+        );
+        onTemplateConfigChange({ ...templateConfig, customBoxes: nextBoxes });
+      }
+      setResizing(null);
+      setResizePreview(null);
+    };
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+    return () => {
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+    };
+  }, [resizing, resizePreview, customBoxes, templateConfig, onTemplateConfigChange]);
+
+  const normalizedColor = fontColor.toLowerCase() === '#ffffff' ? '#ffffff' : '#000000';
+  const baseTextStyle = {
+    fontFamily,
+    fontWeight: fontBold ? 'bold' : 'normal',
+    fontStyle: fontItalic ? 'italic' : 'normal',
+  };
+  const getTextStyleForBox = (box: CustomBoxDef) => {
+    const size = box.fontSize ?? fontSize;
+    const col = box.fontColor != null ? (box.fontColor.toLowerCase() === '#ffffff' ? '#ffffff' : '#000000') : normalizedColor;
+    return { ...baseTextStyle, color: col, fontSize: `${size}pt` };
+  };
+  useEffect(() => {
+    if (selectedBoxId && !customBoxes.some((b) => b.id === selectedBoxId)) setSelectedBoxId(null);
+  }, [selectedBoxId, customBoxes]);
 
   return (
-    <div className="flex-1 flex flex-col overflow-hidden bg-monday-bg/50">
-      <div className="shrink-0 flex items-center gap-2 px-3 py-2 bg-white border-b border-monday-border shadow-sm flex-wrap">
-        <button
-          type="button"
-          onClick={() => handleGeneratePdf('preview')}
-          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-monday border border-monday-border text-[13px] text-monday-text hover:bg-monday-hover"
-        >
-          <Eye size={14} /> Vista previa PDF
-        </button>
-        <button
-          type="button"
-          onClick={() => handleGeneratePdf('download')}
-          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-monday bg-monday-blue text-white text-[13px] hover:bg-monday-blue/90"
-        >
-          <Download size={14} /> Descargar PDF
-        </button>
-        {docType === 'cotizacion' && (
+    <div className="relative flex-1 flex flex-col overflow-hidden bg-monday-bg/30 min-h-0">
+      {isAdmin && templateConfig && (
+        <div className="absolute top-2 right-2 z-30 flex flex-col gap-2">
           <button
             type="button"
-            onClick={() => setShowItemsEditor((s) => !s)}
-            className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-monday border text-[13px] ${showItemsEditor ? 'bg-monday-blue text-white border-monday-blue' : 'border-monday-border text-monday-text hover:bg-monday-hover'}`}
+            onClick={() => setAdminMenuOpen((o) => !o)}
+            className="flex items-center gap-2 px-3 py-2 rounded-lg bg-white border border-monday-border shadow-monday text-[13px] font-medium text-monday-text hover:bg-monday-hover"
           >
-            <ListOrdered size={14} /> {showItemsEditor ? 'Ocultar ítems' : 'Editar ítems'}
+            <Type size={16} />
+            {adminMenuOpen ? 'Cerrar menú' : 'Menú plantilla (admin)'}
           </button>
-        )}
-        <span className="text-[11px] text-monday-subtext px-2">Documento</span>
-      </div>
-
-      <div className="flex-1 overflow-auto p-6 flex flex-col items-center gap-4">
-        {/* Área de edición: PDF de fondo + cuadros de texto */}
+          {adminMenuOpen && (
+            <div className="w-56 rounded-lg bg-white border border-monday-border shadow-monday p-3 flex flex-col gap-3">
+              <p className="text-[11px] font-semibold text-monday-subtext uppercase">Solo posición</p>
+              <p className="text-[11px] text-monday-subtext">Arrastra, redimensiona (esquina) o elimina los cuadros sobre la plantilla.</p>
+              <button
+                type="button"
+                onClick={() => addCustomBox(false)}
+                className="flex items-center gap-2 px-2 py-1.5 rounded border border-monday-border text-[12px] text-monday-text hover:bg-monday-hover"
+              >
+                <Plus size={14} /> Agregar cuadro de texto
+              </button>
+              <button
+                type="button"
+                onClick={() => addCustomBox(true)}
+                className="flex items-center gap-2 px-2 py-1.5 rounded border border-monday-border text-[12px] text-monday-text hover:bg-monday-hover"
+              >
+                <Plus size={14} /> Agregar cuadro (una línea)
+              </button>
+              {onSaveTemplateConfig && (
+                <button
+                  type="button"
+                  onClick={onSaveTemplateConfig}
+                  disabled={savingTemplateConfig}
+                  className="flex items-center justify-center gap-2 px-3 py-2 rounded-lg bg-monday-blue text-white text-[13px] font-medium hover:bg-monday-blue/90 disabled:opacity-60"
+                >
+                  <Save size={14} />
+                  {savingTemplateConfig ? 'Guardando…' : 'Guardar cambios'}
+                </button>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+      {templateConfig && onTemplateConfigChange && (
+        <TextFormatBarForTemplate
+          templateConfig={{
+            fontFamily: templateConfig.fontFamily,
+            fontSize: templateConfig.fontSize,
+            fontBold: templateConfig.fontBold,
+            fontItalic: templateConfig.fontItalic,
+            fontColor: templateConfig.fontColor,
+            customBoxes: templateConfig.customBoxes,
+          }}
+          onTemplateConfigChange={onTemplateConfigChange}
+          selectedBoxId={selectedBoxId}
+          onAddTextBox={() => addCustomBox(false)}
+          onAddImageBox={addImageBox}
+        />
+      )}
+      <div className="flex-1 overflow-auto flex items-center justify-center min-h-0 p-2 sm:p-4">
         <div
           ref={containerRef}
-          className="relative bg-white rounded-lg border border-monday-border shadow-monday-lg overflow-hidden"
-          style={{ width: '100%', maxWidth: '21cm', aspectRatio: String(PAGE_ASPECT) }}
+          className="relative bg-transparent rounded-lg border border-monday-border/60 shadow-monday overflow-hidden"
+          style={{
+            width: '100%',
+            maxWidth: '21cm',
+            aspectRatio: String(PAGE_ASPECT),
+            maxHeight: 'calc(100vh - 12rem)',
+            height: 'auto',
+          }}
         >
           {/* Capa 1: Fondo (PDF o blanco) — detrás y sin recibir clics */}
           <div className="absolute inset-0 z-0">
             {templatePdfUrl ? (
               <iframe
-                src={templatePdfUrl}
+                src={`${templatePdfUrl}#toolbar=0&navpanes=0&scrollbar=0`}
                 title="Plantilla PDF"
                 className="w-full h-full border-0 pointer-events-none select-none"
                 tabIndex={-1}
@@ -192,197 +303,131 @@ export const PdfTemplateEditor: React.FC<Props> = ({ docType, value, onChange, d
               </div>
             )}
           </div>
-          {/* Capa 2: Cuadros de texto editables sobre el PDF — encima y con prioridad */}
-          <div className="absolute inset-0 z-10 pointer-events-none">
+          {/* Capa 2: cuadros dinámicos sobre la plantilla */}
+          <div className="absolute inset-0 z-20 pointer-events-none">
             <div className="absolute inset-0 pointer-events-auto">
-              {fields.map((fieldDef) => {
-                const basePos = getPositionForField(fieldDef.key, value, docType, fieldDef);
-                const pos =
-                  dragging?.fieldKey === fieldDef.key && dragPreview
-                    ? { ...basePos, x: dragPreview.x, y: dragPreview.y }
-                    : basePos;
-                const val = (value[fieldDef.key] as string) ?? '';
-                const isTextarea = fieldDef.inputType === 'textarea';
+              {/* Cuadros de texto / imagen agregados en la plantilla */}
+              {customBoxes.map((box) => {
+                const canEditBox = isAdmin || (currentUser?.id && box.ownerId === currentUser.id);
+                const isDraggingThis = dragging?.fieldKey === box.id && dragPreview;
+                const isResizingThis = resizing?.boxId === box.id && resizePreview;
+                const x = isDraggingThis ? dragPreview.x : box.x;
+                const y = isDraggingThis ? dragPreview.y : box.y;
+                const w = isResizingThis ? resizePreview.width : box.width;
+                const h = isResizingThis ? resizePreview.height : box.height;
+                const customValues = (value.customFieldValues as Record<string, string>) ?? {};
+                const boxVal = customValues[box.id] ?? '';
+                const boxTextStyle = getTextStyleForBox(box);
+                const isSelected = selectedBoxId === box.id;
                 return (
                   <div
-                    key={fieldDef.key}
-                    className="absolute flex flex-col group box-border border border-dashed border-monday-blue/60 bg-white/70 hover:bg-white/90 focus-within:border-monday-blue focus-within:bg-white/95 focus-within:shadow-sm rounded-sm transition-all"
+                    key={box.id}
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => canEditBox && setSelectedBoxId(box.id)}
+                    className={`absolute flex flex-col group box-border rounded border transition-all overflow-visible ${isSelected ? 'border-monday-blue ring-2 ring-monday-blue/30 bg-white/10' : 'border-monday-border/20 bg-white/5'}`}
                     style={{
-                      left: `${pos.x * 100}%`,
-                      top: `${pos.y * 100}%`,
-                      width: `${pos.width * 100}%`,
-                      height: `${pos.height * 100}%`,
+                      left: `${x * 100}%`,
+                      top: `${y * 100}%`,
+                      width: `${w * 100}%`,
+                      height: `${h * 100}%`,
                       minHeight: '28px',
+                      minWidth: '60px',
                     }}
                   >
+                    {canEditBox && (
                     <div
-                      className="shrink-0 flex items-center justify-end h-5 px-1 opacity-50 group-hover:opacity-100 cursor-grab active:cursor-grabbing text-monday-subtext hover:text-monday-blue border-b border-monday-border/30"
-                      onMouseDown={(e) => handleBoxMouseDown(e, fieldDef.key)}
-                      title="Arrastrar para reposicionar"
+                      className="absolute left-0 right-0 flex items-center justify-end gap-0.5 h-6 px-1 rounded-t border border-monday-border/20 border-b-0 bg-white/95 shadow-sm z-10 -top-6"
+                      onClick={(e) => e.stopPropagation()}
                     >
-                      <GripVertical size={10} />
+                      <div
+                        className="cursor-grab active:cursor-grabbing text-monday-subtext hover:text-monday-blue p-0.5 rounded"
+                        onMouseDown={(e) => canEditBox && handleCustomBoxMouseDown(e, box)}
+                        title="Arrastrar"
+                      >
+                        <GripVertical size={12} />
+                      </div>
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          if (!templateConfig || !onTemplateConfigChange || !canEditBox) return;
+                          onTemplateConfigChange({
+                            ...templateConfig,
+                            customBoxes: customBoxes.filter((b) => b.id !== box.id),
+                          });
+                        }}
+                        className="p-0.5 rounded text-monday-subtext hover:text-red-600 hover:bg-red-50"
+                        title="Eliminar cuadro"
+                      >
+                        <Trash2 size={12} />
+                      </button>
                     </div>
-                    <div className="flex-1 min-h-0 flex items-center overflow-hidden">
-                      {isTextarea ? (
-                        <textarea
-                          value={val}
-                          onChange={(e) => update({ [fieldDef.key]: e.target.value })}
-                          placeholder={fieldDef.label}
-                          className="w-full h-full min-h-0 resize-none text-[11pt] text-black bg-transparent border-0 outline-none focus:ring-0 py-1 px-1.5 placeholder:text-monday-subtext"
+                    )}
+                    <div className="flex-1 min-h-0 flex overflow-hidden rounded-sm focus-within:bg-white/60 focus-within:ring-1 focus-within:ring-monday-blue/40">
+                      {box.kind === 'image' ? (
+                        <img
+                          src={box.imageUrl || ''}
+                          alt=""
+                          className="w-full h-full object-contain pointer-events-auto"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            if (!templateConfig || !onTemplateConfigChange || !canEditBox) return;
+                            const nextUrl = window.prompt('URL de la imagen', box.imageUrl || '');
+                            if (!nextUrl) return;
+                            const nextBoxes = customBoxes.map((b) =>
+                              b.id === box.id ? { ...b, imageUrl: nextUrl } : b
+                            );
+                            onTemplateConfigChange({ ...templateConfig, customBoxes: nextBoxes });
+                          }}
+                        />
+                      ) : box.singleLine ? (
+                        <input
+                          type="text"
+                          value={boxVal}
+                          onChange={(e) =>
+                            update({
+                              customFieldValues: { ...customValues, [box.id]: e.target.value },
+                            })
+                          }
+                          placeholder="Texto (una línea)"
+                          style={boxTextStyle}
+                          className="w-full h-full min-h-0 bg-transparent border-0 outline-none focus:ring-0 py-1 px-1.5 placeholder:text-gray-400 block"
                           onClick={(e) => e.stopPropagation()}
-                          spellCheck="true"
+                          spellCheck
                         />
                       ) : (
-                        <input
-                          type={fieldDef.inputType ?? 'text'}
-                          value={val}
-                          onChange={(e) => update({ [fieldDef.key]: e.target.value })}
-                          placeholder={fieldDef.label}
-                          className="w-full text-[11pt] text-black bg-transparent border-0 outline-none focus:ring-0 py-1 px-1.5 placeholder:text-monday-subtext"
+                        <textarea
+                          value={boxVal}
+                          onChange={(e) =>
+                            update({
+                              customFieldValues: { ...customValues, [box.id]: e.target.value },
+                            })
+                          }
+                          placeholder="Texto (varios renglones)"
+                          style={boxTextStyle}
+                          className="w-full h-full min-h-0 resize-none bg-transparent border-0 outline-none focus:ring-0 py-1 px-1.5 placeholder:text-gray-400 overflow-auto block"
                           onClick={(e) => e.stopPropagation()}
-                          spellCheck="true"
+                          spellCheck
                         />
                       )}
                     </div>
+                    {canEditBox && (
+                    <div
+                      className="absolute bottom-0 right-0 w-4 h-4 cursor-se-resize flex items-center justify-center text-monday-subtext hover:text-monday-blue border-t border-l border-monday-border/40 rounded-tl bg-white/80"
+                      onMouseDown={(e) => canEditBox && handleResizeStart(e, box)}
+                      title="Redimensionar (arrastrar)"
+                    >
+                      <Maximize2 size={10} />
+                    </div>
+                    )}
                   </div>
                 );
               })}
             </div>
           </div>
         </div>
-
-        {/* Editor de ítems (solo cotización) */}
-        {docType === 'cotizacion' && showItemsEditor && (
-          <ItemsEditor value={value} update={update} />
-        )}
       </div>
-
-      {previewUrl && (
-        <div
-          className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4"
-          onClick={() => {
-            setPreviewUrl((prev) => {
-              if (prev) URL.revokeObjectURL(prev);
-              return null;
-            });
-          }}
-        >
-          <div
-            className="bg-white rounded-xl overflow-hidden shadow-xl max-w-4xl w-full max-h-[90vh] flex flex-col"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="flex items-center justify-between px-3 py-2 border-b border-monday-border">
-              <span className="text-[13px] font-medium">Vista previa PDF</span>
-              <button
-                type="button"
-                onClick={() => {
-                  setPreviewUrl((prev) => {
-                    if (prev) URL.revokeObjectURL(prev);
-                    return null;
-                  });
-                }}
-                className="text-[12px] text-monday-subtext hover:text-monday-text"
-              >
-                Cerrar
-              </button>
-            </div>
-            <iframe src={previewUrl} title="Vista previa PDF" className="w-full flex-1 min-h-[480px]" />
-          </div>
-        </div>
-      )}
     </div>
   );
 };
-
-function ItemsEditor({
-  value,
-  update,
-}: {
-  value: Record<string, unknown>;
-  update: (u: Record<string, unknown>) => void;
-}) {
-  const items = getItems(value);
-  const setItem = (index: number, field: string, val: string) => {
-    const next = [...items];
-    if (!next[index]) next[index] = { descripcion: '', cantidad: '', precio: '', total: '' };
-    (next[index] as Record<string, string>)[field] = val;
-    if (field === 'cantidad' || field === 'precio') {
-      const q = parseFloat(field === 'cantidad' ? val : next[index].cantidad) || 0;
-      const p = parseFloat(field === 'precio' ? val : next[index].precio) || 0;
-      next[index].total = (q * p).toFixed(2);
-    }
-    update({ items: next });
-  };
-  const addRow = () =>
-    update({ items: [...items, { descripcion: '', cantidad: '', precio: '', total: '' }] });
-  const removeRow = (i: number) => {
-    if (items.length > 1) update({ items: items.filter((_, idx) => idx !== i) });
-  };
-
-  return (
-    <div className="w-full max-w-3xl bg-white rounded-lg border border-monday-border shadow p-4">
-      <h3 className="text-sm font-semibold text-monday-text mb-3">Ítems de la cotización</h3>
-      <table className="w-full border-collapse text-[11pt] mb-4">
-        <thead>
-          <tr className="border-b border-monday-border">
-            <th className="text-left py-2 font-medium text-monday-subtext">Descripción</th>
-            <th className="text-right py-2 font-medium text-monday-subtext w-24">Cant.</th>
-            <th className="text-right py-2 font-medium text-monday-subtext w-24">Precio</th>
-            <th className="text-right py-2 font-medium text-monday-subtext w-24">Total</th>
-            <th className="w-16" />
-          </tr>
-        </thead>
-        <tbody>
-          {items.map((row, i) => (
-            <tr key={i} className="border-b border-monday-border/50">
-              <td className="py-1">
-                <input
-                  value={row.descripcion}
-                  onChange={(e) => setItem(i, 'descripcion', e.target.value)}
-                  className="w-full px-2 py-1 border-b border-monday-border/60 outline-none focus:border-monday-blue text-[11pt] bg-transparent"
-                />
-              </td>
-              <td className="py-1 text-right">
-                <input
-                  type="number"
-                  min={0}
-                  value={row.cantidad}
-                  onChange={(e) => setItem(i, 'cantidad', e.target.value)}
-                  className="w-20 px-2 py-1 border-b border-monday-border/60 outline-none focus:border-monday-blue text-right text-[11pt] bg-transparent"
-                />
-              </td>
-              <td className="py-1 text-right">
-                <input
-                  type="number"
-                  min={0}
-                  step={0.01}
-                  value={row.precio}
-                  onChange={(e) => setItem(i, 'precio', e.target.value)}
-                  className="w-20 px-2 py-1 border-b border-monday-border/60 outline-none focus:border-monday-blue text-right text-[11pt] bg-transparent"
-                />
-              </td>
-              <td className="py-1 text-right text-monday-subtext">{row.total || '0.00'}</td>
-              <td className="py-1">
-                <button
-                  type="button"
-                  onClick={() => removeRow(i)}
-                  disabled={items.length <= 1}
-                  className="text-[10pt] text-monday-subtext hover:text-monday-red disabled:opacity-40"
-                >
-                  Eliminar
-                </button>
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-      <button
-        type="button"
-        onClick={addRow}
-        className="text-[11pt] text-monday-blue hover:underline"
-      >
-        + Añadir ítem
-      </button>
-    </div>
-  );
-}

@@ -183,17 +183,23 @@ app.post('/api/workspaces', async (req, res) => {
   }
 });
 
-// Panel de Docs: notas adhesivas (rutas específicas ANTES del :id genérico)
+// Panel de Docs: listas de tareas por usuario (cada usuario solo ve las suyas)
 app.get('/api/workspaces/:workspaceId/panel-notes', async (req, res) => {
   try {
     const { workspaceId } = req.params;
+    const userId = typeof req.query.userId === 'string' ? req.query.userId : null;
     const w = await prisma.workspace.findUnique({ where: { id: workspaceId }, select: { panelNotes: true } });
     if (!w) return res.status(404).json({ error: 'Workspace no encontrado' });
     let panelNotes: unknown[] = [];
     if (w.panelNotes && String(w.panelNotes).trim()) {
       try {
         const parsed = JSON.parse(w.panelNotes);
-        panelNotes = Array.isArray(parsed) ? parsed : [];
+        const all = Array.isArray(parsed) ? parsed : [];
+        if (userId) {
+          panelNotes = all.filter((item: { ownerId?: string }) => item && String(item.ownerId) === userId);
+        } else {
+          panelNotes = all;
+        }
       } catch {
         panelNotes = [];
       }
@@ -210,12 +216,39 @@ app.patch('/api/workspaces/:workspaceId/panel-notes', async (req, res) => {
     const { workspaceId } = req.params;
     const body = req.body ?? {};
     const panelNotes = Array.isArray(body.panelNotes) ? body.panelNotes : undefined;
+    const userId = typeof body.userId === 'string' ? body.userId : null;
     if (panelNotes === undefined) return res.status(400).json({ error: 'panelNotes es obligatorio (array)' });
+
+    let merged: unknown[];
+    if (userId) {
+      const w = await prisma.workspace.findUnique({ where: { id: workspaceId }, select: { panelNotes: true } });
+      if (!w) return res.status(404).json({ error: 'Workspace no encontrado' });
+      let current: unknown[] = [];
+      if (w.panelNotes && String(w.panelNotes).trim()) {
+        try {
+          const parsed = JSON.parse(w.panelNotes);
+          current = Array.isArray(parsed) ? parsed : [];
+        } catch {
+          current = [];
+        }
+      }
+      const others = current.filter((item: { ownerId?: string }) => item && String(item.ownerId) !== userId);
+      const withOwner = panelNotes.map((n: { ownerId?: string; [k: string]: unknown }) => ({
+        ...n,
+        ownerId: n.ownerId ?? userId,
+      }));
+      merged = [...others, ...withOwner];
+    } else {
+      merged = panelNotes;
+    }
+
     const workspace = await prisma.workspace.update({
       where: { id: workspaceId },
-      data: { panelNotes: JSON.stringify(panelNotes) },
+      data: { panelNotes: JSON.stringify(merged) },
     });
-    res.json({ panelNotes: JSON.parse(workspace.panelNotes || '[]') });
+    const saved = JSON.parse(workspace.panelNotes || '[]');
+    const toReturn = userId ? saved.filter((item: { ownerId?: string }) => String(item?.ownerId) === userId) : saved;
+    res.json({ panelNotes: toReturn });
   } catch (e) {
     if ((e as { code?: string })?.code === 'P2025') return res.status(404).json({ error: 'Workspace no encontrado' });
     console.error('Error updating panel notes:', e);
@@ -1095,6 +1128,104 @@ app.post('/api/templates/:kind/generate', async (req, res) => {
   } catch (e) {
     console.error('Error generating PDF:', e);
     res.status(500).json({ error: e instanceof Error ? e.message : 'Error al generar PDF' });
+  }
+});
+
+// Configuración global de plantilla (posiciones, fuente). GET: todos; PUT: solo ADMIN.
+app.get('/api/templates/:kind/config', async (req, res) => {
+  try {
+    const kind = req.params.kind as string;
+    if (!TEMPLATE_KINDS.includes(kind as (typeof TEMPLATE_KINDS)[number])) {
+      return res.status(400).json({ error: 'Tipo de plantilla no válido' });
+    }
+    const row = await prisma.templateConfig.findUnique({ where: { docType: kind } });
+    if (!row) {
+      return res.json({ fieldPositions: {}, fontColor: '#000000', fontFamily: 'Helvetica', fontSize: 11, fontBold: false, fontItalic: false, customBoxes: [] });
+    }
+    let fieldPositions: Record<string, { x: number; y: number }> = {};
+    let customBoxes: Array<{ id: string; x: number; y: number; width: number; height: number }> = [];
+    try {
+      fieldPositions = typeof row.fieldPositions === 'string' ? JSON.parse(row.fieldPositions) : row.fieldPositions;
+    } catch (_) {}
+    try {
+      customBoxes = typeof row.customBoxes === 'string' ? JSON.parse(row.customBoxes) : row.customBoxes || [];
+    } catch (_) {}
+    res.json({
+      fieldPositions,
+      fontColor: row.fontColor || '#000000',
+      fontFamily: row.fontFamily || 'Helvetica',
+      fontSize: row.fontSize ?? 11,
+      fontBold: row.fontBold ?? false,
+      fontItalic: row.fontItalic ?? false,
+      customBoxes: Array.isArray(customBoxes) ? customBoxes : [],
+    });
+  } catch (e) {
+    console.error('Error fetching template config:', e);
+    res.status(500).json({ error: 'Error al obtener configuración de plantilla' });
+  }
+});
+
+app.put('/api/templates/:kind/config', async (req, res) => {
+  try {
+    const kind = req.params.kind as string;
+    if (!TEMPLATE_KINDS.includes(kind as (typeof TEMPLATE_KINDS)[number])) {
+      return res.status(400).json({ error: 'Tipo de plantilla no válido' });
+    }
+    const body = req.body || {};
+    const userIdRaw =
+      (body.userId as string) ||
+      (req.query.userId as string) ||
+      (req.get('X-User-Id') ?? '').trim() ||
+      '';
+    const userIdTrim = typeof userIdRaw === 'string' ? userIdRaw.trim() : '';
+    const usernameTrim = typeof body.username === 'string' ? body.username.trim() : (req.get('X-User-Username') ?? '').trim();
+    if (!userIdTrim && !usernameTrim) {
+      return res.status(403).json({ error: 'Se requiere userId o username (body, query o header)' });
+    }
+    let user = userIdTrim ? await prisma.user.findUnique({ where: { id: userIdTrim } }) : null;
+    if (!user && usernameTrim) {
+      user = await prisma.user.findUnique({ where: { username: usernameTrim } });
+    }
+    if (!user) {
+      return res.status(403).json({ error: 'Usuario no encontrado. Cierra sesión y vuelve a iniciar sesión para actualizar tu usuario.' });
+    }
+    // Cualquier usuario autenticado puede guardar la config de plantilla (posiciones/cuadros).
+    // Si en el futuro quieres restringir a rol ADMIN: descomenta y usa user.role.
+    // const roleUpper = String(user.role ?? '').trim().toUpperCase();
+    // if (roleUpper !== 'ADMIN') return res.status(403).json({ error: 'Solo los administradores pueden modificar la configuración de plantillas' });
+    const fieldPositions = body.fieldPositions != null ? body.fieldPositions : {};
+    const fontColor = typeof body.fontColor === 'string' ? body.fontColor : '#000000';
+    const fontFamily = typeof body.fontFamily === 'string' ? body.fontFamily : 'Helvetica';
+    const fontSize = typeof body.fontSize === 'number' ? Math.max(8, Math.min(24, body.fontSize)) : (typeof body.fontSize === 'string' ? Math.max(8, Math.min(24, parseInt(body.fontSize, 10) || 11)) : 11);
+    const fontBold = body.fontBold === true || body.fontBold === 'true';
+    const fontItalic = body.fontItalic === true || body.fontItalic === 'true';
+    const customBoxes = Array.isArray(body.customBoxes) ? body.customBoxes : [];
+    await prisma.templateConfig.upsert({
+      where: { docType: kind },
+      create: {
+        docType: kind,
+        fieldPositions: JSON.stringify(fieldPositions),
+        fontColor,
+        fontFamily,
+        fontSize,
+        fontBold,
+        fontItalic,
+        customBoxes: JSON.stringify(customBoxes),
+      },
+      update: {
+        fieldPositions: JSON.stringify(fieldPositions),
+        fontColor,
+        fontFamily,
+        fontSize,
+        fontBold,
+        fontItalic,
+        customBoxes: JSON.stringify(customBoxes),
+      },
+    });
+    res.json({ ok: true });
+  } catch (e) {
+    console.error('Error saving template config:', e);
+    res.status(500).json({ error: 'Error al guardar configuración de plantilla' });
   }
 });
 

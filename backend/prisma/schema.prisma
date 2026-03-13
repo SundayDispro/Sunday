@@ -151,6 +151,20 @@ model Doc {
   updatedAt   DateTime @updatedAt
 }
 
+/// Configuración global de plantillas PDF (posiciones, fuente). Solo editable por ADMIN.
+model TemplateConfig {
+  id              String   @id @default(uuid())
+  docType         String   @unique // 'cotizacion' | 'levantamiento' | 'hoja_trabajo'
+  fieldPositions  String   @default("{}") // JSON: Record<fieldKey, { x, y }>
+  fontColor       String   @default("#000000")
+  fontFamily      String   @default("Helvetica")
+  fontSize        Int      @default(11)   // pt
+  fontBold        Boolean  @default(false)
+  fontItalic      Boolean  @default(false)
+  customBoxes     String   @default("[]") // JSON: [{ id, x, y, width, height, singleLine? }]
+  updatedAt       DateTime @updatedAt
+}
+
 /// Suscripciones Web Push por usuario (para PWA / notificaciones push)
 model PushSubscription {
   id        String   @id @default(uuid())

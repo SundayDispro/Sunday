@@ -7,6 +7,7 @@
     "build": "tsc",
     "start": "node dist/src/index.js",
     "seed": "ts-node prisma/seed.ts",
+    "set-admin": "ts-node scripts/set-admin.ts",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "prisma": {

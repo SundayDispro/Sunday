@@ -9,12 +9,14 @@ import {
   LayoutDashboard,
   List,
   Palette,
+  Calculator,
   CheckSquare,
   Circle,
   CheckCircle,
   Star,
   StarOff,
   ChevronDown,
+  Download,
 } from 'lucide-react';
 import * as Popover from '@radix-ui/react-popover';
 import * as Dialog from '@radix-ui/react-dialog';
@@ -26,7 +28,9 @@ import {
   DOC_TYPE_OPTIONS,
   isPdfDocType,
 } from './docs/docTypes';
+import type { TemplateConfigState } from './docs/pdfTemplateConfig';
 import { PdfTemplateEditor } from './docs/PdfTemplateEditor';
+import { TextFormatBarForEditor } from '../docs/TextFormatBar';
 import { useUser } from '../../store/UserContext';
 
 const API_BASE = 'http://localhost:3001';
@@ -41,6 +45,7 @@ interface Props {
   } | null;
   onConsumeInitialCreateFromBoard?: () => void;
   onAddTaskList?: () => void;
+  onAddCalculatorWidget?: () => void;
 }
 
 export interface TaskItem {
@@ -180,20 +185,10 @@ function getInitialHtml(text: string): string {
   return html || '<p><br></p>';
 }
 
-// Editor WYSIWYG: contentEditable + barra de formato (negrita, cursiva, tamaño, etc.) con la fuente del proyecto
-const FONT_SIZES = [
-  { label: '10pt', value: '10pt' },
-  { label: '11pt', value: '11pt' },
-  { label: '12pt', value: '12pt' },
-  { label: '14pt', value: '14pt' },
-  { label: '18pt', value: '18pt' },
-  { label: '24pt', value: '24pt' },
-];
-
+// Editor WYSIWYG: contentEditable + barra de formato compartida (fuente, negrita, cursiva, tamaño, listas)
 function WordLikeEditor({ textDraft, setTextDraft }: { textDraft: string; setTextDraft: (v: string) => void }) {
   const editorRef = useRef<HTMLDivElement>(null);
   const lastSyncedRef = useRef<string>(textDraft);
-  const savedRangeRef = useRef<Range | null>(null);
 
   useEffect(() => {
     const el = editorRef.current;
@@ -212,148 +207,9 @@ function WordLikeEditor({ textDraft, setTextDraft }: { textDraft: string; setTex
     setTextDraft(html);
   }, [setTextDraft]);
 
-  const saveSelection = useCallback(() => {
-    const sel = window.getSelection();
-    if (!sel || sel.rangeCount === 0) return;
-    const el = editorRef.current;
-    if (!el || !el.contains(sel.anchorNode)) return;
-    savedRangeRef.current = sel.getRangeAt(0).cloneRange();
-  }, []);
-
-  const restoreSelection = useCallback(() => {
-    const el = editorRef.current;
-    if (!el || !savedRangeRef.current) return;
-    el.focus();
-    const sel = window.getSelection();
-    if (!sel) return;
-    sel.removeAllRanges();
-    sel.addRange(savedRangeRef.current);
-  }, []);
-
-  const keepFocus = useCallback((fn: () => void) => {
-    return (e: React.MouseEvent) => {
-      e.preventDefault();
-      const el = editorRef.current;
-      if (!el) return;
-      el.focus();
-      fn();
-      reportContent();
-    };
-  }, [reportContent]);
-
-  const exec = useCallback((cmd: string, value?: string) => {
-    document.execCommand(cmd, false, value ?? '');
-  }, []);
-
-  const applyFontSize = useCallback((size: string) => {
-    restoreSelection();
-    const sel = window.getSelection();
-    if (!sel || sel.rangeCount === 0) return;
-    const range = sel.getRangeAt(0);
-    if (range.collapsed) {
-      document.execCommand('insertHTML', false, `<span style="font-size: ${size}">&#8203;</span>`);
-      return;
-    }
-    const span = document.createElement('span');
-    span.style.fontSize = size;
-    try {
-      range.surroundContents(span);
-    } catch {
-      document.execCommand('insertHTML', false, `<span style="font-size: ${size}">${range.toString()}</span>`);
-    }
-  }, [restoreSelection]);
-
-  const insertList = useCallback((tag: 'ul' | 'ol') => () => {
-    const cmd = tag === 'ul' ? 'insertUnorderedList' : 'insertOrderedList';
-    const sel = window.getSelection();
-    if (!sel || sel.rangeCount === 0) {
-      document.execCommand(cmd, false);
-      return;
-    }
-    const range = sel.getRangeAt(0);
-    const el = editorRef.current;
-    if (!el) {
-      document.execCommand(cmd, false);
-      return;
-    }
-    let block: HTMLElement | null = range.startContainer.nodeType === Node.TEXT_NODE
-      ? (range.startContainer.parentElement as HTMLElement)
-      : (range.startContainer as HTMLElement);
-    while (block && block !== el && !/^(P|DIV|LI|H[1-6])$/i.test(block.nodeName)) {
-      block = block.parentElement;
-    }
-    const isEmpty = block && el.contains(block) && (!block.textContent || block.textContent.trim() === '');
-    if (isEmpty && block) {
-      const list = document.createElement(tag);
-      list.className = tag === 'ul' ? 'list-disc ml-4 my-1' : 'list-decimal ml-4 my-1';
-      const li = document.createElement('li');
-      li.appendChild(document.createElement('br'));
-      list.appendChild(li);
-      block.parentNode?.replaceChild(list, block);
-      const r = document.createRange();
-      r.setStart(li, 0);
-      r.collapse(true);
-      sel.removeAllRanges();
-      sel.addRange(r);
-      return;
-    }
-    document.execCommand(cmd, false);
-  }, []);
-
-  const formatBarBtn = 'p-2 rounded-monday border-0 text-monday-text hover:bg-monday-hover active:bg-monday-border transition-colors min-w-[32px]';
-
   return (
     <div className="flex-1 flex flex-col overflow-hidden bg-monday-bg/50">
-      <div className="shrink-0 flex items-center gap-0.5 px-3 py-2 bg-white border-b border-monday-border shadow-sm flex-wrap">
-        <button type="button" onMouseDown={keepFocus(() => exec('bold'))} className={formatBarBtn} title="Negrita">
-          <span className="text-[13px] font-bold">B</span>
-        </button>
-        <button type="button" onMouseDown={keepFocus(() => exec('italic'))} className={formatBarBtn} title="Cursiva">
-          <span className="text-[13px] italic font-serif">I</span>
-        </button>
-        <button type="button" onMouseDown={keepFocus(() => exec('strikeThrough'))} className={formatBarBtn} title="Tachado">
-          <span className="text-[13px] line-through">S</span>
-        </button>
-        <button type="button" onMouseDown={keepFocus(() => exec('underline'))} className={formatBarBtn} title="Subrayado">
-          <span className="text-[13px] underline">U</span>
-        </button>
-        <div className="w-px h-5 bg-monday-border mx-1" />
-        <Popover.Root>
-          <Popover.Trigger asChild>
-            <button
-              type="button"
-              onMouseDown={(e) => { e.preventDefault(); saveSelection(); }}
-              className="px-2 py-1.5 text-[11px] border border-monday-border rounded-monday bg-white text-monday-text hover:bg-monday-hover min-w-[4rem] text-left"
-              title="Tamaño de texto"
-            >
-              Tamaño
-            </button>
-          </Popover.Trigger>
-          <Popover.Portal>
-            <Popover.Content className="z-50 p-1.5 rounded-lg shadow-lg border border-monday-border bg-white" sideOffset={4} onOpenAutoFocus={(e) => e.preventDefault()}>
-              {FONT_SIZES.map(({ label, value }) => (
-                <button
-                  key={value}
-                  type="button"
-                  className="block w-full px-3 py-1.5 text-left text-[12px] text-monday-text hover:bg-monday-hover rounded"
-                  onClick={() => { applyFontSize(value); reportContent(); }}
-                >
-                  {label}
-                </button>
-              ))}
-            </Popover.Content>
-          </Popover.Portal>
-        </Popover.Root>
-        <div className="w-px h-5 bg-monday-border mx-1" />
-        <button type="button" onMouseDown={keepFocus(insertList('ul'))} className={formatBarBtn} title="Lista con viñetas">
-          <span className="text-[14px]">•</span>
-        </button>
-        <button type="button" onMouseDown={keepFocus(insertList('ol'))} className={formatBarBtn} title="Lista numerada">
-          <span className="text-[13px] font-medium">1.</span>
-        </button>
-        <div className="w-px h-5 bg-monday-border mx-1" />
-        <span className="text-[11px] text-monday-subtext px-2">Documento</span>
-      </div>
+      <TextFormatBarForEditor editorRef={editorRef} reportContent={reportContent} />
       <div className="flex-1 overflow-auto p-6 flex justify-center">
         <div className="w-full max-w-[21cm] min-h-[29.7cm] bg-white rounded-lg border border-monday-border shadow-monday-lg px-12 py-14 font-averta">
           <div
@@ -1003,9 +859,10 @@ function ExcelLikeSheet({
   );
 }
 
-export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFromBoard, onConsumeInitialCreateFromBoard, onAddTaskList }) => {
+export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFromBoard, onConsumeInitialCreateFromBoard, onAddTaskList, onAddCalculatorWidget }) => {
   const { currentUser } = useUser();
   const currentUserId = currentUser?.id ?? null;
+  const isAdmin = !!(currentUser && String(currentUser.role || '').toUpperCase() === 'ADMIN');
 
   const [docs, setDocs] = useState<Doc[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -1021,6 +878,8 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
   const [textDraft, setTextDraft] = useState(() => getInitialHtml(parsed.text ?? ''));
   const [tableDraft, setTableDraft] = useState<string[][]>(parsed.table ?? [['']]);
   const [pdfFormDraft, setPdfFormDraft] = useState<Record<string, unknown>>({});
+  const [templateConfigByType, setTemplateConfigByType] = useState<Record<string, TemplateConfigState>>({});
+  const [savingTemplateConfig, setSavingTemplateConfig] = useState(false);
   const [viewMode, setViewMode] = useState<'docs' | 'overview'>('overview');
   const [deleteConfirm, setDeleteConfirm] = useState<{ docId: string } | null>(null);
 
@@ -1119,6 +978,31 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
     }
   }, [parsed, selectedId, selectedDoc?.type]);
 
+  const pdfDocType = selectedDoc && isPdfDocType(selectedDoc.type as DocType) ? (selectedDoc.type as 'cotizacion' | 'levantamiento' | 'hoja_trabajo') : null;
+  useEffect(() => {
+    if (!pdfDocType) return;
+    let cancelled = false;
+    fetch(`${API_BASE}/api/templates/${pdfDocType}/config`)
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data: { fieldPositions?: Record<string, { x: number; y: number }>; fontColor?: string; fontFamily?: string } | null) => {
+        if (cancelled || !data) return;
+        setTemplateConfigByType((prev) => ({
+          ...prev,
+          [pdfDocType]: {
+            fieldPositions: data.fieldPositions ?? {},
+            fontColor: data.fontColor ?? '#000000',
+            fontFamily: data.fontFamily ?? 'Helvetica',
+            fontSize: data.fontSize ?? 11,
+            fontBold: data.fontBold ?? false,
+            fontItalic: data.fontItalic ?? false,
+            customBoxes: Array.isArray(data.customBoxes) ? data.customBoxes : [],
+          },
+        }));
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [pdfDocType]);
+
   async function handleCreate(type: DocType) {
     if (!workspaceId) {
       setError('Selecciona un workspace en la barra lateral para poder crear documentos.');
@@ -1207,11 +1091,112 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
         throw new Error(msg);
       }
       setDocs(prev => prev.map(d => (d.id === data.id ? data : d)));
+      if (isAdmin && selectedDoc && isPdfDocType(selectedDoc.type as DocType)) {
+        const docType = selectedDoc.type as 'cotizacion' | 'levantamiento' | 'hoja_trabajo';
+        const config = templateConfigByType[docType];
+        const fieldPositions = config?.fieldPositions ?? {};
+        const hasStoredPositions = config && Object.keys(fieldPositions).length > 0;
+        const toSave = {
+          userId: currentUser.id,
+          username: currentUser.username,
+          fieldPositions: hasStoredPositions ? fieldPositions : ((pdfFormDraft.fieldPositions as Record<string, { x: number; y: number }>) ?? {}),
+          fontColor: config?.fontColor ?? '#000000',
+          fontFamily: config?.fontFamily ?? 'Helvetica',
+          fontSize: config?.fontSize ?? 11,
+          fontBold: config?.fontBold ?? false,
+          fontItalic: config?.fontItalic ?? false,
+          customBoxes: config?.customBoxes ?? [],
+        };
+        await fetch(`${API_BASE}/api/templates/${docType}/config?userId=${encodeURIComponent(currentUser.id)}`, {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-User-Id': currentUser.id,
+            'X-User-Username': currentUser.username ?? '',
+          },
+          body: JSON.stringify(toSave),
+        });
+      }
     } catch (e) {
       console.error('Error saving doc', e);
       setError(e instanceof Error ? e.message : 'No se pudo guardar el documento.');
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleSaveTemplateConfig = async () => {
+    if (!currentUser || !isAdmin || !pdfDocType) return;
+    const config = templateConfigByType[pdfDocType];
+    if (!config) return;
+    setSavingTemplateConfig(true);
+    setError(null);
+    try {
+      const toSave = {
+        userId: currentUser.id,
+        username: currentUser.username,
+        fieldPositions: config.fieldPositions ?? {},
+        fontColor: config.fontColor ?? '#000000',
+        fontFamily: config.fontFamily ?? 'Helvetica',
+        fontSize: config.fontSize ?? 11,
+        fontBold: config.fontBold ?? false,
+        fontItalic: config.fontItalic ?? false,
+        customBoxes: config.customBoxes ?? [],
+      };
+      const res = await fetch(`${API_BASE}/api/templates/${pdfDocType}/config?userId=${encodeURIComponent(currentUser.id)}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-User-Id': currentUser.id,
+          'X-User-Username': currentUser.username ?? '',
+        },
+        body: JSON.stringify(toSave),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(typeof data?.error === 'string' ? data.error : 'Error al guardar configuración');
+      }
+    } catch (e) {
+      console.error('Error saving template config', e);
+      setError(e instanceof Error ? e.message : 'No se pudo guardar la configuración de la plantilla.');
+    } finally {
+      setSavingTemplateConfig(false);
+    }
+  };
+
+  const canSaveTemplateConfig = isAdmin && !!pdfDocType && !!templateConfigByType[pdfDocType];
+
+  const [downloadingPdf, setDownloadingPdf] = useState(false);
+  const handleDownloadPdf = async () => {
+    if (!selectedDoc || !isPdfDocType(selectedDoc.type as DocType)) return;
+    setDownloadingPdf(true);
+    setError(null);
+    try {
+      const docType = selectedDoc.type as 'cotizacion' | 'levantamiento' | 'hoja_trabajo';
+      const config = templateConfigByType[docType];
+      const contentToSend = config
+        ? { ...pdfFormDraft, fieldPositions: config.fieldPositions }
+        : pdfFormDraft;
+      const res = await fetch(`${API_BASE}/api/templates/${docType}/generate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content: contentToSend }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error((err as { error?: string }).error || 'Error al generar PDF');
+      }
+      const blob = await res.blob();
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = `${docType}.pdf`;
+      a.click();
+      URL.revokeObjectURL(a.href);
+    } catch (e) {
+      console.error('PDF download error', e);
+      setError(e instanceof Error ? e.message : 'No se pudo descargar el PDF.');
+    } finally {
+      setDownloadingPdf(false);
     }
   };
 
@@ -1339,30 +1324,59 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
                 </button>
               ))}
               {onAddTaskList && (
-                <button
-                  type="button"
-                  disabled={!workspaceId}
-                  onClick={onAddTaskList}
-                  className="flex flex-col items-start justify-between w-64 p-4 rounded-2xl bg-[#5034ff] text-white border border-[#5034ff] shadow-md hover:shadow-lg hover:border-white/70 transition-all text-left disabled:opacity-60"
-                >
-                  <div className="flex items-center gap-3 mb-2">
-                    <div className="w-9 h-9 rounded-xl bg-white/15 flex items-center justify-center">
-                      <CheckSquare size={22} className="text-white" />
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <p className="font-semibold text-[14px] truncate">
-                        Añadir tarea
-                      </p>
-                      <p className="text-[11px] text-white/90">
-                        Crea una lista de tareas personales.
-                      </p>
-                    </div>
-                  </div>
-                  <span className="text-[11px] font-medium flex items-center gap-1">
-                    <Plus size={12} />
-                    Nueva lista de tareas
-                  </span>
-                </button>
+                <Popover.Root>
+                  <Popover.Trigger asChild>
+                    <button
+                      type="button"
+                      disabled={!workspaceId}
+                      className="flex flex-col items-start justify-between w-64 p-4 rounded-2xl bg-[#5034ff] text-white border border-[#5034ff] shadow-md hover:shadow-lg hover:border-white/70 transition-all text-left disabled:opacity-60"
+                    >
+                      <div className="flex items-center gap-3 mb-2">
+                        <div className="w-9 h-9 rounded-xl bg-white/15 flex items-center justify-center">
+                          <Calculator size={22} className="text-white" />
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <p className="font-semibold text-[14px] truncate">
+                            Añadir widget
+                          </p>
+                          <p className="text-[11px] text-white/90">
+                            Crea elementos extra como tareas o utilidades.
+                          </p>
+                        </div>
+                      </div>
+                      <span className="text-[11px] font-medium flex items-center gap-1">
+                        <Plus size={12} />
+                        Nuevo widget
+                      </span>
+                    </button>
+                  </Popover.Trigger>
+                  <Popover.Portal>
+                    <Popover.Content
+                      className="z-50 p-2 rounded-xl shadow-lg border border-monday-border bg-white w-56"
+                      sideOffset={6}
+                    >
+                      <div className="flex flex-col gap-1">
+                        <button
+                          type="button"
+                          className="w-full flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-monday-hover text-[13px] text-monday-text"
+                          onClick={onAddTaskList}
+                        >
+                          <CheckSquare size={16} className="text-monday-blue" />
+                          <span>Añadir tareas</span>
+                        </button>
+                        <button
+                          type="button"
+                          className="w-full flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-monday-hover text-[13px] text-monday-text"
+                          onClick={onAddCalculatorWidget}
+                          disabled={!onAddCalculatorWidget}
+                        >
+                          <span className="w-4 h-4 rounded bg-monday-blue text-white flex items-center justify-center text-[11px]">≡</span>
+                          <span>Calculadora</span>
+                        </button>
+                      </div>
+                    </Popover.Content>
+                  </Popover.Portal>
+                </Popover.Root>
               )}
             </div>
           </div>
@@ -1394,23 +1408,45 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
                         {selectedDoc.title}
                       </h2>
                     </div>
-                    <button
-                      type="button"
-                      onClick={handleSave}
-                      disabled={saving}
-                      className="px-3 py-1.5 rounded-monday bg-monday-blue text-white text-[13px] font-medium hover:bg-monday-blue/90 disabled:opacity-60"
-                    >
-                      {saving ? 'Guardando…' : 'Guardar'}
-                    </button>
+                    <div className="flex items-center gap-2">
+                      {isPdfDocType(selectedDoc.type as DocType) && (
+                        <button
+                          type="button"
+                          onClick={handleDownloadPdf}
+                          disabled={downloadingPdf}
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-monday border border-monday-border text-[13px] font-medium text-monday-text hover:bg-monday-hover disabled:opacity-60"
+                        >
+                          <Download size={14} />
+                          {downloadingPdf ? 'Descargando…' : 'Descargar PDF'}
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        onClick={handleSave}
+                        disabled={saving}
+                        className="px-3 py-1.5 rounded-monday bg-monday-blue text-white text-[13px] font-medium hover:bg-monday-blue/90 disabled:opacity-60"
+                      >
+                        {saving ? 'Guardando…' : 'Guardar'}
+                      </button>
+                    </div>
                   </div>
 
                   {isPdfDocType(selectedDoc.type as DocType) ? (
-                    <div className="flex-1 overflow-auto custom-scrollbar p-4">
+                    <div className="flex-1 overflow-auto custom-scrollbar p-2">
                       <PdfTemplateEditor
                         docType={selectedDoc.type as 'cotizacion' | 'levantamiento' | 'hoja_trabajo'}
                         value={pdfFormDraft}
                         onChange={setPdfFormDraft}
                         docId={selectedDoc.id}
+                        templateConfig={pdfDocType ? templateConfigByType[pdfDocType] : null}
+                        isAdmin={isAdmin}
+                        onTemplateConfigChange={
+                          pdfDocType
+                            ? (config) => setTemplateConfigByType((prev) => ({ ...prev, [pdfDocType]: { ...(prev[pdfDocType] || {}), ...config } }))
+                            : undefined
+                        }
+                        onSaveTemplateConfig={canSaveTemplateConfig ? handleSaveTemplateConfig : undefined}
+                        savingTemplateConfig={savingTemplateConfig}
                       />
                     </div>
                   ) : selectedDoc.type === 'sheet' ? (
@@ -1575,23 +1611,45 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
                     </p>
                   )}
                 </div>
-                <button
-                  type="button"
-                  onClick={handleSave}
-                  disabled={saving}
-                  className="px-3 py-1.5 rounded-monday bg-monday-blue text-white text-[13px] font-medium hover:bg-monday-blue/90 disabled:opacity-60"
-                >
-                  {saving ? 'Guardando…' : 'Guardar'}
-                </button>
+                <div className="flex items-center gap-2">
+                  {isPdfDocType(selectedDoc.type as DocType) && (
+                    <button
+                      type="button"
+                      onClick={handleDownloadPdf}
+                      disabled={downloadingPdf}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-monday border border-monday-border text-[13px] font-medium text-monday-text hover:bg-monday-hover disabled:opacity-60"
+                    >
+                      <Download size={14} />
+                      {downloadingPdf ? 'Descargando…' : 'Descargar PDF'}
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={handleSave}
+                    disabled={saving}
+                    className="px-3 py-1.5 rounded-monday bg-monday-blue text-white text-[13px] font-medium hover:bg-monday-blue/90 disabled:opacity-60"
+                  >
+                    {saving ? 'Guardando…' : 'Guardar'}
+                  </button>
+                </div>
               </div>
 
               {isPdfDocType(selectedDoc.type as DocType) ? (
-                <div className="flex-1 overflow-auto custom-scrollbar p-4 bg-monday-bg/40">
+                <div className="flex-1 overflow-auto custom-scrollbar p-2 bg-monday-bg/40">
                   <PdfTemplateEditor
                     docType={selectedDoc.type as 'cotizacion' | 'levantamiento' | 'hoja_trabajo'}
                     value={pdfFormDraft}
                     onChange={setPdfFormDraft}
                     docId={selectedDoc.id}
+                    templateConfig={pdfDocType ? templateConfigByType[pdfDocType] : null}
+                    isAdmin={isAdmin}
+                    onTemplateConfigChange={
+                      pdfDocType
+                        ? (config) => setTemplateConfigByType((prev) => ({ ...prev, [pdfDocType]: { ...(prev[pdfDocType] || {}), ...config } }))
+                        : undefined
+                    }
+                    onSaveTemplateConfig={canSaveTemplateConfig ? handleSaveTemplateConfig : undefined}
+                    savingTemplateConfig={savingTemplateConfig}
                   />
                 </div>
               ) : selectedDoc.type === 'sheet' ? (

@@ -89,3 +89,60 @@ export function getPositionForField(
     height: fieldDef.height,
   };
 }
+
+/** Posiciones desde config global (API). Mismo formato que getFieldPositions. */
+export function parseTemplateConfigPositions(raw: unknown): Record<string, FieldPositionState> {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {};
+  const out: Record<string, FieldPositionState> = {};
+  for (const [k, v] of Object.entries(raw)) {
+    if (v && typeof v === 'object' && typeof (v as { x?: number }).x === 'number' && typeof (v as { y?: number }).y === 'number') {
+      out[k] = { x: (v as { x: number }).x, y: (v as { y: number }).y };
+    }
+  }
+  return out;
+}
+
+/** Posición de un campo a partir de un mapa de posiciones (ej. config global). */
+export function getPositionForFieldFromPositions(
+  fieldKey: string,
+  positions: Record<string, FieldPositionState>,
+  fieldDef: FieldDef
+): { x: number; y: number; width: number; height: number } {
+  const pos = positions[fieldKey];
+  return {
+    x: pos?.x ?? fieldDef.defaultX,
+    y: pos?.y ?? fieldDef.defaultY,
+    width: fieldDef.width,
+    height: fieldDef.height,
+  };
+}
+
+export interface CustomBoxDef {
+  id: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  /** Tipo de contenido del cuadro; por defecto texto */
+  kind?: 'text' | 'image';
+  /** URL de la imagen cuando kind === 'image' */
+  imageUrl?: string;
+  /** ID del usuario que creó este cuadro (para permisos en UI) */
+  ownerId?: string;
+  /** true = una sola línea (input); false/undefined = multilínea (textarea) */
+  singleLine?: boolean;
+  /** Tamaño de fuente en pt; si no se define usa el global de la plantilla */
+  fontSize?: number;
+  /** Color de fuente (ej. #000000); si no se define usa el global de la plantilla */
+  fontColor?: string;
+}
+
+export interface TemplateConfigState {
+  fieldPositions: Record<string, FieldPositionState>;
+  fontColor: string;
+  fontFamily: string;
+  fontSize?: number;
+  fontBold?: boolean;
+  fontItalic?: boolean;
+  customBoxes?: CustomBoxDef[];
+}
