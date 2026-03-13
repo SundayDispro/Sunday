@@ -135,6 +135,12 @@ export interface CustomBoxDef {
   fontSize?: number;
   /** Color de fuente (ej. #000000); si no se define usa el global de la plantilla */
   fontColor?: string;
+  /** Familia de fuente; si no se define usa la global de la plantilla */
+  fontFamily?: string;
+  /** Negrita específica del cuadro; si no se define usa la global */
+  fontBold?: boolean;
+  /** Cursiva específica del cuadro; si no se define usa la global */
+  fontItalic?: boolean;
 }
 
 export interface TemplateConfigState {

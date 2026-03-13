@@ -17,7 +17,12 @@ import {
   StarOff,
   ChevronDown,
   Download,
+  X,
+  Upload,
+  Loader2,
+  Pencil,
 } from 'lucide-react';
+import { GROUP_PALETTE } from '../Board/GroupColorPicker';
 import * as Popover from '@radix-ui/react-popover';
 import * as Dialog from '@radix-ui/react-dialog';
 import { Board, Doc, DocType } from '../../types';
@@ -63,8 +68,8 @@ export interface TaskWindow {
   tasks: TaskItem[];
 }
 
-// Tableros personales de documentos (sólo para Docs, por usuario/workspace)
-type DocBoard = { id: string; name: string };
+// Grupos personalizados de documentos (por usuario/workspace, persistidos en API doc-groups)
+export type DocCustomGroup = { id: string; name: string };
 
 const NOTE_COLORS = [
   '#fef08a', '#fde047', '#facc15', // amarillos
@@ -111,6 +116,7 @@ function normalizeNote(raw: unknown): TaskWindow | null {
 type DocContent = {
   text?: string;
   table?: string[][];
+  headerImageUrl?: string | null;
   [key: string]: unknown;
 };
 
@@ -186,9 +192,22 @@ function getInitialHtml(text: string): string {
 }
 
 // Editor WYSIWYG: contentEditable + barra de formato compartida (fuente, negrita, cursiva, tamaño, listas)
-function WordLikeEditor({ textDraft, setTextDraft }: { textDraft: string; setTextDraft: (v: string) => void }) {
+function WordLikeEditor({
+  textDraft,
+  setTextDraft,
+  headerImageUrl,
+  setHeaderImageUrl,
+}: {
+  textDraft: string;
+  setTextDraft: (v: string) => void;
+  headerImageUrl: string | null;
+  setHeaderImageUrl: (v: string | null) => void;
+}) {
   const editorRef = useRef<HTMLDivElement>(null);
   const lastSyncedRef = useRef<string>(textDraft);
+  const headerFileInputRef = useRef<HTMLInputElement | null>(null);
+  const [uploadingHeader, setUploadingHeader] = useState(false);
+  const [headerError, setHeaderError] = useState<string | null>(null);
 
   useEffect(() => {
     const el = editorRef.current;
@@ -207,11 +226,146 @@ function WordLikeEditor({ textDraft, setTextDraft }: { textDraft: string; setTex
     setTextDraft(html);
   }, [setTextDraft]);
 
+  const previewUrl = useCallback((url: string) => (url.trim().startsWith('/') ? API_BASE + url : url), []);
+
+  const handleHeaderFileChange = useCallback(
+    async (e: React.ChangeEvent<HTMLInputElement>) => {
+      const file = e.target.files?.[0];
+      if (!file) return;
+      setHeaderError(null);
+      if (!/^image\/jpe?g$/i.test(file.type)) {
+        setHeaderError('Solo se aceptan imágenes JPG.');
+        return;
+      }
+      const formData = new FormData();
+      formData.append('file', file);
+      setUploadingHeader(true);
+      try {
+        const res = await fetch(`${API_BASE}/api/upload`, {
+          method: 'POST',
+          body: formData,
+        });
+        const text = await res.text();
+        let data: { error?: string; url?: string } = {};
+        try {
+          data = text ? JSON.parse(text) : {};
+        } catch {
+          data = {
+            error:
+              res.status === 404
+                ? 'Servidor no disponible. ¿Está corriendo el backend en el puerto 3001?'
+                : `Error del servidor (${res.status})`,
+          };
+        }
+        if (!res.ok) {
+          throw new Error(data.error || `Error al subir (${res.status})`);
+        }
+        setHeaderImageUrl(data.url ?? null);
+        if (headerFileInputRef.current) headerFileInputRef.current.value = '';
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : 'Error al subir la imagen';
+        const isNetwork = msg === 'Failed to fetch' || msg.includes('NetworkError');
+        setHeaderError(
+          isNetwork ? 'No se pudo conectar con el servidor. Comprueba que el backend esté corriendo (puerto 3001).' : msg,
+        );
+      } finally {
+        setUploadingHeader(false);
+      }
+    },
+    [setHeaderImageUrl],
+  );
+
   return (
     <div className="flex-1 flex flex-col overflow-hidden bg-monday-bg/50">
-      <TextFormatBarForEditor editorRef={editorRef} reportContent={reportContent} />
+      <div className="border-b border-monday-border bg-white">
+        <div className="flex items-center justify-between gap-3 px-3 py-2">
+          <TextFormatBarForEditor editorRef={editorRef} reportContent={reportContent} />
+          <div className="shrink-0 flex items-center gap-2 pr-2">
+            <Popover.Root>
+              <Popover.Trigger asChild>
+                <button
+                  type="button"
+                  className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-monday border border-monday-border text-[11px] text-monday-subtext hover:bg-monday-hover"
+                >
+                  <Palette size={12} className="text-monday-subtext" />
+                  <span>Encabezado</span>
+                </button>
+              </Popover.Trigger>
+              <Popover.Portal>
+                <Popover.Content
+                  className="z-50 p-3 rounded-lg shadow-lg border border-monday-border bg-white w-72"
+                  sideOffset={6}
+                  onOpenAutoFocus={e => e.preventDefault()}
+                >
+                  <p className="text-[12px] text-monday-subtext mb-2">
+                    Sube un archivo <span className="font-semibold">JPG</span> que se mostrará como encabezado del documento.
+                  </p>
+                  <input
+                    ref={headerFileInputRef}
+                    type="file"
+                    accept="image/jpeg,image/jpg"
+                    className="hidden"
+                    id="docs-header-file"
+                    onChange={handleHeaderFileChange}
+                  />
+                  <div className="flex items-center gap-2 mb-2">
+                    <label
+                      htmlFor="docs-header-file"
+                      className="inline-flex items-center justify-center gap-1.5 px-2.5 py-1.5 rounded-monday bg-monday-blue text-white text-[12px] cursor-pointer hover:bg-monday-blue/90"
+                    >
+                      {uploadingHeader ? (
+                        <>
+                          <Loader2 size={14} className="animate-spin" />
+                          <span>Subiendo…</span>
+                        </>
+                      ) : (
+                        <>
+                          <Upload size={14} />
+                          <span>Elegir JPG</span>
+                        </>
+                      )}
+                    </label>
+                    {headerImageUrl && (
+                      <button
+                        type="button"
+                        onClick={() => setHeaderImageUrl(null)}
+                        className="text-[11px] text-monday-subtext hover:text-monday-red"
+                      >
+                        Quitar encabezado
+                      </button>
+                    )}
+                  </div>
+                  {headerError && (
+                    <p className="text-[11px] text-red-600 mb-2" role="alert">
+                      {headerError}
+                    </p>
+                  )}
+                  {headerImageUrl && (
+                    <div className="mt-1 rounded-md border border-monday-border bg-monday-hover/40 p-1 flex justify-center">
+                      <img
+                        src={previewUrl(headerImageUrl)}
+                        alt="Vista previa encabezado"
+                        className="max-h-20 w-auto object-contain"
+                      />
+                    </div>
+                  )}
+                </Popover.Content>
+              </Popover.Portal>
+            </Popover.Root>
+          </div>
+        </div>
+      </div>
       <div className="flex-1 overflow-auto p-6 flex justify-center">
-        <div className="w-full max-w-[21cm] min-h-[29.7cm] bg-white rounded-lg border border-monday-border shadow-monday-lg px-12 py-14 font-averta">
+        <div className="w-full max-w-[21cm] min-h-[29.7cm] bg-white rounded-lg border border-monday-border shadow-monday-lg px-12 py-10 font-averta">
+          {headerImageUrl && (
+            <div className="mb-4 flex justify-center">
+              <img
+                src={headerImageUrl}
+                alt="Encabezado"
+                className="max-h-32 w-auto object-contain"
+              />
+            </div>
+          )}
           <div
             ref={editorRef}
             contentEditable
@@ -445,6 +599,419 @@ function TaskWindowCard({
   );
 }
 
+// Fila de documento en el sidebar (estilo tabla principal: bordes, hover)
+function DocSidebarRow({
+  doc,
+  selectedId,
+  onSelect,
+  onDelete,
+  customGroups,
+  assignment,
+  onAssign,
+  getDocTypeLabel,
+  isPdfDocType,
+}: {
+  doc: Doc;
+  selectedId: string | null;
+  onSelect: () => void;
+  onDelete: () => void;
+  customGroups: DocCustomGroup[];
+  assignment: string | undefined;
+  onAssign: (groupId: string | null) => void;
+  getDocTypeLabel: (t: DocType) => string;
+  isPdfDocType: (t: DocType) => boolean;
+}) {
+  return (
+    <div
+      role="button"
+      tabIndex={0}
+      onClick={onSelect}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          onSelect();
+        }
+      }}
+      className={`flex items-center gap-2 px-3 py-2 text-left text-[13px] border-b border-monday-border/60 last:border-b-0 hover:bg-monday-hover transition-colors cursor-pointer ${
+        selectedId === doc.id ? 'bg-monday-hover' : 'bg-white'
+      }`}
+    >
+      {doc.type === 'sheet' ? (
+        <Table2 size={16} className="text-monday-blue shrink-0" />
+      ) : isPdfDocType(doc.type as DocType) ? (
+        <FileCheck size={16} className="text-monday-blue shrink-0" />
+      ) : (
+        <FileText size={16} className="text-monday-blue shrink-0" />
+      )}
+      <div className="flex-1 min-w-0">
+        <p className="truncate text-monday-text font-averta">{doc.title}</p>
+        <p className="text-[11px] text-monday-subtext truncate">
+          {getDocTypeLabel(doc.type as DocType)} · {new Date(doc.updatedAt).toLocaleString()}
+        </p>
+      </div>
+      <select
+        value={assignment ?? ''}
+        onChange={(e) => onAssign(e.target.value || null)}
+        onClick={(e) => e.stopPropagation()}
+        className="text-[11px] border border-monday-border rounded-monday px-1.5 py-0.5 bg-white text-monday-subtext min-w-0 max-w-[100px]"
+        title="Grupo personalizado"
+      >
+        <option value="">—</option>
+        {customGroups.map((g) => (
+          <option key={g.id} value={g.id}>
+            {g.name}
+          </option>
+        ))}
+      </select>
+      <button
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation();
+          onDelete();
+        }}
+        className="p-1 rounded text-monday-subtext hover:text-monday-red hover:bg-red-50 shrink-0"
+        title="Eliminar"
+      >
+        <Trash2 size={14} />
+      </button>
+    </div>
+  );
+}
+
+// Cabecera de grupo personalizado con nombre editable y eliminar
+function DocCustomGroupHeader({
+  name,
+  onRename,
+  onRemove,
+}: {
+  name: string;
+  onRename: (name: string) => void;
+  onRemove: () => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(name);
+  useEffect(() => {
+    if (!editing) setDraft(name);
+  }, [name, editing]);
+  return (
+    <div className="px-3 py-2 bg-monday-hover/60 border-b border-monday-border flex items-center gap-2 group">
+      {editing ? (
+        <input
+          autoFocus
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onBlur={() => {
+            setEditing(false);
+            if (draft.trim() && draft !== name) onRename(draft.trim());
+          }}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
+            if (e.key === 'Escape') {
+              setDraft(name);
+              setEditing(false);
+            }
+          }}
+          className="flex-1 text-[12px] font-medium text-monday-subtext bg-white border border-monday-border rounded-monday px-2 py-1 outline-none"
+          onClick={(e) => e.stopPropagation()}
+        />
+      ) : (
+        <>
+          <span className="text-[12px] font-medium text-monday-subtext flex-1 truncate">{name}</span>
+          <button
+            type="button"
+            onClick={() => setEditing(true)}
+            className="p-0.5 rounded text-monday-subtext hover:text-monday-blue opacity-0 group-hover:opacity-100"
+            title="Renombrar"
+          >
+            <Pencil size={12} />
+          </button>
+          <button
+            type="button"
+            onClick={onRemove}
+            className="p-0.5 rounded text-monday-subtext hover:text-monday-red opacity-0 group-hover:opacity-100"
+            title="Eliminar grupo"
+          >
+            <Trash2 size={12} />
+          </button>
+        </>
+      )}
+    </div>
+  );
+}
+
+// Colores por tipo de documento (alineados con la ventana principal)
+const DOC_TYPE_GROUP_COLORS: Record<string, string> = {
+  text: '#579bfc',
+  sheet: '#00c875',
+  cotizacion: '#f5ca00',
+  levantamiento: '#ff9d00',
+  hoja_trabajo: '#5559df',
+};
+
+// Sección de grupo tipo ventana principal: cabecera con chevron, color, nombre, contador, tabla
+function DocGroupSection({
+  id,
+  title,
+  color,
+  collapsed,
+  onToggleCollapse,
+  onRemove,
+  docs,
+  selectedId,
+  onSelectDoc,
+  onDeleteDoc,
+  customGroups,
+  assignments,
+  onAssign,
+  getDocTypeLabel,
+  isPdfDocType,
+  docType,
+  subgroups = [],
+  subgroupAssignments = {},
+  onAddSubgroup,
+  onRenameSubgroup,
+  onRemoveSubgroup,
+  onAssignSubgroup,
+}: {
+  id: string;
+  title: string;
+  color: string;
+  collapsed: boolean;
+  onToggleCollapse: () => void;
+  onRemove?: () => void;
+  docs: Doc[];
+  selectedId: string | null;
+  onSelectDoc: (id: string) => void;
+  onDeleteDoc: (id: string) => void;
+  customGroups: DocCustomGroup[];
+  assignments: Record<string, string>;
+  onAssign: (docId: string, groupId: string | null) => void;
+  getDocTypeLabel: (t: DocType) => string;
+  isPdfDocType: (t: DocType) => boolean;
+  docType?: string;
+  subgroups?: DocCustomGroup[];
+  subgroupAssignments?: Record<string, string>;
+  onAddSubgroup?: (docType: string) => void;
+  onRenameSubgroup?: (docType: string, subgroupId: string, newName: string) => void;
+  onRemoveSubgroup?: (docType: string, subgroupId: string) => void;
+  onAssignSubgroup?: (docId: string, subgroupId: string | null) => void;
+}) {
+  const showSubgroups = !!docType && !!onAddSubgroup;
+  return (
+    <section className="mb-6 rounded-lg border border-monday-border bg-white shadow-[0_2px_6px_0_rgba(0,0,0,0.08)] overflow-hidden min-h-0">
+      {/* Cabecera tipo BoardGroup: chevron, color, nombre, contador, añadir subgrupo, eliminar */}
+      <div
+        className="flex items-center gap-1.5 py-1.5 pt-2 pb-2 px-3 border-b border-monday-border bg-white"
+        style={{ boxShadow: '0 2px 6px 0 rgba(0,0,0,0.08)' }}
+      >
+        <button
+          type="button"
+          onClick={onToggleCollapse}
+          className="text-monday-subtext hover:text-monday-text transition-colors flex-shrink-0"
+          title={collapsed ? 'Expandir' : 'Colapsar'}
+        >
+          <ChevronDown
+            size={24}
+            style={{ color }}
+            className={`transition-transform duration-200 ${collapsed ? '-rotate-90' : 'rotate-0'}`}
+          />
+        </button>
+        <span
+          className="w-3 h-3 rounded-full flex-shrink-0"
+          style={{ backgroundColor: color }}
+          aria-hidden
+        />
+        <h3 className="text-[26px] font-normal leading-tight font-averta truncate min-w-0" style={{ color }}>
+          {title}
+        </h3>
+        <span className="text-[14px] text-monday-subtext font-normal whitespace-nowrap">
+          {docs.length} {docs.length === 1 ? 'elemento' : 'elementos'}
+        </span>
+        {showSubgroups && docType && (
+          <div className="flex items-center gap-1">
+            <button
+              type="button"
+              onClick={() => onAddSubgroup(docType)}
+              className="flex items-center gap-1 px-2 py-1 rounded-monday border border-dashed border-monday-border text-[12px] text-monday-subtext hover:text-monday-blue hover:border-monday-blue transition-colors"
+            >
+              <Plus size={14} />
+              Añadir subgrupo
+            </button>
+            {subgroups.length > 0 && (
+              <Popover.Root>
+                <Popover.Trigger asChild>
+                  <button
+                    type="button"
+                    className="flex items-center gap-1 px-2 py-1 rounded-monday border border-monday-border text-[12px] text-monday-subtext hover:bg-monday-hover"
+                  >
+                    <span>Subgrupos ({subgroups.length})</span>
+                    <ChevronDown size={12} />
+                  </button>
+                </Popover.Trigger>
+                <Popover.Portal>
+                  <Popover.Content className="z-50 p-2 rounded-lg border border-monday-border bg-white shadow-lg min-w-[180px]" sideOffset={6}>
+                    <p className="text-[11px] font-semibold text-monday-subtext uppercase mb-2">Gestionar subgrupos</p>
+                    {subgroups.map((s) => (
+                      <div key={s.id} className="flex items-center justify-between gap-2 py-1 group">
+                        <span className="text-[13px] text-monday-text truncate">{s.name}</span>
+                        <div className="flex items-center gap-0.5 shrink-0">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const n = window.prompt('Nuevo nombre', s.name);
+                              if (n != null && n.trim()) onRenameSubgroup?.(docType, s.id, n.trim());
+                            }}
+                            className="p-1 rounded text-monday-subtext hover:text-monday-blue hover:bg-monday-hover"
+                            title="Renombrar"
+                          >
+                            <Pencil size={12} />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => onRemoveSubgroup?.(docType, s.id)}
+                            className="p-1 rounded text-monday-subtext hover:text-monday-red hover:bg-red-50"
+                            title="Eliminar subgrupo"
+                          >
+                            <Trash2 size={12} />
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </Popover.Content>
+                </Popover.Portal>
+              </Popover.Root>
+            )}
+          </div>
+        )}
+        {onRemove && (
+          <button
+            type="button"
+            onClick={(e) => { e.stopPropagation(); onRemove(); }}
+            className="ml-auto p-1.5 rounded-lg text-monday-subtext hover:text-monday-red hover:bg-red-50 transition-colors"
+            title="Eliminar grupo"
+          >
+            <Trash2 size={16} />
+          </button>
+        )}
+      </div>
+
+      {!collapsed && (
+        <div className="relative z-0 w-full overflow-x-auto">
+          <table className="w-full text-left border-collapse font-averta">
+            <thead>
+              <tr className="h-[34px] bg-monday-hover/60">
+                <th className="font-normal text-[12px] text-monday-subtext border-b border-r border-monday-border px-3 py-2 w-[1%]" style={{ borderLeftColor: color, borderLeftWidth: 3 }}>
+                  Nombre
+                </th>
+                <th className="font-normal text-[12px] text-monday-subtext border-b border-r border-monday-border px-3 py-2 w-[120px]">
+                  Tipo
+                </th>
+                {showSubgroups && (
+                  <th className="font-normal text-[12px] text-monday-subtext border-b border-r border-monday-border px-3 py-2 w-[130px]">
+                    Subgrupo
+                  </th>
+                )}
+                <th className="font-normal text-[12px] text-monday-subtext border-b border-r border-monday-border px-3 py-2 w-[140px]">
+                  Grupo personalizado
+                </th>
+                <th className="font-normal text-[12px] text-monday-subtext border-b border-r border-monday-border px-3 py-2 w-[140px]">
+                  Última modificación
+                </th>
+                <th className="font-normal text-[12px] text-monday-subtext border-b border-monday-border px-2 py-2 w-[44px]">
+                  {' '}
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {docs.length === 0 ? (
+                <tr>
+                  <td colSpan={showSubgroups ? 6 : 5} className="px-3 py-3 text-[13px] text-monday-subtext border-b border-monday-border">
+                    Ningún documento
+                  </td>
+                </tr>
+              ) : (
+                docs.map((doc) => (
+                  <tr
+                    key={doc.id}
+                    className={`border-t border-monday-border/60 hover:bg-monday-hover transition-colors cursor-pointer ${selectedId === doc.id ? 'bg-monday-hover' : ''}`}
+                    onClick={() => onSelectDoc(doc.id)}
+                  >
+                    <td className="px-3 py-2 border-r border-monday-border/60 align-middle" style={{ borderLeftColor: color, borderLeftWidth: 3 }}>
+                      <div className="flex items-center gap-2">
+                        {doc.type === 'sheet' ? (
+                          <Table2 size={16} className="text-monday-blue shrink-0" />
+                        ) : isPdfDocType(doc.type as DocType) ? (
+                          <FileCheck size={16} className="text-monday-blue shrink-0" />
+                        ) : (
+                          <FileText size={16} className="text-monday-blue shrink-0" />
+                        )}
+                        <span className="truncate text-[13px] text-monday-text">{doc.title}</span>
+                      </div>
+                    </td>
+                    <td className="px-3 py-2 text-[13px] text-monday-subtext border-r border-monday-border/60 align-middle">
+                      {getDocTypeLabel(doc.type as DocType)}
+                    </td>
+                    {showSubgroups && docType && (
+                      <td className="px-3 py-2 border-r border-monday-border/60 align-middle" onClick={(e) => e.stopPropagation()}>
+                        <select
+                          value={subgroupAssignments[doc.id] ?? ''}
+                          onChange={(e) => onAssignSubgroup?.(doc.id, e.target.value || null)}
+                          className="text-[12px] border border-monday-border rounded-monday px-2 py-1 bg-white text-monday-subtext w-full max-w-[120px]"
+                        >
+                          <option value="">—</option>
+                          {subgroups.map((s) => (
+                            <option key={s.id} value={s.id}>{s.name}</option>
+                          ))}
+                        </select>
+                      </td>
+                    )}
+                    <td className="px-3 py-2 border-r border-monday-border/60 align-middle" onClick={(e) => e.stopPropagation()}>
+                      <select
+                        value={assignments[doc.id] ?? ''}
+                        onChange={(e) => onAssign(doc.id, e.target.value || null)}
+                        className="text-[12px] border border-monday-border rounded-monday px-2 py-1 bg-white text-monday-subtext w-full max-w-[120px]"
+                      >
+                        <option value="">—</option>
+                        {customGroups.map((g) => (
+                          <option key={g.id} value={g.id}>{g.name}</option>
+                        ))}
+                      </select>
+                    </td>
+                    <td className="px-3 py-2 text-[13px] text-monday-subtext border-r border-monday-border/60 align-middle">
+                      {new Date(doc.updatedAt).toLocaleString()}
+                    </td>
+                    <td className="px-2 py-2 border-b border-monday-border/60 align-middle" onClick={(e) => e.stopPropagation()}>
+                      <button
+                        type="button"
+                        onClick={() => onDeleteDoc(doc.id)}
+                        className="p-1.5 rounded text-monday-subtext hover:text-monday-red hover:bg-red-50"
+                        title="Eliminar"
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {collapsed && (
+        <button
+          type="button"
+          onClick={onToggleCollapse}
+          className="w-full text-left text-[12px] text-monday-subtext hover:text-monday-text flex items-center gap-1.5 px-3 py-2 hover:bg-monday-hover/50 transition-colors"
+        >
+          <ChevronDown size={14} className="-rotate-90" />
+          {docs.length} elemento{docs.length !== 1 ? 's' : ''} ocultos
+        </button>
+      )}
+    </section>
+  );
+}
+
 // Vista general: panel de control con doc cards + panel de tareas personales (estado manejado por padre)
 // Vista general simplificada: menús superiores + tabla de documentos
 function DocsOverviewPanel({
@@ -503,51 +1070,81 @@ function DocsOverviewPanel({
         ))}
       </div>
 
-      <p className="text-[12px] text-monday-subtext mb-3">Documentos del workspace</p>
-      <div className="bg-white rounded-2xl border border-monday-border shadow-sm overflow-hidden">
-        <table className="w-full border-collapse text-[13px]">
-          <thead className="bg-monday-hover/60">
-            <tr>
-              <th className="text-left px-3 py-2 font-semibold text-monday-subtext">Nombre</th>
-              <th className="text-left px-3 py-2 font-semibold text-monday-subtext">Tipo</th>
-              <th className="text-left px-3 py-2 font-semibold text-monday-subtext">Última modificación</th>
-            </tr>
-          </thead>
-          <tbody>
-            {docs.map(doc => (
-              <tr
-                key={doc.id}
-                className="border-t border-monday-border/60 hover:bg-monday-hover cursor-pointer"
-                onClick={() => onOpenDoc(doc.id)}
-              >
-                <td className="px-3 py-1.5 flex items-center gap-2">
-                  {doc.type === 'sheet' ? (
-                    <Table2 size={16} className="text-monday-blue shrink-0" />
-                  ) : isPdfDocType(doc.type as DocType) ? (
-                    <FileCheck size={16} className="text-monday-blue shrink-0" />
-                  ) : (
-                    <FileText size={16} className="text-monday-blue shrink-0" />
-                  )}
-                  <span className="truncate text-monday-text">{doc.title}</span>
-                </td>
-                <td className="px-3 py-1.5 text-monday-subtext">
-                  {getDocTypeLabel(doc.type as DocType)}
-                </td>
-                <td className="px-3 py-1.5 text-monday-subtext">
-                  {new Date(doc.updatedAt).toLocaleString()}
-                </td>
-              </tr>
-            ))}
-            {docs.length === 0 && (
-              <tr>
-                <td className="px-3 py-3 text-[13px] text-monday-subtext" colSpan={3}>
-                  No hay documentos todavía. Crea uno arriba para empezar.
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
+      <p className="text-[12px] text-monday-subtext mb-3">Documentos del workspace (agrupados por tipo)</p>
+      <div className="space-y-6">
+        {DOC_TYPE_OPTIONS.map((opt) => {
+          const groupDocs = docs.filter((d) => d.type === opt.id);
+          const typeGroupTitle = opt.id === 'text' ? 'Documentos de texto' : opt.id === 'sheet' ? 'Hojas' : getDocTypeLabel(opt.id as DocType);
+          return (
+            <section
+              key={opt.id}
+              className="rounded-lg border border-monday-border bg-white shadow-[0_2px_6px_0_rgba(0,0,0,0.08)] overflow-hidden min-h-0"
+            >
+              <div className="h-[34px] px-3 flex items-center bg-monday-hover/60 border-b border-monday-border text-[12px] font-medium text-monday-subtext">
+                {typeGroupTitle}
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full border-collapse text-[13px] font-averta">
+                  <thead>
+                    <tr className="h-[34px] bg-monday-hover/60">
+                      <th className="text-left px-3 py-2 font-normal text-monday-subtext border-b border-r border-monday-border last:border-r-0">
+                        Nombre
+                      </th>
+                      <th className="text-left px-3 py-2 font-normal text-monday-subtext border-b border-r border-monday-border last:border-r-0">
+                        Tipo
+                      </th>
+                      <th className="text-left px-3 py-2 font-normal text-monday-subtext border-b border-monday-border">
+                        Última modificación
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {groupDocs.length === 0 ? (
+                      <tr>
+                        <td className="px-3 py-3 text-monday-subtext" colSpan={3}>
+                          Ninguno
+                        </td>
+                      </tr>
+                    ) : (
+                      groupDocs.map((doc) => (
+                        <tr
+                          key={doc.id}
+                          className="border-t border-monday-border/60 hover:bg-monday-hover cursor-pointer transition-colors"
+                          onClick={() => onOpenDoc(doc.id)}
+                        >
+                          <td className="px-3 py-2 border-r border-monday-border/60">
+                            <div className="flex items-center gap-2">
+                            {doc.type === 'sheet' ? (
+                              <Table2 size={16} className="text-monday-blue shrink-0" />
+                            ) : isPdfDocType(doc.type as DocType) ? (
+                              <FileCheck size={16} className="text-monday-blue shrink-0" />
+                            ) : (
+                              <FileText size={16} className="text-monday-blue shrink-0" />
+                            )}
+                            <span className="truncate text-monday-text">{doc.title}</span>
+                            </div>
+                          </td>
+                          <td className="px-3 py-2 text-monday-subtext border-r border-monday-border/60">
+                            {getDocTypeLabel(doc.type as DocType)}
+                          </td>
+                          <td className="px-3 py-2 text-monday-subtext">
+                            {new Date(doc.updatedAt).toLocaleString()}
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </section>
+          );
+        })}
       </div>
+      {docs.length === 0 && (
+        <p className="text-[13px] text-monday-subtext mt-2">
+          No hay documentos todavía. Crea uno con los botones de arriba.
+        </p>
+      )}
     </div>
   );
 }
@@ -877,68 +1474,157 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
   const parsed = useMemo(() => parseContent(selectedDoc), [selectedDoc]);
   const [textDraft, setTextDraft] = useState(() => getInitialHtml(parsed.text ?? ''));
   const [tableDraft, setTableDraft] = useState<string[][]>(parsed.table ?? [['']]);
+  const [headerImageUrlDraft, setHeaderImageUrlDraft] = useState<string | null>(
+    (parsed.headerImageUrl as string | null) ?? null
+  );
   const [pdfFormDraft, setPdfFormDraft] = useState<Record<string, unknown>>({});
   const [templateConfigByType, setTemplateConfigByType] = useState<Record<string, TemplateConfigState>>({});
   const [savingTemplateConfig, setSavingTemplateConfig] = useState(false);
   const [viewMode, setViewMode] = useState<'docs' | 'overview'>('overview');
   const [deleteConfirm, setDeleteConfirm] = useState<{ docId: string } | null>(null);
 
-  // Tableros personales sólo para Docs (por usuario y workspace), almacenados en localStorage
-  type DocBoard = { id: string; name: string };
-  const [docBoards, setDocBoards] = useState<DocBoard[]>([]);
-  const [docBoardByDocId, setDocBoardByDocId] = useState<Record<string, string | null>>({});
-  const [activeDocBoardId, setActiveDocBoardId] = useState<string | 'sin-tablero'>('sin-tablero');
+  // Grupos personalizados por usuario/workspace (API doc-groups, mismo patrón que panel-notes)
+  const [customGroups, setCustomGroups] = useState<DocCustomGroup[]>([]);
+  const [assignments, setAssignments] = useState<Record<string, string>>({}); // docId -> customGroupId
+  const [subgroupsByType, setSubgroupsByType] = useState<Record<string, DocCustomGroup[]>>({}); // type -> [{ id, name }]
+  const [subgroupAssignments, setSubgroupAssignments] = useState<Record<string, string>>({}); // docId -> subgroupId
+  const [docGroupsLoading, setDocGroupsLoading] = useState(false);
+  const [collapsedDocGroups, setCollapsedDocGroups] = useState<Set<string>>(new Set());
+
+  const toggleDocGroupCollapse = (key: string) => {
+    setCollapsedDocGroups((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  };
 
   useEffect(() => {
     if (!workspaceId || !currentUserId) {
-      setDocBoards([]);
-      setDocBoardByDocId({});
+      setCustomGroups([]);
+      setAssignments({});
+      setSubgroupsByType({});
+      setSubgroupAssignments({});
       return;
     }
-    try {
-      const key = `sunday-doc-boards-${workspaceId}-${currentUserId}`;
-      const mapKey = `sunday-doc-board-map-${workspaceId}-${currentUserId}`;
-      const storedBoards = localStorage.getItem(key);
-      const storedMap = localStorage.getItem(mapKey);
-      setDocBoards(storedBoards ? JSON.parse(storedBoards) as DocBoard[] : []);
-      setDocBoardByDocId(storedMap ? JSON.parse(storedMap) as Record<string, string | null> : {});
-      setActiveDocBoardId('sin-tablero');
-    } catch {
-      setDocBoards([]);
-      setDocBoardByDocId({});
-      setActiveDocBoardId('sin-tablero');
-    }
+    let cancelled = false;
+    setDocGroupsLoading(true);
+    const url = `http://localhost:3001/api/workspaces/${workspaceId}/doc-groups?userId=${encodeURIComponent(currentUserId)}`;
+    fetch(url)
+      .then((res) => (res.ok ? res.json() : { groups: [], assignments: {}, subgroupsByType: {}, subgroupAssignments: {} }))
+      .then((data: {
+        groups?: DocCustomGroup[];
+        assignments?: Record<string, string>;
+        subgroupsByType?: Record<string, DocCustomGroup[]>;
+        subgroupAssignments?: Record<string, string>;
+      }) => {
+        if (!cancelled) {
+          setCustomGroups(Array.isArray(data.groups) ? data.groups : []);
+          setAssignments(data.assignments && typeof data.assignments === 'object' ? data.assignments : {});
+          setSubgroupsByType(data.subgroupsByType && typeof data.subgroupsByType === 'object' ? data.subgroupsByType : {});
+          setSubgroupAssignments(data.subgroupAssignments && typeof data.subgroupAssignments === 'object' ? data.subgroupAssignments : {});
+        }
+      })
+      .catch(() => { if (!cancelled) { setCustomGroups([]); setAssignments({}); setSubgroupsByType({}); setSubgroupAssignments({}); } })
+      .finally(() => { if (!cancelled) setDocGroupsLoading(false); });
+    return () => { cancelled = true; };
   }, [workspaceId, currentUserId]);
 
-  const persistDocBoards = (boardsToSave: DocBoard[], mapToSave: Record<string, string | null>) => {
-    if (!workspaceId || !currentUserId) return;
-    try {
-      const key = `sunday-doc-boards-${workspaceId}-${currentUserId}`;
-      const mapKey = `sunday-doc-board-map-${workspaceId}-${currentUserId}`;
-      localStorage.setItem(key, JSON.stringify(boardsToSave));
-      localStorage.setItem(mapKey, JSON.stringify(mapToSave));
-    } catch {
-      // ignorar errores de almacenamiento
-    }
+  const saveDocGroupsToApi = useCallback(
+    (
+      groups: DocCustomGroup[],
+      assign: Record<string, string>,
+      subgroups?: Record<string, DocCustomGroup[]>,
+      subgroupAssign?: Record<string, string>,
+    ) => {
+      if (!workspaceId || !currentUserId) return;
+      const payload: Record<string, unknown> = {
+        userId: currentUserId,
+        groups,
+        assignments: assign,
+      };
+      if (subgroups !== undefined) payload.subgroupsByType = subgroups;
+      if (subgroupAssign !== undefined) payload.subgroupAssignments = subgroupAssign;
+      fetch(`http://localhost:3001/api/workspaces/${workspaceId}/doc-groups`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      }).catch(() => {});
+    },
+    [workspaceId, currentUserId],
+  );
+
+  const addCustomGroup = () => {
+    const name = window.prompt('Nombre del grupo');
+    const trimmed = name?.trim();
+    if (!trimmed) return;
+    const next = [...customGroups, { id: crypto.randomUUID(), name: trimmed }];
+    setCustomGroups(next);
+    saveDocGroupsToApi(next, assignments, subgroupsByType, subgroupAssignments);
   };
 
-  const handleCreateDocBoard = () => {
-    const raw = window.prompt('Nombre del tablero de documentos');
-    const name = raw?.trim();
-    if (!name) return;
-    setDocBoards(prev => {
-      const next = [...prev, { id: crypto.randomUUID(), name }];
-      persistDocBoards(next, docBoardByDocId);
-      return next;
-    });
+  const renameCustomGroup = (groupId: string, newName: string) => {
+    const next = customGroups.map((g) => (g.id === groupId ? { ...g, name: newName } : g));
+    setCustomGroups(next);
+    saveDocGroupsToApi(next, assignments, subgroupsByType, subgroupAssignments);
   };
 
-  const assignDocToBoard = (docId: string, boardId: string | null) => {
-    setDocBoardByDocId(prev => {
-      const next = { ...prev, [docId]: boardId };
-      persistDocBoards(docBoards, next);
-      return next;
+  const removeCustomGroup = (groupId: string) => {
+    const nextGroups = customGroups.filter((g) => g.id !== groupId);
+    const nextAssign = { ...assignments };
+    Object.keys(nextAssign).forEach((docId) => {
+      if (nextAssign[docId] === groupId) delete nextAssign[docId];
     });
+    setCustomGroups(nextGroups);
+    setAssignments(nextAssign);
+    saveDocGroupsToApi(nextGroups, nextAssign, subgroupsByType, subgroupAssignments);
+  };
+
+  const assignDocToCustomGroup = (docId: string, groupId: string | null) => {
+    const next = groupId ? { ...assignments, [docId]: groupId } : { ...assignments };
+    if (!groupId && next[docId]) delete next[docId];
+    setAssignments(next);
+    saveDocGroupsToApi(customGroups, next, subgroupsByType, subgroupAssignments);
+  };
+
+  const addSubgroup = (docType: string) => {
+    const name = window.prompt('Nombre del subgrupo');
+    const trimmed = name?.trim();
+    if (!trimmed) return;
+    const list = subgroupsByType[docType] ?? [];
+    const nextList = [...list, { id: crypto.randomUUID(), name: trimmed }];
+    const next = { ...subgroupsByType, [docType]: nextList };
+    setSubgroupsByType(next);
+    saveDocGroupsToApi(customGroups, assignments, next, subgroupAssignments);
+  };
+
+  const renameSubgroup = (docType: string, subgroupId: string, newName: string) => {
+    const list = subgroupsByType[docType] ?? [];
+    const nextList = list.map((s) => (s.id === subgroupId ? { ...s, name: newName } : s));
+    const next = { ...subgroupsByType, [docType]: nextList };
+    setSubgroupsByType(next);
+    saveDocGroupsToApi(customGroups, assignments, next, subgroupAssignments);
+  };
+
+  const removeSubgroup = (docType: string, subgroupId: string) => {
+    const list = (subgroupsByType[docType] ?? []).filter((s) => s.id !== subgroupId);
+    const next = { ...subgroupsByType, [docType]: list.length ? list : undefined };
+    if (!next[docType]) delete next[docType];
+    setSubgroupsByType(next);
+    const nextAssign = { ...subgroupAssignments };
+    Object.keys(nextAssign).forEach((docId) => {
+      if (nextAssign[docId] === subgroupId) delete nextAssign[docId];
+    });
+    setSubgroupAssignments(nextAssign);
+    saveDocGroupsToApi(customGroups, assignments, next, nextAssign);
+  };
+
+  const assignDocToSubgroup = (docId: string, subgroupId: string | null) => {
+    const next = subgroupId ? { ...subgroupAssignments, [docId]: subgroupId } : { ...subgroupAssignments };
+    if (!subgroupId && next[docId]) delete next[docId];
+    setSubgroupAssignments(next);
+    saveDocGroupsToApi(customGroups, assignments, subgroupsByType, next);
   };
 
   useEffect(() => {
@@ -972,6 +1658,7 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
   useEffect(() => {
     setTextDraft(getInitialHtml(parsed.text ?? ''));
     setTableDraft(parsed.table ?? [['']]);
+    setHeaderImageUrlDraft((parsed.headerImageUrl as string | null) ?? null);
     if (selectedDoc && isPdfDocType(selectedDoc.type as DocType)) {
       const initial = getInitialContentForType(selectedDoc.type as DocType);
       setPdfFormDraft({ ...initial, ...(parsed as Record<string, unknown>) });
@@ -1036,8 +1723,6 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
       }
       const created = data as Doc;
       setDocs(prev => [created, ...prev]);
-      // Asignar al tablero activo (o Sin tablero) para organización en ambas pestañas
-      assignDocToBoard(created.id, activeDocBoardId === 'sin-tablero' ? null : activeDocBoardId);
       setSelectedId(created.id);
     } catch (e) {
       console.error('Error creating doc', e);
@@ -1051,23 +1736,15 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
     }
   }
 
-  // Si se dispara desde una columna de Docs/Facturación, crear/abrir automáticamente el doc correspondiente
+  // Si se dispara desde una columna de Docs/Facturación, crear y abrir el doc correspondiente
   useEffect(() => {
     if (!workspaceId || !initialCreateFromBoard) return;
-    const { type, boardId } = initialCreateFromBoard;
-    // Si ya hay un documento de ese tipo vinculado al mismo tablero, reusar
-    const existing = docs.find(d => d.type === type && d.boardId === boardId);
-    if (existing) {
-      setViewMode('docs');
-      setSelectedId(existing.id);
-      onConsumeInitialCreateFromBoard?.();
-      return;
-    }
+    const { type } = initialCreateFromBoard;
     setViewMode('docs');
     handleCreate(type).finally(() => {
       onConsumeInitialCreateFromBoard?.();
     });
-  }, [workspaceId, initialCreateFromBoard, docs]);
+  }, [workspaceId, initialCreateFromBoard]);
 
   const handleSave = async () => {
     if (!selectedDoc) return;
@@ -1079,7 +1756,7 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
           ? { table: tableDraft }
           : isPdfDocType(selectedDoc.type as DocType)
             ? pdfFormDraft
-            : { text: textDraft };
+          : { text: textDraft, headerImageUrl: headerImageUrlDraft };
       const res = await fetch(`${API_BASE}/api/docs/${selectedDoc.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
@@ -1229,7 +1906,6 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
     });
   };
 
-  const currentBoard = boards.find(b => b.id === selectedDoc?.boardId);
 
   return (
     <div className="flex-1 flex flex-col overflow-hidden">
@@ -1408,7 +2084,15 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
                         {selectedDoc.title}
                       </h2>
                     </div>
-                    <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setSelectedId(null)}
+                      className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-monday border border-monday-border text-[12px] text-monday-subtext hover:bg-monday-hover"
+                    >
+                      <X size={12} />
+                      <span>Cerrar</span>
+                    </button>
                       {isPdfDocType(selectedDoc.type as DocType) && (
                         <button
                           type="button"
@@ -1456,7 +2140,13 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
                       ensureTableSize={ensureTableSize}
                     />
                   ) : (
-                    <WordLikeEditor key={selectedId ?? 'new'} textDraft={textDraft} setTextDraft={setTextDraft} />
+                    <WordLikeEditor
+                      key={selectedId ?? 'new'}
+                      textDraft={textDraft}
+                      setTextDraft={setTextDraft}
+                      headerImageUrl={headerImageUrlDraft}
+                      setHeaderImageUrl={setHeaderImageUrlDraft}
+                    />
                   )}
                 </>
               )}
@@ -1464,124 +2154,90 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
           </div>
         </div>
       ) : (
-      <div className="flex-1 flex overflow-hidden">
-        <aside className="w-72 border-r border-monday-border flex flex-col">
-          <div className="px-3 py-2 border-b border-monday-border bg-monday-hover/40 flex items-center justify-between gap-2">
-            <p className="text-[11px] font-semibold text-monday-subtext uppercase tracking-wide">
-              Documentos
-            </p>
-            <button
-              type="button"
-              onClick={handleCreateDocBoard}
-              className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-monday-blue text-white text-[11px] hover:bg-monday-blue/90"
-            >
-              <Plus size={11} />
-              <span>Añadir tablero</span>
-            </button>
-          </div>
-          <div className="flex-1 overflow-y-auto custom-scrollbar">
-            {loading && (
-              <div className="p-4 text-[13px] text-monday-subtext">Cargando documentos…</div>
-            )}
-            {!workspaceId && (
-              <div className="p-4 text-[13px] text-amber-700 bg-amber-50 border border-amber-200 rounded-lg mx-2 mt-2">
-                Selecciona un workspace en la barra lateral para crear documentos.
-              </div>
-            )}
-            {!loading && workspaceId && docs.length === 0 && (
-              <div className="p-4 text-[13px] text-monday-subtext">
-                No hay documentos aún.
-              </div>
-            )}
-            {!loading &&
-              (() => {
-                // Agrupar documentos por tableros personales de docs
-                const unassignedDocs = docs.filter(d => !docBoardByDocId[d.id]);
-                const groups = docBoards.map(b => ({
-                  key: b.id,
-                  title: b.name,
-                  docs: docs.filter(d => docBoardByDocId[d.id] === b.id),
-                }));
-                if (unassignedDocs.length > 0) {
-                  groups.unshift({
-                    key: 'sin-tablero',
-                    title: 'Sin tablero',
-                    docs: unassignedDocs,
-                  });
-                }
-                if (groups.length === 0) {
-                  return (
-                    <div className="p-4 text-[13px] text-monday-subtext">
-                      No hay documentos todavía.
-                    </div>
-                  );
-                }
-                return groups.map(group => (
-                  <React.Fragment key={group.key}>
-                    <div className="px-3 py-1 text-[11px] font-semibold text-monday-subtext uppercase tracking-wide bg-monday-hover/40 border-b border-monday-border/60">
-                      {group.title}
-                    </div>
-                    {group.docs.map(doc => (
-                <div
-                  key={doc.id}
-                  role="button"
-                  tabIndex={0}
-                  onClick={() => setSelectedId(doc.id)}
-                  onKeyDown={e => {
-                    if (e.key === 'Enter' || e.key === ' ') {
-                      e.preventDefault();
-                      setSelectedId(doc.id);
-                    }
-                  }}
-                  className={`w-full flex items-center gap-2 px-3 py-2 text-left text-[13px] border-b border-monday-border/60 hover:bg-monday-hover transition-colors cursor-pointer ${
-                    selectedId === doc.id ? 'bg-monday-hover' : 'bg-white'
-                  }`}
-                >
-                  {doc.type === 'sheet' ? (
-                    <Table2 size={16} className="text-monday-blue shrink-0" />
-                  ) : isPdfDocType(doc.type as DocType) ? (
-                    <FileCheck size={16} className="text-monday-blue shrink-0" />
-                  ) : (
-                    <FileText size={16} className="text-monday-blue shrink-0" />
-                  )}
-                  <div className="flex-1 min-w-0">
-                    <p className="truncate text-monday-text">{doc.title}</p>
-                    <p className="text-[11px] text-monday-subtext truncate">
-                      {getDocTypeLabel(doc.type as DocType)} · {new Date(doc.updatedAt).toLocaleString()}
-                    </p>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={e => {
-                      e.stopPropagation();
-                      handleDeleteClick(doc.id);
-                    }}
-                    className="p-1 rounded text-monday-subtext hover:text-monday-red hover:bg-red-50"
-                    title="Eliminar"
-                  >
-                    <Trash2 size={14} />
-                  </button>
-                  <select
-                    value={docBoardByDocId[doc.id] ?? ''}
-                    onChange={e => assignDocToBoard(doc.id, e.target.value || null)}
-                    className="ml-2 text-[11px] border border-monday-border rounded px-1 py-0.5 bg-white text-monday-subtext"
-                    title="Mover a tablero de documentos"
-                  >
-                    <option value="">Sin tablero</option>
-                    {docBoards.map(b => (
-                      <option key={b.id} value={b.id}>{b.name}</option>
-                    ))}
-                  </select>
-                </div>
-                    ))}
-                  </React.Fragment>
-                ));
-              })()}
-          </div>
-        </aside>
+      <div className="flex-1 flex overflow-hidden bg-[#f0f2f5]">
+        {/* Tabla agrupada tipo ventana principal (grupos con color, cabeceras, tabla) */}
+        <div className="flex-1 overflow-auto custom-scrollbar px-6 py-5 min-w-0">
+          {!workspaceId && (
+            <div className="p-4 text-[13px] text-amber-700 bg-amber-50 border border-amber-200 rounded-lg max-w-md">
+              Selecciona un workspace en la barra lateral para ver y crear documentos.
+            </div>
+          )}
+          {workspaceId && loading && (
+            <div className="p-4 text-[13px] text-monday-subtext">Cargando documentos…</div>
+          )}
+          {workspaceId && !loading && (
+            <>
+              {DOC_TYPE_OPTIONS.map((opt) => {
+                const groupDocs = docs.filter((d) => d.type === opt.id);
+                const typeGroupTitle = opt.id === 'text' ? 'Documentos de texto' : opt.id === 'sheet' ? 'Hojas' : getDocTypeLabel(opt.id as DocType);
+                const groupKey = `type:${opt.id}`;
+                const typeSubgroups = subgroupsByType[opt.id] ?? [];
+                return (
+                  <DocGroupSection
+                    key={groupKey}
+                    id={groupKey}
+                    title={typeGroupTitle}
+                    color={DOC_TYPE_GROUP_COLORS[opt.id] ?? GROUP_PALETTE[0]}
+                    collapsed={collapsedDocGroups.has(groupKey)}
+                    onToggleCollapse={() => toggleDocGroupCollapse(groupKey)}
+                    docs={groupDocs}
+                    selectedId={selectedId}
+                    onSelectDoc={setSelectedId}
+                    onDeleteDoc={(id) => handleDeleteClick(id)}
+                    customGroups={customGroups}
+                    assignments={assignments}
+                    onAssign={assignDocToCustomGroup}
+                    getDocTypeLabel={getDocTypeLabel}
+                    isPdfDocType={isPdfDocType}
+                    docType={opt.id}
+                    subgroups={typeSubgroups}
+                    subgroupAssignments={subgroupAssignments}
+                    onAddSubgroup={addSubgroup}
+                    onRenameSubgroup={renameSubgroup}
+                    onRemoveSubgroup={removeSubgroup}
+                    onAssignSubgroup={assignDocToSubgroup}
+                  />
+                );
+              })}
+              {customGroups.map((grp) => {
+                const groupDocs = docs.filter((d) => assignments[d.id] === grp.id);
+                const groupKey = `custom:${grp.id}`;
+                const color = GROUP_PALETTE[customGroups.indexOf(grp) % GROUP_PALETTE.length];
+                return (
+                  <DocGroupSection
+                    key={groupKey}
+                    id={groupKey}
+                    title={grp.name}
+                    color={color}
+                    collapsed={collapsedDocGroups.has(groupKey)}
+                    onToggleCollapse={() => toggleDocGroupCollapse(groupKey)}
+                    onRemove={() => removeCustomGroup(grp.id)}
+                    docs={groupDocs}
+                    selectedId={selectedId}
+                    onSelectDoc={setSelectedId}
+                    onDeleteDoc={(id) => handleDeleteClick(id)}
+                    customGroups={customGroups}
+                    assignments={assignments}
+                    onAssign={assignDocToCustomGroup}
+                    getDocTypeLabel={getDocTypeLabel}
+                    isPdfDocType={isPdfDocType}
+                  />
+                );
+              })}
+              <button
+                type="button"
+                onClick={addCustomGroup}
+                className="flex items-center gap-2 px-4 py-2 rounded-monday border border-dashed border-monday-border hover:border-monday-blue text-[13px] text-monday-subtext hover:text-monday-blue mt-2 transition-colors"
+              >
+                <Plus size={16} className="text-monday-subtext" />
+                Agregar grupo nuevo
+              </button>
+            </>
+          )}
+        </div>
 
         {/* Panel derecho: editor */}
-        <section className="flex-1 flex flex-col">
+        <section className="flex-1 flex flex-col min-w-0 max-w-[60%] border-l border-monday-border bg-white">
           {error && (
             <div className="px-4 py-2 bg-red-50 text-red-700 text-[13px] border-b border-red-200">
               {error}
@@ -1595,7 +2251,7 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
               </div>
               <p className="text-[15px] font-medium text-monday-text">Selecciona o crea un documento</p>
               <p className="text-[13px] mt-1 max-w-sm text-center">
-                Usa el panel izquierdo para elegir un doc existente o crea uno nuevo.
+                Haz clic en una fila de la tabla para abrir el documento o crea uno desde la vista general.
               </p>
             </div>
           ) : (
@@ -1605,13 +2261,16 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
                   <h2 className="text-[16px] font-semibold text-monday-text truncate">
                     {selectedDoc.title}
                   </h2>
-                  {currentBoard && (
-                    <p className="text-[12px] text-monday-subtext">
-                      Vinculado al tablero: <span className="font-medium">{currentBoard.name}</span>
-                    </p>
-                  )}
                 </div>
                 <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setSelectedId(null)}
+                    className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-monday border border-monday-border text-[12px] text-monday-subtext hover:bg-monday-hover"
+                  >
+                    <X size={12} />
+                    <span>Cerrar</span>
+                  </button>
                   {isPdfDocType(selectedDoc.type as DocType) && (
                     <button
                       type="button"
@@ -1659,7 +2318,13 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
                   ensureTableSize={ensureTableSize}
                 />
               ) : (
-                <WordLikeEditor key={selectedId ?? 'new'} textDraft={textDraft} setTextDraft={setTextDraft} />
+                <WordLikeEditor
+                  key={selectedId ?? 'new'}
+                  textDraft={textDraft}
+                  setTextDraft={setTextDraft}
+                  headerImageUrl={headerImageUrlDraft}
+                  setHeaderImageUrl={setHeaderImageUrlDraft}
+                />
               )}
             </>
           )}

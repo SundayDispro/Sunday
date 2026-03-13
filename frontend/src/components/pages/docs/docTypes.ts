@@ -59,7 +59,10 @@ export function getInitialContentForType(type: DocType): Record<string, unknown>
     case 'text':
       return { text: '' };
     case 'sheet':
-      return { table: [['']] };
+      // Hoja nueva: tabla inicial 5x5 vacía
+      return {
+        table: Array.from({ length: 5 }, () => Array.from({ length: 5 }, () => '')),
+      };
     case 'cotizacion':
       return COTIZACION_INITIAL as unknown as Record<string, unknown>;
     case 'levantamiento':
