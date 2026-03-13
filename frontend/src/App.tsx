@@ -237,6 +237,10 @@ function App() {
     itemId: string;
   } | null>(null);
 
+  const [showCalculator, setShowCalculator] = useState(false);
+  const [calculatorExpression, setCalculatorExpression] = useState('');
+  const [calculatorResult, setCalculatorResult] = useState<string | null>(null);
+
   // Tareas personales (panel-notes) por workspace, visibles en Docs
   interface TaskItem {
     id: string;
@@ -293,12 +297,13 @@ function App() {
     };
   }, [currentUser?.id, fetchUnreadNotifications]);
 
-  // Carga y guardado de tareas (panel-notes) por workspace
+  // Carga y guardado de tareas (panel-notes) por workspace; solo las del usuario actual
   const savePanelNotesToApi = React.useCallback((notes: TaskWindow[], wid: string) => {
+    if (!currentUser?.id) return;
     const toSave = notes.map(n => ({
       id: n.id,
       title: n.title,
-      ownerId: n.ownerId,
+      ownerId: n.ownerId ?? currentUser.id,
       color: n.color,
       tasks: (n.tasks ?? []).map(t => ({
         id: t.id,
@@ -310,9 +315,9 @@ function App() {
     fetch(`http://localhost:3001/api/workspaces/${wid}/panel-notes`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ panelNotes: toSave }),
+      body: JSON.stringify({ panelNotes: toSave, userId: currentUser.id }),
     }).catch(err => console.error('Panel notes save failed:', err));
-  }, []);
+  }, [currentUser?.id]);
 
   const scheduleSavePanelNotes = React.useCallback(() => {
     if (!activeWorkspaceId) return;
@@ -328,35 +333,38 @@ function App() {
   }, [activeWorkspaceId, savePanelNotesToApi]);
 
   useEffect(() => {
-    if (!activeWorkspaceId) {
+    if (!activeWorkspaceId || !currentUser?.id) {
       setTaskWindows([]);
       setTasksLoading(false);
       return;
     }
     setTasksLoading(true);
-    fetch(`http://localhost:3001/api/workspaces/${activeWorkspaceId}/panel-notes`)
+    const url = `http://localhost:3001/api/workspaces/${activeWorkspaceId}/panel-notes?userId=${encodeURIComponent(currentUser.id)}`;
+    fetch(url)
       .then(r => r.json())
       .then(data => {
         const raw = Array.isArray(data?.panelNotes) ? data.panelNotes : [];
-        const normalized: TaskWindow[] = raw.map((item: any, index: number) => ({
-          id: typeof item.id === 'string' ? item.id : `w-${index}`,
-          title: typeof item.title === 'string' ? item.title : 'Mis tareas',
-          ownerId: typeof item.ownerId === 'string' ? item.ownerId : undefined,
-          color: typeof item.color === 'string' && /^#[0-9A-Fa-f]{6}$/.test(item.color) ? item.color : DEFAULT_TASK_WINDOW_COLOR,
-          tasks: Array.isArray(item.tasks)
-            ? item.tasks.map((t: any, i: number) => ({
-                id: typeof t.id === 'string' ? t.id : `t-${i}`,
-                text: typeof t.text === 'string' ? t.text : '',
-                done: !!t.done,
-                important: !!t.important,
-              }))
-            : [],
-        }));
+        const normalized: TaskWindow[] = raw
+          .filter((item: any) => !item || !item.ownerId || String(item.ownerId) === currentUser.id)
+          .map((item: any, index: number) => ({
+            id: typeof item.id === 'string' ? item.id : `w-${index}`,
+            title: typeof item.title === 'string' ? item.title : 'Mis tareas',
+            ownerId: typeof item.ownerId === 'string' ? item.ownerId : currentUser.id,
+            color: typeof item.color === 'string' && /^#[0-9A-Fa-f]{6}$/.test(item.color) ? item.color : DEFAULT_TASK_WINDOW_COLOR,
+            tasks: Array.isArray(item.tasks)
+              ? item.tasks.map((t: any, i: number) => ({
+                  id: typeof t.id === 'string' ? t.id : `t-${i}`,
+                  text: typeof t.text === 'string' ? t.text : '',
+                  done: !!t.done,
+                  important: !!t.important,
+                }))
+              : [],
+          }));
         setTaskWindows(normalized);
       })
       .catch(() => setTaskWindows([]))
       .finally(() => setTasksLoading(false));
-  }, [activeWorkspaceId]);
+  }, [activeWorkspaceId, currentUser?.id]);
 
   // Flush de tareas al cambiar workspace o cerrar pestaÃƒÂ±a
   useEffect(() => {
@@ -547,6 +555,27 @@ function App() {
       scheduleSavePanelNotes();
       return next;
     });
+  };
+
+  const ensureCalculatorVisible = () => {
+    setShowCalculator(true);
+  };
+
+  const evaluateCalculator = () => {
+    const expr = calculatorExpression.trim();
+    if (!expr) {
+      setCalculatorResult(null);
+      return;
+    }
+    try {
+      // Evaluación simple; uso local en UI
+      // eslint-disable-next-line no-new-func
+      const fn = new Function(`return (${expr});`);
+      const r = fn();
+      setCalculatorResult(typeof r === 'number' ? String(r) : String(r));
+    } catch {
+      setCalculatorResult('Error');
+    }
   };
 
   return (
@@ -858,14 +887,38 @@ if (ok && data && typeof data.id === 'string') {
                 <p className="text-monday-subtext text-[11px] font-semibold px-2 mb-2 uppercase tracking-wider">Docs</p>
                 <p className="text-monday-text text-[12px] px-2">Documentación del equipo.</p>
               </div>
-              <p className="text-[11px] font-semibold text-monday-subtext uppercase tracking-wider px-2 mb-1 mt-2">Tus tareas</p>
+              <p className="text-[11px] font-semibold text-monday-subtext uppercase tracking-wider px-2 mb-1 mt-2">Tus widgets</p>
               {tasksLoading && (
                 <p className="text-[12px] text-monday-subtext px-2 mb-2">Cargando tareas...</p>
               )}
               {!tasksLoading && taskWindows.length === 0 && (
-                <p className="text-[12px] text-monday-subtext px-2 mb-2">No hay tareas. Usa "Añadir tarea" en Docs.</p>
+                <p className="text-[12px] text-monday-subtext px-2 mb-2">No hay widgets. Usa \"Añadir widget\" en Docs.</p>
               )}
               <div className="space-y-3 mb-3">
+                {showCalculator && (
+                  <div className="rounded-xl border border-monday-border/80 bg-white shadow-monday-sm p-3">
+                    <p className="text-[12px] font-semibold text-monday-text mb-1">Calculadora</p>
+                    <input
+                      type="text"
+                      value={calculatorExpression}
+                      onChange={e => setCalculatorExpression(e.target.value)}
+                      placeholder="Ej: (1200 + 350) * 1.16"
+                      className="w-full text-[12px] px-2 py-1.5 border border-monday-border rounded-md mb-1 outline-none focus:ring-1 focus:ring-monday-blue"
+                    />
+                    <button
+                      type="button"
+                      onClick={evaluateCalculator}
+                      className="text-[11px] px-2 py-1 rounded-md bg-monday-blue text-white hover:bg-monday-blue/90"
+                    >
+                      Calcular
+                    </button>
+                    {calculatorResult != null && (
+                      <p className="mt-1 text-[12px] text-monday-text">
+                        Resultado: <span className="font-semibold">{calculatorResult}</span>
+                      </p>
+                    )}
+                  </div>
+                )}
                 {taskWindows.map(win => (
                   <div
                     key={win.id}
@@ -1221,6 +1274,7 @@ if (ok && data && typeof data.id === 'string') {
               initialCreateFromBoard={pendingDocFromBoard}
               onConsumeInitialCreateFromBoard={() => setPendingDocFromBoard(null)}
               onAddTaskList={addTaskWindow}
+              onAddCalculatorWidget={ensureCalculatorVisible}
             />
           ) : activePage === 'dashboard' ? (
             <DashboardPage />
