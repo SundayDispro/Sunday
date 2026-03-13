@@ -141,6 +141,8 @@ export interface CustomBoxDef {
   fontBold?: boolean;
   /** Cursiva específica del cuadro; si no se define usa la global */
   fontItalic?: boolean;
+  /** Fondo del cuadro (ej. #000000 para cajas negras con texto blanco como Total/IVA) */
+  backgroundColor?: string;
   /** Semántica opcional del cuadro para auto-rellenar desde tablero */
   semantic?: 'element' | 'folio';
 }

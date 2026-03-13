@@ -1452,11 +1452,13 @@ app.post('/api/templates/:kind/generate', async (req, res) => {
       return res.status(400).json({ error: 'Tipo de plantilla no válido' });
     }
     const content = (req.body?.content ?? {}) as Record<string, unknown>;
-    const { generatePdfFromTemplate } = await import('./templatePdfGenerator');
-    const buffer = await generatePdfFromTemplate(
-      kind as 'cotizacion' | 'levantamiento' | 'hoja_trabajo',
-      content
-    );
+    const templatePath = getTemplatePathIfExists(kind as (typeof TEMPLATE_KINDS)[number]);
+    const { generatePdfFromDocument } = await import('./htmlPdfGenerator');
+    const buffer = await generatePdfFromDocument({
+      content,
+      format: 'A4',
+      templatePdfPath: templatePath,
+    });
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', 'inline; filename="' + kind + '.pdf"');
     res.send(buffer);
