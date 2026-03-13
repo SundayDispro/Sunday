@@ -82,6 +82,11 @@ export const BillingDocsCellRenderer: React.FC<Props> = ({ item, column, value }
   const handleUpload = async (file: File) => {
     setUploadError(null);
     setUploading(true);
+    if (!/^image\/jpe?g$|^application\/pdf$/i.test(file.type)) {
+      setUploadError('Tipo de archivo no permitido. Solo se aceptan JPG o PDF.');
+      setUploading(false);
+      return;
+    }
     const formData = new FormData();
     formData.append('file', file);
     try {
@@ -89,26 +94,24 @@ export const BillingDocsCellRenderer: React.FC<Props> = ({ item, column, value }
         method: 'POST',
         body: formData,
       });
-      const text = await res.text();
-      let data: { error?: string; url?: string } = {};
-      try {
-        data = text ? JSON.parse(text) : {};
-      } catch {
-        data = {
-          error:
-            res.status === 404
-              ? 'Servidor no disponible. ¿Está corriendo el backend en el puerto 3001?'
-              : `Error del servidor (${res.status})`,
-        };
+      const data: { error?: string; url?: string } = await res.json().catch(() => ({}));
+      if (!res.ok || !data.url) {
+        const backendMsg =
+          typeof data.error === 'string' && data.error.trim()
+            ? data.error
+            : res.status === 404
+            ? 'Servidor no disponible. ¿Está corriendo el backend en el puerto 3001?'
+            : `Error al subir archivo (${res.status}).`;
+        throw new Error(backendMsg);
       }
-      if (!res.ok) {
-        throw new Error(data.error || `Error al subir (${res.status})`);
-      }
-      setUrl(data.url ?? '');
+      setUrl(data.url);
       if (fileRef.current) fileRef.current.value = '';
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Error al subir el archivo';
-      const isNetwork = msg === 'Failed to fetch' || msg.includes('NetworkError');
+      const isNetwork =
+        msg === 'Failed to fetch' ||
+        msg.includes('NetworkError') ||
+        msg.toLowerCase().includes('failed to fetch');
       setUploadError(
         isNetwork
           ? 'No se pudo conectar con el servidor. Comprueba que el backend esté corriendo (puerto 3001).'
