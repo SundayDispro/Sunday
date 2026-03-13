@@ -7,6 +7,15 @@
 const PAGE_W_PX = 595;
 const PAGE_H_PX = 842;
 
+/** Altura mínima para cuadros de una línea (folio, número): una línea + ascendentes. */
+const MIN_HEIGHT_SINGLE_LINE_PX = 30;
+/** Altura mínima para cuadros multilínea (2–3 líneas visibles). */
+const MIN_HEIGHT_MULTI_PX = 44;
+/** Padding superior generoso para que ascendentes no se corten. */
+const PADDING_TOP_PX = 18;
+const PADDING_SIDES_PX = 6;
+const PADDING_BOTTOM_PX = 6;
+
 function escapeHtml(s: string): string {
   return s
     .replace(/&/g, '&amp;')
@@ -30,6 +39,7 @@ interface CustomBox {
   width?: number;
   height?: number;
   kind?: 'text' | 'image';
+  singleLine?: boolean;
   fontSize?: number;
   fontBold?: boolean;
   fontItalic?: boolean;
@@ -117,16 +127,21 @@ export function buildDocumentHtml(options: BuildDocumentHtmlOptions): string {
     const leftPx = Math.round((box.x ?? 0) * PAGE_W_PX);
     const topPx = Math.round((box.y ?? 0) * PAGE_H_PX);
     const widthPx = Math.round((box.width ?? 0.3) * PAGE_W_PX);
-    const heightPx = Math.round((box.height ?? 0.05) * PAGE_H_PX);
-    // Padding superior generoso (14px) para que el folio y números no se corten por arriba.
+    const rawHeightPx = Math.round((box.height ?? 0.05) * PAGE_H_PX);
+    const isSingleLine = box.singleLine === true;
+    const minHeightPx = isSingleLine ? MIN_HEIGHT_SINGLE_LINE_PX : MIN_HEIGHT_MULTI_PX;
+    const heightPx = Math.max(rawHeightPx, minHeightPx);
+    // Clamp para que la caja no se salga del borde inferior de la página.
+    const heightClamped = Math.min(heightPx, PAGE_H_PX - topPx);
+    // Padding superior generoso para que el folio y números no se corten por arriba (ascendentes).
     const boxStyle = [
       `position: absolute`,
       `left: ${leftPx}px`,
       `top: ${topPx}px`,
       `width: ${widthPx}px`,
-      `height: ${heightPx}px`,
+      `height: ${heightClamped}px`,
       `margin: 0`,
-      `padding: 14px 6px 6px 6px`,
+      `padding: ${PADDING_TOP_PX}px ${PADDING_SIDES_PX}px ${PADDING_BOTTOM_PX}px ${PADDING_SIDES_PX}px`,
       `line-height: 1.35`,
       `box-sizing: border-box`,
       `overflow: hidden`,
@@ -134,9 +149,10 @@ export function buildDocumentHtml(options: BuildDocumentHtmlOptions): string {
     ].join('; ');
 
     // Interior: ancho fijo en px para que el texto envuelva bien (evita apilado vertical).
+    const innerWidthPx = Math.max(0, widthPx - PADDING_SIDES_PX * 2);
     const innerStyle = [
       `display: block`,
-      `width: ${Math.max(0, widthPx - 12)}px`,
+      `width: ${innerWidthPx}px`,
       `height: 100%`,
       `min-width: 0`,
       `margin: 0`,
@@ -186,7 +202,7 @@ export function buildDocumentHtml(options: BuildDocumentHtmlOptions): string {
   <meta charset="UTF-8">
   <meta name="viewport" content="width=595, height=842">
   <style>
-    @page { size: A4; margin: 0; }
+    @page { size: 210mm 297mm; margin: 0; }
     * { box-sizing: border-box; }
     html, body {
       margin: 0;
@@ -204,7 +220,7 @@ export function buildDocumentHtml(options: BuildDocumentHtmlOptions): string {
       ${backgroundStyle}
     }
     .doc-box, .doc-img { position: absolute; }
-    .doc-box-inner { display: block; width: 100%; max-width: 100%; min-width: 0; white-space: pre-wrap; word-break: break-word; overflow-wrap: break-word; }
+    .doc-box-inner { display: block; min-width: 0; white-space: pre-wrap; word-break: break-word; overflow-wrap: break-word; }
   </style>
 </head>
 <body>

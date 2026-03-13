@@ -104,6 +104,8 @@ function AddViewDropdown({
   );
 }
 
+const API_BASE = import.meta.env.DEV ? '' : (import.meta.env.VITE_API_URL || 'http://localhost:3001');
+
 function App() {
   const { currentUser, logout } = useUser();
   const { toast } = useToast();
@@ -293,7 +295,7 @@ function App() {
   const fetchUnreadNotifications = React.useCallback(async () => {
     if (!currentUser?.id) return;
     try {
-      const res = await fetch(`http://localhost:3001/api/notifications?userId=${currentUser.id}`);
+      const res = await fetch(`${API_BASE}/api/notifications?userId=${currentUser.id}`);
       if (res.ok) {
         const data = await res.json();
         setUnreadNotifCount(data.filter((n: { read: boolean }) => !n.read).length);
@@ -333,7 +335,7 @@ function App() {
         important: t.important,
       })),
     }));
-    fetch(`http://localhost:3001/api/workspaces/${wid}/panel-notes`, {
+    fetch(`${API_BASE}/api/workspaces/${wid}/panel-notes`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ panelNotes: toSave, userId: currentUser.id }),
@@ -360,7 +362,7 @@ function App() {
       return;
     }
     setTasksLoading(true);
-    const url = `http://localhost:3001/api/workspaces/${activeWorkspaceId}/panel-notes?userId=${encodeURIComponent(currentUser.id)}`;
+    const url = `${API_BASE}/api/workspaces/${activeWorkspaceId}/panel-notes?userId=${encodeURIComponent(currentUser.id)}`;
     fetch(url)
       .then(r => r.json())
       .then(data => {
@@ -446,33 +448,36 @@ function App() {
     return () => window.removeEventListener('sunday:open-doc', handler as EventListener);
   }, []);
 
-  // Load workspaces once user is available
+  // Load workspaces once user is available (ruta relativa en DEV para usar proxy Vite → backend)
   useEffect(() => {
     if (!currentUser) return;
-    fetch('http://localhost:3001/api/workspaces')
-      .then(r => r.json())
-      .then((data: Workspace[]) => {
-        if (!Array.isArray(data)) return;
+    fetch(`${API_BASE}/api/workspaces`)
+      .then(r => (r.ok ? r.json() : Promise.resolve(null)))
+      .then((data: Workspace[] | null) => {
+        if (!data || !Array.isArray(data)) return;
         setWorkspaces(data);
         setActiveWorkspaceId(prev => {
           if (prev && data.some(w => w.id === prev)) return prev;
           return data[0]?.id ?? null;
         });
       })
-      .catch(err => console.error('Error fetching workspaces:', err));
+      .catch(err => {
+        console.error('Error fetching workspaces:', err);
+        setWorkspaces([]);
+      });
   }, [currentUser]);
 
-  // Load boards for active workspace
+  // Load boards for active workspace (ruta relativa en DEV para usar proxy Vite → backend)
   useEffect(() => {
     if (!currentUser) return;
     const url = activeWorkspaceId
-      ? `http://localhost:3001/api/boards?workspaceId=${encodeURIComponent(activeWorkspaceId)}`
-      : 'http://localhost:3001/api/boards';
+      ? `${API_BASE}/api/boards?workspaceId=${encodeURIComponent(activeWorkspaceId)}`
+      : `${API_BASE}/api/boards`;
 
     fetch(url)
-      .then(r => r.json())
-      .then((data: Board[]) => {
-        if (!Array.isArray(data)) return;
+      .then(r => (r.ok ? r.json() : Promise.resolve(null)))
+      .then((data: Board[] | null) => {
+        if (!data || !Array.isArray(data)) return;
         setBoards(data);
         setActiveBoardId(prev => {
           if (data.length === 0) return null;
@@ -480,7 +485,10 @@ function App() {
           return exists ? prev : null;
         });
       })
-      .catch(err => console.error('Error fetching boards:', err));
+      .catch(err => {
+        console.error('Error fetching boards:', err);
+        setBoards([]);
+      });
 
     socket.on('board_renamed', (updated: Board) => {
       setBoards(prev => prev.map(b => b.id === updated.id ? { ...b, name: updated.name } : b));
@@ -523,7 +531,7 @@ function App() {
     setCreatingBoard(true);
     setCreateBoardError(null);
     try {
-      const res = await fetch('http://localhost:3001/api/boards', {
+      const res = await fetch(`${API_BASE}/api/boards`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name, workspaceId: activeWorkspaceId }),
@@ -859,7 +867,7 @@ function App() {
                       if (!name || creatingWorkspace) return;
                       setWorkspaceError(null);
                       setCreatingWorkspace(true);
-                      fetch('http://localhost:3001/api/workspaces', {
+                      fetch(`${API_BASE}/api/workspaces`, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ name }),
@@ -1332,10 +1340,10 @@ if (ok && data && typeof data.id === 'string') {
                 setWorkspaces(prev => prev.map(w => w.id === updated.id ? { ...w, ...updated } : w));
               }}
               onWorkspaceDeleted={() => {
-                fetch('http://localhost:3001/api/workspaces')
-                  .then(r => r.json())
-                  .then((data: Workspace[]) => {
-                    if (!Array.isArray(data)) return;
+                fetch(`${API_BASE}/api/workspaces`)
+                  .then(r => (r.ok ? r.json() : Promise.resolve(null)))
+                  .then((data: Workspace[] | null) => {
+                    if (!data || !Array.isArray(data)) return;
                     setWorkspaces(data);
                     const stillExists = data.some(w => w.id === activeWorkspaceId);
                     if (!stillExists) {
@@ -1348,15 +1356,15 @@ if (ok && data && typeof data.id === 'string') {
               }}
               onBoardDeleted={() => {
                 const url = activeWorkspaceId
-                  ? `http://localhost:3001/api/boards?workspaceId=${encodeURIComponent(
+                  ? `${API_BASE}/api/boards?workspaceId=${encodeURIComponent(
                       activeWorkspaceId
                     )}`
-                  : 'http://localhost:3001/api/boards';
+                  : `${API_BASE}/api/boards`;
 
                 fetch(url)
-                  .then(r => r.json())
-                  .then((data: Board[]) => {
-                    if (!Array.isArray(data)) return;
+                  .then(r => (r.ok ? r.json() : Promise.resolve(null)))
+                  .then((data: Board[] | null) => {
+                    if (!data || !Array.isArray(data)) return;
                     setBoards(data);
                     setActiveBoardId(prev => {
                       if (!prev) return null;
@@ -1431,7 +1439,7 @@ if (ok && data && typeof data.id === 'string') {
                         if (!currentUser || !activeBoardId) return;
                         try {
                           setExportingFolders(true);
-                          const res = await fetch(`http://localhost:3001/api/export/folders`, {
+                          const res = await fetch(`${API_BASE}/api/export/folders`, {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },
                             body: JSON.stringify({ userId: currentUser.id, boardId: activeBoardId }),

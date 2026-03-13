@@ -101,7 +101,7 @@ export async function generatePdfFromDocument(
     });
 
     const page = await browser.newPage();
-    // Viewport A4 (595x842 pt) para que el layout con % se calcule igual que en el editor
+    // Viewport A4 (595x842 pt) para que el layout con px se calcule igual que en el editor
     const width = format === 'Letter' ? 612 : 595;
     const height = format === 'Letter' ? 792 : 842;
     await page.setViewport({ width, height });
@@ -110,9 +110,12 @@ export async function generatePdfFromDocument(
       baseURL: process.env.API_BASE_URL || 'http://localhost:3001',
     });
 
+    // Evitar que reglas @media print alteren anchos (p. ej. texto apilado); el HTML usa @page en mm.
+    await page.emulateMediaType('screen');
     const pdf = await page.pdf({
       format,
       printBackground: true,
+      preferCSSPageSize: true,
       margin: { top: '0mm', right: '0mm', bottom: '0mm', left: '0mm' },
     });
 

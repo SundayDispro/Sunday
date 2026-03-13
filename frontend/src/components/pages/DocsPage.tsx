@@ -42,7 +42,7 @@ import { useUser } from '../../store/UserContext';
 import { useToast } from '../Toast';
 import { socket } from '../../store/socket';
 
-const API_BASE = import.meta.env.DEV ? '' : 'http://localhost:3001';
+const API_BASE = import.meta.env.DEV ? '' : (import.meta.env.VITE_API_URL || 'http://localhost:3001');
 
 interface Props {
   workspaceId: string | null;
@@ -1731,7 +1731,7 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
     }
     let cancelled = false;
     setDocGroupsLoading(true);
-    const url = `http://localhost:3001/api/workspaces/${workspaceId}/doc-groups?userId=${encodeURIComponent(currentUserId)}`;
+    const url = `${API_BASE}/api/workspaces/${workspaceId}/doc-groups?userId=${encodeURIComponent(currentUserId)}`;
     fetch(url)
       .then((res) => (res.ok ? res.json() : { groups: [], assignments: {}, subgroupsByType: {}, subgroupAssignments: {} }))
       .then((data: {
@@ -1767,7 +1767,7 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
       };
       if (subgroups !== undefined) payload.subgroupsByType = subgroups;
       if (subgroupAssign !== undefined) payload.subgroupAssignments = subgroupAssign;
-      fetch(`http://localhost:3001/api/workspaces/${workspaceId}/doc-groups`, {
+      fetch(`${API_BASE}/api/workspaces/${workspaceId}/doc-groups`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),

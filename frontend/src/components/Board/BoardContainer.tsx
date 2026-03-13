@@ -34,6 +34,8 @@ import { useToast } from '../Toast';
 import * as Popover from '@radix-ui/react-popover';
 import * as Dialog from '@radix-ui/react-dialog';
 
+const API_BASE = import.meta.env.DEV ? '' : (import.meta.env.VITE_API_URL || 'http://localhost:3001');
+
 interface Props {
   boardId: string;
   onRowClick: (item: Item) => void;
@@ -95,7 +97,7 @@ const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode }) => {
 
   const fetchBoard = async () => {
     try {
-      const res = await fetch(`http://localhost:3001/api/boards/${boardId}`);
+      const res = await fetch(`${API_BASE}/api/boards/${boardId}`);
       if (res.ok) {
         const data = await res.json();
         setBoard(data);
@@ -301,7 +303,7 @@ const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode }) => {
     // Enviar al backend para persistir (REST + socket para tiempo real)
     idsToDelete.forEach(itemId => {
       socket.emit('delete_item', { itemId });
-      fetch(`http://localhost:3001/api/items/${itemId}`, { method: 'DELETE' }).catch(err =>
+      fetch(`${API_BASE}/api/items/${itemId}`, { method: 'DELETE' }).catch(err =>
         console.error('Error persistiendo eliminación de item', itemId, err)
       );
     });
@@ -415,7 +417,7 @@ const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode }) => {
 
       setBoard(prev => (prev ? { ...prev, columns: withPositions } : prev));
 
-      fetch(`http://localhost:3001/api/boards/${board.id}/columns/reorder`, {
+      fetch(`${API_BASE}/api/boards/${board.id}/columns/reorder`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ updates }),
