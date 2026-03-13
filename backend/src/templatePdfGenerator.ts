@@ -138,6 +138,7 @@ export async function generatePdfFromTemplate(
 
   const fieldPositionsFromContent = (content.fieldPositions ?? {}) as Record<string, ContentFieldPosition>;
 
+  // Campos estándar basados en TEMPLATE_FIELD_POSITIONS
   for (const [key, pos] of Object.entries(positions)) {
     const value = content[key];
     if (value === undefined || value === null) continue;
@@ -160,6 +161,35 @@ export async function generatePdfFromTemplate(
       yPts = pos.y;
     }
     drawText(text, xPts, yPts, fontSize, maxWidth, pos.weight ?? 'regular');
+  }
+
+  // Cuadros personalizados provenientes del editor (customBoxes + customFieldValues)
+  const customBoxes = (content.customBoxes ?? []) as Array<
+    {
+      id: string;
+      x: number;
+      y: number;
+      width?: number;
+      height?: number;
+      kind?: 'text' | 'image';
+      fontSize?: number;
+      fontBold?: boolean;
+      fontItalic?: boolean;
+    }
+  >;
+  const customFieldValues = (content.customFieldValues ?? {}) as Record<string, string>;
+  if (Array.isArray(customBoxes) && Object.keys(customFieldValues).length > 0) {
+    for (const box of customBoxes) {
+      if (!box || (box.kind && box.kind !== 'text')) continue;
+      const text = (customFieldValues[box.id] ?? '').trim();
+      if (!text) continue;
+      const size = box.fontSize ?? 11;
+      const weight: 'regular' | 'bold' = box.fontBold ? 'bold' : 'regular';
+      const maxWidth = box.width ? box.width * width : undefined;
+      const xPts = (box.x ?? 0) * width;
+      const yPts = (box.y ?? 0) * height;
+      drawText(text, xPts, yPts, size, maxWidth, weight);
+    }
   }
 
   // Caso especial: ítems de cotización (tabla)

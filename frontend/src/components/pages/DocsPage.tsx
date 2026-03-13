@@ -21,6 +21,8 @@ import {
   Upload,
   Loader2,
   Pencil,
+  MessageCircle,
+  Mail,
 } from 'lucide-react';
 import { GROUP_PALETTE } from '../Board/GroupColorPicker';
 import * as Popover from '@radix-ui/react-popover';
@@ -1418,10 +1420,12 @@ function ExcelLikeSheet({
   tableDraft,
   setTableDraft,
   ensureTableSize,
+  readOnly = false,
 }: {
   tableDraft: string[][];
   setTableDraft: React.Dispatch<React.SetStateAction<string[][]>>;
   ensureTableSize: (rows: number, cols: number) => void;
+  readOnly?: boolean;
 }) {
   const cols = tableDraft[0]?.length ?? 1;
   const [focusedCell, setFocusedCell] = useState<{ r: number; c: number } | null>(null);
@@ -1469,40 +1473,42 @@ function ExcelLikeSheet({
 
   return (
     <div className="flex-1 flex flex-col overflow-hidden bg-monday-bg/50">
-      <div className="shrink-0 flex items-center gap-2 px-3 py-2 bg-white border-b border-monday-border shadow-sm flex-wrap">
-        <span className="text-[11px] text-monday-subtext font-mono w-8">fx</span>
-        <input
-          type="text"
-          value={formulaBarValue}
-          onChange={e => setFocusedCellValue(e.target.value)}
-          readOnly={focusedCell == null}
-          className="flex-1 max-w-md px-2.5 py-1.5 text-[12px] font-averta bg-monday-hover/50 border border-monday-border rounded-monday text-monday-text placeholder:text-monday-subtext"
-          placeholder={focusedCell ? "Fórmula o valor (ej: =A1+B1, =SUM(A1:A5))" : "Selecciona una celda"}
-        />
-        {focusedCell != null && (
-          <span className="text-[11px] text-monday-subtext font-mono shrink-0">
-            {colLetters(focusedCell.c)}{focusedCell.r + 1}
-          </span>
-        )}
-        <div className="w-px h-5 bg-monday-border" />
-        <button type="button" onClick={() => ensureTableSize(tableDraft.length + 1, tableDraft[0]?.length || 1)} className={sheetBtn}>
-          + Fila
-        </button>
-        <button type="button" onClick={() => ensureTableSize(tableDraft.length, (tableDraft[0]?.length || 0) + 1)} className={sheetBtn}>
-          + Columna
-        </button>
-        {focusedCell != null && (
-          <>
-            <button type="button" onClick={insertRowAbove} className={sheetBtn} title="Insertar fila arriba">
-              Fila ↑
-            </button>
-            <button type="button" onClick={insertColLeft} className={sheetBtn} title="Insertar columna a la izquierda">
-              Col ←
-            </button>
-          </>
-        )}
-        <span className="text-[11px] text-monday-subtext px-2">Hoja</span>
-      </div>
+      {!readOnly && (
+        <div className="shrink-0 flex items-center gap-2 px-3 py-2 bg-white border-b border-monday-border shadow-sm flex-wrap">
+          <span className="text-[11px] text-monday-subtext font-mono w-8">fx</span>
+          <input
+            type="text"
+            value={formulaBarValue}
+            onChange={e => setFocusedCellValue(e.target.value)}
+            readOnly={focusedCell == null}
+            className="flex-1 max-w-md px-2.5 py-1.5 text-[12px] font-averta bg-monday-hover/50 border border-monday-border rounded-monday text-monday-text placeholder:text-monday-subtext"
+            placeholder={focusedCell ? "Fórmula o valor (ej: =A1+B1, =SUM(A1:A5))" : "Selecciona una celda"}
+          />
+          {focusedCell != null && (
+            <span className="text-[11px] text-monday-subtext font-mono shrink-0">
+              {colLetters(focusedCell.c)}{focusedCell.r + 1}
+            </span>
+          )}
+          <div className="w-px h-5 bg-monday-border" />
+          <button type="button" onClick={() => ensureTableSize(tableDraft.length + 1, tableDraft[0]?.length || 1)} className={sheetBtn}>
+            + Fila
+          </button>
+          <button type="button" onClick={() => ensureTableSize(tableDraft.length, (tableDraft[0]?.length || 0) + 1)} className={sheetBtn}>
+            + Columna
+          </button>
+          {focusedCell != null && (
+            <>
+              <button type="button" onClick={insertRowAbove} className={sheetBtn} title="Insertar fila arriba">
+                Fila ↑
+              </button>
+              <button type="button" onClick={insertColLeft} className={sheetBtn} title="Insertar columna a la izquierda">
+                Col ←
+              </button>
+            </>
+          )}
+          <span className="text-[11px] text-monday-subtext px-2">Hoja</span>
+        </div>
+      )}
       <div className="flex-1 overflow-auto p-4">
         <div className="inline-block bg-white rounded-lg border border-monday-border shadow-monday-lg overflow-hidden">
           <table className="border-collapse">
@@ -1523,24 +1529,31 @@ function ExcelLikeSheet({
                     {rIdx + 1}
                   </td>
                   {row.map((cell, cIdx) => {
-                    const isFocused = focusedCell?.r === rIdx && focusedCell?.c === cIdx;
+                    const isFocused = !readOnly && focusedCell?.r === rIdx && focusedCell?.c === cIdx;
+                    const displayVal = getCellDisplayValue(tableDraft, rIdx, cIdx, isFocused, focusedCell);
                     return (
                       <td key={cIdx} className="border border-monday-border p-0">
-                        <input
-                          value={getCellDisplayValue(tableDraft, rIdx, cIdx, isFocused, focusedCell)}
-                          onChange={e => {
-                            const v = e.target.value;
-                            setTableDraft(prev => {
-                              const next = prev.map(r => [...r]);
-                              next[rIdx][cIdx] = v;
-                              return next;
-                            });
-                          }}
-                          onFocus={() => setFocusedCell({ r: rIdx, c: cIdx })}
-                          onBlur={() => setFocusedCell(null)}
-                          readOnly={!isFocused}
-                          className={`w-full min-w-[110px] h-8 px-2 text-[12px] font-averta text-monday-text outline-none focus:ring-1 focus:ring-inset focus:ring-monday-blue focus:border-monday-blue bg-white ${!isFocused ? 'cursor-cell' : ''}`}
-                        />
+                        {readOnly ? (
+                          <div className="w-full min-w-[110px] min-h-8 h-8 px-2 py-1 text-[12px] font-averta text-monday-text bg-white flex items-center">
+                            {displayVal}
+                          </div>
+                        ) : (
+                          <input
+                            value={displayVal}
+                            onChange={e => {
+                              const v = e.target.value;
+                              setTableDraft(prev => {
+                                const next = prev.map(r => [...r]);
+                                next[rIdx][cIdx] = v;
+                                return next;
+                              });
+                            }}
+                            onFocus={() => setFocusedCell({ r: rIdx, c: cIdx })}
+                            onBlur={() => setFocusedCell(null)}
+                            readOnly={!isFocused}
+                            className={`w-full min-w-[110px] h-8 px-2 text-[12px] font-averta text-monday-text outline-none focus:ring-1 focus:ring-inset focus:ring-monday-blue focus:border-monday-blue bg-white ${!isFocused ? 'cursor-cell' : ''}`}
+                          />
+                        )}
                       </td>
                     );
                   })}
@@ -2138,31 +2151,33 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
         setLinkToBoardItem(null);
       }
       toast('Documento guardado', 'success');
+      // Si el documento es un PDF de plantilla y el usuario es admin, persistir también
+      // la configuración de plantilla global (fuente/tamaño/posiciones) para este tipo.
       if (isAdmin && selectedDoc && isPdfDocType(selectedDoc.type as DocType)) {
         const docType = selectedDoc.type as 'cotizacion' | 'levantamiento' | 'hoja_trabajo';
         const config = templateConfigByType[docType];
-        const fieldPositions = config?.fieldPositions ?? {};
-        const hasStoredPositions = config && Object.keys(fieldPositions).length > 0;
-        const toSave = {
-          userId: currentUser.id,
-          username: currentUser.username,
-          fieldPositions: hasStoredPositions ? fieldPositions : ((pdfFormDraft.fieldPositions as Record<string, { x: number; y: number }>) ?? {}),
-          fontColor: config?.fontColor ?? '#000000',
-          fontFamily: config?.fontFamily ?? 'Helvetica',
-          fontSize: config?.fontSize ?? 11,
-          fontBold: config?.fontBold ?? false,
-          fontItalic: config?.fontItalic ?? false,
-          customBoxes: config?.customBoxes ?? [],
-        };
-        await fetch(`${API_BASE}/api/templates/${docType}/config?userId=${encodeURIComponent(currentUser.id)}`, {
-          method: 'PUT',
-          headers: {
-            'Content-Type': 'application/json',
-            'X-User-Id': currentUser.id,
-            'X-User-Username': currentUser.username ?? '',
-          },
-          body: JSON.stringify(toSave),
-        });
+        if (config) {
+          const toSave = {
+            userId: currentUser.id,
+            username: currentUser.username,
+            fieldPositions: config.fieldPositions ?? {},
+            fontColor: config.fontColor ?? '#000000',
+            fontFamily: config.fontFamily ?? 'Helvetica',
+            fontSize: config.fontSize ?? 11,
+            fontBold: config.fontBold ?? false,
+            fontItalic: config.fontItalic ?? false,
+            customBoxes: config.customBoxes ?? [],
+          };
+          await fetch(`${API_BASE}/api/templates/${docType}/config?userId=${encodeURIComponent(currentUser.id)}`, {
+            method: 'PUT',
+            headers: {
+              'Content-Type': 'application/json',
+              'X-User-Id': currentUser.id,
+              'X-User-Username': currentUser.username ?? '',
+            },
+            body: JSON.stringify(toSave),
+          }).catch(() => {});
+        }
       }
     } catch (e) {
       console.error('Error saving doc', e);
@@ -2173,14 +2188,44 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
   };
 
   const handleSave = async () => {
-    if (!selectedDoc) return;
-    overwriteActionRef.current = performSaveExisting;
-    setOverwriteDialog({
-      mode: 'update',
-      title: selectedDoc.title || 'Sin título',
-      message: '¿Deseas sobreescribir este documento con los cambios actuales?',
-      action: 'saveExisting',
-    });
+    // 1) Documento existente -> flujo de sobrescritura
+    if (selectedDoc) {
+      overwriteActionRef.current = performSaveExisting;
+      setOverwriteDialog({
+        mode: 'update',
+        title: selectedDoc.title || 'Sin título',
+        message: '¿Deseas sobreescribir este documento con los cambios actuales?',
+        action: 'saveExisting',
+      });
+      return;
+    }
+
+    // 2) Documento nuevo (newDocDraft) -> reutilizar popup de "Guardar como"
+    if (newDocDraft) {
+      // Nombre base: título del draft
+      let baseTitle = newDocDraft.title || 'Nuevo doc';
+      // Si es una plantilla PDF creada desde tablero y hay folio, añadirlo al nombre
+      const docType = newDocDraft.type;
+      if (isPdfDocType(docType as DocType)) {
+        const cfg = templateConfigByType[docType as 'cotizacion' | 'levantamiento' | 'hoja_trabajo'];
+        const folioBox = cfg?.customBoxes?.find((b) => b.semantic === 'folio');
+        const customValues =
+          ((pdfFormDraft as { customFieldValues?: Record<string, string> }).customFieldValues as
+            | Record<string, string>
+            | undefined) ?? {};
+        const folioVal = folioBox ? (customValues[folioBox.id] || '').trim() : '';
+        if (folioVal) {
+          baseTitle = folioVal;
+        }
+      }
+      setSaveModal({
+        mode: 'new',
+        doc: null as any, // el tipo no se usa en modo 'new'
+      });
+      setSaveModalTitle(baseTitle);
+      setSaveModalGroupId('');
+      setSaveModalSubgroupId('');
+    }
   };
 
   const handleSaveTemplateConfig = async () => {
@@ -2233,7 +2278,7 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
       const docType = selectedDoc.type as 'cotizacion' | 'levantamiento' | 'hoja_trabajo';
       const config = templateConfigByType[docType];
       const contentToSend = config
-        ? { ...pdfFormDraft, fieldPositions: config.fieldPositions }
+        ? { ...pdfFormDraft, fieldPositions: config.fieldPositions, customBoxes: config.customBoxes ?? [] }
         : pdfFormDraft;
       const res = await fetch(`${API_BASE}/api/templates/${docType}/generate`, {
         method: 'POST',
@@ -2302,10 +2347,10 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
           : isPdfDocType(docType as DocType)
             ? pdfFormDraft
             : { text: textDraft, headerImageUrl: headerImageUrlDraft };
-      const title =
-        saveModal.mode === 'saveAs'
-          ? (saveModalTitle.trim() || saveModal.doc.title)
-          : (newDocDraft?.title ?? 'Nuevo doc');
+      const titleBase = saveModal.mode === 'saveAs'
+        ? saveModal.doc.title
+        : newDocDraft?.title ?? 'Nuevo doc';
+      const title = saveModalTitle.trim() || titleBase;
 
       const res = await fetch(`${API_BASE}/api/docs`, {
         method: 'POST',
@@ -2362,10 +2407,10 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
         : isPdfDocType(docType as DocType)
           ? pdfFormDraft
           : { text: textDraft, headerImageUrl: headerImageUrlDraft };
-    const title =
-      saveModal.mode === 'saveAs'
-        ? (saveModalTitle.trim() || saveModal.doc.title)
-        : (newDocDraft?.title ?? 'Nuevo doc');
+    const titleBase = saveModal.mode === 'saveAs'
+      ? saveModal.doc.title
+      : newDocDraft?.title ?? 'Nuevo doc';
+    const title = saveModalTitle.trim() || titleBase;
 
     // Antes de guardar: si ya existe un documento con mismo título y tipo, abrir diálogo de sobrescritura.
     const normalizedTitle = title.trim().toLowerCase();
@@ -2399,7 +2444,7 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
           <Dialog.Content className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-[151] bg-white rounded-xl shadow-xl border border-monday-border p-5 w-[320px]">
             <Dialog.Title className="text-[15px] font-semibold text-monday-text">Eliminar documento</Dialog.Title>
             <p className="text-[13px] text-monday-subtext mt-1">¿Eliminar este documento? Esta acción no se puede deshacer.</p>
-            <div className="flex justify-end gap-2 mt-4">
+            <div className="flex justify-end gap-2 mt-6">
               <button
                 type="button"
                 onClick={() => setDeleteConfirm(null)}
@@ -2522,30 +2567,15 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
             <Dialog.Title className="text-[15px] font-semibold text-monday-text">
               {saveModal?.mode === 'saveAs' ? 'Guardar como' : 'Guardar documento'}
             </Dialog.Title>
-            {saveModal?.mode === 'saveAs' && (
-              <label className="mt-3 block text-[13px] text-monday-subtext">
-                Nombre del documento
-                <input
-                  type="text"
-                  value={saveModalTitle}
-                  onChange={(e) => setSaveModalTitle(e.target.value)}
-                  className="mt-1 w-full px-3 py-2 rounded-lg border border-monday-border text-[13px] text-monday-text focus:outline-none focus:ring-2 focus:ring-monday-blue"
-                  placeholder="Título"
-                />
-              </label>
-            )}
             <label className="mt-3 block text-[13px] text-monday-subtext">
-              Grupo
-              <select
-                value={saveModalGroupId}
-                onChange={(e) => setSaveModalGroupId(e.target.value)}
-                className="mt-1 w-full px-3 py-2 rounded-lg border border-monday-border text-[13px] text-monday-text bg-white focus:outline-none focus:ring-2 focus:ring-monday-blue"
-              >
-                <option value="">— Sin grupo —</option>
-                {customGroups.map((g) => (
-                  <option key={g.id} value={g.id}>{g.name}</option>
-                ))}
-              </select>
+              Nombre del documento
+              <input
+                type="text"
+                value={saveModalTitle}
+                onChange={(e) => setSaveModalTitle(e.target.value)}
+                className="mt-1 w-full px-3 py-2 rounded-lg border border-monday-border text-[13px] text-monday-text focus:outline-none focus:ring-2 focus:ring-monday-blue"
+                placeholder="Título"
+              />
             </label>
             {saveModalDocType && (
               <label className="mt-3 block text-[13px] text-monday-subtext">
@@ -2771,7 +2801,7 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
                       <button
                         type="button"
                         onClick={handleSave}
-                        disabled={saving || !selectedDoc}
+                        disabled={saving || (!selectedDoc && !newDocDraft)}
                         className="px-3 py-1.5 rounded-monday bg-monday-blue text-white text-[13px] font-medium hover:bg-monday-blue/90 disabled:opacity-60"
                       >
                         {saving ? 'Guardando…' : 'Guardar'}
@@ -2901,7 +2931,7 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
           )}
         </div>
 
-        {/* Panel derecho: editor */}
+        {/* Panel derecho: visualizador (solo lectura) en pestaña Documentos */}
         <section className="flex-1 flex flex-col min-w-0 max-w-[60%] border-l border-monday-border bg-white">
           {error && (
             <div className="px-4 py-2 bg-red-50 text-red-700 text-[13px] border-b border-red-200">
@@ -2909,100 +2939,119 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
             </div>
           )}
 
-          {!selectedDoc && !newDocDraft ? (
+          {!selectedDoc ? (
             <div className="flex-1 flex flex-col items-center justify-center py-16 text-monday-subtext">
               <div className="w-16 h-16 rounded-full bg-monday-hover flex items-center justify-center mb-4">
                 <BookOpen size={28} className="opacity-60" />
               </div>
-              <p className="text-[15px] font-medium text-monday-text">Selecciona o crea un documento</p>
+              <p className="text-[15px] font-medium text-monday-text">Selecciona un documento</p>
               <p className="text-[13px] mt-1 max-w-sm text-center">
-                Haz clic en una fila de la tabla para abrir el documento o crea uno desde la vista general.
+                Haz clic en una fila de la tabla para ver el documento. Para editarlo, usa el botón «Editar en Docs» o «Editar en Sheets» o cambia a Vista general.
               </p>
             </div>
           ) : (
             <>
-              <div className="flex items-center justify-between px-5 py-3 border-b border-monday-border bg-monday-hover/30">
-                <div className="flex flex-col">
-                  <h2 className="text-[16px] font-semibold text-monday-text truncate">
-                    {selectedDoc?.title ?? newDocDraft?.title ?? 'Sin título'}
-                  </h2>
-                </div>
-                <div className="flex items-center gap-2">
+              <div className="flex items-center justify-between px-5 py-3 border-b border-monday-border bg-monday-hover/30 flex-wrap gap-2">
+                <h2 className="text-[16px] font-semibold text-monday-text truncate min-w-0">
+                  {selectedDoc.title || 'Sin título'}
+                </h2>
+                <div className="flex items-center gap-2 flex-shrink-0">
                   <button
                     type="button"
-                    onClick={() => { if (newDocDraft) setNewDocDraft(null); else setSelectedId(null); }}
+                    onClick={() => setSelectedId(null)}
                     className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-monday border border-monday-border text-[12px] text-monday-subtext hover:bg-monday-hover"
                   >
                     <X size={12} />
                     <span>Cerrar</span>
                   </button>
-                  {selectedDoc && isPdfDocType(selectedDoc.type as DocType) && (
-                    <button
-                      type="button"
-                      onClick={handleDownloadPdf}
-                      disabled={downloadingPdf}
-                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-monday border border-monday-border text-[13px] font-medium text-monday-text hover:bg-monday-hover disabled:opacity-60"
-                    >
-                      <Download size={14} />
-                      {downloadingPdf ? 'Descargando…' : 'Descargar PDF'}
-                    </button>
-                  )}
-                  {selectedDoc && (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setSaveModal({ mode: 'saveAs', doc: selectedDoc });
-                        setSaveModalTitle(selectedDoc.title);
-                        setSaveModalGroupId(assignments[selectedDoc.id] ?? '');
-                        setSaveModalSubgroupId(subgroupAssignments[selectedDoc.id] ?? '');
-                      }}
-                      className="px-3 py-1.5 rounded-monday border border-monday-border text-[13px] font-medium text-monday-text hover:bg-monday-hover"
-                    >
-                      Guardar como
-                    </button>
-                  )}
+                  {isPdfDocType(selectedDoc.type as DocType) ? (
+                    <>
+                      <button
+                        type="button"
+                        onClick={handleDownloadPdf}
+                        disabled={downloadingPdf}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-monday border border-monday-border text-[13px] font-medium text-monday-text hover:bg-monday-hover disabled:opacity-60"
+                      >
+                        <Download size={14} />
+                        {downloadingPdf ? 'Descargando…' : 'Descargar PDF'}
+                      </button>
+                      <a
+                        href={`https://wa.me/?text=${encodeURIComponent((selectedDoc.title || 'Documento') + ' ' + window.location.href)}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-monday border border-monday-border text-[13px] font-medium text-monday-text hover:bg-monday-hover"
+                      >
+                        <MessageCircle size={14} />
+                        <span>Enviar por WhatsApp</span>
+                      </a>
+                      <a
+                        href={`mailto:?subject=${encodeURIComponent(selectedDoc.title || 'Documento')}&body=${encodeURIComponent('Revisa este documento: ' + window.location.href)}`}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-monday border border-monday-border text-[13px] font-medium text-monday-text hover:bg-monday-hover"
+                      >
+                        <Mail size={14} />
+                        <span>Enviar por correo</span>
+                      </a>
+                      <button
+                        type="button"
+                        onClick={() => setViewMode('overview')}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-monday bg-monday-blue text-white text-[13px] font-medium hover:bg-monday-blue/90"
+                      >
+                        <Pencil size={14} />
+                        <span>Editar plantilla</span>
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      {selectedDoc && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setSaveModal({ mode: 'saveAs', doc: selectedDoc });
+                            setSaveModalTitle(selectedDoc.title);
+                            setSaveModalGroupId(assignments[selectedDoc.id] ?? '');
+                            setSaveModalSubgroupId(subgroupAssignments[selectedDoc.id] ?? '');
+                          }}
+                          className="px-3 py-1.5 rounded-monday border border-monday-border text-[13px] font-medium text-monday-text hover:bg-monday-hover"
+                        >
+                          Guardar como
+                        </button>
+                      )}
                   <button
                     type="button"
                     onClick={handleSave}
-                    disabled={saving || !selectedDoc}
-                    className="px-3 py-1.5 rounded-monday bg-monday-blue text-white text-[13px] font-medium hover:bg-monday-blue/90 disabled:opacity-60"
-                  >
-                    {saving ? 'Guardando…' : 'Guardar'}
-                  </button>
+                    disabled={saving || (!selectedDoc && !newDocDraft)}
+                        className="px-3 py-1.5 rounded-monday bg-monday-blue text-white text-[13px] font-medium hover:bg-monday-blue/90 disabled:opacity-60"
+                      >
+                        {saving ? 'Guardando…' : 'Guardar'}
+                      </button>
+                    </>
+                  )}
                 </div>
               </div>
 
-              {(selectedDoc && isPdfDocType(selectedDoc.type as DocType)) || (newDocDraft && isPdfDocType(newDocDraft.type)) ? (
+              {selectedDoc && isPdfDocType(selectedDoc.type as DocType) ? (
                 <div className="flex-1 overflow-auto custom-scrollbar p-2 bg-monday-bg/40">
                   <PdfTemplateEditor
-                    docType={(selectedDoc?.type ?? newDocDraft?.type) as 'cotizacion' | 'levantamiento' | 'hoja_trabajo'}
+                    docType={selectedDoc.type as 'cotizacion' | 'levantamiento' | 'hoja_trabajo'}
                     value={pdfFormDraft}
                     onChange={setPdfFormDraft}
-                    docId={selectedDoc?.id ?? ''}
+                    docId={selectedDoc.id}
                     templateConfig={pdfDocType ? templateConfigByType[pdfDocType] : null}
                     isAdmin={isAdmin}
-                    onTemplateConfigChange={
-                      pdfDocType
-                        ? (config) => setTemplateConfigByType((prev) => ({ ...prev, [pdfDocType]: { ...(prev[pdfDocType] || {}), ...config } }))
-                        : undefined
-                    }
-                    onSaveTemplateConfig={canSaveTemplateConfig ? handleSaveTemplateConfig : undefined}
-                    savingTemplateConfig={savingTemplateConfig}
+                    viewerOnly
                   />
                 </div>
-              ) : (selectedDoc?.type ?? newDocDraft?.type) === 'sheet' ? (
+              ) : selectedDoc.type === 'sheet' ? (
                 <ExcelLikeSheet
                   tableDraft={tableDraft}
                   setTableDraft={setTableDraft}
                   ensureTableSize={ensureTableSize}
+                  readOnly
                 />
               ) : (
-                <WordLikeEditor
-                  key={selectedId ?? 'new-draft'}
-                  textDraft={textDraft}
-                  setTextDraft={setTextDraft}
-                  headerImageUrl={headerImageUrlDraft}
-                  setHeaderImageUrl={setHeaderImageUrlDraft}
+                <div
+                  className="flex-1 overflow-auto p-6 bg-monday-bg/50 prose prose-sm max-w-none font-averta [&_h1]:text-xl [&_h2]:text-lg [&_h3]:text-base [&_ul]:list-disc [&_ol]:list-decimal [&_li]:ml-4"
+                  dangerouslySetInnerHTML={{ __html: getInitialHtml(parseContent(selectedDoc).text ?? '') }}
                 />
               )}
             </>
