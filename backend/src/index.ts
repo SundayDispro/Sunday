@@ -256,6 +256,102 @@ app.patch('/api/workspaces/:workspaceId/panel-notes', async (req, res) => {
   }
 });
 
+// Grupos de documentos por usuario (custom groups + assignments), mismo patrón que panel-notes
+app.get('/api/workspaces/:workspaceId/doc-groups', async (req, res) => {
+  try {
+    const { workspaceId } = req.params;
+    const userId = typeof req.query.userId === 'string' ? req.query.userId : null;
+    const w = await prisma.workspace.findUnique({ where: { id: workspaceId }, select: { docGroups: true } });
+    if (!w) return res.status(404).json({ error: 'Workspace no encontrado' });
+    let payload: {
+      groups: { id: string; name: string }[];
+      assignments: Record<string, string>;
+      subgroupsByType: Record<string, { id: string; name: string }[]>;
+      subgroupAssignments: Record<string, string>;
+    } = { groups: [], assignments: {}, subgroupsByType: {}, subgroupAssignments: {} };
+    if (w.docGroups && String(w.docGroups).trim()) {
+      try {
+        const parsed = JSON.parse(w.docGroups) as Record<string, {
+          groups?: { id: string; name: string }[];
+          assignments?: Record<string, string>;
+          subgroupsByType?: Record<string, { id: string; name: string }[]>;
+          subgroupAssignments?: Record<string, string>;
+        }>;
+        const userData = userId && parsed[userId] ? parsed[userId] : null;
+        if (userData) {
+          payload.groups = Array.isArray(userData.groups) ? userData.groups : [];
+          payload.assignments = userData.assignments && typeof userData.assignments === 'object' ? userData.assignments : {};
+          payload.subgroupsByType = userData.subgroupsByType && typeof userData.subgroupsByType === 'object' ? userData.subgroupsByType : {};
+          payload.subgroupAssignments = userData.subgroupAssignments && typeof userData.subgroupAssignments === 'object' ? userData.subgroupAssignments : {};
+        }
+      } catch {
+        // keep defaults
+      }
+    }
+    res.json(payload);
+  } catch (e) {
+    console.error('Error fetching doc-groups:', e);
+    res.status(500).json({ error: 'Failed to fetch doc-groups' });
+  }
+});
+
+app.patch('/api/workspaces/:workspaceId/doc-groups', async (req, res) => {
+  try {
+    const { workspaceId } = req.params;
+    const body = req.body ?? {};
+    const userId = typeof body.userId === 'string' ? body.userId : null;
+    if (!userId) return res.status(400).json({ error: 'userId es obligatorio' });
+
+    const w = await prisma.workspace.findUnique({ where: { id: workspaceId }, select: { docGroups: true } });
+    if (!w) return res.status(404).json({ error: 'Workspace no encontrado' });
+
+    let all: Record<string, { groups: { id: string; name: string }[]; assignments: Record<string, string> }> = {};
+    if (w.docGroups && String(w.docGroups).trim()) {
+      try {
+        all = JSON.parse(w.docGroups);
+        if (!all || typeof all !== 'object') all = {};
+      } catch {
+        all = {};
+      }
+    }
+
+    let current = all[userId];
+    if (!current || typeof current !== 'object') {
+      current = { groups: [], assignments: {}, subgroupsByType: {}, subgroupAssignments: {} };
+    }
+    if (!current.subgroupsByType || typeof current.subgroupsByType !== 'object') current.subgroupsByType = {};
+    if (!current.subgroupAssignments || typeof current.subgroupAssignments !== 'object') current.subgroupAssignments = {};
+    if (Array.isArray(body.groups)) {
+      current.groups = body.groups;
+    }
+    if (body.assignments !== undefined && typeof body.assignments === 'object') {
+      current.assignments = body.assignments;
+    }
+    if (body.subgroupsByType !== undefined && typeof body.subgroupsByType === 'object') {
+      current.subgroupsByType = body.subgroupsByType;
+    }
+    if (body.subgroupAssignments !== undefined && typeof body.subgroupAssignments === 'object') {
+      current.subgroupAssignments = body.subgroupAssignments;
+    }
+    all[userId] = current;
+
+    await prisma.workspace.update({
+      where: { id: workspaceId },
+      data: { docGroups: JSON.stringify(all) },
+    });
+    res.json({
+      groups: current.groups,
+      assignments: current.assignments,
+      subgroupsByType: current.subgroupsByType,
+      subgroupAssignments: current.subgroupAssignments,
+    });
+  } catch (e) {
+    if ((e as { code?: string })?.code === 'P2025') return res.status(404).json({ error: 'Workspace no encontrado' });
+    console.error('Error updating doc-groups:', e);
+    res.status(500).json({ error: 'Failed to update doc-groups' });
+  }
+});
+
 // Update workspace (rename, description)
 app.patch('/api/workspaces/:id', async (req, res) => {
   try {

@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { GripVertical, Plus, Trash2, Type, Save, Maximize2 } from 'lucide-react';
+import { GripVertical, Plus, Trash2, Type, Save, Maximize2, Upload, Loader2, Pencil } from 'lucide-react';
+import * as Dialog from '@radix-ui/react-dialog';
 import {
   type PdfDocType,
   type TemplateConfigState,
@@ -44,6 +45,13 @@ export const PdfTemplateEditor: React.FC<Props> = ({
   const [resizePreview, setResizePreview] = useState<{ width: number; height: number } | null>(null);
   const [adminMenuOpen, setAdminMenuOpen] = useState(false);
   const [selectedBoxId, setSelectedBoxId] = useState<string | null>(null);
+  const [imageDialogOpen, setImageDialogOpen] = useState(false);
+  const [imageDialogMode, setImageDialogMode] = useState<'add' | 'edit'>('add');
+  const [imageDialogBoxId, setImageDialogBoxId] = useState<string | null>(null);
+  const [imageDialogUrl, setImageDialogUrl] = useState('');
+  const [imageDialogUploading, setImageDialogUploading] = useState(false);
+  const [imageDialogError, setImageDialogError] = useState<string | null>(null);
+  const imageFileInputRef = useRef<HTMLInputElement>(null);
 
   const update = useCallback(
     (updates: Record<string, unknown>) => onChange({ ...value, ...updates }),
@@ -106,25 +114,87 @@ export const PdfTemplateEditor: React.FC<Props> = ({
     update({ customFieldValues: { ...cf, [newBox.id]: '' } });
   }, [templateConfig, onTemplateConfigChange, customBoxes, value.customFieldValues, update, currentUser?.id]);
 
-  const addImageBox = useCallback(() => {
+  const openAddImageDialog = useCallback(() => {
     if (!templateConfig || !onTemplateConfigChange || !currentUser?.id) return;
-    const url = window.prompt('URL de la imagen a mostrar en la plantilla');
-    if (!url) return;
-    const newBox: CustomBoxDef = {
-      id: `img-${Date.now()}`,
-      x: 0.15,
-      y: 0.2,
-      width: 0.3,
-      height: 0.15,
-      kind: 'image',
-      imageUrl: url,
-      ownerId: currentUser.id,
-    };
-    onTemplateConfigChange({
-      ...templateConfig,
-      customBoxes: [...customBoxes, newBox],
-    });
-  }, [templateConfig, onTemplateConfigChange, customBoxes, currentUser?.id]);
+    setImageDialogMode('add');
+    setImageDialogBoxId(null);
+    setImageDialogUrl('');
+    setImageDialogError(null);
+    setImageDialogOpen(true);
+  }, [templateConfig, onTemplateConfigChange, currentUser?.id]);
+
+  const openEditImageDialog = useCallback((box: CustomBoxDef) => {
+    setImageDialogMode('edit');
+    setImageDialogBoxId(box.id);
+    setImageDialogUrl(box.imageUrl || '');
+    setImageDialogError(null);
+    setImageDialogOpen(true);
+  }, []);
+
+  const applyImageDialog = useCallback(() => {
+    const url = imageDialogUrl.trim();
+    if (!url || !templateConfig || !onTemplateConfigChange) return;
+    if (imageDialogMode === 'add' && currentUser?.id) {
+      const newBox: CustomBoxDef = {
+        id: `img-${Date.now()}`,
+        x: 0.15,
+        y: 0.2,
+        width: 0.3,
+        height: 0.15,
+        kind: 'image',
+        imageUrl: url,
+        ownerId: currentUser.id,
+      };
+      onTemplateConfigChange({
+        ...templateConfig,
+        customBoxes: [...customBoxes, newBox],
+      });
+    } else if (imageDialogMode === 'edit' && imageDialogBoxId) {
+      const nextBoxes = customBoxes.map((b) =>
+        b.id === imageDialogBoxId ? { ...b, imageUrl: url } : b
+      );
+      onTemplateConfigChange({ ...templateConfig, customBoxes: nextBoxes });
+    }
+    setImageDialogOpen(false);
+  }, [imageDialogMode, imageDialogBoxId, imageDialogUrl, templateConfig, onTemplateConfigChange, customBoxes, currentUser?.id]);
+
+  const handleImageFileUpload = useCallback(
+    async (e: React.ChangeEvent<HTMLInputElement>) => {
+      const file = e.target.files?.[0];
+      if (!file) return;
+      setImageDialogError(null);
+      if (!/^image\/(jpe?g|png|gif|webp)$/i.test(file.type)) {
+        setImageDialogError('Usa una imagen (JPG, PNG, GIF o WebP).');
+        return;
+      }
+      const formData = new FormData();
+      formData.append('file', file);
+      setImageDialogUploading(true);
+      try {
+        const res = await fetch(`${API_BASE}/api/upload`, {
+          method: 'POST',
+          body: formData,
+        });
+        const text = await res.text();
+        let data: { error?: string; url?: string } = {};
+        try {
+          data = text ? JSON.parse(text) : {};
+        } catch {
+          data = { error: res.status === 404 ? 'Servidor no disponible.' : `Error (${res.status})` };
+        }
+        if (!res.ok) throw new Error(data.error || 'Error al subir');
+        const base = typeof window !== 'undefined' && window.location?.origin ? window.location.origin : API_BASE;
+        const fullUrl = (data.url || '').startsWith('/') ? `${API_BASE}${data.url}` : (data.url || '');
+        setImageDialogUrl(fullUrl);
+        if (imageFileInputRef.current) imageFileInputRef.current.value = '';
+      } catch (err) {
+        setImageDialogError(err instanceof Error ? err.message : 'Error al subir la imagen');
+      } finally {
+        setImageDialogUploading(false);
+      }
+    },
+    []
+  );
 
   useEffect(() => {
     if (!dragging) return;
@@ -201,22 +271,97 @@ export const PdfTemplateEditor: React.FC<Props> = ({
   }, [resizing, resizePreview, customBoxes, templateConfig, onTemplateConfigChange]);
 
   const normalizedColor = fontColor.toLowerCase() === '#ffffff' ? '#ffffff' : '#000000';
-  const baseTextStyle = {
-    fontFamily,
-    fontWeight: fontBold ? 'bold' : 'normal',
-    fontStyle: fontItalic ? 'italic' : 'normal',
-  };
   const getTextStyleForBox = (box: CustomBoxDef) => {
-    const size = box.fontSize ?? fontSize;
+    const size = box.fontSize ?? 11;
     const col = box.fontColor != null ? (box.fontColor.toLowerCase() === '#ffffff' ? '#ffffff' : '#000000') : normalizedColor;
-    return { ...baseTextStyle, color: col, fontSize: `${size}pt` };
+    const ff = box.fontFamily ?? fontFamily;
+    const bold = box.fontBold ?? fontBold;
+    const italic = box.fontItalic ?? fontItalic;
+    return {
+      fontFamily: ff,
+      fontWeight: bold ? 'bold' : 'normal',
+      fontStyle: italic ? 'italic' : 'normal',
+      color: col,
+      fontSize: `${size}pt`,
+    };
   };
   useEffect(() => {
     if (selectedBoxId && !customBoxes.some((b) => b.id === selectedBoxId)) setSelectedBoxId(null);
   }, [selectedBoxId, customBoxes]);
 
+  const previewImageUrl = imageDialogUrl.trim().startsWith('/') ? `${API_BASE}${imageDialogUrl}` : imageDialogUrl;
+
   return (
     <div className="relative flex-1 flex flex-col overflow-hidden bg-monday-bg/30 min-h-0">
+      <Dialog.Root open={imageDialogOpen} onOpenChange={setImageDialogOpen}>
+        <Dialog.Portal>
+          <Dialog.Overlay className="fixed inset-0 bg-black/40 z-[100]" />
+          <Dialog.Content className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-[101] w-[90vw] max-w-md bg-white rounded-xl shadow-xl border border-monday-border p-4">
+            <Dialog.Title className="text-[15px] font-semibold text-monday-text mb-3">
+              {imageDialogMode === 'add' ? 'Añadir imagen a la plantilla' : 'Editar imagen'}
+            </Dialog.Title>
+            <p className="text-[12px] text-monday-subtext mb-2">
+              Escribe la URL de la imagen o sube un archivo (JPG, PNG, GIF, WebP).
+            </p>
+            <input
+              type="url"
+              value={imageDialogUrl}
+              onChange={(e) => { setImageDialogUrl(e.target.value); setImageDialogError(null); }}
+              placeholder="https://… o deja vacío y sube un archivo"
+              className="w-full px-3 py-2 text-[13px] border border-monday-border rounded-lg text-monday-text placeholder:text-monday-subtext mb-2"
+            />
+            <input
+              ref={imageFileInputRef}
+              type="file"
+              accept="image/jpeg,image/jpg,image/png,image/gif,image/webp"
+              className="hidden"
+              id="template-image-upload"
+              onChange={handleImageFileUpload}
+            />
+            <div className="flex items-center gap-2 mb-2">
+              <label
+                htmlFor="template-image-upload"
+                className="inline-flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg bg-monday-blue text-white text-[12px] cursor-pointer hover:bg-monday-blue/90"
+              >
+                {imageDialogUploading ? (
+                  <>
+                    <Loader2 size={14} className="animate-spin" />
+                    Subiendo…
+                  </>
+                ) : (
+                  <>
+                    <Upload size={14} />
+                    Subir archivo
+                  </>
+                )}
+              </label>
+            </div>
+            {imageDialogError && (
+              <p className="text-[12px] text-red-600 mb-2" role="alert">{imageDialogError}</p>
+            )}
+            {imageDialogUrl.trim() && (
+              <div className="mb-3 rounded-lg border border-monday-border overflow-hidden bg-monday-hover/30 flex justify-center p-2">
+                <img src={previewImageUrl} alt="Vista previa" className="max-h-24 w-auto object-contain" />
+              </div>
+            )}
+            <div className="flex justify-end gap-2">
+              <Dialog.Close asChild>
+                <button type="button" className="px-3 py-1.5 rounded-lg border border-monday-border text-[13px] text-monday-text hover:bg-monday-hover">
+                  Cancelar
+                </button>
+              </Dialog.Close>
+              <button
+                type="button"
+                onClick={applyImageDialog}
+                disabled={!imageDialogUrl.trim()}
+                className="px-3 py-1.5 rounded-lg bg-monday-blue text-white text-[13px] font-medium hover:bg-monday-blue/90 disabled:opacity-60"
+              >
+                {imageDialogMode === 'add' ? 'Añadir' : 'Guardar'}
+              </button>
+            </div>
+          </Dialog.Content>
+        </Dialog.Portal>
+      </Dialog.Root>
       {isAdmin && templateConfig && (
         <div className="absolute top-2 right-2 z-30 flex flex-col gap-2">
           <button
@@ -273,7 +418,7 @@ export const PdfTemplateEditor: React.FC<Props> = ({
           onTemplateConfigChange={onTemplateConfigChange}
           selectedBoxId={selectedBoxId}
           onAddTextBox={() => addCustomBox(false)}
-          onAddImageBox={addImageBox}
+          onAddImageBox={openAddImageDialog}
         />
       )}
       <div className="flex-1 overflow-auto flex items-center justify-center min-h-0 p-2 sm:p-4">
@@ -308,7 +453,8 @@ export const PdfTemplateEditor: React.FC<Props> = ({
             <div className="absolute inset-0 pointer-events-auto">
               {/* Cuadros de texto / imagen agregados en la plantilla */}
               {customBoxes.map((box) => {
-                const canEditBox = isAdmin || (currentUser?.id && box.ownerId === currentUser.id);
+                const canMoveOrDelete = isAdmin || (currentUser?.id && box.ownerId === currentUser.id);
+                const canFormatBox = true;
                 const isDraggingThis = dragging?.fieldKey === box.id && dragPreview;
                 const isResizingThis = resizing?.boxId === box.id && resizePreview;
                 const x = isDraggingThis ? dragPreview.x : box.x;
@@ -324,7 +470,7 @@ export const PdfTemplateEditor: React.FC<Props> = ({
                     key={box.id}
                     role="button"
                     tabIndex={0}
-                    onClick={() => canEditBox && setSelectedBoxId(box.id)}
+                    onClick={() => canFormatBox && setSelectedBoxId(box.id)}
                     className={`absolute flex flex-col group box-border rounded border transition-all overflow-visible ${isSelected ? 'border-monday-blue ring-2 ring-monday-blue/30 bg-white/10' : 'border-monday-border/20 bg-white/5'}`}
                     style={{
                       left: `${x * 100}%`,
@@ -335,23 +481,36 @@ export const PdfTemplateEditor: React.FC<Props> = ({
                       minWidth: '60px',
                     }}
                   >
-                    {canEditBox && (
+                    {canMoveOrDelete && (
                     <div
                       className="absolute left-0 right-0 flex items-center justify-end gap-0.5 h-6 px-1 rounded-t border border-monday-border/20 border-b-0 bg-white/95 shadow-sm z-10 -top-6"
                       onClick={(e) => e.stopPropagation()}
                     >
                       <div
                         className="cursor-grab active:cursor-grabbing text-monday-subtext hover:text-monday-blue p-0.5 rounded"
-                        onMouseDown={(e) => canEditBox && handleCustomBoxMouseDown(e, box)}
+                        onMouseDown={(e) => canMoveOrDelete && handleCustomBoxMouseDown(e, box)}
                         title="Arrastrar"
                       >
                         <GripVertical size={12} />
                       </div>
+                      {box.kind === 'image' && (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            openEditImageDialog(box);
+                          }}
+                          className="p-0.5 rounded text-monday-subtext hover:text-monday-blue hover:bg-monday-hover"
+                          title="Editar imagen"
+                        >
+                          <Pencil size={12} />
+                        </button>
+                      )}
                       <button
                         type="button"
                         onClick={(e) => {
                           e.stopPropagation();
-                          if (!templateConfig || !onTemplateConfigChange || !canEditBox) return;
+                          if (!templateConfig || !onTemplateConfigChange || !canMoveOrDelete) return;
                           onTemplateConfigChange({
                             ...templateConfig,
                             customBoxes: customBoxes.filter((b) => b.id !== box.id),
@@ -369,16 +528,10 @@ export const PdfTemplateEditor: React.FC<Props> = ({
                         <img
                           src={box.imageUrl || ''}
                           alt=""
-                          className="w-full h-full object-contain pointer-events-auto"
+                          className="w-full h-full object-contain select-none"
                           onClick={(e) => {
                             e.stopPropagation();
-                            if (!templateConfig || !onTemplateConfigChange || !canEditBox) return;
-                            const nextUrl = window.prompt('URL de la imagen', box.imageUrl || '');
-                            if (!nextUrl) return;
-                            const nextBoxes = customBoxes.map((b) =>
-                              b.id === box.id ? { ...b, imageUrl: nextUrl } : b
-                            );
-                            onTemplateConfigChange({ ...templateConfig, customBoxes: nextBoxes });
+                            if (canFormatBox) setSelectedBoxId(box.id);
                           }}
                         />
                       ) : box.singleLine ? (
@@ -393,7 +546,13 @@ export const PdfTemplateEditor: React.FC<Props> = ({
                           placeholder="Texto (una línea)"
                           style={boxTextStyle}
                           className="w-full h-full min-h-0 bg-transparent border-0 outline-none focus:ring-0 py-1 px-1.5 placeholder:text-gray-400 block"
-                          onClick={(e) => e.stopPropagation()}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            if (canFormatBox) setSelectedBoxId(box.id);
+                          }}
+                          onFocus={() => {
+                            if (canFormatBox) setSelectedBoxId(box.id);
+                          }}
                           spellCheck
                         />
                       ) : (
@@ -407,15 +566,21 @@ export const PdfTemplateEditor: React.FC<Props> = ({
                           placeholder="Texto (varios renglones)"
                           style={boxTextStyle}
                           className="w-full h-full min-h-0 resize-none bg-transparent border-0 outline-none focus:ring-0 py-1 px-1.5 placeholder:text-gray-400 overflow-auto block"
-                          onClick={(e) => e.stopPropagation()}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            if (canFormatBox) setSelectedBoxId(box.id);
+                          }}
+                          onFocus={() => {
+                            if (canFormatBox) setSelectedBoxId(box.id);
+                          }}
                           spellCheck
                         />
                       )}
                     </div>
-                    {canEditBox && (
+                    {canMoveOrDelete && (
                     <div
                       className="absolute bottom-0 right-0 w-4 h-4 cursor-se-resize flex items-center justify-center text-monday-subtext hover:text-monday-blue border-t border-l border-monday-border/40 rounded-tl bg-white/80"
-                      onMouseDown={(e) => canEditBox && handleResizeStart(e, box)}
+                      onMouseDown={(e) => canMoveOrDelete && handleResizeStart(e, box)}
                       title="Redimensionar (arrastrar)"
                     >
                       <Maximize2 size={10} />

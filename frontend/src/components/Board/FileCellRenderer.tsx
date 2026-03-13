@@ -35,11 +35,17 @@ export const FileCellRenderer: React.FC<Props> = ({ item, column, value }) => {
     window.open(href, '_blank', 'noopener,noreferrer');
   };
 
+  const iconWrap = (
+    <span className="inline-flex items-center justify-center w-6 h-6 flex-shrink-0 text-monday-subtext">
+      <Paperclip size={16} strokeWidth={2} aria-hidden />
+    </span>
+  );
+
   // Para TALLER: solo lectura. Puede abrir el enlace de Drive pero no editarlo.
   if (isTaller) {
     return (
       <div
-        className="w-full h-full min-h-[38px] flex items-center gap-2 px-2 cursor-pointer hover:bg-monday-hover transition-colors"
+        className="w-full min-h-[38px] flex items-center gap-2 px-2 cursor-pointer hover:bg-monday-hover transition-colors"
         onClick={e => {
           if (!url) {
             e.stopPropagation();
@@ -48,11 +54,11 @@ export const FileCellRenderer: React.FC<Props> = ({ item, column, value }) => {
           openInNewTab(e);
         }}
       >
-        <Paperclip size={16} className="text-monday-subtext shrink-0" />
+        {iconWrap}
         {url ? (
-          <span className="text-[13px] text-monday-text truncate flex-1">Enlace Drive</span>
+          <span className="text-[13px] text-monday-text truncate flex-1 min-w-0">Enlace Drive</span>
         ) : (
-          <span className="text-[13px] text-monday-subtext truncate flex-1">Sin enlace</span>
+          <span className="text-[13px] text-monday-subtext truncate flex-1 min-w-0">Sin enlace</span>
         )}
       </div>
     );
@@ -62,14 +68,14 @@ export const FileCellRenderer: React.FC<Props> = ({ item, column, value }) => {
     <Popover.Root open={open} onOpenChange={setOpen}>
       <Popover.Trigger asChild>
         <div
-          className="w-full h-full min-h-[38px] flex items-center gap-2 px-2 cursor-pointer hover:bg-monday-hover transition-colors"
+          className="w-full min-h-[38px] flex items-center gap-2 px-2 cursor-pointer hover:bg-monday-hover transition-colors"
           onClick={e => e.stopPropagation()}
         >
-          <Paperclip size={16} className="text-monday-subtext shrink-0" />
+          {iconWrap}
           {url ? (
-            <span className="text-[13px] text-monday-text truncate flex-1">Enlace Drive</span>
+            <span className="text-[13px] text-monday-text truncate flex-1 min-w-0">Enlace Drive</span>
           ) : (
-            <span className="text-[13px] text-monday-subtext truncate flex-1">Pegar enlace</span>
+            <span className="text-[13px] text-monday-subtext truncate flex-1 min-w-0">Pegar enlace</span>
           )}
         </div>
       </Popover.Trigger>

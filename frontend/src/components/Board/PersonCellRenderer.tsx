@@ -31,21 +31,21 @@ export const PersonCellRenderer: React.FC<Props> = ({ item, column, value }) => 
   return (
     <Popover.Root open={open} onOpenChange={setOpen}>
       <Popover.Trigger asChild>
-        <div 
-          className="w-full h-full flex items-center justify-center cursor-pointer hover:bg-monday-hover transition-colors"
+        <div
+          className="w-full min-h-[38px] flex items-center justify-center cursor-pointer hover:bg-monday-hover transition-colors py-1"
           onClick={e => { e.stopPropagation(); setOpen(true); }}
         >
           {assignedUser ? (
-            <div 
-              className="w-7 h-7 rounded-full text-white text-[11px] flex items-center justify-center font-semibold shadow-monday-sm transition-transform hover:scale-110"
+            <div
+              className="w-7 h-7 rounded-full text-white text-[11px] flex items-center justify-center font-semibold shadow-monday-sm transition-transform hover:scale-110 flex-shrink-0 leading-none"
               style={{ backgroundColor: assignedUser.color }}
               title={assignedUser.name}
             >
               {assignedUser.initials}
             </div>
           ) : (
-            <div className="w-7 h-7 rounded-full border border-dashed border-monday-border text-monday-subtext flex items-center justify-center hover:border-monday-blue hover:text-monday-blue transition-colors">
-              <UserCircle2 size={16} />
+            <div className="w-7 h-7 rounded-full border border-dashed border-monday-border text-monday-subtext flex items-center justify-center hover:border-monday-blue hover:text-monday-blue transition-colors flex-shrink-0 [&_svg]:shrink-0">
+              <UserCircle2 size={16} strokeWidth={2} aria-hidden />
             </div>
           )}
         </div>

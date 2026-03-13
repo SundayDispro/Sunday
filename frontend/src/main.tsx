@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client';
 import './index.css';
 import App from './App.tsx';
 import { UserProvider } from './store/UserContext.tsx';
+import { ToastProvider } from './components/Toast.tsx';
 
 const enableServiceWorker = () => {
   if ('serviceWorker' in navigator) {
@@ -19,7 +20,9 @@ enableServiceWorker();
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <UserProvider>
-      <App />
+      <ToastProvider>
+        <App />
+      </ToastProvider>
     </UserProvider>
   </StrictMode>
 );

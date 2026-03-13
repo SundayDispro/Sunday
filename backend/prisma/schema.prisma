@@ -27,6 +27,7 @@ model Workspace {
   name        String
   description String?
   panelNotes  String?  // JSON array: [{ id, x, y, title, body }] para vista general de Docs
+  docGroups   String?  // JSON por usuario: { "userId": { groups: [{ id, name }], assignments: { docId: groupId } } }
   boards      Board[]
   docs        Doc[]
   createdAt   DateTime @default(now())

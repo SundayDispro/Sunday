@@ -4,7 +4,7 @@ import BoardContainer from './components/Board/BoardContainer';
 import { ItemDetailsPanel } from './components/Board/ItemDetailsPanel';
 import {
   Home, Bell, Search, ChevronDown, ChevronRight,
-  LayoutGrid, Users, BookOpen, BarChart2, Inbox, Star, Plus, Receipt, Calendar, Folder, PieChart, FolderOpen, UserCheck, GanttChart, Check,
+  LayoutGrid, Users, BookOpen, BarChart2, Inbox, Star, Plus, Receipt, Calendar, Folder, PieChart, FolderOpen, UserCheck, GanttChart, Check, AlertCircle, X,
 } from 'lucide-react';
 import { Item, Board, Workspace, User } from './types';
 import { useUser } from './store/UserContext';
@@ -237,9 +237,10 @@ function App() {
     itemId: string;
   } | null>(null);
 
-  const [showCalculator, setShowCalculator] = useState(false);
   const [calculatorExpression, setCalculatorExpression] = useState('');
   const [calculatorResult, setCalculatorResult] = useState<string | null>(null);
+  const [calculatorError, setCalculatorError] = useState<string | null>(null);
+  const [draggingWidgetId, setDraggingWidgetId] = useState<string | null>(null);
 
   // Tareas personales (panel-notes) por workspace, visibles en Docs
   interface TaskItem {
@@ -255,6 +256,7 @@ function App() {
     ownerId?: string;
     color?: string;
     tasks: TaskItem[];
+    kind?: 'tasks' | 'calculator';
   }
 
   const TASK_WINDOW_COLORS = [
@@ -303,6 +305,7 @@ function App() {
     const toSave = notes.map(n => ({
       id: n.id,
       title: n.title,
+      kind: n.kind ?? 'tasks',
       ownerId: n.ownerId ?? currentUser.id,
       color: n.color,
       tasks: (n.tasks ?? []).map(t => ({
@@ -351,6 +354,7 @@ function App() {
             title: typeof item.title === 'string' ? item.title : 'Mis tareas',
             ownerId: typeof item.ownerId === 'string' ? item.ownerId : currentUser.id,
             color: typeof item.color === 'string' && /^#[0-9A-Fa-f]{6}$/.test(item.color) ? item.color : DEFAULT_TASK_WINDOW_COLOR,
+            kind: item.kind === 'calculator' ? 'calculator' : 'tasks',
             tasks: Array.isArray(item.tasks)
               ? item.tasks.map((t: any, i: number) => ({
                   id: typeof t.id === 'string' ? t.id : `t-${i}`,
@@ -533,6 +537,7 @@ function App() {
     const newWindow: TaskWindow = {
       id: crypto.randomUUID(),
       title: 'Mis tareas',
+      kind: 'tasks',
       ownerId: currentUser.id,
       color: DEFAULT_TASK_WINDOW_COLOR,
       tasks: [],
@@ -558,23 +563,135 @@ function App() {
   };
 
   const ensureCalculatorVisible = () => {
-    setShowCalculator(true);
+    if (!currentUser?.id) return;
+    setTaskWindows(prev => {
+      const alreadyHasCalculator = prev.some(
+        w => (w.kind === 'calculator') && (w.ownerId ?? currentUser.id) === currentUser.id,
+      );
+      if (alreadyHasCalculator) return prev;
+      const calcWindow: TaskWindow = {
+        id: crypto.randomUUID(),
+        title: 'Calculadora',
+        kind: 'calculator',
+        ownerId: currentUser.id,
+        color: '#ffffff',
+        tasks: [],
+      };
+      const next = [...prev, calcWindow];
+      scheduleSavePanelNotes();
+      return next;
+    });
   };
 
   const evaluateCalculator = () => {
-    const expr = calculatorExpression.trim();
-    if (!expr) {
+    const raw = calculatorExpression.trim();
+    if (!raw) {
       setCalculatorResult(null);
+      setCalculatorError(null);
       return;
     }
+
+    const expr = raw.replace(/,/g, '.').replace(/\s+/g, '');
+    if (!/^[0-9+\-*/().]+$/.test(expr)) {
+      setCalculatorResult('Error');
+      setCalculatorError('Solo se permiten números, +, -, *, / y paréntesis.');
+      return;
+    }
+
     try {
-      // Evaluación simple; uso local en UI
-      // eslint-disable-next-line no-new-func
-      const fn = new Function(`return (${expr});`);
-      const r = fn();
-      setCalculatorResult(typeof r === 'number' ? String(r) : String(r));
+      const tokens: string[] = [];
+      let rest = expr;
+      while (rest.length > 0) {
+        const numMatch = rest.match(/^\d+(?:\.\d+)?/);
+        const opMatch = rest.match(/^([+\-*/()])/);
+        if (numMatch) {
+          tokens.push(numMatch[0]);
+          rest = rest.slice(numMatch[0].length);
+        } else if (opMatch) {
+          tokens.push(opMatch[1]);
+          rest = rest.slice(1);
+        } else {
+          setCalculatorResult('Error');
+          setCalculatorError('Expresión no válida.');
+          return;
+        }
+      }
+
+      const precedence: Record<string, number> = { '+': 1, '-': 1, '*': 2, '/': 2 };
+      const output: string[] = [];
+      const ops: string[] = [];
+
+      for (const t of tokens) {
+        if (t === '(') {
+          ops.push(t);
+        } else if (t === ')') {
+          while (ops.length && ops[ops.length - 1] !== '(') {
+            output.push(ops.pop()!);
+          }
+          ops.pop();
+        } else if (precedence[t] != null) {
+          while (ops.length && precedence[ops[ops.length - 1]] >= precedence[t]) {
+            output.push(ops.pop()!);
+          }
+          ops.push(t);
+        } else {
+          output.push(t);
+        }
+      }
+      while (ops.length) output.push(ops.pop()!);
+
+      const stack: number[] = [];
+      for (const t of output) {
+        if (t === '+' || t === '-' || t === '*' || t === '/') {
+          const b = stack.pop();
+          const a = stack.pop();
+          if (a == null || b == null) {
+            setCalculatorResult('Error');
+            setCalculatorError('Expresión incompleta.');
+            return;
+          }
+          if (t === '+') stack.push(a + b);
+          if (t === '-') stack.push(a - b);
+          if (t === '*') stack.push(a * b);
+          if (t === '/') {
+            if (b === 0) {
+              setCalculatorResult('Error');
+              setCalculatorError('No se puede dividir entre 0.');
+              return;
+            }
+            stack.push(a / b);
+          }
+        } else {
+          const n = parseFloat(t);
+          if (Number.isNaN(n)) {
+            setCalculatorResult('Error');
+            setCalculatorError('Número no válido.');
+            return;
+          }
+          stack.push(n);
+        }
+      }
+
+      if (stack.length !== 1) {
+        setCalculatorResult('Error');
+        setCalculatorError('Expresión no válida.');
+        return;
+      }
+
+      const result = stack[0];
+      if (!Number.isFinite(result)) {
+        setCalculatorResult('Error');
+        setCalculatorError('Resultado no válido.');
+        return;
+      }
+
+      const display =
+        Number.isInteger(result) ? result.toString() : result.toFixed(4).replace(/\.0+$/, '').replace(/(\.\d*[1-9])0+$/, '$1');
+      setCalculatorResult(display);
+      setCalculatorError(null);
     } catch {
       setCalculatorResult('Error');
+      setCalculatorError('No se pudo evaluar la expresión.');
     }
   };
 
@@ -891,148 +1008,262 @@ if (ok && data && typeof data.id === 'string') {
               {tasksLoading && (
                 <p className="text-[12px] text-monday-subtext px-2 mb-2">Cargando tareas...</p>
               )}
-              {!tasksLoading && taskWindows.length === 0 && (
+        {!tasksLoading && taskWindows.length === 0 && (
                 <p className="text-[12px] text-monday-subtext px-2 mb-2">No hay widgets. Usa \"Añadir widget\" en Docs.</p>
               )}
               <div className="space-y-3 mb-3">
-                {showCalculator && (
-                  <div className="rounded-xl border border-monday-border/80 bg-white shadow-monday-sm p-3">
-                    <p className="text-[12px] font-semibold text-monday-text mb-1">Calculadora</p>
-                    <input
-                      type="text"
-                      value={calculatorExpression}
-                      onChange={e => setCalculatorExpression(e.target.value)}
-                      placeholder="Ej: (1200 + 350) * 1.16"
-                      className="w-full text-[12px] px-2 py-1.5 border border-monday-border rounded-md mb-1 outline-none focus:ring-1 focus:ring-monday-blue"
-                    />
+          {taskWindows.map(win => (
+            <div
+              key={win.id}
+              draggable
+              onDragStart={() => setDraggingWidgetId(win.id)}
+              onDragEnd={() => setDraggingWidgetId(null)}
+              onDragOver={e => {
+                e.preventDefault();
+                if (!draggingWidgetId || draggingWidgetId === win.id) return;
+                setTaskWindows(prev => {
+                  const fromIndex = prev.findIndex(w => w.id === draggingWidgetId);
+                  const toIndex = prev.findIndex(w => w.id === win.id);
+                  if (fromIndex === -1 || toIndex === -1 || fromIndex === toIndex) return prev;
+                  const next = [...prev];
+                  const [moved] = next.splice(fromIndex, 1);
+                  next.splice(toIndex, 0, moved);
+                  scheduleSavePanelNotes();
+                  return next;
+                });
+              }}
+              className="cursor-move"
+            >
+              {win.kind === 'calculator' ? (
+                <div
+                  className="rounded-2xl border border-monday-border bg-white shadow-monday-sm overflow-hidden outline-none"
+                  tabIndex={0}
+                  onClick={e => {
+                    (e.currentTarget as HTMLDivElement).focus();
+                    setCalculatorError(null);
+                  }}
+                  onKeyDown={e => {
+                    const key = e.key;
+                    if (key === 'Enter') { e.preventDefault(); evaluateCalculator(); return; }
+                    if (key === 'Escape') { e.preventDefault(); setCalculatorExpression(''); setCalculatorResult(null); setCalculatorError(null); return; }
+                    if (key === 'Backspace') { e.preventDefault(); setCalculatorExpression(prev => prev.slice(0, -1)); setCalculatorError(null); return; }
+                    if (key === 'Delete') { e.preventDefault(); setCalculatorExpression(''); setCalculatorResult(null); setCalculatorError(null); return; }
+                    if (/^[0-9.+\-*/() ]$/.test(key)) { e.preventDefault(); setCalculatorExpression(prev => (prev ?? '') + key); setCalculatorError(null); }
+                  }}
+                >
+                  {/* Cabecera: título + botón cerrar */}
+                  <div className="flex items-center justify-between gap-2 bg-[#f6f7fb] px-3 pt-2 pb-1">
+                    <p className="text-[10px] font-semibold text-monday-subtext tracking-widest uppercase">Calculadora</p>
                     <button
                       type="button"
-                      onClick={evaluateCalculator}
-                      className="text-[11px] px-2 py-1 rounded-md bg-monday-blue text-white hover:bg-monday-blue/90"
+                      onClick={() => {
+                        setTaskWindows(prev => prev.filter(w => w.id !== win.id));
+                        scheduleSavePanelNotes();
+                      }}
+                      className="p-1 rounded-md text-monday-subtext hover:bg-monday-hover hover:text-monday-text transition-colors"
+                      title="Cerrar calculadora"
                     >
-                      Calcular
+                      <X size={14} />
                     </button>
-                    {calculatorResult != null && (
-                      <p className="mt-1 text-[12px] text-monday-text">
-                        Resultado: <span className="font-semibold">{calculatorResult}</span>
+                  </div>
+                  {/* Display */}
+                  <div className="bg-[#f6f7fb] px-3 pb-2 select-none">
+                    <div className="text-[10px] text-monday-subtext text-right min-h-[13px] break-all leading-none">
+                      {calculatorExpression || '\u00a0'}
+                    </div>
+                    <div className={`text-[20px] font-semibold text-right leading-tight tracking-tight mt-0.5 min-h-[24px] ${calculatorError ? 'text-red-500' : 'text-monday-text'}`}>
+                      {calculatorResult != null ? calculatorResult : (calculatorExpression || '0')}
+                    </div>
+                    {calculatorError ? (
+                      <p className="text-[10px] text-red-500 flex items-center gap-1 justify-end mt-0.5">
+                        <AlertCircle size={10} />
+                        <span>{calculatorError}</span>
                       </p>
+                    ) : (
+                      <div className="h-[14px]" />
                     )}
                   </div>
-                )}
-                {taskWindows.map(win => (
-                  <div
-                    key={win.id}
-                    className="rounded-xl border border-monday-border/80 shadow-monday-sm p-2.5 transition-shadow hover:shadow-monday-md"
-                    style={{ backgroundColor: win.color ?? DEFAULT_TASK_WINDOW_COLOR }}
-                  >
-                    <div className="flex items-center gap-1.5 mb-2">
-                      <input
-                        type="text"
-                        value={win.title}
-                        onChange={e => updateTaskWindow(win.id, { title: e.target.value })}
-                        className="flex-1 min-w-0 text-[12px] font-medium text-monday-text bg-transparent border-0 outline-none placeholder:text-monday-subtext/70"
-                        placeholder="Lista sin título"
-                      />
-                      <Popover.Root>
-                        <Popover.Trigger asChild>
-                          <button
-                            type="button"
-                            className="w-5 h-5 rounded-md border border-monday-border/60 shadow-inner flex-shrink-0 hover:ring-2 ring-monday-blue/40 transition-shadow"
-                            style={{ backgroundColor: win.color ?? DEFAULT_TASK_WINDOW_COLOR }}
-                            title="Cambiar color"
-                          />
-                        </Popover.Trigger>
-                        <Popover.Portal>
-                          <Popover.Content className="z-50 p-2 rounded-lg shadow-lg border border-monday-border bg-white" sideOffset={6}>
-                            <div className="grid grid-cols-4 gap-1">
-                              {TASK_WINDOW_COLORS.map(c => (
-                                <button
-                                  key={c}
-                                  type="button"
-                                  className="w-6 h-6 rounded border border-monday-border hover:ring-2 ring-monday-blue transition-shadow"
-                                  style={{ backgroundColor: c }}
-                                  onClick={() => updateTaskWindow(win.id, { color: c })}
-                                />
-                              ))}
-                            </div>
-                          </Popover.Content>
-                        </Popover.Portal>
-                      </Popover.Root>
-                    </div>
-                    <div className="space-y-0.5">
-                      {win.tasks.map(task => (
-                        <div key={task.id} className="flex items-start gap-2 group/task py-0.5">
-                          <button
-                            type="button"
-                            role="checkbox"
-                            aria-checked={!!task.done}
-                            onClick={() =>
-                              updateTaskWindow(win.id, {
-                                tasks: win.tasks.map(t =>
-                                  t.id === task.id ? { ...t, done: !t.done } : t,
-                                ),
-                              })
-                            }
-                            className={`mt-0.5 w-4 h-4 rounded-md flex items-center justify-center flex-shrink-0 transition-all duration-200 active:scale-90 ${
-                              task.done
-                                ? 'bg-monday-blue text-white border-0 shadow-inner'
-                                : 'bg-white/90 border border-monday-border text-transparent hover:border-monday-blue/50'
-                            }`}
-                          >
-                            <Check size={10} strokeWidth={3} className={`transition-all duration-200 ${task.done ? 'opacity-100 scale-100' : 'opacity-0 scale-75'}`} />
-                          </button>
-                          <textarea
-                            value={task.text}
-                            onChange={e => {
-                              updateTaskWindow(win.id, {
-                                tasks: win.tasks.map(t =>
-                                  t.id === task.id ? { ...t, text: e.target.value } : t,
-                                ),
-                              });
-                            }}
-                            rows={Math.max(2, Math.min(6, (task.text.match(/\n/g)?.length ?? 0) + 2))}
-                            className={`flex-1 min-w-0 text-[12px] border-0 bg-transparent outline-none resize-none overflow-hidden placeholder:text-monday-subtext/80 transition-opacity ${
-                              task.done ? 'opacity-60 line-through' : ''
-                            }`}
-                            placeholder="Nueva tarea..."
-                          />
-                          <button
-                            type="button"
-                            onClick={() =>
-                              updateTaskWindow(win.id, {
-                                tasks: win.tasks.filter(t => t.id !== task.id),
-                              })
-                            }
-                            className="text-monday-subtext hover:text-monday-red text-[11px] opacity-0 group-hover/task:opacity-100 transition-opacity p-0.5 rounded"
-                          >
-                            ×
-                          </button>
-                        </div>
-                      ))}
-                      <button
-                        type="button"
-                        onClick={() =>
-                          updateTaskWindow(win.id, {
-                            tasks: [
-                              ...win.tasks,
-                              { id: crypto.randomUUID(), text: '', done: false },
-                            ],
-                          })
-                        }
-                        className="text-[11px] text-monday-blue hover:underline mt-1.5 font-medium"
-                      >
-                        + Añadir tarea
-                      </button>
-                    </div>
+
+                  {/* Pills IVA */}
+                  <div className="flex gap-1 px-2.5 py-1.5 border-b border-monday-border/40 bg-white">
                     <button
                       type="button"
-                      onClick={() => removeTaskWindow(win.id)}
-                      className="mt-2 text-[11px] text-monday-subtext hover:text-monday-red transition-colors"
+                      className="flex-1 text-[10px] py-0.5 rounded-full border border-monday-border text-monday-subtext hover:bg-monday-hover hover:text-monday-text transition-colors"
+                      onClick={() => { setCalculatorExpression(prev => prev ? `(${prev})*1.16` : '1*1.16'); setCalculatorError(null); }}
                     >
-                      Eliminar lista
+                      +IVA 16%
+                    </button>
+                    <button
+                      type="button"
+                      className="flex-1 text-[10px] py-0.5 rounded-full border border-monday-border text-monday-subtext hover:bg-monday-hover hover:text-monday-text transition-colors"
+                      onClick={() => { setCalculatorExpression(prev => prev ? `(${prev})/1.16` : '0'); setCalculatorError(null); }}
+                    >
+                      −IVA 16%
                     </button>
                   </div>
-                ))}
+
+                  {/* 4 botones funcionales */}
+                  <div className="p-2 bg-[#f6f7fb] flex flex-wrap gap-1">
+                    <button
+                      type="button"
+                      className="flex-1 min-w-[4rem] text-[11px] py-1.5 rounded-xl bg-white border border-monday-border/60 text-monday-text hover:bg-monday-hover transition-colors"
+                      onClick={() => {
+                        const toCopy = calculatorError ? '' : (calculatorResult != null ? calculatorResult : (calculatorExpression || '0'));
+                        if (toCopy) navigator.clipboard.writeText(String(toCopy));
+                      }}
+                      title="Copiar resultado al portapapeles"
+                    >
+                      Copiar
+                    </button>
+                    <button
+                      type="button"
+                      className="flex-1 min-w-[4rem] text-[11px] py-1.5 rounded-xl bg-white border border-monday-border/60 text-red-500 font-medium hover:bg-red-50 transition-colors"
+                      onClick={() => { setCalculatorExpression(''); setCalculatorResult(null); setCalculatorError(null); }}
+                      title="Borrar todo"
+                    >
+                      Borrar
+                    </button>
+                    <button
+                      type="button"
+                      className="flex-1 min-w-[4rem] text-[11px] py-1.5 rounded-xl bg-white border border-monday-border/60 text-monday-text hover:bg-monday-hover transition-colors"
+                      onClick={async () => {
+                        try {
+                          const text = await navigator.clipboard.readText();
+                          if (text.trim()) setCalculatorExpression(prev => (prev ?? '') + text.trim());
+                          setCalculatorError(null);
+                        } catch {
+                          // sin permiso de lectura del portapapeles
+                        }
+                      }}
+                      title="Pegar desde el portapapeles"
+                    >
+                      Pegar
+                    </button>
+                    <button
+                      type="button"
+                      className="flex-1 min-w-[4rem] text-[11px] py-1.5 rounded-xl bg-monday-blue text-white font-semibold hover:bg-monday-blue/90 transition-colors"
+                      onClick={evaluateCalculator}
+                      title="Calcular"
+                    >
+                      =
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div
+                  className="rounded-xl border border-monday-border/80 shadow-monday-sm p-2.5 transition-shadow hover:shadow-monday-md bg-opacity-90"
+                  style={{ backgroundColor: win.color ?? DEFAULT_TASK_WINDOW_COLOR }}
+                >
+                  <div className="flex items-center gap-1.5 mb-2">
+                    <input
+                      type="text"
+                      value={win.title}
+                      onChange={e => updateTaskWindow(win.id, { title: e.target.value })}
+                      className="flex-1 min-w-0 text-[12px] font-medium text-monday-text bg-transparent border-0 outline-none placeholder:text-monday-subtext/70"
+                      placeholder="Lista sin título"
+                    />
+                    <Popover.Root>
+                      <Popover.Trigger asChild>
+                        <button
+                          type="button"
+                          className="w-5 h-5 rounded-md border border-monday-border/60 shadow-inner flex-shrink-0 hover:ring-2 ring-monday-blue/40 transition-shadow"
+                          style={{ backgroundColor: win.color ?? DEFAULT_TASK_WINDOW_COLOR }}
+                          title="Cambiar color"
+                        />
+                      </Popover.Trigger>
+                      <Popover.Portal>
+                        <Popover.Content className="z-50 p-2 rounded-lg shadow-lg border border-monday-border bg-white" sideOffset={6}>
+                          <div className="grid grid-cols-4 gap-1">
+                            {TASK_WINDOW_COLORS.map(c => (
+                              <button
+                                key={c}
+                                type="button"
+                                className="w-6 h-6 rounded border border-monday-border hover:ring-2 ring-monday-blue transition-shadow"
+                                style={{ backgroundColor: c }}
+                                onClick={() => updateTaskWindow(win.id, { color: c })}
+                              />
+                            ))}
+                          </div>
+                        </Popover.Content>
+                      </Popover.Portal>
+                    </Popover.Root>
+                  </div>
+                  <div className="space-y-0.5">
+                    {win.tasks.map(task => (
+                      <div key={task.id} className="flex items-start gap-2 group/task py-0.5">
+                        <button
+                          type="button"
+                          role="checkbox"
+                          aria-checked={!!task.done}
+                          onClick={() =>
+                            updateTaskWindow(win.id, {
+                              tasks: win.tasks.map(t =>
+                                t.id === task.id ? { ...t, done: !t.done } : t,
+                              ),
+                            })
+                          }
+                          className={`mt-0.5 w-4 h-4 rounded-md flex items-center justify-center flex-shrink-0 transition-all duration-200 active:scale-90 ${
+                            task.done
+                              ? 'bg-monday-blue text-white border-0 shadow-inner'
+                              : 'bg-white/90 border border-monday-border text-transparent hover:border-monday-blue/50'
+                          }`}
+                        >
+                          <Check size={10} strokeWidth={3} className={`transition-all duration-200 ${task.done ? 'opacity-100 scale-100' : 'opacity-0 scale-75'}`} />
+                        </button>
+                        <textarea
+                          value={task.text}
+                          onChange={e => {
+                            updateTaskWindow(win.id, {
+                              tasks: win.tasks.map(t =>
+                                t.id === task.id ? { ...t, text: e.target.value } : t,
+                              ),
+                            });
+                          }}
+                          rows={Math.max(2, Math.min(6, (task.text.match(/\n/g)?.length ?? 0) + 2))}
+                          className={`flex-1 min-w-0 text-[12px] border-0 bg-transparent outline-none resize-none overflow-hidden placeholder:text-monday-subtext/80 transition-opacity ${
+                            task.done ? 'opacity-60 line-through' : ''
+                          }`}
+                          placeholder="Nueva tarea..."
+                        />
+                        <button
+                          type="button"
+                          onClick={() =>
+                            updateTaskWindow(win.id, {
+                              tasks: win.tasks.filter(t => t.id !== task.id),
+                            })
+                          }
+                          className="text-monday-subtext hover:text-monday-red text-[11px] opacity-0 group-hover/task:opacity-100 transition-opacity p-0.5 rounded"
+                        >
+                          ×
+                        </button>
+                      </div>
+                    ))}
+                    <button
+                      type="button"
+                      onClick={() =>
+                        updateTaskWindow(win.id, {
+                          tasks: [
+                            ...win.tasks,
+                            { id: crypto.randomUUID(), text: '', done: false },
+                          ],
+                        })
+                      }
+                      className="text-[11px] text-monday-blue hover:underline mt-1.5 font-medium"
+                    >
+                      + Añadir tarea
+                    </button>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => removeTaskWindow(win.id)}
+                    className="mt-2 text-[11px] text-monday-subtext hover:text-monday-red transition-colors"
+                  >
+                    Eliminar lista
+                  </button>
+                </div>
+              )}
+            </div>
+          ))}
               </div>
             </>
           ) : activePage === 'notifications' ? (
