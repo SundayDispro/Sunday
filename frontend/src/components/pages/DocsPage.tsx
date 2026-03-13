@@ -2302,8 +2302,9 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
             customBoxes: config.customBoxes ?? [],
             globalFontSize: config.fontSize,
             globalFontColor: config.fontColor ?? '#000000',
+            globalFontFamily: config.fontFamily ?? 'Helvetica',
           }
-        : { ...pdfFormDraft, globalFontSize: 11, globalFontColor: '#000000' };
+        : { ...pdfFormDraft, globalFontSize: 11, globalFontColor: '#000000', globalFontFamily: 'Helvetica' };
       const res = await fetch(`${API_BASE}/api/templates/${docType}/generate`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

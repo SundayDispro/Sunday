@@ -102,22 +102,39 @@ export async function generatePdfFromTemplate(
 
   const page = pdfDoc.getPage(pageIndex);
   const { width, height } = page.getSize();
-  // Embed AvertaStd fonts (fall back to default font if something goes wrong)
-  const [avertaRegular, avertaBold] = await (async () => {
-    try {
-      const regularBytes = fs.readFileSync(path.join(FONTS_DIR, 'AvertaStd-Regular.ttf'));
-      const boldBytes = fs.readFileSync(path.join(FONTS_DIR, 'AvertaStd-Bold.ttf'));
-      const regularFont = await pdfDoc.embedFont(regularBytes);
-      const boldFont = await pdfDoc.embedFont(boldBytes);
-      return [regularFont, boldFont];
-    } catch {
-      // Si por alguna razón no se pueden cargar las fuentes personalizadas,
-      // usamos la fuente estándar incorporada.
-      const { StandardFonts } = await import('pdf-lib');
-      const fallback = await pdfDoc.embedFont(StandardFonts.Helvetica);
-      return [fallback, fallback];
+
+  const { StandardFonts } = await import('pdf-lib');
+  const standardHelvetica = await pdfDoc.embedFont(StandardFonts.Helvetica);
+  const standardHelveticaBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
+  const standardHelveticaOblique = await pdfDoc.embedFont(StandardFonts.HelveticaOblique);
+  const standardHelveticaBoldOblique = await pdfDoc.embedFont(StandardFonts.HelveticaBoldOblique);
+
+  let avertaRegular = standardHelvetica;
+  let avertaBold = standardHelveticaBold;
+  try {
+    const regularBytes = fs.readFileSync(path.join(FONTS_DIR, 'AvertaStd-Regular.ttf'));
+    const boldBytes = fs.readFileSync(path.join(FONTS_DIR, 'AvertaStd-Bold.ttf'));
+    avertaRegular = await pdfDoc.embedFont(regularBytes);
+    avertaBold = await pdfDoc.embedFont(boldBytes);
+  } catch {
+    // Si Averta no está disponible se usan las estándar ya asignadas
+  }
+
+  // Por defecto Averta Std para que el PDF use fuentes embebidas y se vea igual en cualquier visor (como en Illustrator)
+  const globalFontFamily = String(content.globalFontFamily ?? 'Averta Std').trim();
+
+  type FontRef = typeof standardHelvetica;
+  function getFont(boxFontFamily?: string, bold?: boolean, italic?: boolean): FontRef {
+    const family = (boxFontFamily ?? globalFontFamily).trim();
+    const useStd = /^Helvetica|Arial|sans-serif$/i.test(family) && family.length > 0;
+    if (useStd) {
+      if (bold && italic) return standardHelveticaBoldOblique;
+      if (bold) return standardHelveticaBold;
+      if (italic) return standardHelveticaOblique;
+      return standardHelvetica;
     }
-  })();
+    return bold ? avertaBold : avertaRegular;
+  }
 
   const defaultColor = hexToRgb((content.globalFontColor as string) || '#000000');
 
@@ -129,13 +146,12 @@ export async function generatePdfFromTemplate(
     x: number,
     y: number,
     fontSize: number,
-    maxWidth?: number,
-    weight: 'regular' | 'bold' = 'regular',
+    maxWidth: number | undefined,
+    font: FontRef,
     color: RGB = defaultColor
   ): void {
     if (text == null || String(text).trim() === '') return;
     const safeText = String(text).slice(0, 2000);
-    const font = weight === 'bold' ? avertaBold : avertaRegular;
     const size = fontSize;
     let yy = height - y;
 
@@ -174,6 +190,15 @@ export async function generatePdfFromTemplate(
   // Posiciones: priorizar las del documento (fieldPositions en content), luego las por defecto
   const docFieldPositions = (content.fieldPositions ?? {}) as Record<string, ContentFieldPosition>;
   const globalFontSize = typeof content.globalFontSize === 'number' ? content.globalFontSize : undefined;
+  const standardFieldValues = new Set<string>();
+  for (const key of Object.keys(positions)) {
+    if (key === 'items') continue;
+    const v = content[key];
+    if (v != null && typeof v !== 'object' && !Array.isArray(v)) {
+      const t = String(v).trim();
+      if (t) standardFieldValues.add(t);
+    }
+  }
 
   // Campos estándar basados en TEMPLATE_FIELD_POSITIONS
   for (const [key, pos] of Object.entries(positions)) {
@@ -197,10 +222,11 @@ export async function generatePdfFromTemplate(
       xPts = pos.x;
       yPts = pos.y;
     }
-    drawText(text, xPts, yPts, fontSize, maxWidth, pos.weight ?? 'regular');
+    const font = getFont(undefined, (pos.weight ?? 'regular') === 'bold', false);
+    drawText(text, xPts, yPts, fontSize, maxWidth, font, defaultColor);
   }
 
-  // Cuadros personalizados: usar posición y estilo del documento (customBoxes con fontSize, fontBold, fontColor)
+  // Cuadros personalizados: usar posición y estilo del documento (customBoxes con fontSize, fontBold, fontItalic, fontFamily, fontColor)
   const customBoxes = (content.customBoxes ?? []) as Array<
     {
       id: string;
@@ -212,6 +238,7 @@ export async function generatePdfFromTemplate(
       fontSize?: number;
       fontBold?: boolean;
       fontItalic?: boolean;
+      fontFamily?: string;
       fontColor?: string;
     }
   >;
@@ -222,24 +249,27 @@ export async function generatePdfFromTemplate(
       if (!box || (box.kind && box.kind !== 'text')) continue;
       const text = (customFieldValues[box.id] ?? '').trim();
       if (!text) continue;
+      if (standardFieldValues.has(text)) continue; // ya dibujado como campo estándar en su posición correcta, evitar duplicar
       const size = typeof box.fontSize === 'number' ? box.fontSize : defaultBoxFontSize;
-      const weight: 'regular' | 'bold' = box.fontBold ? 'bold' : 'regular';
+      const boxFont = getFont(box.fontFamily, !!box.fontBold, !!box.fontItalic);
       const boxColor = typeof box.fontColor === 'string' && box.fontColor
         ? hexToRgb(box.fontColor)
         : defaultColor;
       const maxWidth = box.width ? box.width * width : undefined;
       const xPts = (box.x ?? 0) * width;
       const yPts = (box.y ?? 0) * height;
-      drawText(text, xPts, yPts, size, maxWidth, weight, boxColor);
+      drawText(text, xPts, yPts, size, maxWidth, boxFont, boxColor);
     }
   }
 
-  // Caso especial: ítems de cotización (tabla)
+  // Caso especial: ítems de cotización (tabla) — misma fuente que el resto (Averta/Helvetica)
   if (kind === 'cotizacion' && Array.isArray(content.items) && content.items.length > 0) {
     const items = content.items as Array<{ descripcion?: string; cantidad?: string; precio?: string; total?: string }>;
     let rowY = 620;
     const colX = { desc: 80, cant: 350, precio: 400, total: 480 };
     const fontSize = 9;
+    const fontTable = getFont(undefined, false, false);
+    const fontTableBold = getFont(undefined, true, false);
     for (let i = 0; i < Math.min(items.length, 15); i++) {
       const it = items[i];
       if (it.descripcion)
@@ -247,32 +277,32 @@ export async function generatePdfFromTemplate(
           x: colX.desc,
           y: height - rowY,
           size: fontSize,
-          font: avertaRegular,
-          color: rgb(0, 0, 0),
+          font: fontTable,
+          color: defaultColor,
         });
       if (it.cantidad)
         page.drawText(String(it.cantidad), {
           x: colX.cant,
           y: height - rowY,
           size: fontSize,
-          font: avertaRegular,
-          color: rgb(0, 0, 0),
+          font: fontTable,
+          color: defaultColor,
         });
       if (it.precio)
         page.drawText(String(it.precio), {
           x: colX.precio,
           y: height - rowY,
           size: fontSize,
-          font: avertaRegular,
-          color: rgb(0, 0, 0),
+          font: fontTable,
+          color: defaultColor,
         });
       if (it.total)
         page.drawText(String(it.total), {
           x: colX.total,
           y: height - rowY,
           size: fontSize,
-          font: avertaBold,
-          color: rgb(0, 0, 0),
+          font: fontTableBold,
+          color: defaultColor,
         });
       rowY += 22;
     }
