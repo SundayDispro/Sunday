@@ -32,7 +32,6 @@ export const PDF_FIELDS: Record<PdfDocType, FieldDef[]> = {
     { key: 'subtotal', label: 'Subtotal', ...pct(400, 200), width: 0.15, height: 0.04, inputType: 'text' },
     { key: 'iva', label: 'IVA', ...pct(400, 180), width: 0.15, height: 0.04, inputType: 'text' },
     { key: 'total', label: 'Total', ...pct(400, 160), width: 0.15, height: 0.04, inputType: 'text' },
-    { key: 'notas', label: 'Notas', ...pct(80, 130), width: 0.75, height: 0.12, inputType: 'textarea' },
   ],
   levantamiento: [
     { key: 'proyecto', label: 'Proyecto', ...pct(80, 700), width: 0.35, height: 0.04, inputType: 'text' },

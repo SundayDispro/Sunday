@@ -265,20 +265,21 @@ app.patch('/api/workspaces/:workspaceId/panel-notes', async (req, res) => {
 
 // Grupos de documentos por usuario (custom groups + assignments), mismo patrón que panel-notes
 app.get('/api/workspaces/:workspaceId/doc-groups', async (req, res) => {
+  const defaultPayload = {
+    groups: [] as { id: string; name: string }[],
+    assignments: {} as Record<string, string>,
+    subgroupsByType: {} as Record<string, { id: string; name: string }[]>,
+    subgroupAssignments: {} as Record<string, string>,
+  };
   try {
     const { workspaceId } = req.params;
     const userId = typeof req.query.userId === 'string' ? req.query.userId : null;
-    const w = await prisma.workspace.findUnique({ where: { id: workspaceId }, select: { docGroups: true } });
+    const w = await prisma.workspace.findUnique({ where: { id: workspaceId }, select: { id: true, docGroups: true } });
     if (!w) return res.status(404).json({ error: 'Workspace no encontrado' });
-    let payload: {
-      groups: { id: string; name: string }[];
-      assignments: Record<string, string>;
-      subgroupsByType: Record<string, { id: string; name: string }[]>;
-      subgroupAssignments: Record<string, string>;
-    } = { groups: [], assignments: {}, subgroupsByType: {}, subgroupAssignments: {} };
-    if (w.docGroups && String(w.docGroups).trim()) {
+    const docGroupsRaw = (w as { docGroups?: string | null }).docGroups;
+    if (docGroupsRaw && String(docGroupsRaw).trim()) {
       try {
-        const parsed = JSON.parse(w.docGroups) as Record<string, {
+        const parsed = JSON.parse(docGroupsRaw) as Record<string, {
           groups?: { id: string; name: string }[];
           assignments?: Record<string, string>;
           subgroupsByType?: Record<string, { id: string; name: string }[]>;
@@ -286,19 +287,20 @@ app.get('/api/workspaces/:workspaceId/doc-groups', async (req, res) => {
         }>;
         const userData = userId && parsed[userId] ? parsed[userId] : null;
         if (userData) {
-          payload.groups = Array.isArray(userData.groups) ? userData.groups : [];
-          payload.assignments = userData.assignments && typeof userData.assignments === 'object' ? userData.assignments : {};
-          payload.subgroupsByType = userData.subgroupsByType && typeof userData.subgroupsByType === 'object' ? userData.subgroupsByType : {};
-          payload.subgroupAssignments = userData.subgroupAssignments && typeof userData.subgroupAssignments === 'object' ? userData.subgroupAssignments : {};
+          defaultPayload.groups = Array.isArray(userData.groups) ? userData.groups : [];
+          defaultPayload.assignments = userData.assignments && typeof userData.assignments === 'object' ? userData.assignments : {};
+          defaultPayload.subgroupsByType = userData.subgroupsByType && typeof userData.subgroupsByType === 'object' ? userData.subgroupsByType : {};
+          defaultPayload.subgroupAssignments = userData.subgroupAssignments && typeof userData.subgroupAssignments === 'object' ? userData.subgroupAssignments : {};
         }
-      } catch {
-        // keep defaults
+      } catch (_) {
+        // keep defaults on parse error
       }
     }
-    res.json(payload);
+    return res.json(defaultPayload);
   } catch (e) {
     console.error('Error fetching doc-groups:', e);
-    res.status(500).json({ error: 'Failed to fetch doc-groups' });
+    // Defensivo: ante cualquier error (BD, modelo, etc.) devolver 200 con estructura vacía
+    return res.status(200).json(defaultPayload);
   }
 });
 
@@ -1204,6 +1206,19 @@ app.post('/api/docs', async (req, res) => {
 // eliminado para simplificar el flujo. Ahora la generación usa únicamente
 // la plantilla PDF base y las posiciones definidas en templatePdfGenerator.ts.
 
+// HEAD para comprobar existencia del doc (usado por DocsCellRenderer sin cuerpo)
+app.head('/api/docs/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const doc = await prisma.doc.findUnique({ where: { id }, select: { id: true } });
+    if (!doc) return res.status(404).end();
+    res.status(200).end();
+  } catch (e) {
+    console.error('Error checking doc:', e);
+    res.status(500).end();
+  }
+});
+
 app.get('/api/docs/:id', async (req, res) => {
   try {
     const { id } = req.params;
@@ -1284,7 +1299,7 @@ app.delete('/api/docs/:id', async (req, res) => {
               parsed = null;
             }
             if (parsed) {
-              if (parsed.docId === id) {
+              if (String(parsed.docId || '') === String(id)) {
                 delete parsed.docId;
                 changed = true;
               }
@@ -1309,7 +1324,7 @@ app.delete('/api/docs/:id', async (req, res) => {
                 'hojaTrabajoDocId',
               ];
               for (const k of keys) {
-                if (parsed[k] === id) {
+                if (String(parsed[k] ?? '') === String(id)) {
                   delete parsed[k];
                   changed = true;
                 }
@@ -1384,37 +1399,47 @@ app.post('/api/templates/:kind/generate', async (req, res) => {
   }
 });
 
-// Configuración global de plantilla (posiciones, fuente). GET: todos; PUT: solo ADMIN.
+// Configuración global de plantilla (posiciones, fuente). GET: todos; PUT: guardar por usuario.
+function getDefaultTemplateConfig() {
+  return {
+    fieldPositions: {} as Record<string, { x: number; y: number }>,
+    fontColor: '#000000',
+    fontFamily: 'Helvetica',
+    fontSize: 11,
+    fontBold: false,
+    fontItalic: false,
+    customBoxes: [] as Array<Record<string, unknown>>,
+  };
+}
+
 app.get('/api/templates/:kind/config', async (req, res) => {
+  const defaultConfig = getDefaultTemplateConfig();
   try {
     const kind = req.params.kind as string;
     if (!TEMPLATE_KINDS.includes(kind as (typeof TEMPLATE_KINDS)[number])) {
       return res.status(400).json({ error: 'Tipo de plantilla no válido' });
     }
     const row = await prisma.templateConfig.findUnique({ where: { docType: kind } });
-    if (!row) {
-      return res.json({ fieldPositions: {}, fontColor: '#000000', fontFamily: 'Helvetica', fontSize: 11, fontBold: false, fontItalic: false, customBoxes: [] });
+    if (!row) return res.json(defaultConfig);
+    try {
+      defaultConfig.fieldPositions = typeof row.fieldPositions === 'string' ? JSON.parse(row.fieldPositions) : (row.fieldPositions as Record<string, { x: number; y: number }>) ?? {};
+    } catch (_) {}
+    try {
+      const raw = row.customBoxes;
+      defaultConfig.customBoxes = typeof raw === 'string' ? (JSON.parse(raw) || []) : (Array.isArray(raw) ? raw : []);
+    } catch (_) {
+      defaultConfig.customBoxes = [];
     }
-    let fieldPositions: Record<string, { x: number; y: number }> = {};
-    let customBoxes: Array<{ id: string; x: number; y: number; width: number; height: number }> = [];
-    try {
-      fieldPositions = typeof row.fieldPositions === 'string' ? JSON.parse(row.fieldPositions) : row.fieldPositions;
-    } catch (_) {}
-    try {
-      customBoxes = typeof row.customBoxes === 'string' ? JSON.parse(row.customBoxes) : row.customBoxes || [];
-    } catch (_) {}
-    res.json({
-      fieldPositions,
-      fontColor: row.fontColor || '#000000',
-      fontFamily: row.fontFamily || 'Helvetica',
-      fontSize: row.fontSize ?? 11,
-      fontBold: row.fontBold ?? false,
-      fontItalic: row.fontItalic ?? false,
-      customBoxes: Array.isArray(customBoxes) ? customBoxes : [],
-    });
+    defaultConfig.fontColor = row.fontColor || '#000000';
+    defaultConfig.fontFamily = row.fontFamily || 'Helvetica';
+    defaultConfig.fontSize = row.fontSize ?? 11;
+    defaultConfig.fontBold = row.fontBold ?? false;
+    defaultConfig.fontItalic = row.fontItalic ?? false;
+    return res.json(defaultConfig);
   } catch (e) {
     console.error('Error fetching template config:', e);
-    res.status(500).json({ error: 'Error al obtener configuración de plantilla' });
+    // Defensivo: tabla inexistente, excepción, etc. → 200 con config por defecto
+    return res.status(200).json(defaultConfig);
   }
 });
 
@@ -1442,10 +1467,6 @@ app.put('/api/templates/:kind/config', async (req, res) => {
     if (!user) {
       return res.status(403).json({ error: 'Usuario no encontrado. Cierra sesión y vuelve a iniciar sesión para actualizar tu usuario.' });
     }
-    // Cualquier usuario autenticado puede guardar la config de plantilla (posiciones/cuadros).
-    // Si en el futuro quieres restringir a rol ADMIN: descomenta y usa user.role.
-    // const roleUpper = String(user.role ?? '').trim().toUpperCase();
-    // if (roleUpper !== 'ADMIN') return res.status(403).json({ error: 'Solo los administradores pueden modificar la configuración de plantillas' });
     const fieldPositions = body.fieldPositions != null ? body.fieldPositions : {};
     const fontColor = typeof body.fontColor === 'string' ? body.fontColor : '#000000';
     const fontFamily = typeof body.fontFamily === 'string' ? body.fontFamily : 'Helvetica';
@@ -1453,32 +1474,41 @@ app.put('/api/templates/:kind/config', async (req, res) => {
     const fontBold = body.fontBold === true || body.fontBold === 'true';
     const fontItalic = body.fontItalic === true || body.fontItalic === 'true';
     const customBoxes = Array.isArray(body.customBoxes) ? body.customBoxes : [];
+    const fieldPositionsStr = typeof fieldPositions === 'object' && fieldPositions !== null ? JSON.stringify(fieldPositions) : '{}';
+    const customBoxesStr = JSON.stringify(customBoxes);
     await prisma.templateConfig.upsert({
       where: { docType: kind },
       create: {
         docType: kind,
-        fieldPositions: JSON.stringify(fieldPositions),
+        fieldPositions: fieldPositionsStr,
         fontColor,
         fontFamily,
         fontSize,
         fontBold,
         fontItalic,
-        customBoxes: JSON.stringify(customBoxes),
+        customBoxes: customBoxesStr,
       },
       update: {
-        fieldPositions: JSON.stringify(fieldPositions),
+        fieldPositions: fieldPositionsStr,
         fontColor,
         fontFamily,
         fontSize,
         fontBold,
         fontItalic,
-        customBoxes: JSON.stringify(customBoxes),
+        customBoxes: customBoxesStr,
       },
     });
-    res.json({ ok: true });
+    return res.json({ ok: true });
   } catch (e) {
     console.error('Error saving template config:', e);
-    res.status(500).json({ error: 'Error al guardar configuración de plantilla' });
+    const err = e as { code?: string };
+    if (err?.code === 'P2021' || (typeof (e as Error).message === 'string' && (e as Error).message?.includes('does not exist'))) {
+      return res.status(503).json({
+        error: 'La tabla de configuración de plantillas no existe. Ejecuta: npx prisma migrate deploy o npx prisma db push',
+      });
+    }
+    const msg = e instanceof Error ? e.message : 'Error al guardar configuración de plantilla';
+    return res.status(500).json({ error: msg });
   }
 });
 

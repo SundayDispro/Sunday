@@ -57,13 +57,39 @@ export const DocsCellRenderer: React.FC<Props> = ({ item, column, value }) => {
   const hojaFileRef = useRef<HTMLInputElement>(null);
   const levantamientoFileRef = useRef<HTMLInputElement>(null);
   const [viewerUrl, setViewerUrl] = useState<string | null>(null);
+  const [docIdExists, setDocIdExists] = useState<Record<string, boolean>>({});
+
+  useEffect(() => {
+    const docIds = [
+      parsed.levantamientoDocId,
+      parsed.cotizacionDocId,
+      parsed.hojaTrabajoDocId,
+    ].filter((id): id is string => !!id?.trim());
+    if (docIds.length === 0) return;
+    let cancelled = false;
+    docIds.forEach((docId) => {
+      if (docIdExists[docId] !== undefined) return;
+      fetch(`${API_BASE}/api/docs/${docId}`, { method: 'HEAD' })
+        .then((res) => {
+          if (cancelled) return;
+          setDocIdExists((prev) => ({ ...prev, [docId]: res.ok }));
+        })
+        .catch(() => {
+          if (!cancelled) setDocIdExists((prev) => ({ ...prev, [docId]: false }));
+        });
+    });
+    return () => { cancelled = true; };
+  }, [parsed.levantamientoDocId, parsed.cotizacionDocId, parsed.hojaTrabajoDocId]);
 
   const hasLevantamiento =
-    !!parsed.levantamiento?.trim() || !!parsed.levantamientoDocId?.trim();
+    !!parsed.levantamiento?.trim() ||
+    (!!parsed.levantamientoDocId?.trim() && docIdExists[parsed.levantamientoDocId] === true);
   const hasCotizacion =
-    !!parsed.cotizacion?.trim() || !!parsed.cotizacionDocId?.trim();
+    !!parsed.cotizacion?.trim() ||
+    (!!parsed.cotizacionDocId?.trim() && docIdExists[parsed.cotizacionDocId] === true);
   const hasHoja =
-    !!parsed.hojaTrabajo?.trim() || !!parsed.hojaTrabajoDocId?.trim();
+    !!parsed.hojaTrabajo?.trim() ||
+    (!!parsed.hojaTrabajoDocId?.trim() && docIdExists[parsed.hojaTrabajoDocId] === true);
   const hasAny = hasLevantamiento || hasCotizacion || hasHoja;
 
   useEffect(() => {
@@ -244,7 +270,7 @@ export const DocsCellRenderer: React.FC<Props> = ({ item, column, value }) => {
             <div className="text-[11px] font-semibold text-monday-subtext mb-2 px-1 uppercase tracking-wider">
               {isTaller ? 'Hoja de trabajo' : 'Documentos'}
             </div>
-            {!isTaller && parsed.levantamientoDocId?.trim() && (
+            {!isTaller && parsed.levantamientoDocId?.trim() && docIdExists[parsed.levantamientoDocId] === true && (
               <div className="flex items-center gap-1 mb-1">
                 <button
                   type="button"
@@ -257,7 +283,7 @@ export const DocsCellRenderer: React.FC<Props> = ({ item, column, value }) => {
                 </button>
               </div>
             )}
-            {!isTaller && parsed.cotizacionDocId?.trim() && (
+            {!isTaller && parsed.cotizacionDocId?.trim() && docIdExists[parsed.cotizacionDocId] === true && (
               <div className="flex items-center gap-1 mb-1">
                 <button
                   type="button"
@@ -270,7 +296,7 @@ export const DocsCellRenderer: React.FC<Props> = ({ item, column, value }) => {
                 </button>
               </div>
             )}
-            {(parsed.hojaTrabajoDocId?.trim()) && (
+            {parsed.hojaTrabajoDocId?.trim() && docIdExists[parsed.hojaTrabajoDocId] === true && (
               <div className="flex items-center gap-1 mb-1">
                 <button
                   type="button"

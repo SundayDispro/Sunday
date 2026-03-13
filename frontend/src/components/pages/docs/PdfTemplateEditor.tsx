@@ -21,9 +21,21 @@ interface Props {
   onTemplateConfigChange?: (config: TemplateConfigState) => void;
   onSaveTemplateConfig?: () => Promise<void>;
   savingTemplateConfig?: boolean;
+  /** Solo visualización: sin barra de formato, sin menú admin y cuadros de solo lectura */
+  viewerOnly?: boolean;
 }
 
 const PAGE_ASPECT = 595 / 842; // A4
+
+const DEFAULT_TEMPLATE_CONFIG: TemplateConfigState = {
+  fieldPositions: {},
+  fontColor: '#000000',
+  fontFamily: 'Helvetica',
+  fontSize: 11,
+  fontBold: false,
+  fontItalic: false,
+  customBoxes: [],
+};
 
 export const PdfTemplateEditor: React.FC<Props> = ({
   docType,
@@ -35,13 +47,15 @@ export const PdfTemplateEditor: React.FC<Props> = ({
   onTemplateConfigChange,
   onSaveTemplateConfig,
   savingTemplateConfig = false,
+  viewerOnly = false,
 }) => {
   const { currentUser } = useUser();
   const [templatePdfUrl, setTemplatePdfUrl] = useState<string | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const [dragging, setDragging] = useState<{ fieldKey: string; startX: number; startY: number; startLeft: number; startTop: number } | null>(null);
   const [dragPreview, setDragPreview] = useState<{ x: number; y: number } | null>(null);
-  const [resizing, setResizing] = useState<{ boxId: string; startX: number; startY: number; startW: number; startH: number } | null>(null);
+  type ResizeAxis = 'e' | 's' | 'se';
+  const [resizing, setResizing] = useState<{ boxId: string; axis: ResizeAxis; startX: number; startY: number; startW: number; startH: number } | null>(null);
   const [resizePreview, setResizePreview] = useState<{ width: number; height: number } | null>(null);
   const [adminMenuOpen, setAdminMenuOpen] = useState(false);
   const [selectedBoxId, setSelectedBoxId] = useState<string | null>(null);
@@ -58,12 +72,13 @@ export const PdfTemplateEditor: React.FC<Props> = ({
     [value, onChange]
   );
 
-  const fontColor = templateConfig?.fontColor ?? '#000000';
-  const fontFamily = templateConfig?.fontFamily ?? 'Helvetica';
-  const fontSize = templateConfig?.fontSize ?? 11;
-  const fontBold = templateConfig?.fontBold ?? false;
-  const fontItalic = templateConfig?.fontItalic ?? false;
-  const customBoxes = templateConfig?.customBoxes ?? [];
+  const effectiveConfig = templateConfig ?? DEFAULT_TEMPLATE_CONFIG;
+  const fontColor = effectiveConfig.fontColor ?? '#000000';
+  const fontFamily = effectiveConfig.fontFamily ?? 'Helvetica';
+  const fontSize = effectiveConfig.fontSize ?? 11;
+  const fontBold = effectiveConfig.fontBold ?? false;
+  const fontItalic = effectiveConfig.fontItalic ?? false;
+  const customBoxes = effectiveConfig.customBoxes ?? [];
 
   // Cargar URL de plantilla PDF para usarla como fondo
   useEffect(() => {
@@ -95,7 +110,7 @@ export const PdfTemplateEditor: React.FC<Props> = ({
   }, []);
 
   const addCustomBox = useCallback((singleLine = false) => {
-    if (!templateConfig || !onTemplateConfigChange || !currentUser?.id) return;
+    if (!onTemplateConfigChange || !currentUser?.id) return;
     const newBox: CustomBoxDef = {
       id: `custom-${Date.now()}`,
       x: 0.1,
@@ -107,21 +122,21 @@ export const PdfTemplateEditor: React.FC<Props> = ({
       ...(singleLine ? { singleLine: true } : {}),
     };
     onTemplateConfigChange({
-      ...templateConfig,
+      ...effectiveConfig,
       customBoxes: [...customBoxes, newBox],
     });
     const cf = (value.customFieldValues as Record<string, string>) ?? {};
     update({ customFieldValues: { ...cf, [newBox.id]: '' } });
-  }, [templateConfig, onTemplateConfigChange, customBoxes, value.customFieldValues, update, currentUser?.id]);
+  }, [effectiveConfig, onTemplateConfigChange, customBoxes, value.customFieldValues, update, currentUser?.id]);
 
   const openAddImageDialog = useCallback(() => {
-    if (!templateConfig || !onTemplateConfigChange || !currentUser?.id) return;
+    if (!onTemplateConfigChange || !currentUser?.id) return;
     setImageDialogMode('add');
     setImageDialogBoxId(null);
     setImageDialogUrl('');
     setImageDialogError(null);
     setImageDialogOpen(true);
-  }, [templateConfig, onTemplateConfigChange, currentUser?.id]);
+  }, [onTemplateConfigChange, currentUser?.id]);
 
   const openEditImageDialog = useCallback((box: CustomBoxDef) => {
     setImageDialogMode('edit');
@@ -133,7 +148,7 @@ export const PdfTemplateEditor: React.FC<Props> = ({
 
   const applyImageDialog = useCallback(() => {
     const url = imageDialogUrl.trim();
-    if (!url || !templateConfig || !onTemplateConfigChange) return;
+    if (!url || !onTemplateConfigChange) return;
     if (imageDialogMode === 'add' && currentUser?.id) {
       const newBox: CustomBoxDef = {
         id: `img-${Date.now()}`,
@@ -146,17 +161,17 @@ export const PdfTemplateEditor: React.FC<Props> = ({
         ownerId: currentUser.id,
       };
       onTemplateConfigChange({
-        ...templateConfig,
+        ...effectiveConfig,
         customBoxes: [...customBoxes, newBox],
       });
     } else if (imageDialogMode === 'edit' && imageDialogBoxId) {
       const nextBoxes = customBoxes.map((b) =>
         b.id === imageDialogBoxId ? { ...b, imageUrl: url } : b
       );
-      onTemplateConfigChange({ ...templateConfig, customBoxes: nextBoxes });
+      onTemplateConfigChange({ ...effectiveConfig, customBoxes: nextBoxes });
     }
     setImageDialogOpen(false);
-  }, [imageDialogMode, imageDialogBoxId, imageDialogUrl, templateConfig, onTemplateConfigChange, customBoxes, currentUser?.id]);
+  }, [imageDialogMode, imageDialogBoxId, imageDialogUrl, effectiveConfig, onTemplateConfigChange, customBoxes, currentUser?.id]);
 
   const handleImageFileUpload = useCallback(
     async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -224,11 +239,11 @@ export const PdfTemplateEditor: React.FC<Props> = ({
     };
     const onUp = () => {
       if (!dragging) return;
-      if (dragPreview !== null && templateConfig && onTemplateConfigChange) {
+      if (dragPreview !== null && onTemplateConfigChange) {
         const nextBoxes = customBoxes.map((b) =>
           b.id === dragging.fieldKey ? { ...b, x: dragPreview.x, y: dragPreview.y } : b
         );
-        onTemplateConfigChange({ ...templateConfig, customBoxes: nextBoxes });
+        onTemplateConfigChange({ ...effectiveConfig, customBoxes: nextBoxes });
       }
       setDragging(null);
       setDragPreview(null);
@@ -239,12 +254,12 @@ export const PdfTemplateEditor: React.FC<Props> = ({
       window.removeEventListener('mousemove', onMove);
       window.removeEventListener('mouseup', onUp);
     };
-  }, [dragging, dragPreview, customBoxes, templateConfig, onTemplateConfigChange]);
+  }, [dragging, dragPreview, customBoxes, effectiveConfig, onTemplateConfigChange]);
 
-  const handleResizeStart = useCallback((e: React.MouseEvent, box: CustomBoxDef) => {
+  const handleResizeStart = useCallback((e: React.MouseEvent, box: CustomBoxDef, axis: ResizeAxis) => {
     e.preventDefault();
     e.stopPropagation();
-    setResizing({ boxId: box.id, startX: e.clientX, startY: e.clientY, startW: box.width, startH: box.height });
+    setResizing({ boxId: box.id, axis, startX: e.clientX, startY: e.clientY, startW: box.width, startH: box.height });
   }, []);
 
   useEffect(() => {
@@ -255,19 +270,22 @@ export const PdfTemplateEditor: React.FC<Props> = ({
       const rect = el.getBoundingClientRect();
       const dx = (e.clientX - resizing.startX) / rect.width;
       const dy = (e.clientY - resizing.startY) / rect.height;
-      let w = resizing.startW + dx;
-      let h = resizing.startH + dy;
+      const { axis } = resizing;
+      let w = resizing.startW;
+      let h = resizing.startH;
+      if (axis === 'e' || axis === 'se') w = resizing.startW + dx;
+      if (axis === 's' || axis === 'se') h = resizing.startH + dy;
       w = Math.max(0.08, Math.min(0.95, w));
       h = Math.max(0.04, Math.min(0.9, h));
       setResizePreview({ width: w, height: h });
     };
     const onUp = () => {
       if (!resizing) return;
-      if (resizePreview !== null && templateConfig && onTemplateConfigChange) {
+      if (resizePreview !== null && onTemplateConfigChange) {
         const nextBoxes = customBoxes.map((b) =>
           b.id === resizing.boxId ? { ...b, width: resizePreview.width, height: resizePreview.height } : b
         );
-        onTemplateConfigChange({ ...templateConfig, customBoxes: nextBoxes });
+        onTemplateConfigChange({ ...effectiveConfig, customBoxes: nextBoxes });
       }
       setResizing(null);
       setResizePreview(null);
@@ -278,12 +296,16 @@ export const PdfTemplateEditor: React.FC<Props> = ({
       window.removeEventListener('mousemove', onMove);
       window.removeEventListener('mouseup', onUp);
     };
-  }, [resizing, resizePreview, customBoxes, templateConfig, onTemplateConfigChange]);
+  }, [resizing, resizePreview, customBoxes, effectiveConfig, onTemplateConfigChange]);
 
   const normalizedColor = fontColor.toLowerCase() === '#ffffff' ? '#ffffff' : '#000000';
   const getTextStyleForBox = (box: CustomBoxDef) => {
-    const size = box.fontSize ?? 11;
-    const col = box.fontColor != null ? (box.fontColor.toLowerCase() === '#ffffff' ? '#ffffff' : '#000000') : normalizedColor;
+    // Estilos globales definidos por admin en TemplateConfig;
+    // los valores específicos por cuadro (fontSize, fontFamily, etc.)
+    // prevalecen sobre los globales.
+    const size = box.fontSize ?? fontSize;
+    const colBase = box.fontColor ?? fontColor;
+    const col = colBase.toLowerCase() === '#ffffff' ? '#ffffff' : '#000000';
     const ff = box.fontFamily ?? fontFamily;
     const bold = box.fontBold ?? fontBold;
     const italic = box.fontItalic ?? fontItalic;
@@ -372,7 +394,7 @@ export const PdfTemplateEditor: React.FC<Props> = ({
           </Dialog.Content>
         </Dialog.Portal>
       </Dialog.Root>
-      {isAdmin && templateConfig && (
+      {isAdmin && !viewerOnly && (
         <div className="absolute top-2 right-2 z-30 flex flex-col gap-2">
           <button
             type="button"
@@ -415,15 +437,15 @@ export const PdfTemplateEditor: React.FC<Props> = ({
           )}
         </div>
       )}
-      {templateConfig && onTemplateConfigChange && (
+      {onTemplateConfigChange && !viewerOnly && (
         <TextFormatBarForTemplate
           templateConfig={{
-            fontFamily: templateConfig.fontFamily,
-            fontSize: templateConfig.fontSize,
-            fontBold: templateConfig.fontBold,
-            fontItalic: templateConfig.fontItalic,
-            fontColor: templateConfig.fontColor,
-            customBoxes: templateConfig.customBoxes,
+            fontFamily: effectiveConfig.fontFamily,
+            fontSize: effectiveConfig.fontSize,
+            fontBold: effectiveConfig.fontBold,
+            fontItalic: effectiveConfig.fontItalic,
+            fontColor: effectiveConfig.fontColor,
+            customBoxes: effectiveConfig.customBoxes ?? [],
           }}
           onTemplateConfigChange={onTemplateConfigChange}
           selectedBoxId={selectedBoxId}
@@ -459,13 +481,14 @@ export const PdfTemplateEditor: React.FC<Props> = ({
               </div>
             )}
           </div>
-          {/* Capa 2: cuadros dinámicos sobre la plantilla */}
-          <div className="absolute inset-0 z-20 pointer-events-none">
-            <div className="absolute inset-0 pointer-events-auto">
-              {/* Cuadros de texto / imagen agregados en la plantilla */}
+          {/* Capa 2: solo cuadros que ADMIN agrega/modifica (customBoxes) */}
+          <div className={`absolute inset-0 z-20 ${viewerOnly ? 'pointer-events-none' : ''}`}>
+            <div className={`absolute inset-0 ${viewerOnly ? '' : 'pointer-events-auto'}`}>
               {customBoxes.map((box) => {
-                const canMoveOrDelete = isAdmin || (currentUser?.id && box.ownerId === currentUser.id);
-                const canFormatBox = true;
+                const canMoveOrDelete = !viewerOnly && (isAdmin || (currentUser?.id && box.ownerId === currentUser.id));
+                // Para usuarios no admin y que no son dueños del cuadro: solo mostrar texto “plano” sin marco
+                const showFrame = !!canMoveOrDelete;
+                const canFormatBox = !viewerOnly;
                 const isDraggingThis = dragging?.fieldKey === box.id && dragPreview;
                 const isResizingThis = resizing?.boxId === box.id && resizePreview;
                 const x = isDraggingThis ? dragPreview.x : box.x;
@@ -479,10 +502,7 @@ export const PdfTemplateEditor: React.FC<Props> = ({
                 return (
                   <div
                     key={box.id}
-                    role="button"
-                    tabIndex={0}
-                    onClick={() => canFormatBox && setSelectedBoxId(box.id)}
-                    className={`absolute flex flex-col group box-border rounded border transition-all overflow-visible ${isSelected ? 'border-monday-blue ring-2 ring-monday-blue/30 bg-white/10' : 'border-monday-border/20 bg-white/5'}`}
+                    className="absolute flex items-stretch overflow-visible"
                     style={{
                       left: `${x * 100}%`,
                       top: `${y * 100}%`,
@@ -492,58 +512,39 @@ export const PdfTemplateEditor: React.FC<Props> = ({
                       minWidth: '60px',
                     }}
                   >
-                    {canMoveOrDelete && (
                     <div
-                      className="absolute left-0 right-0 flex items-center justify-end gap-0.5 h-6 px-1 rounded-t border border-monday-border/20 border-b-0 bg-white/95 shadow-sm z-10 -top-6"
-                      onClick={(e) => e.stopPropagation()}
+                      role={viewerOnly ? undefined : 'button'}
+                      tabIndex={viewerOnly ? undefined : 0}
+                      onClick={viewerOnly ? undefined : () => canFormatBox && setSelectedBoxId(box.id)}
+                      className={`flex-1 min-w-0 flex flex-col transition-all overflow-hidden ${
+                        showFrame
+                          ? isSelected
+                            ? 'rounded border border-monday-blue ring-2 ring-monday-blue/30 bg-white shadow-md'
+                            : 'rounded border border-monday-border bg-white/95 hover:bg-white'
+                          : ''
+                      }`}
                     >
-                      <div
-                        className="cursor-grab active:cursor-grabbing text-monday-subtext hover:text-monday-blue p-0.5 rounded"
-                        onMouseDown={(e) => canMoveOrDelete && handleCustomBoxMouseDown(e, box)}
-                        title="Arrastrar"
-                      >
-                        <GripVertical size={12} />
-                      </div>
-                      {box.kind === 'image' && (
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            openEditImageDialog(box);
-                          }}
-                          className="p-0.5 rounded text-monday-subtext hover:text-monday-blue hover:bg-monday-hover"
-                          title="Editar imagen"
-                        >
-                          <Pencil size={12} />
-                        </button>
-                      )}
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          if (!templateConfig || !onTemplateConfigChange || !canMoveOrDelete) return;
-                          onTemplateConfigChange({
-                            ...templateConfig,
-                            customBoxes: customBoxes.filter((b) => b.id !== box.id),
-                          });
-                        }}
-                        className="p-0.5 rounded text-monday-subtext hover:text-red-600 hover:bg-red-50"
-                        title="Eliminar cuadro"
-                      >
-                        <Trash2 size={12} />
-                      </button>
-                    </div>
-                    )}
-                    <div className="flex-1 min-h-0 flex overflow-hidden rounded-sm focus-within:bg-white/60 focus-within:ring-1 focus-within:ring-monday-blue/40">
+                    <div
+                      className={`flex-1 min-h-0 flex overflow-hidden rounded-sm ${
+                        showFrame ? 'bg-white/95 focus-within:bg-white focus-within:ring-1 focus-within:ring-monday-blue/40' : 'bg-transparent'
+                      }`}
+                    >
                       {box.kind === 'image' ? (
                         <img
                           src={box.imageUrl || ''}
                           alt=""
                           className="w-full h-full object-contain select-none"
-                          onClick={(e) => {
+                          onClick={viewerOnly ? undefined : (e) => {
                             e.stopPropagation();
                             if (canFormatBox) setSelectedBoxId(box.id);
                           }}
+                        />
+                      ) : viewerOnly ? (
+                        <textarea
+                          readOnly
+                          value={boxVal}
+                          style={boxTextStyle}
+                          className="w-full h-full min-h-0 resize-none border-0 outline-none bg-transparent py-1 px-1.5 overflow-hidden block whitespace-pre-wrap break-words"
                         />
                       ) : box.singleLine ? (
                         <input
@@ -555,8 +556,13 @@ export const PdfTemplateEditor: React.FC<Props> = ({
                             })
                           }
                           placeholder="Texto (una línea)"
-                          style={boxTextStyle}
-                          className="w-full h-full min-h-0 bg-transparent border-0 outline-none focus:ring-0 py-1 px-1.5 placeholder:text-gray-400 block"
+                          style={{
+                            ...boxTextStyle,
+                            backgroundColor: showFrame ? 'rgba(255,255,255,0.95)' : 'transparent',
+                          }}
+                          className={`w-full h-full min-h-0 border-0 outline-none focus:ring-0 py-1 px-1.5 placeholder:text-gray-500 block ${
+                            showFrame ? 'rounded' : ''
+                          }`}
                           onClick={(e) => {
                             e.stopPropagation();
                             if (canFormatBox) setSelectedBoxId(box.id);
@@ -575,8 +581,13 @@ export const PdfTemplateEditor: React.FC<Props> = ({
                             })
                           }
                           placeholder="Texto (varios renglones)"
-                          style={boxTextStyle}
-                          className="w-full h-full min-h-0 resize-none bg-transparent border-0 outline-none focus:ring-0 py-1 px-1.5 placeholder:text-gray-400 overflow-auto block"
+                          style={{
+                            ...boxTextStyle,
+                            backgroundColor: showFrame ? 'rgba(255,255,255,0.95)' : 'transparent',
+                          }}
+                          className={`w-full h-full min-h-0 resize-none border-0 outline-none focus:ring-0 py-1 px-1.5 placeholder:text-gray-500 overflow-auto block ${
+                            showFrame ? 'rounded' : ''
+                          }`}
                           onClick={(e) => {
                             e.stopPropagation();
                             if (canFormatBox) setSelectedBoxId(box.id);
@@ -589,13 +600,68 @@ export const PdfTemplateEditor: React.FC<Props> = ({
                       )}
                     </div>
                     {canMoveOrDelete && (
-                    <div
-                      className="absolute bottom-0 right-0 w-4 h-4 cursor-se-resize flex items-center justify-center text-monday-subtext hover:text-monday-blue border-t border-l border-monday-border/40 rounded-tl bg-white/80"
-                      onMouseDown={(e) => canMoveOrDelete && handleResizeStart(e, box)}
-                      title="Redimensionar (arrastrar)"
-                    >
-                      <Maximize2 size={10} />
+                      <>
+                        <div
+                          className="absolute top-0 right-0 w-2 bottom-4 z-10 cursor-ew-resize hover:bg-monday-blue/20 transition-colors"
+                          onMouseDown={(e) => handleResizeStart(e, box, 'e')}
+                          title="Redimensionar ancho"
+                        />
+                        <div
+                          className="absolute bottom-0 left-0 right-4 h-2 z-10 cursor-ns-resize hover:bg-monday-blue/20 transition-colors"
+                          onMouseDown={(e) => handleResizeStart(e, box, 's')}
+                          title="Redimensionar alto"
+                        />
+                        <div
+                          className="absolute bottom-0 right-0 w-4 h-4 cursor-se-resize flex items-center justify-center text-monday-subtext hover:text-monday-blue border-t border-l border-monday-border/40 rounded-tl bg-white/90 z-20"
+                          onMouseDown={(e) => handleResizeStart(e, box, 'se')}
+                          title="Redimensionar ancho y alto"
+                        >
+                          <Maximize2 size={10} />
+                        </div>
+                      </>
+                    )}
                     </div>
+                    {canMoveOrDelete && (
+                      <div
+                        className="shrink-0 flex flex-col gap-1 pl-1.5 pr-1 py-1 justify-start items-center bg-white rounded-r border border-l-0 border-monday-border/50 min-w-[40px]"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <div
+                          className="cursor-grab active:cursor-grabbing text-monday-subtext hover:text-monday-blue p-1.5 rounded hover:bg-monday-hover shrink-0"
+                          onMouseDown={(e) => canMoveOrDelete && handleCustomBoxMouseDown(e, box)}
+                          title="Mover"
+                        >
+                          <GripVertical size={14} />
+                        </div>
+                        {box.kind === 'image' && (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              openEditImageDialog(box);
+                            }}
+                            className="p-1.5 rounded text-monday-subtext hover:text-monday-blue hover:bg-monday-hover shrink-0"
+                            title="Editar imagen"
+                          >
+                            <Pencil size={12} />
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            if (!onTemplateConfigChange || !canMoveOrDelete) return;
+                            onTemplateConfigChange({
+                              ...effectiveConfig,
+                              customBoxes: customBoxes.filter((b) => b.id !== box.id),
+                            });
+                          }}
+                          className="p-1.5 rounded text-monday-subtext hover:text-red-600 hover:bg-red-50 shrink-0"
+                          title="Eliminar"
+                        >
+                          <Trash2 size={12} />
+                        </button>
+                      </div>
                     )}
                   </div>
                 );
