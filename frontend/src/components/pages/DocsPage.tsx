@@ -37,8 +37,10 @@ import type { TemplateConfigState } from './docs/pdfTemplateConfig';
 import { PdfTemplateEditor } from './docs/PdfTemplateEditor';
 import { TextFormatBarForEditor } from '../docs/TextFormatBar';
 import { useUser } from '../../store/UserContext';
+import { useToast } from '../Toast';
+import { socket } from '../../store/socket';
 
-const API_BASE = 'http://localhost:3001';
+const API_BASE = import.meta.env.DEV ? '' : 'http://localhost:3001';
 
 interface Props {
   workspaceId: string | null;
@@ -47,8 +49,11 @@ interface Props {
     type: DocType;
     boardId: string;
     itemId: string;
+    columnId: string;
   } | null;
   onConsumeInitialCreateFromBoard?: () => void;
+  initialOpenDocId?: string | null;
+  onConsumeInitialOpenDocId?: () => void;
   onAddTaskList?: () => void;
   onAddCalculatorWidget?: () => void;
 }
@@ -649,20 +654,6 @@ function DocSidebarRow({
           {getDocTypeLabel(doc.type as DocType)} · {new Date(doc.updatedAt).toLocaleString()}
         </p>
       </div>
-      <select
-        value={assignment ?? ''}
-        onChange={(e) => onAssign(e.target.value || null)}
-        onClick={(e) => e.stopPropagation()}
-        className="text-[11px] border border-monday-border rounded-monday px-1.5 py-0.5 bg-white text-monday-subtext min-w-0 max-w-[100px]"
-        title="Grupo personalizado"
-      >
-        <option value="">—</option>
-        {customGroups.map((g) => (
-          <option key={g.id} value={g.id}>
-            {g.name}
-          </option>
-        ))}
-      </select>
       <button
         type="button"
         onClick={(e) => {
@@ -770,8 +761,10 @@ function DocGroupSection({
   subgroupAssignments = {},
   onAddSubgroup,
   onRenameSubgroup,
+  onRequestRenameSubgroup,
   onRemoveSubgroup,
   onAssignSubgroup,
+  showSubgroupUI = true,
 }: {
   id: string;
   title: string;
@@ -793,10 +786,26 @@ function DocGroupSection({
   subgroupAssignments?: Record<string, string>;
   onAddSubgroup?: (docType: string) => void;
   onRenameSubgroup?: (docType: string, subgroupId: string, newName: string) => void;
+  onRequestRenameSubgroup?: (docType: string, subgroupId: string, currentName: string) => void;
   onRemoveSubgroup?: (docType: string, subgroupId: string) => void;
   onAssignSubgroup?: (docId: string, subgroupId: string | null) => void;
+  showSubgroupUI?: boolean;
 }) {
-  const showSubgroups = !!docType && !!onAddSubgroup;
+  const showSubgroups = showSubgroupUI && !!docType && !!onAddSubgroup;
+  const [collapsedSubgroups, setCollapsedSubgroups] = useState<Set<string>>(new Set());
+  const toggleSubgroupCollapse = (subgroupId: string) => {
+    setCollapsedSubgroups((prev) => {
+      const next = new Set(prev);
+      if (next.has(subgroupId)) next.delete(subgroupId);
+      else next.add(subgroupId);
+      return next;
+    });
+  };
+  const hasSubgroupBlocks = showSubgroups && subgroups.length > 0;
+  const docsWithSubgroup = (subgroupId: string | null) =>
+    subgroupId === null
+      ? docs.filter((d) => !subgroupAssignments[d.id] || !subgroups.some((s) => s.id === subgroupAssignments[d.id]))
+      : docs.filter((d) => subgroupAssignments[d.id] === subgroupId);
   return (
     <section className="mb-6 rounded-lg border border-monday-border bg-white shadow-[0_2px_6px_0_rgba(0,0,0,0.08)] overflow-hidden min-h-0">
       {/* Cabecera tipo BoardGroup: chevron, color, nombre, contador, añadir subgrupo, eliminar */}
@@ -857,10 +866,7 @@ function DocGroupSection({
                         <div className="flex items-center gap-0.5 shrink-0">
                           <button
                             type="button"
-                            onClick={() => {
-                              const n = window.prompt('Nuevo nombre', s.name);
-                              if (n != null && n.trim()) onRenameSubgroup?.(docType, s.id, n.trim());
-                            }}
+                            onClick={() => onRequestRenameSubgroup?.(docType, s.id, s.name)}
                             className="p-1 rounded text-monday-subtext hover:text-monday-blue hover:bg-monday-hover"
                             title="Renombrar"
                           >
@@ -896,106 +902,199 @@ function DocGroupSection({
       </div>
 
       {!collapsed && (
-        <div className="relative z-0 w-full overflow-x-auto">
-          <table className="w-full text-left border-collapse font-averta">
-            <thead>
-              <tr className="h-[34px] bg-monday-hover/60">
-                <th className="font-normal text-[12px] text-monday-subtext border-b border-r border-monday-border px-3 py-2 w-[1%]" style={{ borderLeftColor: color, borderLeftWidth: 3 }}>
-                  Nombre
-                </th>
-                <th className="font-normal text-[12px] text-monday-subtext border-b border-r border-monday-border px-3 py-2 w-[120px]">
-                  Tipo
-                </th>
-                {showSubgroups && (
-                  <th className="font-normal text-[12px] text-monday-subtext border-b border-r border-monday-border px-3 py-2 w-[130px]">
-                    Subgrupo
-                  </th>
-                )}
-                <th className="font-normal text-[12px] text-monday-subtext border-b border-r border-monday-border px-3 py-2 w-[140px]">
-                  Grupo personalizado
-                </th>
-                <th className="font-normal text-[12px] text-monday-subtext border-b border-r border-monday-border px-3 py-2 w-[140px]">
-                  Última modificación
-                </th>
-                <th className="font-normal text-[12px] text-monday-subtext border-b border-monday-border px-2 py-2 w-[44px]">
-                  {' '}
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {docs.length === 0 ? (
-                <tr>
-                  <td colSpan={showSubgroups ? 6 : 5} className="px-3 py-3 text-[13px] text-monday-subtext border-b border-monday-border">
-                    Ningún documento
-                  </td>
-                </tr>
-              ) : (
-                docs.map((doc) => (
-                  <tr
-                    key={doc.id}
-                    className={`border-t border-monday-border/60 hover:bg-monday-hover transition-colors cursor-pointer ${selectedId === doc.id ? 'bg-monday-hover' : ''}`}
-                    onClick={() => onSelectDoc(doc.id)}
+        <>
+          {hasSubgroupBlocks ? (
+            /* Bloques por subgrupo (igual que tabla principal: cada subgrupo es una sección con su tabla) */
+            <div className="relative z-0 w-full">
+              {subgroups!.map((sub) => {
+                const subDocs = docsWithSubgroup(sub.id);
+                const isSubCollapsed = collapsedSubgroups.has(sub.id);
+                return (
+                  <div
+                    key={sub.id}
+                    className="ml-6 mt-2 pl-4 border-l-2 border-monday-border/60 bg-monday-hover/20 rounded-r-md py-1"
+                    style={{ borderLeftColor: color }}
                   >
-                    <td className="px-3 py-2 border-r border-monday-border/60 align-middle" style={{ borderLeftColor: color, borderLeftWidth: 3 }}>
-                      <div className="flex items-center gap-2">
-                        {doc.type === 'sheet' ? (
-                          <Table2 size={16} className="text-monday-blue shrink-0" />
-                        ) : isPdfDocType(doc.type as DocType) ? (
-                          <FileCheck size={16} className="text-monday-blue shrink-0" />
-                        ) : (
-                          <FileText size={16} className="text-monday-blue shrink-0" />
-                        )}
-                        <span className="truncate text-[13px] text-monday-text">{doc.title}</span>
-                      </div>
-                    </td>
-                    <td className="px-3 py-2 text-[13px] text-monday-subtext border-r border-monday-border/60 align-middle">
-                      {getDocTypeLabel(doc.type as DocType)}
-                    </td>
-                    {showSubgroups && docType && (
-                      <td className="px-3 py-2 border-r border-monday-border/60 align-middle" onClick={(e) => e.stopPropagation()}>
-                        <select
-                          value={subgroupAssignments[doc.id] ?? ''}
-                          onChange={(e) => onAssignSubgroup?.(doc.id, e.target.value || null)}
-                          className="text-[12px] border border-monday-border rounded-monday px-2 py-1 bg-white text-monday-subtext w-full max-w-[120px]"
-                        >
-                          <option value="">—</option>
-                          {subgroups.map((s) => (
-                            <option key={s.id} value={s.id}>{s.name}</option>
-                          ))}
-                        </select>
-                      </td>
-                    )}
-                    <td className="px-3 py-2 border-r border-monday-border/60 align-middle" onClick={(e) => e.stopPropagation()}>
-                      <select
-                        value={assignments[doc.id] ?? ''}
-                        onChange={(e) => onAssign(doc.id, e.target.value || null)}
-                        className="text-[12px] border border-monday-border rounded-monday px-2 py-1 bg-white text-monday-subtext w-full max-w-[120px]"
-                      >
-                        <option value="">—</option>
-                        {customGroups.map((g) => (
-                          <option key={g.id} value={g.id}>{g.name}</option>
-                        ))}
-                      </select>
-                    </td>
-                    <td className="px-3 py-2 text-[13px] text-monday-subtext border-r border-monday-border/60 align-middle">
-                      {new Date(doc.updatedAt).toLocaleString()}
-                    </td>
-                    <td className="px-2 py-2 border-b border-monday-border/60 align-middle" onClick={(e) => e.stopPropagation()}>
+                    <div className="flex items-center gap-1.5 py-1.5 px-2 mb-1 rounded-md">
                       <button
                         type="button"
-                        onClick={() => onDeleteDoc(doc.id)}
-                        className="p-1.5 rounded text-monday-subtext hover:text-monday-red hover:bg-red-50"
-                        title="Eliminar"
+                        onClick={() => toggleSubgroupCollapse(sub.id)}
+                        className="text-monday-subtext hover:text-monday-text transition-colors flex-shrink-0"
+                        title={isSubCollapsed ? 'Expandir' : 'Colapsar'}
+                      >
+                        <ChevronDown
+                          size={20}
+                          style={{ color }}
+                          className={`transition-transform duration-200 ${isSubCollapsed ? '-rotate-90' : 'rotate-0'}`}
+                        />
+                      </button>
+                      <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: color }} aria-hidden />
+                      <span className="text-[15px] font-normal text-monday-text truncate">{sub.name}</span>
+                      <span className="text-[12px] text-monday-subtext whitespace-nowrap">
+                        {subDocs.length} {subDocs.length === 1 ? 'elemento' : 'elementos'}
+                      </span>
+                      <span className="text-[11px] text-monday-subtext">· subgrupo</span>
+                      <button
+                        type="button"
+                        onClick={() => onRemoveSubgroup?.(docType!, sub.id)}
+                        className="ml-auto p-1 rounded text-monday-subtext hover:text-monday-red hover:bg-red-50"
+                        title="Eliminar subgrupo"
                       >
                         <Trash2 size={14} />
                       </button>
-                    </td>
+                    </div>
+                    {!isSubCollapsed && (
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-left border-collapse font-averta text-[13px]">
+                          <thead>
+                            <tr className="h-[32px] bg-monday-hover/40">
+                              <th className="font-normal text-[12px] text-monday-subtext border-b border-r border-monday-border px-2 py-1.5 w-[1%]" style={{ borderLeftColor: color, borderLeftWidth: 2 }}>Nombre</th>
+                              <th className="font-normal text-[12px] text-monday-subtext border-b border-r border-monday-border px-2 py-1.5 w-[100px]">Tipo</th>
+                              <th className="font-normal text-[12px] text-monday-subtext border-b border-r border-monday-border px-2 py-1.5 w-[120px]">Última modificación</th>
+                              <th className="font-normal text-[12px] text-monday-subtext border-b border-r border-monday-border px-2 py-1.5 w-[100px]">Mover a</th>
+                              <th className="font-normal text-[12px] text-monday-subtext border-b border-monday-border px-1.5 py-1.5 w-[36px]">{' '}</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {subDocs.length === 0 ? (
+                              <tr>
+                                <td colSpan={5} className="px-2 py-2 text-[12px] text-monday-subtext border-b border-monday-border">Ningún documento</td>
+                              </tr>
+                            ) : (
+                              subDocs.map((doc) => (
+                                <tr
+                                  key={doc.id}
+                                  className={`border-t border-monday-border/60 hover:bg-monday-hover/50 cursor-pointer ${selectedId === doc.id ? 'bg-monday-hover' : ''}`}
+                                  onClick={() => onSelectDoc(doc.id)}
+                                >
+                                  <td className="px-2 py-1.5 border-r border-monday-border/60 align-middle" style={{ borderLeftColor: color, borderLeftWidth: 2 }}>
+                                    <div className="flex items-center gap-1.5">
+                                      {doc.type === 'sheet' ? <Table2 size={14} className="text-monday-blue shrink-0" /> : isPdfDocType(doc.type as DocType) ? <FileCheck size={14} className="text-monday-blue shrink-0" /> : <FileText size={14} className="text-monday-blue shrink-0" />}
+                                      <span className="truncate text-monday-text">{doc.title}</span>
+                                    </div>
+                                  </td>
+                                  <td className="px-2 py-1.5 text-monday-subtext border-r border-monday-border/60 align-middle">{getDocTypeLabel(doc.type as DocType)}</td>
+                                  <td className="px-2 py-1.5 text-monday-subtext border-r border-monday-border/60 align-middle">{new Date(doc.updatedAt).toLocaleString()}</td>
+                                  <td className="px-2 py-1.5 border-r border-monday-border/60 align-middle" onClick={(e) => e.stopPropagation()}>
+                                    <select value={subgroupAssignments[doc.id] ?? ''} onChange={(e) => onAssignSubgroup?.(doc.id, e.target.value || null)} className="text-[11px] border border-monday-border rounded px-1.5 py-0.5 bg-white text-monday-subtext w-full max-w-[90px]">
+                                      <option value="">—</option>
+                                      {subgroups!.filter((s) => s.id !== sub.id).map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+                                    </select>
+                                  </td>
+                                  <td className="px-1.5 py-1.5 align-middle" onClick={(e) => e.stopPropagation()}>
+                                    <button type="button" onClick={() => onDeleteDoc(doc.id)} className="p-1 rounded text-monday-subtext hover:text-monday-red hover:bg-red-50" title="Eliminar"><Trash2 size={12} /></button>
+                                  </td>
+                                </tr>
+                              ))
+                            )}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+              {/* Bloque "Sin subgrupo" */}
+              <div className="ml-6 mt-2 pl-4 border-l-2 border-monday-border/60 bg-monday-hover/20 rounded-r-md py-1" style={{ borderLeftColor: color }}>
+                <div className="flex items-center gap-1.5 py-1.5 px-2 mb-1 rounded-md">
+                  <span className="w-2.5 h-2.5 rounded-full flex-shrink-0 bg-monday-subtext/50" aria-hidden />
+                  <span className="text-[15px] font-normal text-monday-text">Sin subgrupo</span>
+                  <span className="text-[12px] text-monday-subtext">
+                    {docsWithSubgroup(null).length} {docsWithSubgroup(null).length === 1 ? 'elemento' : 'elementos'}
+                  </span>
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left border-collapse font-averta text-[13px]">
+                    <thead>
+                      <tr className="h-[32px] bg-monday-hover/40">
+                        <th className="font-normal text-[12px] text-monday-subtext border-b border-r border-monday-border px-2 py-1.5 w-[1%]" style={{ borderLeftColor: color, borderLeftWidth: 2 }}>Nombre</th>
+                        <th className="font-normal text-[12px] text-monday-subtext border-b border-r border-monday-border px-2 py-1.5 w-[100px]">Tipo</th>
+                        <th className="font-normal text-[12px] text-monday-subtext border-b border-r border-monday-border px-2 py-1.5 w-[120px]">Última modificación</th>
+                        <th className="font-normal text-[12px] text-monday-subtext border-b border-r border-monday-border px-2 py-1.5 w-[100px]">Mover a</th>
+                        <th className="font-normal text-[12px] text-monday-subtext border-b border-monday-border px-1.5 py-1.5 w-[36px]">{' '}</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {docsWithSubgroup(null).length === 0 ? (
+                        <tr><td colSpan={5} className="px-2 py-2 text-[12px] text-monday-subtext border-b border-monday-border">Ningún documento</td></tr>
+                      ) : (
+                        docsWithSubgroup(null).map((doc) => (
+                          <tr key={doc.id} className={`border-t border-monday-border/60 hover:bg-monday-hover/50 cursor-pointer ${selectedId === doc.id ? 'bg-monday-hover' : ''}`} onClick={() => onSelectDoc(doc.id)}>
+                            <td className="px-2 py-1.5 border-r border-monday-border/60 align-middle" style={{ borderLeftColor: color, borderLeftWidth: 2 }}>
+                              <div className="flex items-center gap-1.5">
+                                {doc.type === 'sheet' ? <Table2 size={14} className="text-monday-blue shrink-0" /> : isPdfDocType(doc.type as DocType) ? <FileCheck size={14} className="text-monday-blue shrink-0" /> : <FileText size={14} className="text-monday-blue shrink-0" />}
+                                <span className="truncate text-monday-text">{doc.title}</span>
+                              </div>
+                            </td>
+                            <td className="px-2 py-1.5 text-monday-subtext border-r border-monday-border/60 align-middle">{getDocTypeLabel(doc.type as DocType)}</td>
+                            <td className="px-2 py-1.5 text-monday-subtext border-r border-monday-border/60 align-middle">{new Date(doc.updatedAt).toLocaleString()}</td>
+                            <td className="px-2 py-1.5 border-r border-monday-border/60 align-middle" onClick={(e) => e.stopPropagation()}>
+                              <select value={subgroupAssignments[doc.id] ?? ''} onChange={(e) => onAssignSubgroup?.(doc.id, e.target.value || null)} className="text-[11px] border border-monday-border rounded px-1.5 py-0.5 bg-white text-monday-subtext w-full max-w-[90px]">
+                                <option value="">—</option>
+                                {subgroups!.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+                              </select>
+                            </td>
+                            <td className="px-1.5 py-1.5 align-middle" onClick={(e) => e.stopPropagation()}>
+                              <button type="button" onClick={() => onDeleteDoc(doc.id)} className="p-1 rounded text-monday-subtext hover:text-monday-red hover:bg-red-50" title="Eliminar"><Trash2 size={12} /></button>
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          ) : (
+            /* Una sola tabla (sin subgrupos o sin UI de subgrupos) */
+            <div className="relative z-0 w-full overflow-x-auto">
+              <table className="w-full text-left border-collapse font-averta">
+                <thead>
+                  <tr className="h-[34px] bg-monday-hover/60">
+                    <th className="font-normal text-[12px] text-monday-subtext border-b border-r border-monday-border px-3 py-2 w-[1%]" style={{ borderLeftColor: color, borderLeftWidth: 3 }}>Nombre</th>
+                    <th className="font-normal text-[12px] text-monday-subtext border-b border-r border-monday-border px-3 py-2 w-[120px]">Tipo</th>
+                    {showSubgroups && (
+                      <th className="font-normal text-[12px] text-monday-subtext border-b border-r border-monday-border px-3 py-2 w-[130px]">Subgrupo</th>
+                    )}
+                    <th className="font-normal text-[12px] text-monday-subtext border-b border-r border-monday-border px-3 py-2 w-[140px]">Última modificación</th>
+                    <th className="font-normal text-[12px] text-monday-subtext border-b border-monday-border px-2 py-2 w-[44px]">{' '}</th>
                   </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
+                </thead>
+                <tbody>
+                  {docs.length === 0 ? (
+                    <tr>
+                      <td colSpan={showSubgroups ? 5 : 4} className="px-3 py-3 text-[13px] text-monday-subtext border-b border-monday-border">Ningún documento</td>
+                    </tr>
+                  ) : (
+                    docs.map((doc) => (
+                      <tr key={doc.id} className={`border-t border-monday-border/60 hover:bg-monday-hover transition-colors cursor-pointer ${selectedId === doc.id ? 'bg-monday-hover' : ''}`} onClick={() => onSelectDoc(doc.id)}>
+                        <td className="px-3 py-2 border-r border-monday-border/60 align-middle" style={{ borderLeftColor: color, borderLeftWidth: 3 }}>
+                          <div className="flex items-center gap-2">
+                            {doc.type === 'sheet' ? <Table2 size={16} className="text-monday-blue shrink-0" /> : isPdfDocType(doc.type as DocType) ? <FileCheck size={16} className="text-monday-blue shrink-0" /> : <FileText size={16} className="text-monday-blue shrink-0" />}
+                            <span className="truncate text-[13px] text-monday-text">{doc.title}</span>
+                          </div>
+                        </td>
+                        <td className="px-3 py-2 text-[13px] text-monday-subtext border-r border-monday-border/60 align-middle">{getDocTypeLabel(doc.type as DocType)}</td>
+                        {showSubgroups && docType && (
+                          <td className="px-3 py-2 border-r border-monday-border/60 align-middle" onClick={(e) => e.stopPropagation()}>
+                            <select value={subgroupAssignments[doc.id] ?? ''} onChange={(e) => onAssignSubgroup?.(doc.id, e.target.value || null)} className="text-[12px] border border-monday-border rounded-monday px-2 py-1 bg-white text-monday-subtext w-full max-w-[120px]">
+                              <option value="">—</option>
+                              {subgroups!.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+                            </select>
+                          </td>
+                        )}
+                        <td className="px-3 py-2 text-[13px] text-monday-subtext border-r border-monday-border/60 align-middle">{new Date(doc.updatedAt).toLocaleString()}</td>
+                        <td className="px-2 py-2 border-b border-monday-border/60 align-middle" onClick={(e) => e.stopPropagation()}>
+                          <button type="button" onClick={() => onDeleteDoc(doc.id)} className="p-1.5 rounded text-monday-subtext hover:text-monday-red hover:bg-red-50" title="Eliminar"><Trash2 size={14} /></button>
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </>
       )}
 
       {collapsed && (
@@ -1456,10 +1555,11 @@ function ExcelLikeSheet({
   );
 }
 
-export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFromBoard, onConsumeInitialCreateFromBoard, onAddTaskList, onAddCalculatorWidget }) => {
+export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFromBoard, onConsumeInitialCreateFromBoard, initialOpenDocId, onConsumeInitialOpenDocId, onAddTaskList, onAddCalculatorWidget }) => {
   const { currentUser } = useUser();
   const currentUserId = currentUser?.id ?? null;
   const isAdmin = !!(currentUser && String(currentUser.role || '').toUpperCase() === 'ADMIN');
+  const { toast } = useToast();
 
   const [docs, setDocs] = useState<Doc[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -1482,6 +1582,109 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
   const [savingTemplateConfig, setSavingTemplateConfig] = useState(false);
   const [viewMode, setViewMode] = useState<'docs' | 'overview'>('overview');
   const [deleteConfirm, setDeleteConfirm] = useState<{ docId: string } | null>(null);
+  type PromptDialog =
+    | { type: 'renameSubgroup'; docType: string; subgroupId: string; initialValue: string }
+    | { type: 'addGroup' }
+    | { type: 'addSubgroup'; docType: string };
+  const [promptDialog, setPromptDialog] = useState<PromptDialog | null>(null);
+  const [promptInputValue, setPromptInputValue] = useState('');
+
+  // Documento nuevo sin id (solo al hacer clic en Guardar se crea en el servidor)
+  type NewDocDraft = { type: DocType; title: string };
+  const [newDocDraft, setNewDocDraft] = useState<NewDocDraft | null>(null);
+
+  // Al crear doc/sheet desde el tablero: guardar datos para ligar al guardar
+  const [linkToBoardItem, setLinkToBoardItem] = useState<{
+    boardId: string;
+    itemId: string;
+    columnId: string;
+    type: 'cotizacion' | 'levantamiento' | 'hoja_trabajo' | 'sheet';
+  } | null>(null);
+
+  // Evitar que React StrictMode dispare dos veces la creación desde tablero
+  const lastCreateFromBoardKeyRef = useRef<string | null>(null);
+
+  const linkDocToBoardItem = useCallback(
+    async (opts: {
+      boardId: string;
+      itemId: string;
+      columnId: string;
+      type: 'cotizacion' | 'levantamiento' | 'hoja_trabajo' | 'sheet';
+      docId: string;
+    }) => {
+      try {
+        const boardRes = await fetch(`${API_BASE}/api/boards/${opts.boardId}`);
+        if (!boardRes.ok) {
+          console.error('No se pudo cargar el tablero para ligar el documento.');
+          return;
+        }
+        const board = await boardRes.json();
+        const allItems =
+          board?.groups?.flatMap((g: { items?: any[] }) => g.items ?? []) ?? [];
+        const item = allItems.find((it: { id: string }) => it.id === opts.itemId);
+        const columnValues = item?.columnValues ?? [];
+        const existingCv =
+          columnValues.find(
+            (cv: { columnId: string }) => cv.columnId === opts.columnId
+          ) ?? null;
+        const columns = board?.columns ?? [];
+        const column = columns.find((c: { id: string }) => c.id === opts.columnId);
+
+        let nextValue: string;
+        if (column?.type === 'excel') {
+          // Para columnas excel: { docId, url? }
+          let parsed: { docId?: string; url?: string } = {};
+          const raw = typeof existingCv?.value === 'string' ? existingCv.value.trim() : '';
+          if (raw) {
+            try {
+              parsed = JSON.parse(raw);
+            } catch {
+              parsed = { url: raw };
+            }
+          }
+          parsed.docId = opts.docId;
+          nextValue = JSON.stringify(parsed);
+        } else {
+          // Columnas docs: JSON con cotizacionDocId / levantamientoDocId / hojaTrabajoDocId
+          let parsed: Record<string, unknown> = {};
+          const raw = typeof existingCv?.value === 'string' ? existingCv.value.trim() : '';
+          if (raw) {
+            try {
+              parsed = JSON.parse(raw);
+            } catch {
+              parsed = {};
+            }
+          }
+          const key =
+            opts.type === 'cotizacion'
+              ? 'cotizacionDocId'
+              : opts.type === 'levantamiento'
+              ? 'levantamientoDocId'
+              : opts.type === 'hoja_trabajo'
+              ? 'hojaTrabajoDocId'
+              : 'docId';
+          parsed[key] = opts.docId;
+          nextValue = JSON.stringify(parsed);
+        }
+
+        socket.emit('update_column_value', {
+          itemId: opts.itemId,
+          columnId: opts.columnId,
+          value: nextValue,
+        });
+      } catch (e) {
+        console.error('Error ligando documento al elemento (fallback):', e);
+      }
+    },
+    []
+  );
+
+  // Modal para Guardar (nuevo) y Guardar como: elegir grupo/subgrupo (y nombre en save as)
+  type SaveModal = { mode: 'new' } | { mode: 'saveAs'; doc: Doc };
+  const [saveModal, setSaveModal] = useState<SaveModal | null>(null);
+  const [saveModalGroupId, setSaveModalGroupId] = useState<string>('');
+  const [saveModalSubgroupId, setSaveModalSubgroupId] = useState<string>('');
+  const [saveModalTitle, setSaveModalTitle] = useState<string>('');
 
   // Grupos personalizados por usuario/workspace (API doc-groups, mismo patrón que panel-notes)
   const [customGroups, setCustomGroups] = useState<DocCustomGroup[]>([]);
@@ -1556,12 +1759,8 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
   );
 
   const addCustomGroup = () => {
-    const name = window.prompt('Nombre del grupo');
-    const trimmed = name?.trim();
-    if (!trimmed) return;
-    const next = [...customGroups, { id: crypto.randomUUID(), name: trimmed }];
-    setCustomGroups(next);
-    saveDocGroupsToApi(next, assignments, subgroupsByType, subgroupAssignments);
+    setPromptDialog({ type: 'addGroup' });
+    setPromptInputValue('');
   };
 
   const renameCustomGroup = (groupId: string, newName: string) => {
@@ -1589,14 +1788,34 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
   };
 
   const addSubgroup = (docType: string) => {
-    const name = window.prompt('Nombre del subgrupo');
-    const trimmed = name?.trim();
+    setPromptDialog({ type: 'addSubgroup', docType });
+    setPromptInputValue('');
+  };
+
+  const openRenameSubgroupPrompt = (docType: string, subgroupId: string, currentName: string) => {
+    setPromptDialog({ type: 'renameSubgroup', docType, subgroupId, initialValue: currentName });
+    setPromptInputValue(currentName);
+  };
+
+  const handlePromptConfirm = () => {
+    const trimmed = promptInputValue.trim();
     if (!trimmed) return;
-    const list = subgroupsByType[docType] ?? [];
-    const nextList = [...list, { id: crypto.randomUUID(), name: trimmed }];
-    const next = { ...subgroupsByType, [docType]: nextList };
-    setSubgroupsByType(next);
-    saveDocGroupsToApi(customGroups, assignments, next, subgroupAssignments);
+    if (!promptDialog) return;
+    if (promptDialog.type === 'addGroup') {
+      const next = [...customGroups, { id: crypto.randomUUID(), name: trimmed }];
+      setCustomGroups(next);
+      saveDocGroupsToApi(next, assignments, subgroupsByType, subgroupAssignments);
+    } else if (promptDialog.type === 'addSubgroup') {
+      const list = subgroupsByType[promptDialog.docType] ?? [];
+      const nextList = [...list, { id: crypto.randomUUID(), name: trimmed }];
+      const next = { ...subgroupsByType, [promptDialog.docType]: nextList };
+      setSubgroupsByType(next);
+      saveDocGroupsToApi(customGroups, assignments, next, subgroupAssignments);
+    } else if (promptDialog.type === 'renameSubgroup') {
+      renameSubgroup(promptDialog.docType, promptDialog.subgroupId, trimmed);
+    }
+    setPromptDialog(null);
+    setPromptInputValue('');
   };
 
   const renameSubgroup = (docType: string, subgroupId: string, newName: string) => {
@@ -1665,7 +1884,17 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
     }
   }, [parsed, selectedId, selectedDoc?.type]);
 
-  const pdfDocType = selectedDoc && isPdfDocType(selectedDoc.type as DocType) ? (selectedDoc.type as 'cotizacion' | 'levantamiento' | 'hoja_trabajo') : null;
+  // Inicializar drafts cuando se abre un documento nuevo (sin id)
+  useEffect(() => {
+    if (!newDocDraft) return;
+    const initial = getInitialContentForType(newDocDraft.type);
+    setTextDraft(getInitialHtml((initial.text as string) ?? ''));
+    setTableDraft(Array.isArray(initial.table) ? (initial.table as string[][]) : [['']]);
+    setHeaderImageUrlDraft((initial.headerImageUrl as string | null) ?? null);
+    setPdfFormDraft(initial as Record<string, unknown>);
+  }, [newDocDraft?.type]);
+
+  const pdfDocType = (selectedDoc && isPdfDocType(selectedDoc.type as DocType) ? selectedDoc.type : newDocDraft && isPdfDocType(newDocDraft.type) ? newDocDraft.type : null) as 'cotizacion' | 'levantamiento' | 'hoja_trabajo' | null;
   useEffect(() => {
     if (!pdfDocType) return;
     let cancelled = false;
@@ -1690,12 +1919,16 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
     return () => { cancelled = true; };
   }, [pdfDocType]);
 
-  async function handleCreate(type: DocType) {
+  async function handleCreate(
+    type: DocType,
+    subgroupId?: string,
+    initialContentOverride?: Record<string, unknown>
+  ) {
     if (!workspaceId) {
       setError('Selecciona un workspace en la barra lateral para poder crear documentos.');
       return;
     }
-    const initialContent = getInitialContentForType(type);
+    const initialContent = initialContentOverride ?? getInitialContentForType(type);
     const title = type === 'text' ? 'Nuevo doc' : type === 'sheet' ? 'Nueva hoja' : getDocTypeTitle(type);
 
     setSaving(true);
@@ -1724,6 +1957,11 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
       const created = data as Doc;
       setDocs(prev => [created, ...prev]);
       setSelectedId(created.id);
+      setNewDocDraft(null);
+      if (subgroupId) {
+        setSubgroupAssignments((prev) => ({ ...prev, [created.id]: subgroupId }));
+        saveDocGroupsToApi(customGroups, assignments, subgroupsByType, { ...subgroupAssignments, [created.id]: subgroupId });
+      }
     } catch (e) {
       console.error('Error creating doc', e);
       const msg = e instanceof Error ? e.message : 'No se pudo crear el documento.';
@@ -1736,17 +1974,138 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
     }
   }
 
-  // Si se dispara desde una columna de Docs/Facturación, crear y abrir el doc correspondiente
+  // Si se dispara desde una columna de Docs/Excel, crear y abrir el doc en Vista general y recordar enlace para al guardar.
+  // Además, si la plantilla PDF tiene cuadros marcados como Elemento/Folio, auto-rellenarlos con los datos del tablero.
   useEffect(() => {
     if (!workspaceId || !initialCreateFromBoard) return;
-    const { type } = initialCreateFromBoard;
-    setViewMode('docs');
-    handleCreate(type).finally(() => {
-      onConsumeInitialCreateFromBoard?.();
-    });
+    const { type, boardId, itemId, columnId } = initialCreateFromBoard;
+    const key = `${type}|${boardId}|${itemId}|${columnId}`;
+    if (lastCreateFromBoardKeyRef.current === key) {
+      return;
+    }
+    lastCreateFromBoardKeyRef.current = key;
+    const linkType =
+      type === 'sheet'
+        ? 'sheet'
+        : type === 'cotizacion'
+        ? 'cotizacion'
+        : type === 'levantamiento'
+        ? 'levantamiento'
+        : 'hoja_trabajo';
+    setLinkToBoardItem({ boardId, itemId, columnId, type: linkType });
+    setViewMode('overview');
+
+    const run = async () => {
+      let initialContentOverride: Record<string, unknown> | undefined;
+
+      try {
+        // Solo aplica auto-relleno cuando es un doc PDF basado en plantilla
+        if (isPdfDocType(type)) {
+          // 1) Obtener datos del elemento (nombre y folio) desde el tablero
+          const boardRes = await fetch(`${API_BASE}/api/boards/${boardId}`);
+          if (!boardRes.ok) throw new Error('No se pudo cargar el tablero');
+          const board = (await boardRes.json()) as {
+            groups: Array<{
+              id: string;
+              items: Array<{ id: string; name: string; columnValues: Array<{ columnId: string; value: string }> }>;
+            }>;
+            columns: Array<{ id: string; title: string }>;
+          };
+
+          const allItems =
+            board.groups?.flatMap((g) => g.items ?? []) ?? [];
+          const item = allItems.find((it) => it.id === itemId);
+
+          const elemento = item?.name ?? '';
+          let folio = '';
+
+          if (item) {
+            const folioCol = board.columns?.find((c) => c.title === 'Folio');
+            if (folioCol) {
+              const cv = item.columnValues?.find((v) => v.columnId === folioCol.id);
+              if (cv?.value) folio = String(cv.value);
+            }
+          }
+
+          // 2) Obtener la plantilla para saber qué cuadros son Elemento/Folio
+          const pdfType = type as 'cotizacion' | 'levantamiento' | 'hoja_trabajo';
+          let tmpl = templateConfigByType[pdfType];
+          if (!tmpl) {
+            const res = await fetch(`${API_BASE}/api/templates/${pdfType}/config`);
+            if (res.ok) {
+              const data = await res.json();
+              tmpl = {
+                fieldPositions: data.fieldPositions ?? {},
+                fontColor: data.fontColor ?? '#000000',
+                fontFamily: data.fontFamily ?? 'Helvetica',
+                fontSize: data.fontSize ?? 11,
+                fontBold: data.fontBold ?? false,
+                fontItalic: data.fontItalic ?? false,
+                customBoxes: Array.isArray(data.customBoxes) ? data.customBoxes : [],
+              };
+              setTemplateConfigByType((prev) => ({ ...prev, [pdfType]: tmpl! }));
+            }
+          }
+
+          const base = getInitialContentForType(type);
+          const customValues: Record<string, string> =
+            ((base as { customFieldValues?: Record<string, string> }).customFieldValues as Record<string, string>) ??
+            {};
+
+          if (tmpl?.customBoxes && (elemento || folio)) {
+            const elementBox = tmpl.customBoxes.find((b) => b.semantic === 'element');
+            const folioBox = tmpl.customBoxes.find((b) => b.semantic === 'folio');
+            if (elementBox && elemento) {
+              customValues[elementBox.id] = elemento;
+            }
+            if (folioBox && folio) {
+              customValues[folioBox.id] = folio;
+            }
+          }
+
+          initialContentOverride = {
+            ...base,
+            ...(Object.keys(customValues).length > 0 ? { customFieldValues: customValues } : {}),
+          };
+        }
+      } catch (e) {
+        console.error('Error preparando contenido inicial desde tablero', e);
+      } finally {
+        await handleCreate(type, undefined, initialContentOverride);
+        onConsumeInitialCreateFromBoard?.();
+        lastCreateFromBoardKeyRef.current = null;
+      }
+    };
+
+    run();
   }, [workspaceId, initialCreateFromBoard]);
 
-  const handleSave = async () => {
+  // Abrir un doc por id (desde clic en celda del tablero con doc vinculado)
+  useEffect(() => {
+    if (!initialOpenDocId) return;
+    setSelectedId(initialOpenDocId);
+    setViewMode('overview');
+    onConsumeInitialOpenDocId?.();
+  }, [initialOpenDocId, onConsumeInitialOpenDocId]);
+
+  const [overwriteDialog, setOverwriteDialog] = useState<{
+    mode: 'update' | 'create';
+    title: string;
+    message: string;
+    action: 'saveExisting' | 'saveNew';
+  } | null>(null);
+  const overwriteActionRef = useRef<(() => Promise<void> | void) | null>(null);
+
+  const runOverwriteAction = async () => {
+    const fn = overwriteActionRef.current;
+    overwriteActionRef.current = null;
+    setOverwriteDialog(null);
+    if (fn) {
+      await fn();
+    }
+  };
+
+  const performSaveExisting = async () => {
     if (!selectedDoc) return;
     setSaving(true);
     setError(null);
@@ -1768,6 +2127,17 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
         throw new Error(msg);
       }
       setDocs(prev => prev.map(d => (d.id === data.id ? data : d)));
+      if (linkToBoardItem) {
+        await linkDocToBoardItem({
+          boardId: linkToBoardItem.boardId,
+          itemId: linkToBoardItem.itemId,
+          columnId: linkToBoardItem.columnId,
+          type: linkToBoardItem.type,
+          docId: selectedDoc.id,
+        });
+        setLinkToBoardItem(null);
+      }
+      toast('Documento guardado', 'success');
       if (isAdmin && selectedDoc && isPdfDocType(selectedDoc.type as DocType)) {
         const docType = selectedDoc.type as 'cotizacion' | 'levantamiento' | 'hoja_trabajo';
         const config = templateConfigByType[docType];
@@ -1800,6 +2170,17 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
     } finally {
       setSaving(false);
     }
+  };
+
+  const handleSave = async () => {
+    if (!selectedDoc) return;
+    overwriteActionRef.current = performSaveExisting;
+    setOverwriteDialog({
+      mode: 'update',
+      title: selectedDoc.title || 'Sin título',
+      message: '¿Deseas sobreescribir este documento con los cambios actuales?',
+      action: 'saveExisting',
+    });
   };
 
   const handleSaveTemplateConfig = async () => {
@@ -1906,6 +2287,109 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
     });
   };
 
+  const saveModalDocType = saveModal?.mode === 'new' ? newDocDraft?.type : saveModal?.mode === 'saveAs' ? saveModal.doc.type : null;
+
+  const performSaveNew = async () => {
+    if (!workspaceId || !saveModal) return;
+    const docType = saveModalDocType;
+    if (!docType) return;
+    setSaving(true);
+    setError(null);
+    try {
+      const content: DocContent =
+        docType === 'sheet'
+          ? { table: tableDraft }
+          : isPdfDocType(docType as DocType)
+            ? pdfFormDraft
+            : { text: textDraft, headerImageUrl: headerImageUrlDraft };
+      const title =
+        saveModal.mode === 'saveAs'
+          ? (saveModalTitle.trim() || saveModal.doc.title)
+          : (newDocDraft?.title ?? 'Nuevo doc');
+
+      const res = await fetch(`${API_BASE}/api/docs`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          workspaceId,
+          title,
+          type: docType,
+          content,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        const msg = typeof data?.error === 'string' ? data.error : 'Error al guardar';
+        throw new Error(msg);
+      }
+      const created = data as Doc;
+      setDocs(prev => [created, ...prev]);
+      setSelectedId(created.id);
+      setNewDocDraft(null);
+      setSaveModal(null);
+      if (saveModalGroupId) {
+        setAssignments(prev => ({ ...prev, [created.id]: saveModalGroupId }));
+        setSubgroupAssignments(prev =>
+          saveModalSubgroupId ? { ...prev, [created.id]: saveModalSubgroupId } : prev
+        );
+        saveDocGroupsToApi(
+          customGroups,
+          { ...assignments, [created.id]: saveModalGroupId },
+          subgroupsByType,
+          saveModalSubgroupId ? { ...subgroupAssignments, [created.id]: saveModalSubgroupId } : subgroupAssignments
+        );
+      } else if (saveModalSubgroupId) {
+        setSubgroupAssignments(prev => ({ ...prev, [created.id]: saveModalSubgroupId }));
+        saveDocGroupsToApi(customGroups, assignments, subgroupsByType, { ...subgroupAssignments, [created.id]: saveModalSubgroupId });
+      }
+      toast(saveModal.mode === 'saveAs' ? `Guardado como "${title}"` : 'Documento guardado', 'success');
+    } catch (e) {
+      console.error('Error saving doc', e);
+      setError(e instanceof Error ? e.message : 'No se pudo guardar el documento.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleSaveModalConfirm = async () => {
+    if (!workspaceId || !saveModal) return;
+    const docType = saveModalDocType;
+    if (!docType) return;
+
+    const content: DocContent =
+      docType === 'sheet'
+        ? { table: tableDraft }
+        : isPdfDocType(docType as DocType)
+          ? pdfFormDraft
+          : { text: textDraft, headerImageUrl: headerImageUrlDraft };
+    const title =
+      saveModal.mode === 'saveAs'
+        ? (saveModalTitle.trim() || saveModal.doc.title)
+        : (newDocDraft?.title ?? 'Nuevo doc');
+
+    // Antes de guardar: si ya existe un documento con mismo título y tipo, abrir diálogo de sobrescritura.
+    const normalizedTitle = title.trim().toLowerCase();
+    const existsWithSameNameAndType = docs.some(
+      (d) =>
+        d.type === docType &&
+        d.title.trim().toLowerCase() === normalizedTitle &&
+        (saveModal.mode !== 'saveAs' || d.id !== saveModal.doc.id)
+    );
+
+    if (existsWithSameNameAndType) {
+      overwriteActionRef.current = performSaveNew;
+      setOverwriteDialog({
+        mode: 'create',
+        title: title || 'Sin título',
+        message:
+          'Ya existe un documento con este nombre y tipo. ¿Deseas crear otro documento igualmente?',
+        action: 'saveNew',
+      });
+      return;
+    }
+
+    await performSaveNew();
+  };
 
   return (
     <div className="flex-1 flex flex-col overflow-hidden">
@@ -1929,6 +2413,170 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
                 className="px-3 py-1.5 rounded-lg bg-red-600 text-white text-[13px] hover:bg-red-700"
               >
                 Eliminar
+              </button>
+            </div>
+          </Dialog.Content>
+        </Dialog.Portal>
+      </Dialog.Root>
+
+      {/* Diálogo de confirmación de sobrescritura (integrado en la UI) */}
+      <Dialog.Root
+        open={!!overwriteDialog}
+        onOpenChange={(open) => {
+          if (!open) {
+            setOverwriteDialog(null);
+            overwriteActionRef.current = null;
+          }
+        }}
+      >
+        <Dialog.Portal>
+          <Dialog.Overlay className="fixed inset-0 bg-black/40 z-[150]" />
+          <Dialog.Content className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-[151] bg-white rounded-xl shadow-xl border border-monday-border p-5 w-[340px]">
+            <Dialog.Title className="text-[15px] font-semibold text-monday-text">
+              Confirmar sobrescritura
+            </Dialog.Title>
+            <p className="text-[13px] text-monday-subtext mt-2">
+              {overwriteDialog?.message}
+            </p>
+            <p className="text-[13px] font-medium text-monday-text mt-1 break-words">
+              {overwriteDialog?.title}
+            </p>
+            <div className="flex justify-end gap-2 mt-4">
+              <button
+                type="button"
+                onClick={() => {
+                  setOverwriteDialog(null);
+                  overwriteActionRef.current = null;
+                }}
+                className="px-3 py-1.5 rounded-lg border border-monday-border text-[13px] text-monday-text hover:bg-monday-hover"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={runOverwriteAction}
+                className="px-3 py-1.5 rounded-lg bg-monday-blue text-white text-[13px] hover:bg-monday-blue/90"
+              >
+                Sobrescribir
+              </button>
+            </div>
+          </Dialog.Content>
+        </Dialog.Portal>
+      </Dialog.Root>
+
+      {/* Diálogo integrado para nombre (grupo, subgrupo, renombrar) */}
+      <Dialog.Root open={!!promptDialog} onOpenChange={open => { if (!open) { setPromptDialog(null); setPromptInputValue(''); } }}>
+        <Dialog.Portal>
+          <Dialog.Overlay className="fixed inset-0 bg-black/40 z-[150]" />
+          <Dialog.Content className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-[151] bg-white rounded-xl shadow-xl border border-monday-border p-5 w-[320px]">
+            <Dialog.Title className="text-[15px] font-semibold text-monday-text">
+              {promptDialog?.type === 'renameSubgroup' && 'Nuevo nombre'}
+              {promptDialog?.type === 'addGroup' && 'Nombre del grupo'}
+              {promptDialog?.type === 'addSubgroup' && 'Nombre del subgrupo'}
+            </Dialog.Title>
+            <input
+              type="text"
+              value={promptInputValue}
+              onChange={e => setPromptInputValue(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter') handlePromptConfirm(); if (e.key === 'Escape') { setPromptDialog(null); setPromptInputValue(''); } }}
+              className="mt-3 w-full px-3 py-2 rounded-lg border border-monday-border text-[13px] text-monday-text focus:outline-none focus:ring-2 focus:ring-monday-blue"
+              placeholder={promptDialog?.type === 'addGroup' ? 'Ej. Mi grupo' : promptDialog?.type === 'addSubgroup' ? 'Ej. Subgrupo A' : ''}
+              autoFocus
+            />
+            <div className="flex justify-end gap-2 mt-4">
+              <button
+                type="button"
+                onClick={() => { setPromptDialog(null); setPromptInputValue(''); }}
+                className="px-3 py-1.5 rounded-lg border border-monday-border text-[13px] text-monday-text hover:bg-monday-hover"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={handlePromptConfirm}
+                disabled={!promptInputValue.trim()}
+                className="px-3 py-1.5 rounded-lg bg-monday-blue text-white text-[13px] hover:bg-monday-blue/90 disabled:opacity-50 disabled:pointer-events-none"
+              >
+                Aceptar
+              </button>
+            </div>
+          </Dialog.Content>
+        </Dialog.Portal>
+      </Dialog.Root>
+
+      {/* Modal Guardar (nuevo) / Guardar como: grupo, subgrupo y opcionalmente nombre */}
+      <Dialog.Root
+        open={!!saveModal}
+        onOpenChange={(open) => {
+          if (!open) {
+            setSaveModal(null);
+            setSaveModalTitle('');
+            setSaveModalGroupId('');
+            setSaveModalSubgroupId('');
+          }
+        }}
+      >
+        <Dialog.Portal>
+          <Dialog.Overlay className="fixed inset-0 bg-black/40 z-[150]" />
+          <Dialog.Content className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-[151] bg-white rounded-xl shadow-xl border border-monday-border p-5 w-[360px]">
+            <Dialog.Title className="text-[15px] font-semibold text-monday-text">
+              {saveModal?.mode === 'saveAs' ? 'Guardar como' : 'Guardar documento'}
+            </Dialog.Title>
+            {saveModal?.mode === 'saveAs' && (
+              <label className="mt-3 block text-[13px] text-monday-subtext">
+                Nombre del documento
+                <input
+                  type="text"
+                  value={saveModalTitle}
+                  onChange={(e) => setSaveModalTitle(e.target.value)}
+                  className="mt-1 w-full px-3 py-2 rounded-lg border border-monday-border text-[13px] text-monday-text focus:outline-none focus:ring-2 focus:ring-monday-blue"
+                  placeholder="Título"
+                />
+              </label>
+            )}
+            <label className="mt-3 block text-[13px] text-monday-subtext">
+              Grupo
+              <select
+                value={saveModalGroupId}
+                onChange={(e) => setSaveModalGroupId(e.target.value)}
+                className="mt-1 w-full px-3 py-2 rounded-lg border border-monday-border text-[13px] text-monday-text bg-white focus:outline-none focus:ring-2 focus:ring-monday-blue"
+              >
+                <option value="">— Sin grupo —</option>
+                {customGroups.map((g) => (
+                  <option key={g.id} value={g.id}>{g.name}</option>
+                ))}
+              </select>
+            </label>
+            {saveModalDocType && (
+              <label className="mt-3 block text-[13px] text-monday-subtext">
+                Subgrupo
+                <select
+                  value={saveModalSubgroupId}
+                  onChange={(e) => setSaveModalSubgroupId(e.target.value)}
+                  className="mt-1 w-full px-3 py-2 rounded-lg border border-monday-border text-[13px] text-monday-text bg-white focus:outline-none focus:ring-2 focus:ring-monday-blue"
+                >
+                  <option value="">— Sin subgrupo —</option>
+                  {(subgroupsByType[saveModalDocType] ?? []).map((s) => (
+                    <option key={s.id} value={s.id}>{s.name}</option>
+                  ))}
+                </select>
+              </label>
+            )}
+            <div className="flex justify-end gap-2 mt-4">
+              <button
+                type="button"
+                onClick={() => { setSaveModal(null); setSaveModalTitle(''); setSaveModalGroupId(''); setSaveModalSubgroupId(''); }}
+                className="px-3 py-1.5 rounded-lg border border-monday-border text-[13px] text-monday-text hover:bg-monday-hover"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={handleSaveModalConfirm}
+                disabled={saving}
+                className="px-3 py-1.5 rounded-lg bg-monday-blue text-white text-[13px] hover:bg-monday-blue/90 disabled:opacity-50"
+              >
+                {saving ? 'Guardando…' : 'Guardar'}
               </button>
             </div>
           </Dialog.Content>
@@ -1976,7 +2624,9 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
                   key={opt.id}
                   type="button"
                   disabled={!workspaceId}
-                  onClick={() => handleCreate(opt.id)}
+                  onClick={() => {
+                    setNewDocDraft({ type: opt.id, title: getDocTypeTitle(opt.id) });
+                  }}
                   className="flex flex-col items-start justify-between w-64 p-4 rounded-2xl bg-white border border-gray-200 shadow-md hover:shadow-lg hover:border-monday-blue/50 transition-all text-left disabled:opacity-60"
                 >
                   <div className="flex items-center gap-3 mb-2">
@@ -2066,7 +2716,7 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
                 </div>
               )}
 
-              {!selectedDoc ? (
+              {!selectedDoc && !newDocDraft ? (
                 <div className="flex-1 flex flex-col items-center justify-center py-16 text-monday-subtext">
                   <div className="w-16 h-16 rounded-full bg-monday-hover flex items-center justify-center mb-4">
                     <BookOpen size={28} className="opacity-60" />
@@ -2081,19 +2731,19 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
                   <div className="flex items-center justify-between px-5 py-3 border-b border-monday-border bg-monday-hover/30 rounded-t-2xl">
                     <div className="flex flex-col">
                       <h2 className="text-[16px] font-semibold text-monday-text truncate">
-                        {selectedDoc.title}
+                        {selectedDoc?.title ?? newDocDraft?.title ?? 'Sin título'}
                       </h2>
                     </div>
                   <div className="flex items-center gap-2">
                     <button
                       type="button"
-                      onClick={() => setSelectedId(null)}
+                      onClick={() => { if (newDocDraft) setNewDocDraft(null); else setSelectedId(null); }}
                       className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-monday border border-monday-border text-[12px] text-monday-subtext hover:bg-monday-hover"
                     >
                       <X size={12} />
                       <span>Cerrar</span>
                     </button>
-                      {isPdfDocType(selectedDoc.type as DocType) && (
+                      {selectedDoc && isPdfDocType(selectedDoc.type as DocType) && (
                         <button
                           type="button"
                           onClick={handleDownloadPdf}
@@ -2104,10 +2754,24 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
                           {downloadingPdf ? 'Descargando…' : 'Descargar PDF'}
                         </button>
                       )}
+                      {selectedDoc && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setSaveModal({ mode: 'saveAs', doc: selectedDoc });
+                            setSaveModalTitle(selectedDoc.title);
+                            setSaveModalGroupId(assignments[selectedDoc.id] ?? '');
+                            setSaveModalSubgroupId(subgroupAssignments[selectedDoc.id] ?? '');
+                          }}
+                          className="px-3 py-1.5 rounded-monday border border-monday-border text-[13px] font-medium text-monday-text hover:bg-monday-hover"
+                        >
+                          Guardar como
+                        </button>
+                      )}
                       <button
                         type="button"
                         onClick={handleSave}
-                        disabled={saving}
+                        disabled={saving || !selectedDoc}
                         className="px-3 py-1.5 rounded-monday bg-monday-blue text-white text-[13px] font-medium hover:bg-monday-blue/90 disabled:opacity-60"
                       >
                         {saving ? 'Guardando…' : 'Guardar'}
@@ -2115,13 +2779,13 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
                     </div>
                   </div>
 
-                  {isPdfDocType(selectedDoc.type as DocType) ? (
+                  {(selectedDoc && isPdfDocType(selectedDoc.type as DocType)) || (newDocDraft && isPdfDocType(newDocDraft.type)) ? (
                     <div className="flex-1 overflow-auto custom-scrollbar p-2">
                       <PdfTemplateEditor
-                        docType={selectedDoc.type as 'cotizacion' | 'levantamiento' | 'hoja_trabajo'}
+                        docType={(selectedDoc?.type ?? newDocDraft?.type) as 'cotizacion' | 'levantamiento' | 'hoja_trabajo'}
                         value={pdfFormDraft}
                         onChange={setPdfFormDraft}
-                        docId={selectedDoc.id}
+                        docId={selectedDoc?.id ?? ''}
                         templateConfig={pdfDocType ? templateConfigByType[pdfDocType] : null}
                         isAdmin={isAdmin}
                         onTemplateConfigChange={
@@ -2133,7 +2797,7 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
                         savingTemplateConfig={savingTemplateConfig}
                       />
                     </div>
-                  ) : selectedDoc.type === 'sheet' ? (
+                  ) : (selectedDoc?.type ?? newDocDraft?.type) === 'sheet' ? (
                     <ExcelLikeSheet
                       tableDraft={tableDraft}
                       setTableDraft={setTableDraft}
@@ -2141,7 +2805,7 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
                     />
                   ) : (
                     <WordLikeEditor
-                      key={selectedId ?? 'new'}
+                      key={selectedId ?? 'new-draft'}
                       textDraft={textDraft}
                       setTextDraft={setTextDraft}
                       headerImageUrl={headerImageUrlDraft}
@@ -2194,6 +2858,7 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
                     subgroupAssignments={subgroupAssignments}
                     onAddSubgroup={addSubgroup}
                     onRenameSubgroup={renameSubgroup}
+                    onRequestRenameSubgroup={openRenameSubgroupPrompt}
                     onRemoveSubgroup={removeSubgroup}
                     onAssignSubgroup={assignDocToSubgroup}
                   />
@@ -2244,7 +2909,7 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
             </div>
           )}
 
-          {!selectedDoc ? (
+          {!selectedDoc && !newDocDraft ? (
             <div className="flex-1 flex flex-col items-center justify-center py-16 text-monday-subtext">
               <div className="w-16 h-16 rounded-full bg-monday-hover flex items-center justify-center mb-4">
                 <BookOpen size={28} className="opacity-60" />
@@ -2259,19 +2924,19 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
               <div className="flex items-center justify-between px-5 py-3 border-b border-monday-border bg-monday-hover/30">
                 <div className="flex flex-col">
                   <h2 className="text-[16px] font-semibold text-monday-text truncate">
-                    {selectedDoc.title}
+                    {selectedDoc?.title ?? newDocDraft?.title ?? 'Sin título'}
                   </h2>
                 </div>
                 <div className="flex items-center gap-2">
                   <button
                     type="button"
-                    onClick={() => setSelectedId(null)}
+                    onClick={() => { if (newDocDraft) setNewDocDraft(null); else setSelectedId(null); }}
                     className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-monday border border-monday-border text-[12px] text-monday-subtext hover:bg-monday-hover"
                   >
                     <X size={12} />
                     <span>Cerrar</span>
                   </button>
-                  {isPdfDocType(selectedDoc.type as DocType) && (
+                  {selectedDoc && isPdfDocType(selectedDoc.type as DocType) && (
                     <button
                       type="button"
                       onClick={handleDownloadPdf}
@@ -2282,10 +2947,24 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
                       {downloadingPdf ? 'Descargando…' : 'Descargar PDF'}
                     </button>
                   )}
+                  {selectedDoc && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSaveModal({ mode: 'saveAs', doc: selectedDoc });
+                        setSaveModalTitle(selectedDoc.title);
+                        setSaveModalGroupId(assignments[selectedDoc.id] ?? '');
+                        setSaveModalSubgroupId(subgroupAssignments[selectedDoc.id] ?? '');
+                      }}
+                      className="px-3 py-1.5 rounded-monday border border-monday-border text-[13px] font-medium text-monday-text hover:bg-monday-hover"
+                    >
+                      Guardar como
+                    </button>
+                  )}
                   <button
                     type="button"
                     onClick={handleSave}
-                    disabled={saving}
+                    disabled={saving || !selectedDoc}
                     className="px-3 py-1.5 rounded-monday bg-monday-blue text-white text-[13px] font-medium hover:bg-monday-blue/90 disabled:opacity-60"
                   >
                     {saving ? 'Guardando…' : 'Guardar'}
@@ -2293,13 +2972,13 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
                 </div>
               </div>
 
-              {isPdfDocType(selectedDoc.type as DocType) ? (
+              {(selectedDoc && isPdfDocType(selectedDoc.type as DocType)) || (newDocDraft && isPdfDocType(newDocDraft.type)) ? (
                 <div className="flex-1 overflow-auto custom-scrollbar p-2 bg-monday-bg/40">
                   <PdfTemplateEditor
-                    docType={selectedDoc.type as 'cotizacion' | 'levantamiento' | 'hoja_trabajo'}
+                    docType={(selectedDoc?.type ?? newDocDraft?.type) as 'cotizacion' | 'levantamiento' | 'hoja_trabajo'}
                     value={pdfFormDraft}
                     onChange={setPdfFormDraft}
-                    docId={selectedDoc.id}
+                    docId={selectedDoc?.id ?? ''}
                     templateConfig={pdfDocType ? templateConfigByType[pdfDocType] : null}
                     isAdmin={isAdmin}
                     onTemplateConfigChange={
@@ -2311,7 +2990,7 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
                     savingTemplateConfig={savingTemplateConfig}
                   />
                 </div>
-              ) : selectedDoc.type === 'sheet' ? (
+              ) : (selectedDoc?.type ?? newDocDraft?.type) === 'sheet' ? (
                 <ExcelLikeSheet
                   tableDraft={tableDraft}
                   setTableDraft={setTableDraft}
@@ -2319,7 +2998,7 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
                 />
               ) : (
                 <WordLikeEditor
-                  key={selectedId ?? 'new'}
+                  key={selectedId ?? 'new-draft'}
                   textDraft={textDraft}
                   setTextDraft={setTextDraft}
                   headerImageUrl={headerImageUrlDraft}

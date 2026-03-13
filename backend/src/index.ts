@@ -104,8 +104,15 @@ const upload = multer({
       file.mimetype === 'application/pdf' ||
       file.mimetype === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' ||
       file.mimetype === 'application/vnd.ms-excel';
-    if (ok) cb(null, true);
-    else cb(new Error('Solo se permiten archivos JPG (image/jpeg) o PDF (application/pdf).'));
+    if (ok) {
+      cb(null, true);
+    } else {
+      cb(
+        new Error(
+          'Tipo de archivo no permitido. Solo se aceptan JPG, PDF o Excel (xlsx/xls).'
+        )
+      );
+    }
   },
 });
 
@@ -557,6 +564,65 @@ app.get('/api/boards/first', async (req, res) => {
     res.json(board);
   } catch (error) {
     res.status(500).json({ error: 'Failed to fetch' });
+  }
+});
+
+// Ligar un doc/sheet guardado al elemento del tablero (ruta literal antes de /:id)
+app.post('/api/boards/link-doc', async (req, res) => {
+  try {
+    const body = req.body ?? {};
+    const itemId = typeof body.itemId === 'string' ? body.itemId.trim() : '';
+    const columnId = typeof body.columnId === 'string' ? body.columnId.trim() : '';
+    const docId = typeof body.docId === 'string' ? body.docId.trim() : '';
+    const docType = typeof body.docType === 'string' ? body.docType.trim() : '';
+    if (!itemId || !columnId || !docId || !docType) {
+      return res.status(400).json({ error: 'itemId, columnId, docId y docType son obligatorios' });
+    }
+    const validDocTypes = ['cotizacion', 'levantamiento', 'hoja_trabajo', 'sheet'];
+    if (!validDocTypes.includes(docType)) {
+      return res.status(400).json({ error: 'docType debe ser cotizacion, levantamiento, hoja_trabajo o sheet' });
+    }
+    const column = await prisma.boardColumn.findUnique({ where: { id: columnId } });
+    if (!column) {
+      return res.status(404).json({ error: 'Columna no encontrada' });
+    }
+    if (column.type === 'excel') {
+      const value = JSON.stringify({ docId });
+      const updated = await prisma.columnValue.upsert({
+        where: { itemId_columnId: { itemId, columnId } },
+        update: { value },
+        create: { itemId, columnId, value },
+      });
+      io.emit('column_value_updated', updated);
+      return res.json({ ok: true, updated });
+    }
+    if (column.type === 'docs') {
+      const existing = await prisma.columnValue.findUnique({
+        where: { itemId_columnId: { itemId, columnId } },
+      });
+      let parsed: Record<string, unknown> = {};
+      if (existing?.value) {
+        try {
+          parsed = JSON.parse(existing.value) as Record<string, unknown>;
+        } catch {
+          // mantener valor previo si no es JSON
+        }
+      }
+      const docIdKey = docType === 'cotizacion' ? 'cotizacionDocId' : docType === 'levantamiento' ? 'levantamientoDocId' : 'hojaTrabajoDocId';
+      parsed[docIdKey] = docId;
+      const value = JSON.stringify(parsed);
+      const updated = await prisma.columnValue.upsert({
+        where: { itemId_columnId: { itemId, columnId } },
+        update: { value },
+        create: { itemId, columnId, value },
+      });
+      io.emit('column_value_updated', updated);
+      return res.json({ ok: true, updated });
+    }
+    return res.status(400).json({ error: 'Solo se puede ligar en columnas de tipo docs o excel' });
+  } catch (e) {
+    console.error('Error linking doc to board item:', e);
+    res.status(500).json({ error: 'Error al ligar el documento' });
   }
 });
 
@@ -1177,7 +1243,98 @@ app.patch('/api/docs/:id', async (req, res) => {
 app.delete('/api/docs/:id', async (req, res) => {
   try {
     const { id } = req.params;
+    // 1) Eliminar el doc
     await prisma.doc.delete({ where: { id } });
+
+    // 2) Limpiar referencias en columnas de tipo docs/excel donde este id esté como docId
+    try {
+      const relevantColumns = await prisma.boardColumn.findMany({
+        where: {
+          type: { in: ['docs', 'excel'] },
+        },
+        select: { id: true, type: true },
+      });
+
+      if (relevantColumns.length > 0) {
+        const columnMap = new Map<string, string>();
+        for (const c of relevantColumns) {
+          columnMap.set(c.id, c.type);
+        }
+        const columnIds = relevantColumns.map((c) => c.id);
+
+        const columnValues = await prisma.columnValue.findMany({
+          where: {
+            columnId: { in: columnIds },
+          },
+        });
+
+        for (const cv of columnValues) {
+          const colType = columnMap.get(cv.columnId);
+          if (!cv.value || !colType) continue;
+
+          let changed = false;
+          let nextValue: string | null = cv.value;
+
+          if (colType === 'excel') {
+            // Formato esperado: { docId?: string; url?: string }
+            let parsed: { docId?: string; url?: string } | null = null;
+            try {
+              parsed = JSON.parse(cv.value);
+            } catch {
+              parsed = null;
+            }
+            if (parsed) {
+              if (parsed.docId === id) {
+                delete parsed.docId;
+                changed = true;
+              }
+              if (!parsed.docId && !parsed.url) {
+                nextValue = '';
+              } else {
+                nextValue = JSON.stringify(parsed);
+              }
+            }
+          } else if (colType === 'docs') {
+            // Formato esperado: JSON con posibles claves *DocId
+            let parsed: Record<string, unknown> | null = null;
+            try {
+              parsed = JSON.parse(cv.value);
+            } catch {
+              parsed = null;
+            }
+            if (parsed) {
+              const keys: Array<keyof typeof parsed> = [
+                'cotizacionDocId',
+                'levantamientoDocId',
+                'hojaTrabajoDocId',
+              ];
+              for (const k of keys) {
+                if (parsed[k] === id) {
+                  delete parsed[k];
+                  changed = true;
+                }
+              }
+              if (Object.keys(parsed).length === 0) {
+                nextValue = '';
+              } else {
+                nextValue = JSON.stringify(parsed);
+              }
+            }
+          }
+
+          if (changed) {
+            const updated = await prisma.columnValue.update({
+              where: { id: cv.id },
+              data: { value: nextValue ?? '' },
+            });
+            io.emit('column_value_updated', updated);
+          }
+        }
+      }
+    } catch (cleanupErr) {
+      console.error('Error limpiando referencias de doc en columnas:', cleanupErr);
+    }
+
     res.status(204).send();
   } catch (e) {
     console.error('Error deleting doc:', e);

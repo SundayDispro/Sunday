@@ -13,6 +13,9 @@ interface DocsValue {
   cotizacion?: string;
   hojaTrabajo?: string;
   levantamiento?: string;
+  cotizacionDocId?: string;
+  hojaTrabajoDocId?: string;
+  levantamientoDocId?: string;
 }
 
 function parseDocsValue(value: string | undefined): DocsValue {
@@ -23,6 +26,9 @@ function parseDocsValue(value: string | undefined): DocsValue {
       cotizacion: parsed.cotizacion ?? '',
       hojaTrabajo: parsed.hojaTrabajo ?? '',
       levantamiento: parsed.levantamiento ?? '',
+      cotizacionDocId: parsed.cotizacionDocId ?? '',
+      hojaTrabajoDocId: parsed.hojaTrabajoDocId ?? '',
+      levantamientoDocId: parsed.levantamientoDocId ?? '',
     };
   } catch {
     return {};
@@ -52,8 +58,13 @@ export const DocsCellRenderer: React.FC<Props> = ({ item, column, value }) => {
   const levantamientoFileRef = useRef<HTMLInputElement>(null);
   const [viewerUrl, setViewerUrl] = useState<string | null>(null);
 
-  const hasAny = !!(parsed.cotizacion?.trim() || parsed.hojaTrabajo?.trim() || parsed.levantamiento?.trim());
-  const hasHoja = !!parsed.hojaTrabajo?.trim();
+  const hasLevantamiento =
+    !!parsed.levantamiento?.trim() || !!parsed.levantamientoDocId?.trim();
+  const hasCotizacion =
+    !!parsed.cotizacion?.trim() || !!parsed.cotizacionDocId?.trim();
+  const hasHoja =
+    !!parsed.hojaTrabajo?.trim() || !!parsed.hojaTrabajoDocId?.trim();
+  const hasAny = hasLevantamiento || hasCotizacion || hasHoja;
 
   useEffect(() => {
     if (editOpen) {
@@ -94,6 +105,11 @@ export const DocsCellRenderer: React.FC<Props> = ({ item, column, value }) => {
   const handleUpload = async (field: 'cotizacion' | 'hoja' | 'levantamiento', file: File) => {
     setUploadError(null);
     setUploading(field);
+    if (!/^image\/jpe?g$|^application\/pdf$/i.test(file.type)) {
+      setUploadError('Tipo de archivo no permitido. Solo se aceptan JPG o PDF.');
+      setUploading(null);
+      return;
+    }
     const formData = new FormData();
     formData.append('file', file);
     try {
@@ -101,16 +117,17 @@ export const DocsCellRenderer: React.FC<Props> = ({ item, column, value }) => {
         method: 'POST',
         body: formData,
       });
-      const text = await res.text();
-      let data: { error?: string; url?: string } = {};
-      try {
-        data = text ? JSON.parse(text) : {};
-      } catch {
-        data = { error: res.status === 404 ? 'Servidor no disponible. ¿Está corriendo el backend en el puerto 3001?' : `Error del servidor (${res.status})` };
+      const data: { error?: string; url?: string } = await res.json().catch(() => ({}));
+      if (!res.ok || !data.url) {
+        const backendMsg =
+          typeof data.error === 'string' && data.error.trim()
+            ? data.error
+            : res.status === 404
+            ? 'Servidor no disponible. ¿Está corriendo el backend en el puerto 3001?'
+            : `Error al subir archivo (${res.status}).`;
+        throw new Error(backendMsg);
       }
-      if (!res.ok) {
-        throw new Error(data.error || `Error al subir (${res.status})`);
-      }
+      const url = data.url;
       if (field === 'cotizacion') setCotizacion(data.url ?? '');
       else if (field === 'hoja') setHojaTrabajo(data.url ?? '');
       else setLevantamiento(data.url ?? '');
@@ -118,9 +135,16 @@ export const DocsCellRenderer: React.FC<Props> = ({ item, column, value }) => {
       if (hojaFileRef.current && field === 'hoja') hojaFileRef.current.value = '';
       if (levantamientoFileRef.current && field === 'levantamiento') levantamientoFileRef.current.value = '';
     } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Error al subir la imagen';
-      const isNetwork = msg === 'Failed to fetch' || msg.includes('NetworkError');
-      setUploadError(isNetwork ? 'No se pudo conectar con el servidor. Comprueba que el backend esté corriendo (puerto 3001).' : msg);
+      const msg = err instanceof Error ? err.message : 'Error al subir el archivo';
+      const isNetwork =
+        msg === 'Failed to fetch' ||
+        msg.includes('NetworkError') ||
+        msg.toLowerCase().includes('failed to fetch');
+      setUploadError(
+        isNetwork
+          ? 'No se pudo conectar con el servidor. Comprueba que el backend esté corriendo (puerto 3001).'
+          : msg
+      );
     } finally {
       setUploading(null);
     }
@@ -131,8 +155,14 @@ export const DocsCellRenderer: React.FC<Props> = ({ item, column, value }) => {
   const isPdf = (url: string) => url.toLowerCase().endsWith('.pdf');
 
   const openDocs = (type: 'levantamiento' | 'cotizacion' | 'hoja_trabajo') => {
-    const detail = { type, boardId: column.boardId, itemId: item.id };
+    const detail = { type, boardId: column.boardId, itemId: item.id, columnId: column.id };
     window.dispatchEvent(new CustomEvent('sunday:create-doc-from-board', { detail }));
+  };
+
+  const openLinkedDoc = (docId: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    window.dispatchEvent(new CustomEvent('sunday:open-doc', { detail: { docId } }));
+    setOpen(false);
   };
 
   const clearField = (field: 'cotizacion' | 'hoja' | 'levantamiento') => {
@@ -173,8 +203,8 @@ export const DocsCellRenderer: React.FC<Props> = ({ item, column, value }) => {
                 <span className="inline-flex items-center gap-1">
                   <span
                     className="w-2 h-2 rounded-full shrink-0"
-                    style={{ backgroundColor: parsed.levantamiento?.trim() ? '#22c55e' : '#ef4444' }}
-                    title={parsed.levantamiento?.trim() ? 'Levantamiento subido' : 'Levantamiento no subido'}
+                    style={{ backgroundColor: hasLevantamiento ? '#22c55e' : '#ef4444' }}
+                    title={hasLevantamiento ? 'Levantamiento disponible' : 'Levantamiento no subido'}
                     aria-hidden
                   />
                   <span>Levantamiento</span>
@@ -183,8 +213,8 @@ export const DocsCellRenderer: React.FC<Props> = ({ item, column, value }) => {
                 <span className="inline-flex items-center gap-1">
                   <span
                     className="w-2 h-2 rounded-full shrink-0"
-                    style={{ backgroundColor: parsed.cotizacion?.trim() ? '#22c55e' : '#ef4444' }}
-                    title={parsed.cotizacion?.trim() ? 'Cotización subida' : 'Cotización no subida'}
+                    style={{ backgroundColor: hasCotizacion ? '#22c55e' : '#ef4444' }}
+                    title={hasCotizacion ? 'Cotización disponible' : 'Cotización no subida'}
                     aria-hidden
                   />
                   <span>Cotización</span>
@@ -193,8 +223,8 @@ export const DocsCellRenderer: React.FC<Props> = ({ item, column, value }) => {
                 <span className="inline-flex items-center gap-1">
                   <span
                     className="w-2 h-2 rounded-full shrink-0"
-                    style={{ backgroundColor: parsed.hojaTrabajo?.trim() ? '#22c55e' : '#ef4444' }}
-                    title={parsed.hojaTrabajo?.trim() ? 'Hoja de trabajo subida' : 'Hoja de trabajo no subida'}
+                    style={{ backgroundColor: hasHoja ? '#22c55e' : '#ef4444' }}
+                    title={hasHoja ? 'Hoja de trabajo disponible' : 'Hoja de trabajo no subido'}
                     aria-hidden
                   />
                   <span>Hoja de Trabajo</span>
@@ -214,6 +244,45 @@ export const DocsCellRenderer: React.FC<Props> = ({ item, column, value }) => {
             <div className="text-[11px] font-semibold text-monday-subtext mb-2 px-1 uppercase tracking-wider">
               {isTaller ? 'Hoja de trabajo' : 'Documentos'}
             </div>
+            {!isTaller && parsed.levantamientoDocId?.trim() && (
+              <div className="flex items-center gap-1 mb-1">
+                <button
+                  type="button"
+                  onClick={e => openLinkedDoc(parsed.levantamientoDocId!, e)}
+                  className="flex-1 flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-monday-hover text-left text-[13px] text-monday-blue font-medium"
+                >
+                  <FileText size={14} />
+                  Abrir doc (Levantamiento)
+                  <ExternalLink size={12} className="ml-auto text-monday-subtext" />
+                </button>
+              </div>
+            )}
+            {!isTaller && parsed.cotizacionDocId?.trim() && (
+              <div className="flex items-center gap-1 mb-1">
+                <button
+                  type="button"
+                  onClick={e => openLinkedDoc(parsed.cotizacionDocId!, e)}
+                  className="flex-1 flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-monday-hover text-left text-[13px] text-monday-blue font-medium"
+                >
+                  <FileText size={14} />
+                  Abrir doc (Cotización)
+                  <ExternalLink size={12} className="ml-auto text-monday-subtext" />
+                </button>
+              </div>
+            )}
+            {(parsed.hojaTrabajoDocId?.trim()) && (
+              <div className="flex items-center gap-1 mb-1">
+                <button
+                  type="button"
+                  onClick={e => openLinkedDoc(parsed.hojaTrabajoDocId!, e)}
+                  className="flex-1 flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-monday-hover text-left text-[13px] text-monday-blue font-medium"
+                >
+                  <FileText size={14} />
+                  Abrir doc (Hoja de trabajo)
+                  <ExternalLink size={12} className="ml-auto text-monday-subtext" />
+                </button>
+              </div>
+            )}
             {!isTaller && parsed.levantamiento?.trim() && (
               <div className="flex items-center gap-1">
                 <button
@@ -289,7 +358,7 @@ export const DocsCellRenderer: React.FC<Props> = ({ item, column, value }) => {
                 </button>
               </div>
             )}
-            {!parsed.hojaTrabajo?.trim() && !isTaller && !parsed.cotizacion?.trim() && !parsed.levantamiento?.trim() && (
+            {!hasAny && !isTaller && (
               <p className="text-[12px] text-monday-subtext px-2 py-1">Sin documentos. Agrega desde el botón de abajo.</p>
             )}
             {isTaller && !parsed.hojaTrabajo?.trim() && (
@@ -315,9 +384,12 @@ export const DocsCellRenderer: React.FC<Props> = ({ item, column, value }) => {
           <Dialog.Content
             className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 bg-white rounded-xl shadow-monday-xl border border-monday-border p-4 w-[360px] max-w-[90vw] z-[201] zoom-in"
           >
-            <Dialog.Title className="text-[14px] font-semibold text-monday-text mb-3">
+            <Dialog.Title className="text-[14px] font-semibold text-monday-text mb-1">
               Documentos (JPG o PDF)
             </Dialog.Title>
+            <Dialog.Description className="text-[12px] text-monday-subtext mb-3">
+              Sube o crea documentos de levantamiento, cotización y hoja de trabajo para este elemento del tablero.
+            </Dialog.Description>
 
             {/* Orden: Levantamiento / Cotización / Hoja de Trabajo */}
             {/* Levantamiento */}
@@ -454,7 +526,9 @@ export const DocsCellRenderer: React.FC<Props> = ({ item, column, value }) => {
           <Dialog.Overlay className="fixed inset-0 bg-black/40 z-[210] fade-in" />
           <Dialog.Content className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 bg-white rounded-xl shadow-monday-xl border border-monday-border w-[80vw] h-[80vh] max-w-[1200px] z-[211] overflow-hidden">
             <div className="flex items-center justify-between px-4 py-2 border-b border-monday-border">
-              <span className="text-[13px] font-medium text-monday-text">Vista de documento</span>
+              <Dialog.Title className="text-[13px] font-medium text-monday-text">
+                Vista de documento
+              </Dialog.Title>
               <button
                 type="button"
                 onClick={() => setViewerUrl(null)}
@@ -463,6 +537,9 @@ export const DocsCellRenderer: React.FC<Props> = ({ item, column, value }) => {
                 Cerrar
               </button>
             </div>
+            <Dialog.Description className="sr-only">
+              Vista previa del archivo seleccionado en esta celda de documentos.
+            </Dialog.Description>
             {viewerUrl && (
               <iframe
                 src={viewerUrl}

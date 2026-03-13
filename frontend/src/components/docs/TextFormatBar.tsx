@@ -323,6 +323,8 @@ export interface TextFormatBarForTemplateProps {
   selectedBoxId: string | null;
   onAddTextBox?: () => void;
   onAddImageBox?: () => void;
+  /** Solo los administradores pueden marcar un cuadro como Elemento/Folio */
+  isAdmin?: boolean;
 }
 
 export function TextFormatBarForTemplate({
@@ -331,6 +333,7 @@ export function TextFormatBarForTemplate({
   selectedBoxId,
   onAddTextBox,
   onAddImageBox,
+  isAdmin,
 }: TextFormatBarForTemplateProps) {
   const selectedBox = selectedBoxId
     ? templateConfig.customBoxes?.find((b) => b.id === selectedBoxId)
@@ -408,6 +411,52 @@ export function TextFormatBarForTemplate({
           </Popover.Portal>
         )}
       </Popover.Root>
+
+      <div className="w-px h-5 bg-monday-border mx-1" />
+
+      {/* Marcar semántica del cuadro (Elemento / Folio) – solo ADMIN */}
+      {isAdmin && hasSelection && (
+        <>
+          <button
+            type="button"
+            className={activeFormatBarBtn}
+            title="Usar este cuadro para el nombre de elemento del tablero"
+            onClick={() => {
+              if (!templateConfig.customBoxes || !selectedBoxId) return;
+              const next: CustomBoxDef[] = templateConfig.customBoxes.map((b) => {
+                if (b.id === selectedBoxId) return { ...b, semantic: 'element' };
+                if (b.semantic === 'element') {
+                  const { semantic, ...rest } = b;
+                  return rest;
+                }
+                return b;
+              });
+              onTemplateConfigChange({ customBoxes: next });
+            }}
+          >
+            Elemento
+          </button>
+          <button
+            type="button"
+            className={activeFormatBarBtn}
+            title="Usar este cuadro para el folio del tablero"
+            onClick={() => {
+              if (!templateConfig.customBoxes || !selectedBoxId) return;
+              const next: CustomBoxDef[] = templateConfig.customBoxes.map((b) => {
+                if (b.id === selectedBoxId) return { ...b, semantic: 'folio' };
+                if (b.semantic === 'folio') {
+                  const { semantic, ...rest } = b;
+                  return rest;
+                }
+                return b;
+              });
+              onTemplateConfigChange({ customBoxes: next });
+            }}
+          >
+            Folio
+          </button>
+        </>
+      )}
 
       <div className="w-px h-5 bg-monday-border mx-1" />
 

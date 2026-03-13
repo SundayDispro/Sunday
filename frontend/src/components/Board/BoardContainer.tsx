@@ -30,6 +30,7 @@ import { ResumenBoardView } from './ResumenBoardView';
 import { ArchivosBoardView } from './ArchivosBoardView';
 import { TimelineBoardView } from './TimelineBoardView';
 import { useUser } from '../../store/UserContext';
+import { useToast } from '../Toast';
 import * as Popover from '@radix-ui/react-popover';
 import * as Dialog from '@radix-ui/react-dialog';
 
@@ -58,6 +59,7 @@ function GroupDragOverlay({ groups }: { groups: Group[] }) {
 
 const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode }) => {
   const { currentUser } = useUser();
+  const { toast } = useToast();
   const [board, setBoard] = useState<Board | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [showSearch, setShowSearch] = useState(false);
@@ -321,12 +323,12 @@ const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode }) => {
 
   const handleExportSelected = () => {
     if (selectedItemIds.size === 0) return;
-    alert(`Exportar ${selectedItemIds.size} elemento(s): puedes ampliar esta función para descargar CSV o JSON.`);
+    toast(`Exportar ${selectedItemIds.size} elemento(s): puedes ampliar esta función para descargar CSV o JSON.`, 'info');
   };
 
   const handleArchiveSelected = () => {
     if (selectedItemIds.size === 0) return;
-    alert('Archivar: crea un grupo "Archivados" y usa Mover para llevar los elementos allí.');
+    toast('Archivar: crea un grupo "Archivados" y usa Mover para llevar los elementos allí.', 'info');
   };
 
   const dismissMultiSelectHint = () => {

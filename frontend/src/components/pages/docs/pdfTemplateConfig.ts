@@ -141,6 +141,8 @@ export interface CustomBoxDef {
   fontBold?: boolean;
   /** Cursiva específica del cuadro; si no se define usa la global */
   fontItalic?: boolean;
+  /** Semántica opcional del cuadro para auto-rellenar desde tablero */
+  semantic?: 'element' | 'folio';
 }
 
 export interface TemplateConfigState {

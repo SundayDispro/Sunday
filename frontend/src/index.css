@@ -36,6 +36,59 @@
   input, textarea, button {
     font-family: inherit;
   }
+
+  /* Tema oscuro: activado cuando <html> tiene la clase .dark */
+  .dark body {
+    background-color: #020617; /* fondo principal */
+    color: #e5e7eb;
+  }
+
+  .dark .bg-monday-bg {
+    background-color: #020617;
+  }
+
+  .dark .bg-monday-sidebar {
+    background-color: #020617;
+  }
+
+  .dark .bg-monday-sidebarHover {
+    background-color: #111827;
+  }
+
+  .dark .bg-monday-sidebarPanel {
+    background-color: #020617;
+  }
+
+  .dark .bg-monday-hover {
+    background-color: #111827;
+  }
+
+  .dark .bg-monday-pill {
+    background-color: #1f2937;
+  }
+
+  .dark .bg-white {
+    background-color: #020617;
+  }
+
+  .dark .text-monday-text {
+    color: #e5e7eb;
+  }
+
+  .dark .text-monday-subtext {
+    color: #9ca3af;
+  }
+
+  .dark .border-monday-border {
+    border-color: #1f2937;
+  }
+
+  .dark .shadow-monday-sm,
+  .dark .shadow-monday-md,
+  .dark .shadow-monday-lg,
+  .dark .shadow-monday-panel {
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.75);
+  }
 }
 
 @layer utilities {

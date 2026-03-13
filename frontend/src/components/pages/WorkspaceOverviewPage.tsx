@@ -1,17 +1,20 @@
 import React, { useState } from 'react';
-import { Clock, FileText, Lock, LayoutGrid, MoreHorizontal, Pencil, Trash2, LogOut } from 'lucide-react';
+import { Clock, FileText, LayoutGrid, Trash2 } from 'lucide-react';
 import { Workspace as WorkspaceType, Board } from '../../types';
 import * as Popover from '@radix-ui/react-popover';
 import * as Dialog from '@radix-ui/react-dialog';
+import { useUser } from '../../store/UserContext';
 
 const API_BASE = import.meta.env.DEV ? '' : 'http://localhost:3001';
 
-type TabId = 'recent' | 'content' | 'permissions';
+type TabId = 'recent' | 'content';
 
 interface WorkspaceOverviewPageProps {
   workspace: WorkspaceType | null;
+  workspaces: WorkspaceType[];
   boards: Board[];
   onSelectBoard: (boardId: string) => void;
+  onSelectWorkspace?: (workspaceId: string) => void;
   onWorkspaceUpdated: (w: WorkspaceType) => void;
   onWorkspaceDeleted: () => void;
   onBoardDeleted: () => void;
@@ -19,8 +22,10 @@ interface WorkspaceOverviewPageProps {
 
 export const WorkspaceOverviewPage: React.FC<WorkspaceOverviewPageProps> = ({
   workspace,
+  workspaces,
   boards,
   onSelectBoard,
+  onSelectWorkspace,
   onWorkspaceUpdated,
   onWorkspaceDeleted,
   onBoardDeleted,
@@ -33,7 +38,6 @@ export const WorkspaceOverviewPage: React.FC<WorkspaceOverviewPageProps> = ({
     setDescription(workspace?.description ?? '');
   }, [workspace?.id, workspace?.description]);
   const [savingDesc, setSavingDesc] = useState(false);
-  const [menuOpen, setMenuOpen] = useState(false);
   const [renameOpen, setRenameOpen] = useState(false);
   const [renameValue, setRenameValue] = useState(workspace?.name ?? '');
   const [savingRename, setSavingRename] = useState(false);
@@ -44,6 +48,9 @@ export const WorkspaceOverviewPage: React.FC<WorkspaceOverviewPageProps> = ({
   const [boardDeleteOpen, setBoardDeleteOpen] = useState(false);
   const [boardDeleting, setBoardDeleting] = useState(false);
   const [boardDeleteError, setBoardDeleteError] = useState<string | null>(null);
+
+  const { currentUser } = useUser();
+  const canEditWorkspaceOrBoard = currentUser?.role === 'ADMIN' || currentUser?.role === 'VENTAS';
 
   const saveDescription = async () => {
     if (!workspace?.id) return;
@@ -91,7 +98,6 @@ export const WorkspaceOverviewPage: React.FC<WorkspaceOverviewPageProps> = ({
       const res = await fetch(`${API_BASE}/api/workspaces/${workspace.id}`, { method: 'DELETE' });
       if (res.ok) {
         setDeleteConfirmOpen(false);
-        setMenuOpen(false);
         setDeleteError(null);
         onWorkspaceDeleted();
       } else {
@@ -177,20 +183,20 @@ export const WorkspaceOverviewPage: React.FC<WorkspaceOverviewPageProps> = ({
   return (
     <div className="flex-1 flex flex-col overflow-hidden bg-monday-bg">
       <div className="p-6 border-b border-monday-border bg-white">
-        <div className="flex items-start justify-between gap-4">
-          <div className="flex items-start gap-4">
-            <div
-              className="w-14 h-14 rounded-xl flex items-center justify-center text-white text-2xl font-bold shrink-0"
-              style={{ backgroundColor: '#00c875' }}
-            >
-              {initial}
-            </div>
-            <div>
+        <div className="flex items-start gap-6">
+          <div
+            className="w-24 h-24 rounded-2xl flex items-center justify-center text-white text-4xl font-bold shrink-0"
+            style={{ backgroundColor: '#00c875' }}
+          >
+            {initial}
+          </div>
+          <div>
+            {canEditWorkspaceOrBoard ? (
               <Popover.Root open={renameOpen} onOpenChange={setRenameOpen}>
                 <Popover.Trigger asChild>
-                  <button className="flex items-center gap-1 text-[22px] font-bold text-monday-text hover:bg-monday-hover rounded px-1 -ml-1">
+                  <button className="flex items-center gap-1 text-3xl font-bold text-monday-text hover:bg-monday-hover rounded px-1 -ml-1">
                     {workspace.name}
-                    <span className="text-monday-subtext">▾</span>
+                    <span className="text-monday-subtext text-2xl">▾</span>
                   </button>
                 </Popover.Trigger>
                 <Popover.Portal>
@@ -226,95 +232,53 @@ export const WorkspaceOverviewPage: React.FC<WorkspaceOverviewPageProps> = ({
                   </Popover.Content>
                 </Popover.Portal>
               </Popover.Root>
-              {editingDescription ? (
-                <div className="mt-2">
-                  <textarea
-                    value={description}
-                    onChange={e => setDescription(e.target.value)}
-                    onBlur={saveDescription}
-                    className="w-full max-w-md px-3 py-2 border border-monday-border rounded-monday text-[13px] resize-none"
-                    placeholder="Agregar descripción del espacio de trabajo"
-                    rows={2}
-                    autoFocus
-                  />
-                </div>
-              ) : (
+            ) : (
+              <span className="text-3xl font-bold text-monday-text">{workspace.name}</span>
+            )}
+            {canEditWorkspaceOrBoard && (
+              <>
+                {editingDescription ? (
+                  <div className="mt-2">
+                    <textarea
+                      value={description}
+                      onChange={e => setDescription(e.target.value)}
+                      onBlur={saveDescription}
+                      className="w-full max-w-md px-3 py-2 border border-monday-border rounded-monday text-[13px] resize-none"
+                      placeholder="Agregar descripción del espacio de trabajo"
+                      rows={2}
+                      autoFocus
+                    />
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => setEditingDescription(true)}
+                    className="mt-1 block text-[13px] text-monday-subtext hover:text-monday-text text-left"
+                  >
+                    {workspace.description?.trim()
+                      ? workspace.description
+                      : 'Agregar descripción del espacio de trabajo'}
+                  </button>
+                )}
                 <button
                   type="button"
-                  onClick={() => setEditingDescription(true)}
-                  className="mt-1 block text-[13px] text-monday-subtext hover:text-monday-text text-left"
+                  onClick={() => { setDeleteError(null); setDeleteConfirmOpen(true); }}
+                  className="mt-2 text-[12px] text-monday-subtext hover:text-red-600 hover:underline"
                 >
-                  {workspace.description?.trim()
-                    ? workspace.description
-                    : 'Agregar descripción del espacio de trabajo'}
+                  Eliminar espacio de trabajo
                 </button>
-              )}
+              </>
+            )}
+            {!canEditWorkspaceOrBoard && workspace.description?.trim() && (
+              <p className="mt-1 text-[13px] text-monday-subtext">{workspace.description}</p>
+            )}
             </div>
           </div>
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              className="flex items-center gap-2 px-4 py-2 rounded-monday bg-monday-blue text-white text-[13px] font-medium hover:bg-monday-blue/90"
-            >
-              Invitar / 1
-            </button>
-            <Popover.Root open={menuOpen} onOpenChange={setMenuOpen}>
-              <Popover.Trigger asChild>
-                <button
-                  type="button"
-                  className="p-2 rounded-monday text-monday-subtext hover:bg-monday-hover hover:text-monday-text"
-                >
-                  <MoreHorizontal size={20} />
-                </button>
-              </Popover.Trigger>
-              <Popover.Portal>
-                <Popover.Content
-                  className="z-50 w-56 rounded-xl shadow-monday-lg border border-monday-border bg-white p-1"
-                  sideOffset={8}
-                  align="end"
-                >
-                  <button
-                    type="button"
-                    onClick={() => { setMenuOpen(false); setRenameOpen(true); }}
-                    className="w-full flex items-center gap-2 px-3 py-2 text-[13px] text-monday-text hover:bg-monday-hover rounded-lg text-left"
-                  >
-                    <Pencil size={14} />
-                    Renombrar espacio de trabajo
-                  </button>
-                  <button
-                    type="button"
-                    className="w-full flex items-center gap-2 px-3 py-2 text-[13px] text-monday-subtext hover:bg-monday-hover rounded-lg text-left opacity-60 cursor-not-allowed"
-                    disabled
-                  >
-                    <Lock size={14} />
-                    Cambiar tipo
-                  </button>
-                  <button
-                    type="button"
-                    className="w-full flex items-center gap-2 px-3 py-2 text-[13px] text-monday-text hover:bg-monday-hover rounded-lg text-left"
-                  >
-                    <LogOut size={14} />
-                    Salir de espacio de trabajo
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => { setMenuOpen(false); setDeleteError(null); setDeleteConfirmOpen(true); }}
-                    className="w-full flex items-center gap-2 px-3 py-2 text-[13px] text-red-600 hover:bg-red-50 rounded-lg text-left"
-                  >
-                    <Trash2 size={14} />
-                    Eliminar espacio de trabajo
-                  </button>
-                </Popover.Content>
-              </Popover.Portal>
-            </Popover.Root>
-          </div>
-        </div>
 
         <div className="flex gap-1 mt-6 border-b border-monday-border">
           {[
             { id: 'recent' as TabId, label: 'Recientes', icon: Clock },
             { id: 'content' as TabId, label: 'Contenido', icon: FileText },
-            { id: 'permissions' as TabId, label: 'Permisos', icon: Lock },
           ].map(t => (
             <button
               key={t.id}
@@ -331,46 +295,90 @@ export const WorkspaceOverviewPage: React.FC<WorkspaceOverviewPageProps> = ({
         </div>
       </div>
 
-      <div className="flex-1 overflow-auto p-6">
+      <div className="flex-1 overflow-auto p-6 min-h-0">
         {tab === 'recent' && (
-          <ul className="space-y-1">
-            {boards.length === 0 ? (
-              <p className="text-[13px] text-monday-subtext">No hay tableros en este workspace.</p>
-            ) : (
-              boards.map(b => (
-                <li key={b.id} className="flex items-center justify-between gap-2">
-                  <button
-                    type="button"
-                    onClick={() => onSelectBoard(b.id)}
-                    className="flex-1 flex items-center gap-3 px-3 py-2.5 rounded-monday hover:bg-monday-hover text-left transition-colors"
-                  >
-                    <div className="w-8 h-8 rounded-lg bg-monday-hover flex items-center justify-center text-monday-subtext">
-                      <LayoutGrid size={16} />
-                    </div>
-                    <span className="text-[14px] font-medium text-monday-text">{b.name}</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setBoardToDelete(b);
-                      setBoardDeleteError(null);
-                      setBoardDeleteOpen(true);
-                    }}
-                    className="p-2 rounded-full text-monday-subtext hover:text-red-600 hover:bg-red-50 shrink-0"
-                    aria-label={`Eliminar tablero ${b.name}`}
-                  >
-                    <Trash2 size={16} />
-                  </button>
-                </li>
-              ))
+          <div className="space-y-8">
+            {workspaces.length > 0 && (
+              <section>
+                <h2 className="text-[15px] font-semibold text-monday-subtext mb-3 uppercase tracking-tight">Espacios de trabajo</h2>
+                <ul className="space-y-2">
+                  {workspaces.map(ws => {
+                    const wsInitial = ws.name.charAt(0).toUpperCase();
+                    const isActive = ws.id === workspace?.id;
+                    return (
+                      <li key={ws.id}>
+                        <button
+                          type="button"
+                          onClick={() => onSelectWorkspace?.(ws.id)}
+                          className={`w-full flex items-center gap-4 px-4 py-3 rounded-xl text-left transition-colors ${
+                            isActive ? 'bg-monday-blue/10 ring-1 ring-monday-blue/30' : 'hover:bg-monday-hover'
+                          }`}
+                        >
+                          <div
+                            className="w-14 h-14 rounded-xl flex items-center justify-center text-white text-xl font-bold shrink-0"
+                            style={{ backgroundColor: isActive ? '#5034ff' : '#00c875' }}
+                          >
+                            {wsInitial}
+                          </div>
+                          <span className="text-[17px] font-semibold text-monday-text">{ws.name}</span>
+                        </button>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </section>
             )}
-          </ul>
+            <section>
+              <h2 className="text-[15px] font-semibold text-monday-subtext mb-3 uppercase tracking-tight">Tableros</h2>
+              {boards.length === 0 ? (
+                <p className="text-[13px] text-monday-subtext">No hay tableros en este workspace.</p>
+              ) : (
+                <ul className="space-y-2">
+                  {boards.map(b => (
+                    <li key={b.id} className="flex items-center justify-between gap-3">
+                      <button
+                        type="button"
+                        onClick={() => onSelectBoard(b.id)}
+                        className="flex-1 flex items-center gap-4 px-4 py-3 rounded-xl hover:bg-monday-hover text-left transition-colors"
+                      >
+                        <div className="w-14 h-14 rounded-xl bg-monday-blue/15 flex items-center justify-center text-monday-blue shrink-0">
+                          <LayoutGrid size={28} />
+                        </div>
+                        <span className="text-[17px] font-semibold text-monday-text">{b.name}</span>
+                      </button>
+                      {canEditWorkspaceOrBoard && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setBoardToDelete(b);
+                            setBoardDeleteError(null);
+                            setBoardDeleteOpen(true);
+                          }}
+                          className="p-2.5 rounded-xl text-monday-subtext hover:text-red-600 hover:bg-red-50 shrink-0"
+                          aria-label={`Eliminar tablero ${b.name}`}
+                        >
+                          <Trash2 size={20} />
+                        </button>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </section>
+          </div>
         )}
         {tab === 'content' && (
-          <p className="text-[13px] text-monday-subtext">Contenido del workspace (tableros y elementos).</p>
-        )}
-        {tab === 'permissions' && (
-          <p className="text-[13px] text-monday-subtext">Permisos del espacio de trabajo.</p>
+          <section className="max-w-2xl">
+            <h2 className="text-[18px] font-semibold text-monday-text mb-4">Feed general</h2>
+            <div className="space-y-4">
+              <p className="text-[14px] text-monday-subtext">
+                Actualización del feed: actividad reciente en tableros y documentos del workspace.
+              </p>
+              <div className="rounded-xl border border-monday-border bg-white p-4 text-[13px] text-monday-subtext">
+                No hay actividad reciente para mostrar.
+              </div>
+            </div>
+          </section>
         )}
       </div>
 

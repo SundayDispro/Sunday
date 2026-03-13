@@ -9,7 +9,7 @@ import {
 import { TextFormatBarForTemplate } from '../../docs/TextFormatBar';
 import { useUser } from '../../../store/UserContext';
 
-const API_BASE = 'http://localhost:3001';
+const API_BASE = import.meta.env.DEV ? '' : 'http://localhost:3001';
 
 interface Props {
   docType: PdfDocType;
@@ -163,8 +163,8 @@ export const PdfTemplateEditor: React.FC<Props> = ({
       const file = e.target.files?.[0];
       if (!file) return;
       setImageDialogError(null);
-      if (!/^image\/(jpe?g|png|gif|webp)$/i.test(file.type)) {
-        setImageDialogError('Usa una imagen (JPG, PNG, GIF o WebP).');
+      if (!/^image\/jpe?g$/i.test(file.type)) {
+        setImageDialogError('Tipo de archivo no permitido. Solo se aceptan imágenes JPG.');
         return;
       }
       const formData = new FormData();
@@ -175,20 +175,30 @@ export const PdfTemplateEditor: React.FC<Props> = ({
           method: 'POST',
           body: formData,
         });
-        const text = await res.text();
-        let data: { error?: string; url?: string } = {};
-        try {
-          data = text ? JSON.parse(text) : {};
-        } catch {
-          data = { error: res.status === 404 ? 'Servidor no disponible.' : `Error (${res.status})` };
+        const data: { error?: string; url?: string } = await res.json().catch(() => ({}));
+        if (!res.ok || !data.url) {
+          const backendMsg =
+            typeof data.error === 'string' && data.error.trim()
+              ? data.error
+              : res.status === 404
+              ? 'Servidor no disponible. ¿Está corriendo el backend en el puerto 3001?'
+              : `Error al subir archivo (${res.status}).`;
+          throw new Error(backendMsg);
         }
-        if (!res.ok) throw new Error(data.error || 'Error al subir');
-        const base = typeof window !== 'undefined' && window.location?.origin ? window.location.origin : API_BASE;
-        const fullUrl = (data.url || '').startsWith('/') ? `${API_BASE}${data.url}` : (data.url || '');
+        const fullUrl = data.url.startsWith('/') ? `${API_BASE}${data.url}` : data.url;
         setImageDialogUrl(fullUrl);
         if (imageFileInputRef.current) imageFileInputRef.current.value = '';
       } catch (err) {
-        setImageDialogError(err instanceof Error ? err.message : 'Error al subir la imagen');
+        const msg = err instanceof Error ? err.message : 'Error al subir la imagen';
+        const isNetwork =
+          msg === 'Failed to fetch' ||
+          msg.includes('NetworkError') ||
+          msg.toLowerCase().includes('failed to fetch');
+        setImageDialogError(
+          isNetwork
+            ? 'No se pudo conectar con el servidor. Comprueba que el backend esté corriendo (puerto 3001).'
+            : msg
+        );
       } finally {
         setImageDialogUploading(false);
       }
@@ -419,6 +429,7 @@ export const PdfTemplateEditor: React.FC<Props> = ({
           selectedBoxId={selectedBoxId}
           onAddTextBox={() => addCustomBox(false)}
           onAddImageBox={openAddImageDialog}
+          isAdmin={isAdmin}
         />
       )}
       <div className="flex-1 overflow-auto flex items-center justify-center min-h-0 p-2 sm:p-4">
