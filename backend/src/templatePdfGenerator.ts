@@ -42,29 +42,38 @@ export interface ContentFieldPosition {
   maxWidth?: number;
 }
 
-/** Mapeo de nombre de campo -> posición por tipo de plantilla. Ajustar según tus PDFs. */
+/** Formato de fecha para PDF (DD/MM/YYYY como en Corel/Illustrator). */
+function formatDateForPdf(value: string): string {
+  const s = String(value).trim();
+  if (!s) return s;
+  const match = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (match) return `${match[3]}/${match[2]}/${match[1]}`;
+  return s;
+}
+
+/** Mapeo de nombre de campo -> posición por tipo de plantilla. Origen abajo-izq en puntos; valores debajo de rótulos (estilo Corel). */
 export const TEMPLATE_FIELD_POSITIONS: Record<TemplateKind, Record<string, FieldPosition>> = {
   cotizacion: {
-    cliente: { x: 80, y: 700, fontSize: 11 },
+    cliente: { x: 80, y: 678, fontSize: 11 },
     fecha: { x: 450, y: 700, fontSize: 10 },
-    vigencia: { x: 80, y: 670, fontSize: 10 },
+    vigencia: { x: 80, y: 648, fontSize: 10 },
     subtotal: { x: 400, y: 200, fontSize: 10 },
     iva: { x: 400, y: 180, fontSize: 10 },
     total: { x: 400, y: 160, fontSize: 11 },
     notas: { x: 80, y: 130, fontSize: 9, maxWidth: 450 },
   },
   levantamiento: {
-    proyecto: { x: 80, y: 700, fontSize: 11 },
+    proyecto: { x: 80, y: 678, fontSize: 11 },
     fecha: { x: 450, y: 700, fontSize: 10 },
-    direccion: { x: 80, y: 660, fontSize: 10, maxWidth: 450 },
-    descripcion: { x: 80, y: 600, fontSize: 10, maxWidth: 450 },
+    direccion: { x: 80, y: 658, fontSize: 10, maxWidth: 450 },
+    descripcion: { x: 80, y: 578, fontSize: 10, maxWidth: 450 },
     observaciones: { x: 80, y: 400, fontSize: 9, maxWidth: 450 },
   },
   hoja_trabajo: {
-    titulo: { x: 80, y: 700, fontSize: 12 },
+    titulo: { x: 80, y: 678, fontSize: 12 },
     fecha: { x: 450, y: 700, fontSize: 10 },
-    item: { x: 80, y: 660, fontSize: 10 },
-    descripcion: { x: 80, y: 600, fontSize: 10, maxWidth: 450 },
+    item: { x: 80, y: 658, fontSize: 10 },
+    descripcion: { x: 80, y: 578, fontSize: 10, maxWidth: 450 },
     observaciones: { x: 80, y: 400, fontSize: 9, maxWidth: 450 },
   },
 };
@@ -87,7 +96,6 @@ export async function generatePdfFromTemplate(
   content: Record<string, unknown>
 ): Promise<Buffer> {
   const templatePath = getTemplatePathIfExists(kind);
-  const positions = TEMPLATE_FIELD_POSITIONS[kind] ?? {};
 
   let pdfDoc: PDFDocument;
   let pageIndex = 0;
@@ -111,11 +119,17 @@ export async function generatePdfFromTemplate(
 
   let avertaRegular = standardHelvetica;
   let avertaBold = standardHelveticaBold;
+  let avertaItalic = standardHelveticaOblique;
+  let avertaBoldItalic = standardHelveticaBoldOblique;
   try {
     const regularBytes = fs.readFileSync(path.join(FONTS_DIR, 'AvertaStd-Regular.ttf'));
     const boldBytes = fs.readFileSync(path.join(FONTS_DIR, 'AvertaStd-Bold.ttf'));
     avertaRegular = await pdfDoc.embedFont(regularBytes);
     avertaBold = await pdfDoc.embedFont(boldBytes);
+    const italicBytes = fs.readFileSync(path.join(FONTS_DIR, 'AvertaStd-RegularItalic.ttf'));
+    const boldItalicBytes = fs.readFileSync(path.join(FONTS_DIR, 'AvertaStd-BoldItalic.ttf'));
+    avertaItalic = await pdfDoc.embedFont(italicBytes);
+    avertaBoldItalic = await pdfDoc.embedFont(boldItalicBytes);
   } catch {
     // Si Averta no está disponible se usan las estándar ya asignadas
   }
@@ -133,14 +147,24 @@ export async function generatePdfFromTemplate(
       if (italic) return standardHelveticaOblique;
       return standardHelvetica;
     }
-    return bold ? avertaBold : avertaRegular;
+    // Averta Std (u otra familia no estándar): devolver variante correcta (Regular, Bold, Italic, BoldItalic)
+    if (bold && italic) return avertaBoldItalic;
+    if (bold) return avertaBold;
+    if (italic) return avertaItalic;
+    return avertaRegular;
   }
 
   const defaultColor = hexToRgb((content.globalFontColor as string) || '#000000');
+  const globalFontBold = content.globalFontBold === true || content.globalFontBold === 'true';
+  const globalFontItalic = content.globalFontItalic === true || content.globalFontItalic === 'true';
 
   const lineHeight = 1.2;
+  /** Relación aproximada ascenso/tamaño (em). Valor conservador para que la parte superior del glifo no se corte en el cuadro (folio, etc.). */
+  const ascentFactor = 0.82;
+  /** Margen superior en puntos para que el texto no se corte por el borde del cuadro (cap height / ascendente). */
+  const TOP_MARGIN_PT = 5;
 
-  /** Dibuja texto respetando saltos de línea (\n) y aplicando word-wrap si maxWidth está definido */
+  /** Dibuja texto respetando saltos de línea (\n) y word-wrap. y = distancia desde el borde SUPERIOR de la página hasta la parte superior del cuadro (origen arriba-izq). */
   function drawText(
     text: string,
     x: number,
@@ -153,7 +177,11 @@ export async function generatePdfFromTemplate(
     if (text == null || String(text).trim() === '') return;
     const safeText = String(text).slice(0, 2000);
     const size = fontSize;
-    let yy = height - y;
+    // Margen superior por cuadro: evita que el borde corte la parte alta de las letras (ej. folio "006").
+    const topMarginPt = Math.max(TOP_MARGIN_PT, size * 0.08);
+    // En PDF drawText usa baseline (y hacia arriba). baseline desde arriba = y + margen + ascenso.
+    const firstLineBaselineFromTop = y + topMarginPt + size * ascentFactor;
+    let yy = height - firstLineBaselineFromTop;
 
     const wrapLine = (line: string): string[] => {
       if (!maxWidth || line.trim() === '') return [line];
@@ -187,46 +215,9 @@ export async function generatePdfFromTemplate(
     }
   }
 
-  // Posiciones: priorizar las del documento (fieldPositions en content), luego las por defecto
-  const docFieldPositions = (content.fieldPositions ?? {}) as Record<string, ContentFieldPosition>;
-  const globalFontSize = typeof content.globalFontSize === 'number' ? content.globalFontSize : undefined;
-  const standardFieldValues = new Set<string>();
-  for (const key of Object.keys(positions)) {
-    if (key === 'items') continue;
-    const v = content[key];
-    if (v != null && typeof v !== 'object' && !Array.isArray(v)) {
-      const t = String(v).trim();
-      if (t) standardFieldValues.add(t);
-    }
-  }
-
-  // Campos estándar basados en TEMPLATE_FIELD_POSITIONS
-  for (const [key, pos] of Object.entries(positions)) {
-    const value = content[key];
-    if (value === undefined || value === null) continue;
-    if (typeof value === 'object' && !Array.isArray(value) && key !== 'items') continue;
-    if (Array.isArray(value)) continue; // items se dibujan aparte
-    const text = String(value).trim();
-    if (!text) continue;
-    const custom = docFieldPositions[key];
-    let xPts: number;
-    let yPts: number;
-    let fontSize = globalFontSize ?? pos.fontSize ?? 10;
-    let maxWidth = pos.maxWidth;
-    if (custom && typeof custom.x === 'number' && typeof custom.y === 'number') {
-      xPts = custom.x * width;
-      yPts = custom.y * height;
-      if (typeof custom.fontSize === 'number') fontSize = custom.fontSize;
-      if (typeof custom.maxWidth === 'number') maxWidth = custom.maxWidth;
-    } else {
-      xPts = pos.x;
-      yPts = pos.y;
-    }
-    const font = getFont(undefined, (pos.weight ?? 'regular') === 'bold', false);
-    drawText(text, xPts, yPts, fontSize, maxWidth, font, defaultColor);
-  }
-
-  // Cuadros personalizados: usar posición y estilo del documento (customBoxes con fontSize, fontBold, fontItalic, fontFamily, fontColor)
+  // Solo se dibujan los cuadros de texto que el usuario definió (customBoxes). El valor viene de customFieldValues
+  // o, si el cuadro tiene fieldKey, del campo del formulario (content[fieldKey]). Sin campos automáticos en posiciones fijas.
+  const globalFontSize = typeof content.globalFontSize === 'number' ? content.globalFontSize : 11;
   const customBoxes = (content.customBoxes ?? []) as Array<
     {
       id: string;
@@ -240,18 +231,26 @@ export async function generatePdfFromTemplate(
       fontItalic?: boolean;
       fontFamily?: string;
       fontColor?: string;
+      /** Si está definido, el texto se toma de content[fieldKey] (p. ej. cliente, fecha) en lugar de customFieldValues */
+      fieldKey?: string;
     }
   >;
   const customFieldValues = (content.customFieldValues ?? {}) as Record<string, string>;
   const defaultBoxFontSize = typeof content.globalFontSize === 'number' ? content.globalFontSize : 11;
-  if (Array.isArray(customBoxes) && Object.keys(customFieldValues).length > 0) {
+  if (Array.isArray(customBoxes)) {
     for (const box of customBoxes) {
       if (!box || (box.kind && box.kind !== 'text')) continue;
-      const text = (customFieldValues[box.id] ?? '').trim();
+      let text: string;
+      if (box.fieldKey && typeof content[box.fieldKey] === 'string') {
+        text = box.fieldKey === 'fecha' ? formatDateForPdf(content[box.fieldKey] as string) : String(content[box.fieldKey]).trim();
+      } else {
+        text = (customFieldValues[box.id] ?? '').trim();
+      }
       if (!text) continue;
-      if (standardFieldValues.has(text)) continue; // ya dibujado como campo estándar en su posición correcta, evitar duplicar
       const size = typeof box.fontSize === 'number' ? box.fontSize : defaultBoxFontSize;
-      const boxFont = getFont(box.fontFamily, !!box.fontBold, !!box.fontItalic);
+      const boxBold = typeof box.fontBold === 'boolean' ? box.fontBold : globalFontBold;
+      const boxItalic = typeof box.fontItalic === 'boolean' ? box.fontItalic : globalFontItalic;
+      const boxFont = getFont(box.fontFamily, boxBold, boxItalic);
       const boxColor = typeof box.fontColor === 'string' && box.fontColor
         ? hexToRgb(box.fontColor)
         : defaultColor;
@@ -259,52 +258,6 @@ export async function generatePdfFromTemplate(
       const xPts = (box.x ?? 0) * width;
       const yPts = (box.y ?? 0) * height;
       drawText(text, xPts, yPts, size, maxWidth, boxFont, boxColor);
-    }
-  }
-
-  // Caso especial: ítems de cotización (tabla) — misma fuente que el resto (Averta/Helvetica)
-  if (kind === 'cotizacion' && Array.isArray(content.items) && content.items.length > 0) {
-    const items = content.items as Array<{ descripcion?: string; cantidad?: string; precio?: string; total?: string }>;
-    let rowY = 620;
-    const colX = { desc: 80, cant: 350, precio: 400, total: 480 };
-    const fontSize = 9;
-    const fontTable = getFont(undefined, false, false);
-    const fontTableBold = getFont(undefined, true, false);
-    for (let i = 0; i < Math.min(items.length, 15); i++) {
-      const it = items[i];
-      if (it.descripcion)
-        page.drawText(String(it.descripcion).slice(0, 50), {
-          x: colX.desc,
-          y: height - rowY,
-          size: fontSize,
-          font: fontTable,
-          color: defaultColor,
-        });
-      if (it.cantidad)
-        page.drawText(String(it.cantidad), {
-          x: colX.cant,
-          y: height - rowY,
-          size: fontSize,
-          font: fontTable,
-          color: defaultColor,
-        });
-      if (it.precio)
-        page.drawText(String(it.precio), {
-          x: colX.precio,
-          y: height - rowY,
-          size: fontSize,
-          font: fontTable,
-          color: defaultColor,
-        });
-      if (it.total)
-        page.drawText(String(it.total), {
-          x: colX.total,
-          y: height - rowY,
-          size: fontSize,
-          font: fontTableBold,
-          color: defaultColor,
-        });
-      rowY += 22;
     }
   }
 

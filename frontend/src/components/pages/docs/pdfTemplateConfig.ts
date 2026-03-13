@@ -24,27 +24,28 @@ function pct(xPts: number, yPts: number) {
   return { x: xPts / A4_W, y: 1 - yPts / A4_H };
 }
 
+/** Posiciones alineadas con backend (estilo Corel: valor debajo del rótulo). */
 export const PDF_FIELDS: Record<PdfDocType, FieldDef[]> = {
   cotizacion: [
-    { key: 'cliente', label: 'Cliente', ...pct(80, 700), width: 0.35, height: 0.04, inputType: 'text' },
+    { key: 'cliente', label: 'Cliente', ...pct(80, 678), width: 0.35, height: 0.04, inputType: 'text' },
     { key: 'fecha', label: 'Fecha', ...pct(450, 700), width: 0.2, height: 0.04, inputType: 'date' },
-    { key: 'vigencia', label: 'Vigencia', ...pct(80, 670), width: 0.5, height: 0.04, inputType: 'text' },
+    { key: 'vigencia', label: 'Vigencia', ...pct(80, 648), width: 0.5, height: 0.04, inputType: 'text' },
     { key: 'subtotal', label: 'Subtotal', ...pct(400, 200), width: 0.15, height: 0.04, inputType: 'text' },
     { key: 'iva', label: 'IVA', ...pct(400, 180), width: 0.15, height: 0.04, inputType: 'text' },
     { key: 'total', label: 'Total', ...pct(400, 160), width: 0.15, height: 0.04, inputType: 'text' },
   ],
   levantamiento: [
-    { key: 'proyecto', label: 'Proyecto', ...pct(80, 700), width: 0.35, height: 0.04, inputType: 'text' },
+    { key: 'proyecto', label: 'Proyecto', ...pct(80, 678), width: 0.35, height: 0.04, inputType: 'text' },
     { key: 'fecha', label: 'Fecha', ...pct(450, 700), width: 0.2, height: 0.04, inputType: 'date' },
-    { key: 'direccion', label: 'Dirección', ...pct(80, 660), width: 0.75, height: 0.04, inputType: 'text' },
-    { key: 'descripcion', label: 'Descripción', ...pct(80, 600), width: 0.75, height: 0.15, inputType: 'textarea' },
+    { key: 'direccion', label: 'Dirección', ...pct(80, 658), width: 0.75, height: 0.04, inputType: 'text' },
+    { key: 'descripcion', label: 'Descripción', ...pct(80, 578), width: 0.75, height: 0.15, inputType: 'textarea' },
     { key: 'observaciones', label: 'Observaciones', ...pct(80, 400), width: 0.75, height: 0.2, inputType: 'textarea' },
   ],
   hoja_trabajo: [
-    { key: 'titulo', label: 'Título', ...pct(80, 700), width: 0.35, height: 0.04, inputType: 'text' },
+    { key: 'titulo', label: 'Título', ...pct(80, 678), width: 0.35, height: 0.04, inputType: 'text' },
     { key: 'fecha', label: 'Fecha', ...pct(450, 700), width: 0.2, height: 0.04, inputType: 'date' },
-    { key: 'item', label: 'Ítem / Referencia', ...pct(80, 660), width: 0.5, height: 0.04, inputType: 'text' },
-    { key: 'descripcion', label: 'Descripción', ...pct(80, 600), width: 0.75, height: 0.15, inputType: 'textarea' },
+    { key: 'item', label: 'Ítem / Referencia', ...pct(80, 658), width: 0.5, height: 0.04, inputType: 'text' },
+    { key: 'descripcion', label: 'Descripción', ...pct(80, 578), width: 0.75, height: 0.15, inputType: 'textarea' },
     { key: 'observaciones', label: 'Observaciones', ...pct(80, 400), width: 0.75, height: 0.2, inputType: 'textarea' },
   ],
 };
