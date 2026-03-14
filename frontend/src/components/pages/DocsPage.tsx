@@ -2124,6 +2124,7 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
     action: 'saveExisting' | 'saveNew';
   } | null>(null);
   const overwriteActionRef = useRef<(() => Promise<void> | void) | null>(null);
+  const previewWrapperRef = useRef<HTMLDivElement>(null);
 
   const runOverwriteAction = async () => {
     const fn = overwriteActionRef.current;
@@ -2323,6 +2324,13 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
             globalFontBold: false,
             globalFontItalic: false,
           };
+      // #region agent log
+      (() => {
+        const boxes = contentToSend.customBoxes as { fontFamily?: string; fontSize?: number; fontColor?: string }[] | undefined;
+        const b0 = boxes?.[0];
+        fetch('http://127.0.0.1:7405/ingest/45665ed0-78e4-47ef-822c-05ea837f0351', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': 'd2a70f' }, body: JSON.stringify({ sessionId: 'd2a70f', location: 'DocsPage.tsx:handleDownloadPdf', message: 'contentToSend fonts and first boxes', data: { globalFontFamily: contentToSend.globalFontFamily, globalFontSize: contentToSend.globalFontSize, globalFontBold: contentToSend.globalFontBold, globalFontItalic: contentToSend.globalFontItalic, globalFontColor: contentToSend.globalFontColor, customBoxesLen: boxes?.length ?? 0, firstBoxFontFamily: b0?.fontFamily, firstBoxFontSize: b0?.fontSize, firstBoxFontColor: b0?.fontColor }, hypothesisId: ['H1', 'H2', 'H4'], timestamp: Date.now() }) }).catch(() => {});
+      })();
+      // #endregion
       const res = await fetch(`${API_BASE}/api/templates/${docType}/generate`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -2903,9 +2911,9 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
           </div>
         </div>
       ) : (
-      <div className="flex-1 flex overflow-hidden bg-[#f0f2f5]">
+      <div className="flex-1 flex overflow-hidden bg-[#f0f2f5] min-h-0">
         {/* Tabla agrupada tipo ventana principal (grupos con color, cabeceras, tabla) */}
-        <div className="flex-1 overflow-auto custom-scrollbar px-6 py-5 min-w-0">
+        <div className="flex-1 overflow-auto custom-scrollbar px-6 py-5 min-w-0 min-h-0">
           {!workspaceId && (
             <div className="p-4 text-[13px] text-amber-700 bg-amber-50 border border-amber-200 rounded-lg max-w-md">
               Selecciona un workspace en la barra lateral para ver y crear documentos.
@@ -2986,8 +2994,8 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
           )}
         </div>
 
-        {/* Panel derecho: visualizador (solo lectura) en pestaña Documentos */}
-        <section className="flex-1 flex flex-col min-w-0 max-w-[60%] border-l border-monday-border bg-white">
+        {/* Panel derecho: visualizador (solo lectura); fondo blanco, scroll si hace falta */}
+        <section className="flex-1 flex flex-col min-w-0 min-h-0 max-w-[60%] border-l border-monday-border overflow-hidden bg-white" style={{ backgroundColor: '#ffffff' }}>
           {error && (
             <div className="px-4 py-2 bg-red-50 text-red-700 text-[13px] border-b border-red-200">
               {error}
@@ -3085,27 +3093,37 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
               </div>
 
               {selectedDoc && isPdfDocType(selectedDoc.type as DocType) ? (
-                <div className="flex-1 overflow-auto custom-scrollbar p-2 bg-monday-bg/40">
-                  <PdfTemplateEditor
-                    docType={selectedDoc.type as 'cotizacion' | 'levantamiento' | 'hoja_trabajo'}
-                    value={pdfFormDraft}
-                    onChange={setPdfFormDraft}
-                    docId={selectedDoc.id}
-                    templateConfig={pdfDocType ? templateConfigByType[pdfDocType] : null}
-                    isAdmin={isAdmin}
-                    viewerOnly
-                  />
+                <div className="flex-1 min-h-0 min-w-0 overflow-auto bg-white flex justify-center">
+                  {/* Documento A4: ancho 100% del panel, altura por aspect-ratio; scroll blanco si no cabe */}
+                  <div
+                    ref={previewWrapperRef}
+                    className="flex flex-col shrink-0 w-full max-w-full bg-white"
+                    style={{ aspectRatio: '595/842' }}
+                  >
+                    <PdfTemplateEditor
+                      key={selectedDoc.id}
+                      docType={selectedDoc.type as 'cotizacion' | 'levantamiento' | 'hoja_trabajo'}
+                      value={pdfFormDraft}
+                      onChange={setPdfFormDraft}
+                      docId={selectedDoc.id}
+                      templateConfig={pdfDocType ? templateConfigByType[pdfDocType] : null}
+                      isAdmin={isAdmin}
+                      viewerOnly
+                    />
+                  </div>
                 </div>
               ) : selectedDoc.type === 'sheet' ? (
-                <ExcelLikeSheet
-                  tableDraft={tableDraft}
-                  setTableDraft={setTableDraft}
-                  ensureTableSize={ensureTableSize}
-                  readOnly
-                />
+                <div className="flex-1 min-h-0 overflow-auto">
+                  <ExcelLikeSheet
+                    tableDraft={tableDraft}
+                    setTableDraft={setTableDraft}
+                    ensureTableSize={ensureTableSize}
+                    readOnly
+                  />
+                </div>
               ) : (
                 <div
-                  className="flex-1 overflow-auto p-6 bg-monday-bg/50 prose prose-sm max-w-none font-averta [&_h1]:text-xl [&_h2]:text-lg [&_h3]:text-base [&_ul]:list-disc [&_ol]:list-decimal [&_li]:ml-4"
+                  className="flex-1 min-h-0 overflow-auto p-6 bg-monday-bg/50 prose prose-sm max-w-none font-averta [&_h1]:text-xl [&_h2]:text-lg [&_h3]:text-base [&_ul]:list-disc [&_ol]:list-decimal [&_li]:ml-4"
                   dangerouslySetInnerHTML={{ __html: getInitialHtml(parseContent(selectedDoc).text ?? '') }}
                 />
               )}

@@ -317,6 +317,7 @@ export const PdfTemplateEditor: React.FC<Props> = ({
       color: col,
       fontSize: `${size}pt`,
       ...(isSingleLineOrFolio ? { lineHeight: 1.1 } : {}),
+      ...(box.backgroundColor ? { backgroundColor: box.backgroundColor } : {}),
     };
   };
   useEffect(() => {
@@ -326,7 +327,7 @@ export const PdfTemplateEditor: React.FC<Props> = ({
   const previewImageUrl = imageDialogUrl.trim().startsWith('/') ? `${API_BASE}${imageDialogUrl}` : imageDialogUrl;
 
   return (
-    <div className="relative flex-1 flex flex-col overflow-hidden bg-monday-bg/30 min-h-0">
+    <div className={`relative flex-1 flex flex-col overflow-hidden min-h-0 ${viewerOnly ? 'bg-white' : 'bg-monday-bg/30'}`}>
       <Dialog.Root open={imageDialogOpen} onOpenChange={setImageDialogOpen}>
         <Dialog.Portal>
           <Dialog.Overlay className="fixed inset-0 bg-black/40 z-[100]" />
@@ -456,16 +457,15 @@ export const PdfTemplateEditor: React.FC<Props> = ({
           isAdmin={isAdmin}
         />
       )}
-      <div className={`flex-1 flex items-center justify-center min-h-0 p-2 sm:p-4 ${viewerOnly ? 'overflow-hidden' : 'overflow-auto'}`}>
+      <div className={`flex-1 flex min-h-0 ${viewerOnly ? 'items-stretch justify-center overflow-hidden p-0' : 'items-center justify-center p-2 sm:p-4 overflow-auto'}`}>
         <div
           ref={containerRef}
-          className="relative bg-transparent rounded-lg border border-monday-border/60 shadow-monday overflow-hidden"
+          className={`relative bg-transparent ${viewerOnly ? 'w-full h-full rounded-none overflow-visible border border-gray-200' : 'overflow-hidden rounded-lg border border-monday-border/60 shadow-monday'}`}
           style={
             viewerOnly
               ? {
+                  width: '100%',
                   height: '100%',
-                  width: 'auto',
-                  maxWidth: '100%',
                   aspectRatio: String(PAGE_ASPECT),
                 }
               : {
@@ -477,13 +477,15 @@ export const PdfTemplateEditor: React.FC<Props> = ({
                 }
           }
         >
-          {/* Capa 1: Fondo (PDF o blanco) — detrás y sin recibir clics */}
-          <div className="absolute inset-0 z-0">
+          {/* Capa 1: Fondo (PDF o blanco). Sin recorte para mostrar documento completo. */}
+          <div
+            className={`absolute inset-0 z-0 bg-white ${viewerOnly ? 'overflow-visible' : 'overflow-hidden'}`}
+          >
             {templatePdfUrl ? (
               <iframe
                 src={`${templatePdfUrl}#toolbar=0&navpanes=0&scrollbar=0`}
                 title="Plantilla PDF"
-                className="w-full h-full border-0 pointer-events-none select-none"
+                className="w-full h-full border-0 pointer-events-none select-none bg-white"
                 tabIndex={-1}
               />
             ) : (
@@ -492,9 +494,9 @@ export const PdfTemplateEditor: React.FC<Props> = ({
               </div>
             )}
           </div>
-          {/* Capa 2: solo cuadros que ADMIN agrega/modifica (customBoxes) */}
-          <div className={`absolute inset-0 z-20 ${viewerOnly ? 'pointer-events-none' : ''}`}>
-            <div className={`absolute inset-0 ${viewerOnly ? '' : 'pointer-events-auto'}`}>
+          {/* Capa 2: solo cuadros que ADMIN agrega/modifica (customBoxes). En viewerOnly sin overflow-hidden para no recortar. */}
+          <div className={`absolute inset-0 z-20 ${viewerOnly ? 'pointer-events-none overflow-visible' : 'overflow-hidden'}`}>
+            <div className={`absolute inset-0 ${viewerOnly ? 'pl-[2%]' : ''} ${viewerOnly ? '' : 'pointer-events-auto'}`} style={viewerOnly ? { boxSizing: 'border-box', width: '100%' } : undefined}>
               {customBoxes.map((box) => {
                 const canMoveOrDelete = !viewerOnly && (isAdmin || (currentUser?.id && box.ownerId === currentUser.id));
                 // Para usuarios no admin y que no son dueños del cuadro: solo mostrar texto “plano” sin marco
@@ -504,8 +506,11 @@ export const PdfTemplateEditor: React.FC<Props> = ({
                 const isResizingThis = resizing?.boxId === box.id && resizePreview;
                 const x = isDraggingThis ? dragPreview.x : box.x;
                 const y = isDraggingThis ? dragPreview.y : box.y;
-                const w = isResizingThis ? resizePreview.width : box.width;
-                const h = isResizingThis ? resizePreview.height : box.height;
+                let w = isResizingThis ? resizePreview.width : (box.width ?? 0.3);
+                let h = isResizingThis ? resizePreview.height : (box.height ?? 0.05);
+                // Recortar al área de la plantilla: que ningún cuadro sobresalga por la derecha o por abajo
+                w = Math.min(Number(w) || 0.3, Math.max(0, 1 - (Number(x) || 0)));
+                h = Math.min(Number(h) || 0.05, Math.max(0, 1 - (Number(y) || 0)));
                 const customValues = (value.customFieldValues as Record<string, string>) ?? {};
                 const boxVal = customValues[box.id] ?? '';
                 const boxTextStyle = getTextStyleForBox(box);
