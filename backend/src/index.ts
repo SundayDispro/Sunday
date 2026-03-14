@@ -8,7 +8,7 @@ import fs from 'fs';
 import multer from 'multer';
 import { PrismaClient } from '@prisma/client';
 import webpush from 'web-push';
-import { getTemplatePathIfExists } from './templatePdfGenerator';
+import { getTemplatePathIfExists, getTemplateImagePathIfExists } from './templatePdfGenerator';
 
 const prisma = new PrismaClient();
 const app = express();
@@ -1436,28 +1436,45 @@ app.get('/api/templates/:kind', (req, res) => {
     return res.status(400).json({ error: 'Tipo de plantilla no válido' });
   }
   const templatePath = getTemplatePathIfExists(kind as (typeof TEMPLATE_KINDS)[number]);
-  if (!templatePath) {
-    return res.status(404).json({ error: 'Plantilla no encontrada. Coloca el PDF en backend/templates/' + kind + '.pdf' });
+  if (templatePath) {
+    res.setHeader('Content-Type', 'application/pdf');
+    return res.sendFile(templatePath, (err) => {
+      if (err) res.status(500).json({ error: 'Error al enviar plantilla' });
+    });
   }
-  res.setHeader('Content-Type', 'application/pdf');
-  res.sendFile(templatePath, (err) => {
-    if (err) res.status(500).json({ error: 'Error al enviar plantilla' });
-  });
+  const templateImage = getTemplateImagePathIfExists(kind as (typeof TEMPLATE_KINDS)[number]);
+  if (templateImage) {
+    res.setHeader('Content-Type', templateImage.isPng ? 'image/png' : 'image/jpeg');
+    return res.sendFile(templateImage.path, (err) => {
+      if (err) res.status(500).json({ error: 'Error al enviar plantilla' });
+    });
+  }
+  return res.status(404).json({ error: 'Plantilla no encontrada. Coloca el PDF o JPG en backend/templates/' + kind + '.pdf (o .jpg)' });
 });
 
+// Generación PDF WYSIWYG: mismo HTML/CSS que el editor (Puppeteer) para que el PDF sea idéntico a la previsualización.
 app.post('/api/templates/:kind/generate', async (req, res) => {
   try {
     const kind = req.params.kind as string;
     if (!TEMPLATE_KINDS.includes(kind as (typeof TEMPLATE_KINDS)[number])) {
       return res.status(400).json({ error: 'Tipo de plantilla no válido' });
     }
-    const content = (req.body?.content ?? {}) as Record<string, unknown>;
-    const templatePath = getTemplatePathIfExists(kind as (typeof TEMPLATE_KINDS)[number]);
+    const rawContent = req.body?.content;
+    const content =
+      rawContent && typeof rawContent === 'object' && !Array.isArray(rawContent)
+        ? (rawContent as Record<string, unknown>)
+        : {};
+    // #region agent log
+    const cboxes = (content.customBoxes as { fontFamily?: string; fontSize?: number }[] | undefined);
+    const fb = cboxes?.[0];
+    await fetch('http://127.0.0.1:7405/ingest/45665ed0-78e4-47ef-822c-05ea837f0351', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': 'd2a70f' }, body: JSON.stringify({ sessionId: 'd2a70f', location: 'index.ts:generate', message: 'backend received content', data: { globalFontFamily: content.globalFontFamily, globalFontSize: content.globalFontSize, customBoxesLen: Array.isArray(content.customBoxes) ? content.customBoxes.length : 0, firstBoxFontFamily: fb?.fontFamily, firstBoxFontSize: fb?.fontSize }, hypothesisId: ['H1', 'H4'], timestamp: Date.now() }) }).catch(() => {});
+    // #endregion
+    const templatePdfPath = getTemplatePathIfExists(kind as (typeof TEMPLATE_KINDS)[number]);
     const { generatePdfFromDocument } = await import('./htmlPdfGenerator');
     const buffer = await generatePdfFromDocument({
       content,
       format: 'A4',
-      templatePdfPath: templatePath,
+      templatePdfPath: templatePdfPath ?? undefined,
     });
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', 'inline; filename="' + kind + '.pdf"');

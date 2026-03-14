@@ -198,10 +198,10 @@ export async function generatePdfFromDocument(
     });
 
     const page = await browser.newPage();
-    // Viewport A4 (595x842 pt) para que el layout con px se calcule igual que en el editor
-    const width = format === 'Letter' ? 612 : 595;
-    const height = format === 'Letter' ? 792 : 842;
-    await page.setViewport({ width, height });
+    // Viewport = A4 a 96dpi (794×1123) para que el contenido llene la página sin scale y sin franjas grises
+    const width = format === 'Letter' ? 816 : 794;
+    const height = format === 'Letter' ? 1056 : 1123;
+    await page.setViewport({ width, height, deviceScaleFactor: 1 });
     await page.setContent(html, {
       waitUntil: 'networkidle0',
       baseURL: process.env.API_BASE_URL || 'http://localhost:3001',
@@ -224,7 +224,6 @@ export async function generatePdfFromDocument(
       new Promise<void>((resolve) => setTimeout(resolve, 5000)), // timeout de seguridad
     ]);
 
-    // Evitar que reglas @media print alteren anchos (p. ej. texto apilado); el HTML usa @page en mm.
     await page.emulateMediaType('screen');
     const pdf = await page.pdf({
       format,

@@ -1,20 +1,21 @@
 /**
- * Genera HTML que replica exactamente el layout del editor de plantillas PDF.
- * Una sola fuente de verdad: el mismo HTML/CSS que ve el usuario es el que
- * Puppeteer convierte a PDF → WYSIWYG.
- * Usamos dimensiones fijas en px (A4) para que el layout no dependa de % en print.
+ * Genera HTML que replica el layout del editor de plantillas PDF.
+ * A4 a 96dpi = 794×1123 px para que el contenido llene la hoja sin scale y sin franjas grises.
  */
-const PAGE_W_PX = 595;
-const PAGE_H_PX = 842;
+import fs from 'fs';
+import path from 'path';
 
-/** Altura mínima para cuadros de una línea (folio, número): margen de maniobra para no cortar. */
-const MIN_HEIGHT_SINGLE_LINE_PX = 52;
-/** Altura mínima para cuadros multilínea (2–3 líneas visibles). */
-const MIN_HEIGHT_MULTI_PX = 48;
-/** Padding superior generoso para que el folio y números no se corten por arriba (ascendentes). */
-const PADDING_TOP_PX = 24;
-const PADDING_SIDES_PX = 6;
-const PADDING_BOTTOM_PX = 6;
+// A4 a 96dpi (210mm≈794px, 297mm≈1123px) — contenido = página, sin márgenes grises
+const PAGE_W_PX = 794;
+const PAGE_H_PX = 1123;
+
+// Proporciones iguales al editor (595×842 lógico escalado a PAGE_*)
+const MIN_HEIGHT_SINGLE_LINE_PX = Math.round(PAGE_H_PX * (48 / 842));
+const MIN_HEIGHT_MULTI_PX = Math.round(PAGE_H_PX * (28 / 842));
+const PADDING_TOP_SINGLE_PX = Math.round(PAGE_H_PX * (8 / 842));
+const PADDING_TOP_MULTI_PX = Math.round(PAGE_H_PX * (4 / 842));
+const PADDING_SIDES_PX = Math.round(PAGE_W_PX * (6 / 595));
+const PADDING_BOTTOM_PX = Math.round(PAGE_H_PX * (4 / 842));
 
 function escapeHtml(s: string): string {
   return s
@@ -70,6 +71,33 @@ function isLightColor(hex: string): boolean {
   return false;
 }
 
+/** Devuelve CSS @font-face para Averta Std (mismo nombre que en el editor) para que Puppeteer renderice igual. */
+function getAvertaStdFontFaceCss(): string {
+  const fontsDir = path.join(__dirname, '..', 'assets', 'fonts', 'AvertaStd');
+  const pairs: { file: string; weight: number; style: string }[] = [
+    { file: 'AvertaStd-Regular.ttf', weight: 400, style: 'normal' },
+    { file: 'AvertaStd-Bold.ttf', weight: 700, style: 'normal' },
+    { file: 'AvertaStd-RegularItalic.ttf', weight: 400, style: 'italic' },
+    { file: 'AvertaStd-BoldItalic.ttf', weight: 700, style: 'italic' },
+  ];
+  const rules: string[] = [];
+  for (const { file, weight, style } of pairs) {
+    const filePath = path.join(fontsDir, file);
+    try {
+      if (fs.existsSync(filePath)) {
+        const buf = fs.readFileSync(filePath);
+        const b64 = buf.toString('base64');
+        rules.push(
+          `@font-face{font-family:'Averta Std';src:url(data:font/ttf;base64,${b64}) format('truetype');font-weight:${weight};font-style:${style};}`
+        );
+      }
+    } catch {
+      // ignorar si no se puede leer
+    }
+  }
+  return rules.length > 0 ? rules.join('\n    ') : '';
+}
+
 export interface BuildDocumentHtmlOptions {
   /** Contenido del documento (customBoxes, customFieldValues, cliente, fecha, etc.) */
   content: Record<string, unknown>;
@@ -90,6 +118,10 @@ export function buildDocumentHtml(options: BuildDocumentHtmlOptions): string {
   const globalFontColor = String(content.globalFontColor ?? '#000000').trim();
   const globalFontBold = content.globalFontBold === true || content.globalFontBold === 'true';
   const globalFontItalic = content.globalFontItalic === true || content.globalFontItalic === 'true';
+
+  // #region agent log
+  let firstTextBoxStyles: { ff: string; size: number; bold: boolean; italic: boolean } | null = null;
+  // #endregion
 
   const backgroundStyle = backgroundImageDataUrl
     ? `background-image: url(${backgroundImageDataUrl}); background-size: 100% 100%; background-repeat: no-repeat;`
@@ -140,6 +172,13 @@ export function buildDocumentHtml(options: BuildDocumentHtmlOptions): string {
     const italic = typeof box.fontItalic === 'boolean' ? box.fontItalic : globalFontItalic;
     const col = typeof box.fontColor === 'string' && box.fontColor ? box.fontColor : globalFontColor;
 
+    // #region agent log
+    if (firstTextBoxStyles === null) {
+      firstTextBoxStyles = { ff, size, bold, italic };
+      fetch('http://127.0.0.1:7405/ingest/45665ed0-78e4-47ef-822c-05ea837f0351', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': 'd2a70f' }, body: JSON.stringify({ sessionId: 'd2a70f', location: 'documentHtmlBuilder.ts:buildDocumentHtml', message: 'computed first text box styles', data: { rawGlobalFontFamily: content.globalFontFamily, globalFontFamilyUsed: globalFontFamily, firstBox: firstTextBoxStyles }, hypothesisId: ['H1', 'H3', 'H5'], timestamp: Date.now() }) }).catch(() => {});
+    }
+    // #endregion
+
     const bgCol =
       typeof box.backgroundColor === 'string' && box.backgroundColor
         ? box.backgroundColor
@@ -151,16 +190,17 @@ export function buildDocumentHtml(options: BuildDocumentHtmlOptions): string {
     const isSingleLine = box.singleLine === true || box.semantic === 'folio';
     const minHeightPx = isSingleLine ? MIN_HEIGHT_SINGLE_LINE_PX : MIN_HEIGHT_MULTI_PX;
     const heightPx = Math.max(rawHeightPx, minHeightPx);
-    const heightClamped = Math.min(heightPx, PAGE_H_PX - topPx);
+    const heightClampedPx = Math.min(heightPx, PAGE_H_PX - topPx);
     const lineHeight = isSingleLine ? '1.1' : '1.35';
+    const paddingTopPx = isSingleLine ? PADDING_TOP_SINGLE_PX : PADDING_TOP_MULTI_PX;
     const boxStyle = [
       `position: absolute`,
       `left: ${leftPx}px`,
       `top: ${topPx}px`,
       `width: ${widthPx}px`,
-      `height: ${heightClamped}px`,
+      `height: ${heightClampedPx}px`,
       `margin: 0`,
-      `padding: ${PADDING_TOP_PX}px ${PADDING_SIDES_PX}px ${PADDING_BOTTOM_PX}px ${PADDING_SIDES_PX}px`,
+      `padding: ${paddingTopPx}px ${PADDING_SIDES_PX}px ${PADDING_BOTTOM_PX}px ${PADDING_SIDES_PX}px`,
       `line-height: ${lineHeight}`,
       `box-sizing: border-box`,
       `overflow: visible`,
@@ -184,6 +224,8 @@ export function buildDocumentHtml(options: BuildDocumentHtmlOptions): string {
       `word-break: break-word`,
       `overflow-wrap: break-word`,
       `box-sizing: border-box`,
+      `font-variant: no-common-ligatures`,
+      `text-rendering: geometricPrecision`,
     ].join('; ');
 
     boxHtmlParts.push(
@@ -193,32 +235,49 @@ export function buildDocumentHtml(options: BuildDocumentHtmlOptions): string {
 
   const boxesHtml = boxHtmlParts.join('\n');
 
+  const needsAverta =
+    /averta\s*std/i.test(globalFontFamily) ||
+    customBoxes.some((b) => b && typeof b.fontFamily === 'string' && /averta\s*std/i.test(b.fontFamily));
+  const fontFaceCss = needsAverta ? getAvertaStdFontFaceCss() : '';
+
   return `<!DOCTYPE html>
 <html lang="es">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=595, height=842">
+  <meta name="viewport" content="width=${PAGE_W_PX}, height=${PAGE_H_PX}">
   <style>
-    @page { size: 210mm 297mm; margin: 0; }
+    ${fontFaceCss ? fontFaceCss + '\n    ' : ''}@page { size: 210mm 297mm; margin: 0; }
     * { box-sizing: border-box; }
     html, body {
       margin: 0;
       padding: 0;
-      width: 595px;
-      height: 842px;
+      width: ${PAGE_W_PX}px;
+      height: ${PAGE_H_PX}px;
+      min-width: ${PAGE_W_PX}px;
+      min-height: ${PAGE_H_PX}px;
       overflow: hidden;
+      background-color: #ffffff !important;
+      border: none;
+      outline: none;
+      box-shadow: none;
       -webkit-print-color-adjust: exact;
       print-color-adjust: exact;
     }
     .page {
-      width: 595px;
-      height: 842px;
+      width: ${PAGE_W_PX}px;
+      height: ${PAGE_H_PX}px;
+      min-width: ${PAGE_W_PX}px;
+      min-height: ${PAGE_H_PX}px;
       position: relative;
       overflow: hidden;
+      border: none;
+      outline: none;
+      box-shadow: none;
+      background-color: #ffffff;
       ${backgroundStyle}
     }
     .doc-box, .doc-img { position: absolute; }
-    .doc-box-inner { display: block; min-width: 0; white-space: pre-wrap; word-break: break-word; overflow-wrap: break-word; }
+    .doc-box-inner { display: block; min-width: 0; white-space: pre-wrap; word-break: break-word; overflow-wrap: break-word; font-variant: no-common-ligatures; text-rendering: geometricPrecision; }
   </style>
 </head>
 <body>

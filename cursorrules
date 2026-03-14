@@ -1,0 +1,59 @@
+# Sunday — aleeromo/Sunday
+Aplicación tipo Monday.com. Código y comentarios en español.
+
+## Stack
+- **Backend** (`backend/`): Node.js + TypeScript + Express 5 + Prisma 5 (SQLite) + Socket.IO + multer + web-push + pdf-lib + Puppeteer
+- **Frontend** (`frontend/`): Vite 7 + React 19 + TypeScript + Tailwind CSS 3 (tema "monday") + Radix + @dnd-kit + TanStack Table + Lucide React
+- **Puertos**: Backend 3001 · Frontend dev 5173/5174
+- **No hay package.json raíz** — backend y frontend son proyectos npm independientes
+
+## Archivos clave por tarea
+| Tarea | Archivo |
+|---|---|
+| Endpoint REST o Socket | `backend/src/index.ts` |
+| Modelo de datos | `backend/prisma/schema.prisma` → migrar o db push |
+| Tipos frontend | `frontend/src/types/index.ts` |
+| Navegación y vistas | `frontend/src/App.tsx` |
+| Celdas del tablero | `frontend/src/components/Board/` |
+| Docs y PDF editor | `frontend/src/components/pages/DocsPage.tsx`, `PdfTemplateEditor.tsx` |
+| Tema y estilos | `frontend/tailwind.config.js` |
+| HTML para PDF | `backend/src/documentHtmlBuilder.ts` |
+| PDF con Puppeteer | `backend/src/htmlPdfGenerator.ts` |
+
+## Base de datos — Modelos principales
+User · Workspace · Board · Group · Item · BoardColumn · ColumnValue · Update · Notification · FeedPost · Doc · TemplateConfig · CalendarEvent · PushSubscription
+
+**Tipos de columna**: status | date | person | priority | text | timeline | number | file | contact | excel | docs | billing_docs | folio
+
+**Roles de usuario**: ADMIN | VENTAS | DISENO | TALLER | USER
+
+## Convenciones críticas
+- Validar con Zod ANTES de Prisma (en toda ruta REST)
+- Después de mutación exitosa → emitir evento Socket.IO correspondiente
+- API fetch: usar `API_BASE` de `frontend/src/api.ts` y `parseResponse()` (maneja 204 y errores no-JSON)
+- Socket: importar SOLO desde `frontend/src/store/socket.ts`, nunca instanciar segundo cliente
+- Estilos: clases Tailwind con tokens del tema monday (`text-monday-text`, `bg-monday-bg`, `rounded-monday`, `shadow-monday-lg`). Fuente: Averta Std / Inter
+- Tipos: mantener `frontend/src/types/index.ts` alineado con `schema.prisma`
+- Respuestas error JSON: `{ error: string }`
+
+## Socket.IO — Eventos principales
+**Cliente emite**: add_item · move_item · delete_item · update_item_name · update_column_value · add_group · reorder_groups · add_column · rename_column · delete_column · calendar_event_*
+
+**Cliente escucha**: item_added · item_updated · item_deleted · column_value_updated · column_added · column_deleted · group_added · group_deleted · board_renamed · notification_created · calendar_event_added/updated/deleted
+
+## Vistas del tablero (ViewMode)
+table · kanban · calendar · facturacion · resumen · archivos · miTrabajo · timeline
+
+Restricciones: "Facturación" solo ADMIN y VENTAS. Rol TALLER: solo table y calendar por defecto.
+
+## PDF
+Tipos: `cotizacion` | `levantamiento` | `hoja_trabajo`. Dimensiones A4: 595×842px.
+Flujo: PdfTemplateEditor → PUT /api/templates/:kind/config → documentHtmlBuilder (HTML) → htmlPdfGenerator (Puppeteer → PDF).
+
+## Variables de entorno
+**Backend** (`backend/.env`): `DATABASE_URL` · `PORT` (def. 3001) · `ALLOWED_ORIGINS` · `VAPID_*` · `API_BASE_URL`
+**Frontend**: `VITE_API_URL` (producción; en dev usa proxy)
+
+## Reinicio de servidores (Windows PowerShell)
+Tras cambios en `backend/src/**`, `.env`, o `vite.config.*` → reiniciar backend (puerto 3001) y/o frontend (5173/5174).
+Encadenar comandos con `;` en PowerShell.

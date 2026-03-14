@@ -22,6 +22,7 @@ function hexToRgb(hex: string): RGB {
 
 const TEMPLATES_DIR = path.join(process.cwd(), 'templates');
 const FONTS_DIR = path.join(process.cwd(), 'assets', 'fonts', 'AvertaStd');
+const UPLOAD_DIR = path.join(process.cwd(), 'uploads');
 
 export type TemplateKind = 'cotizacion' | 'levantamiento' | 'hoja_trabajo';
 
@@ -87,6 +88,57 @@ export function getTemplatePathIfExists(kind: TemplateKind): string | null {
   return fs.existsSync(p) ? p : null;
 }
 
+/** Si no hay PDF, devuelve la ruta a una imagen de plantilla (JPG o PNG) si existe. */
+export function getTemplateImagePathIfExists(kind: TemplateKind): { path: string; isPng: boolean } | null {
+  const base = path.join(TEMPLATES_DIR, kind);
+  const candidates = [
+    { path: base + '.jpg', isPng: false },
+    { path: base + '.jpeg', isPng: false },
+    { path: base + '.png', isPng: true },
+  ];
+  for (const c of candidates) {
+    if (fs.existsSync(c.path)) return c;
+  }
+  return null;
+}
+
+/**
+ * Resuelve imageUrl a buffer para incrustar en PDF.
+ * Soporta data URL (base64) y rutas /uploads/ o URLs absolutas al backend.
+ */
+function imageUrlToBuffer(imageUrl: string): { buffer: Buffer; isPng: boolean } | null {
+  try {
+    if (imageUrl.startsWith('data:')) {
+      const match = imageUrl.match(/^data:image\/(png|jpeg|jpg);base64,(.+)$/i);
+      if (!match) return null;
+      const buffer = Buffer.from(match[2], 'base64');
+      const isPng = match[1].toLowerCase() === 'png';
+      return { buffer, isPng };
+    }
+    let relativePath: string | null = null;
+    if (imageUrl.startsWith('http://') || imageUrl.startsWith('https://')) {
+      const parsed = new URL(imageUrl);
+      relativePath = parsed.pathname;
+    } else {
+      relativePath = imageUrl;
+    }
+    const normalized = relativePath.startsWith('/') ? relativePath.slice(1) : relativePath;
+    const absolutePath = path.resolve(UPLOAD_DIR, path.basename(normalized));
+    const resolvedUploadDir = path.resolve(UPLOAD_DIR);
+    if (!absolutePath.startsWith(resolvedUploadDir + path.sep) && absolutePath !== resolvedUploadDir) {
+      return null;
+    }
+    if (!fs.existsSync(absolutePath)) return null;
+    const ext = path.extname(absolutePath).toLowerCase();
+    const buffer = fs.readFileSync(absolutePath);
+    const isPng = ext === '.png';
+    if (ext !== '.png' && ext !== '.jpg' && ext !== '.jpeg') return null;
+    return { buffer, isPng };
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Genera un PDF rellenando la plantilla con el contenido.
  * Si no existe la plantilla, crea un PDF de una página con los textos en las posiciones definidas.
@@ -96,6 +148,7 @@ export async function generatePdfFromTemplate(
   content: Record<string, unknown>
 ): Promise<Buffer> {
   const templatePath = getTemplatePathIfExists(kind);
+  const templateImage = !templatePath ? getTemplateImagePathIfExists(kind) : null;
 
   let pdfDoc: PDFDocument;
   let pageIndex = 0;
@@ -103,6 +156,14 @@ export async function generatePdfFromTemplate(
   if (templatePath) {
     const bytes = fs.readFileSync(templatePath);
     pdfDoc = await PDFDocument.load(bytes);
+  } else if (templateImage) {
+    pdfDoc = await PDFDocument.create();
+    const page = pdfDoc.addPage([595, 842]);
+    const imgBytes = fs.readFileSync(templateImage.path);
+    const embedded = templateImage.isPng
+      ? await pdfDoc.embedPng(imgBytes)
+      : await pdfDoc.embedJpg(imgBytes);
+    page.drawImage(embedded, { x: 0, y: 0, width: 595, height: 842 });
   } else {
     pdfDoc = await PDFDocument.create();
     pdfDoc.addPage([595, 842]); // A4
@@ -215,8 +276,7 @@ export async function generatePdfFromTemplate(
     }
   }
 
-  // Solo se dibujan los cuadros de texto que el usuario definió (customBoxes). El valor viene de customFieldValues
-  // o, si el cuadro tiene fieldKey, del campo del formulario (content[fieldKey]). Sin campos automáticos en posiciones fijas.
+  // Se dibujan customBoxes en orden (imágenes y texto) para respetar z-order del editor.
   const globalFontSize = typeof content.globalFontSize === 'number' ? content.globalFontSize : 11;
   const customBoxes = (content.customBoxes ?? []) as Array<
     {
@@ -226,37 +286,79 @@ export async function generatePdfFromTemplate(
       width?: number;
       height?: number;
       kind?: 'text' | 'image';
+      imageUrl?: string;
       fontSize?: number;
       fontBold?: boolean;
       fontItalic?: boolean;
       fontFamily?: string;
       fontColor?: string;
-      /** Si está definido, el texto se toma de content[fieldKey] (p. ej. cliente, fecha) en lugar de customFieldValues */
       fieldKey?: string;
     }
   >;
   const customFieldValues = (content.customFieldValues ?? {}) as Record<string, string>;
   const defaultBoxFontSize = typeof content.globalFontSize === 'number' ? content.globalFontSize : 11;
+
+  /** Convierte a número (0-1) por si viene como string desde JSON. */
+  const num = (v: unknown, fallback: number): number => {
+    if (typeof v === 'number' && !Number.isNaN(v)) return Math.max(0, Math.min(1, v));
+    const n = Number(v);
+    return Number.isNaN(n) ? fallback : Math.max(0, Math.min(1, n));
+  };
+
   if (Array.isArray(customBoxes)) {
     for (const box of customBoxes) {
-      if (!box || (box.kind && box.kind !== 'text')) continue;
+      if (!box || typeof box !== 'object') continue;
+
+      if (box.kind === 'image' && box.imageUrl) {
+        const resolved = imageUrlToBuffer(String(box.imageUrl));
+        if (!resolved) continue;
+        const wPts = num(box.width, 0.3) * width;
+        const hPts = num(box.height, 0.15) * height;
+        const xPts = num(box.x, 0) * width;
+        const yFromBottom = height - num(box.y, 0) * height - hPts;
+        try {
+          const embedded = resolved.isPng
+            ? await pdfDoc.embedPng(resolved.buffer)
+            : await pdfDoc.embedJpg(resolved.buffer);
+          page.drawImage(embedded, {
+            x: xPts,
+            y: yFromBottom,
+            width: wPts,
+            height: hPts,
+          });
+        } catch {
+          // Ignorar imágenes que no se puedan incrustar
+        }
+        continue;
+      }
+
+      if (box.kind && box.kind !== 'text') continue;
       let text: string;
-      if (box.fieldKey && typeof content[box.fieldKey] === 'string') {
-        text = box.fieldKey === 'fecha' ? formatDateForPdf(content[box.fieldKey] as string) : String(content[box.fieldKey]).trim();
+      const fieldVal = box.fieldKey ? content[box.fieldKey] : undefined;
+      if (box.fieldKey && fieldVal !== undefined && fieldVal !== null) {
+        text =
+          box.fieldKey === 'fecha'
+            ? formatDateForPdf(String(fieldVal))
+            : String(fieldVal).trim();
       } else {
-        text = (customFieldValues[box.id] ?? '').trim();
+        text = (customFieldValues[String(box.id)] ?? '').trim();
       }
       if (!text) continue;
-      const size = typeof box.fontSize === 'number' ? box.fontSize : defaultBoxFontSize;
+      const size =
+        typeof box.fontSize === 'number' && !Number.isNaN(box.fontSize)
+          ? box.fontSize
+          : defaultBoxFontSize;
       const boxBold = typeof box.fontBold === 'boolean' ? box.fontBold : globalFontBold;
       const boxItalic = typeof box.fontItalic === 'boolean' ? box.fontItalic : globalFontItalic;
       const boxFont = getFont(box.fontFamily, boxBold, boxItalic);
-      const boxColor = typeof box.fontColor === 'string' && box.fontColor
-        ? hexToRgb(box.fontColor)
-        : defaultColor;
-      const maxWidth = box.width ? box.width * width : undefined;
-      const xPts = (box.x ?? 0) * width;
-      const yPts = (box.y ?? 0) * height;
+      const boxColor =
+        typeof box.fontColor === 'string' && box.fontColor
+          ? hexToRgb(box.fontColor)
+          : defaultColor;
+      const boxW = num(box.width, 0.3);
+      const maxWidth = boxW > 0 ? boxW * width : undefined;
+      const xPts = num(box.x, 0) * width;
+      const yPts = num(box.y, 0) * height;
       drawText(text, xPts, yPts, size, maxWidth, boxFont, boxColor);
     }
   }
