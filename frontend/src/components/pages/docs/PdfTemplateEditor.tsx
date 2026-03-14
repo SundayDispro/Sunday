@@ -302,19 +302,21 @@ export const PdfTemplateEditor: React.FC<Props> = ({
   const getTextStyleForBox = (box: CustomBoxDef) => {
     // Estilos globales definidos por admin en TemplateConfig;
     // los valores específicos por cuadro (fontSize, fontFamily, etc.)
-    // prevalecen sobre los globales.
+    // prevalecen sobre los globales. line-height 1.1 para folio/una línea = igual que backend (documentHtmlBuilder).
     const size = box.fontSize ?? fontSize;
     const colBase = box.fontColor ?? fontColor;
     const col = colBase.toLowerCase() === '#ffffff' ? '#ffffff' : '#000000';
     const ff = box.fontFamily ?? fontFamily;
     const bold = box.fontBold ?? fontBold;
     const italic = box.fontItalic ?? fontItalic;
+    const isSingleLineOrFolio = box.singleLine === true || box.semantic === 'folio';
     return {
       fontFamily: ff,
       fontWeight: bold ? 'bold' : 'normal',
       fontStyle: italic ? 'italic' : 'normal',
       color: col,
       fontSize: `${size}pt`,
+      ...(isSingleLineOrFolio ? { lineHeight: 1.1 } : {}),
     };
   };
   useEffect(() => {
@@ -454,17 +456,26 @@ export const PdfTemplateEditor: React.FC<Props> = ({
           isAdmin={isAdmin}
         />
       )}
-      <div className="flex-1 overflow-auto flex items-center justify-center min-h-0 p-2 sm:p-4">
+      <div className={`flex-1 flex items-center justify-center min-h-0 p-2 sm:p-4 ${viewerOnly ? 'overflow-hidden' : 'overflow-auto'}`}>
         <div
           ref={containerRef}
           className="relative bg-transparent rounded-lg border border-monday-border/60 shadow-monday overflow-hidden"
-          style={{
-            width: '100%',
-            maxWidth: '21cm',
-            aspectRatio: String(PAGE_ASPECT),
-            maxHeight: 'calc(100vh - 12rem)',
-            height: 'auto',
-          }}
+          style={
+            viewerOnly
+              ? {
+                  height: '100%',
+                  width: 'auto',
+                  maxWidth: '100%',
+                  aspectRatio: String(PAGE_ASPECT),
+                }
+              : {
+                  width: '100%',
+                  maxWidth: '21cm',
+                  aspectRatio: String(PAGE_ASPECT),
+                  maxHeight: 'calc(100vh - 12rem)',
+                  height: 'auto',
+                }
+          }
         >
           {/* Capa 1: Fondo (PDF o blanco) — detrás y sin recibir clics */}
           <div className="absolute inset-0 z-0">
@@ -499,16 +510,17 @@ export const PdfTemplateEditor: React.FC<Props> = ({
                 const boxVal = customValues[box.id] ?? '';
                 const boxTextStyle = getTextStyleForBox(box);
                 const isSelected = selectedBoxId === box.id;
+                const isSingleLineOrFolio = box.singleLine === true || box.semantic === 'folio';
                 return (
                   <div
                     key={box.id}
-                    className="absolute flex items-stretch overflow-visible"
+                    className="absolute flex items-stretch overflow-hidden"
                     style={{
                       left: `${x * 100}%`,
                       top: `${y * 100}%`,
                       width: `${w * 100}%`,
                       height: `${h * 100}%`,
-                      minHeight: '28px',
+                      minHeight: isSingleLineOrFolio ? '48px' : '28px',
                       minWidth: '60px',
                     }}
                   >
@@ -544,7 +556,7 @@ export const PdfTemplateEditor: React.FC<Props> = ({
                           readOnly
                           value={boxVal}
                           style={boxTextStyle}
-                          className="w-full h-full min-h-0 resize-none border-0 outline-none bg-transparent py-1 px-1.5 overflow-hidden block whitespace-pre-wrap break-words"
+                          className={`w-full h-full min-h-0 resize-none border-0 outline-none bg-transparent px-1.5 overflow-hidden block whitespace-pre-wrap break-words ${isSingleLineOrFolio ? 'pt-2 pb-1' : 'py-1'}`}
                         />
                       ) : box.singleLine ? (
                         <input
@@ -560,7 +572,7 @@ export const PdfTemplateEditor: React.FC<Props> = ({
                             ...boxTextStyle,
                             backgroundColor: showFrame ? 'rgba(255,255,255,0.95)' : 'transparent',
                           }}
-                          className={`w-full h-full min-h-0 border-0 outline-none focus:ring-0 py-1 px-1.5 placeholder:text-gray-500 block ${
+                          className={`w-full h-full min-h-0 border-0 outline-none focus:ring-0 px-1.5 placeholder:text-gray-500 block ${isSingleLineOrFolio ? 'pt-2 pb-1' : 'py-1'} ${
                             showFrame ? 'rounded' : ''
                           }`}
                           onClick={(e) => {

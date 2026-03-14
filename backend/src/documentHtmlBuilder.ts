@@ -7,12 +7,12 @@
 const PAGE_W_PX = 595;
 const PAGE_H_PX = 842;
 
-/** Altura mínima para cuadros de una línea (folio, número): una línea + ascendentes. */
-const MIN_HEIGHT_SINGLE_LINE_PX = 30;
+/** Altura mínima para cuadros de una línea (folio, número): margen de maniobra para no cortar. */
+const MIN_HEIGHT_SINGLE_LINE_PX = 52;
 /** Altura mínima para cuadros multilínea (2–3 líneas visibles). */
-const MIN_HEIGHT_MULTI_PX = 44;
-/** Padding superior generoso para que ascendentes no se corten. */
-const PADDING_TOP_PX = 18;
+const MIN_HEIGHT_MULTI_PX = 48;
+/** Padding superior generoso para que el folio y números no se corten por arriba (ascendentes). */
+const PADDING_TOP_PX = 24;
 const PADDING_SIDES_PX = 6;
 const PADDING_BOTTOM_PX = 6;
 
@@ -40,6 +40,8 @@ interface CustomBox {
   height?: number;
   kind?: 'text' | 'image';
   singleLine?: boolean;
+  /** Si es 'folio', se trata como una línea y se aplica altura mínima para no cortar números. */
+  semantic?: 'element' | 'folio';
   fontSize?: number;
   fontBold?: boolean;
   fontItalic?: boolean;
@@ -93,11 +95,34 @@ export function buildDocumentHtml(options: BuildDocumentHtmlOptions): string {
     ? `background-image: url(${backgroundImageDataUrl}); background-size: 100% 100%; background-repeat: no-repeat;`
     : 'background-color: #ffffff;';
 
+  // Una sola pasada en orden customBoxes para que el z-order del PDF coincida 1:1 con el editor.
   const boxHtmlParts: string[] = [];
 
   for (const box of customBoxes) {
-    if (!box || box.kind === 'image') continue;
+    if (!box) continue;
 
+    const leftPx = Math.round((box.x ?? 0) * PAGE_W_PX);
+    const topPx = Math.round((box.y ?? 0) * PAGE_H_PX);
+    const widthPx = Math.round((box.width ?? 0.3) * PAGE_W_PX);
+
+    if (box.kind === 'image' && box.imageUrl) {
+      const heightPx = Math.round((box.height ?? 0.15) * PAGE_H_PX);
+      const style = [
+        `position: absolute`,
+        `left: ${leftPx}px`,
+        `top: ${topPx}px`,
+        `width: ${widthPx}px`,
+        `height: ${heightPx}px`,
+        `object-fit: contain`,
+        `object-position: left top`,
+      ].join('; ');
+      boxHtmlParts.push(
+        `<img class="doc-img" src="${escapeHtml(box.imageUrl)}" alt="" style="${style}" />`
+      );
+      continue;
+    }
+
+    // Caja de texto
     let text = '';
     if (box.fieldKey && content[box.fieldKey] !== undefined && content[box.fieldKey] !== null) {
       const raw = content[box.fieldKey];
@@ -115,7 +140,6 @@ export function buildDocumentHtml(options: BuildDocumentHtmlOptions): string {
     const italic = typeof box.fontItalic === 'boolean' ? box.fontItalic : globalFontItalic;
     const col = typeof box.fontColor === 'string' && box.fontColor ? box.fontColor : globalFontColor;
 
-    // Texto claro sobre fondo sin plantilla queda invisible: usar fondo negro si el color es blanco/claro
     const bgCol =
       typeof box.backgroundColor === 'string' && box.backgroundColor
         ? box.backgroundColor
@@ -123,17 +147,12 @@ export function buildDocumentHtml(options: BuildDocumentHtmlOptions): string {
           ? '#000000'
           : 'transparent';
 
-    // Posición y tamaño en PÍXELES (A4) para que el PDF no malinterprete % en print.
-    const leftPx = Math.round((box.x ?? 0) * PAGE_W_PX);
-    const topPx = Math.round((box.y ?? 0) * PAGE_H_PX);
-    const widthPx = Math.round((box.width ?? 0.3) * PAGE_W_PX);
     const rawHeightPx = Math.round((box.height ?? 0.05) * PAGE_H_PX);
-    const isSingleLine = box.singleLine === true;
+    const isSingleLine = box.singleLine === true || box.semantic === 'folio';
     const minHeightPx = isSingleLine ? MIN_HEIGHT_SINGLE_LINE_PX : MIN_HEIGHT_MULTI_PX;
     const heightPx = Math.max(rawHeightPx, minHeightPx);
-    // Clamp para que la caja no se salga del borde inferior de la página.
     const heightClamped = Math.min(heightPx, PAGE_H_PX - topPx);
-    // Padding superior generoso para que el folio y números no se corten por arriba (ascendentes).
+    const lineHeight = isSingleLine ? '1.1' : '1.35';
     const boxStyle = [
       `position: absolute`,
       `left: ${leftPx}px`,
@@ -142,13 +161,12 @@ export function buildDocumentHtml(options: BuildDocumentHtmlOptions): string {
       `height: ${heightClamped}px`,
       `margin: 0`,
       `padding: ${PADDING_TOP_PX}px ${PADDING_SIDES_PX}px ${PADDING_BOTTOM_PX}px ${PADDING_SIDES_PX}px`,
-      `line-height: 1.35`,
+      `line-height: ${lineHeight}`,
       `box-sizing: border-box`,
-      `overflow: hidden`,
+      `overflow: visible`,
       `display: block`,
     ].join('; ');
 
-    // Interior: ancho fijo en px para que el texto envuelva bien (evita apilado vertical).
     const innerWidthPx = Math.max(0, widthPx - PADDING_SIDES_PX * 2);
     const innerStyle = [
       `display: block`,
@@ -170,27 +188,6 @@ export function buildDocumentHtml(options: BuildDocumentHtmlOptions): string {
 
     boxHtmlParts.push(
       `<div class="doc-box" style="${boxStyle}"><div class="doc-box-inner" style="${innerStyle}">${escapeHtml(text) || '&nbsp;'}</div></div>`
-    );
-  }
-
-  // Imágenes (también en px para consistencia)
-  for (const box of customBoxes) {
-    if (!box || box.kind !== 'image' || !box.imageUrl) continue;
-    const leftPx = Math.round((box.x ?? 0) * PAGE_W_PX);
-    const topPx = Math.round((box.y ?? 0) * PAGE_H_PX);
-    const widthPx = Math.round((box.width ?? 0.3) * PAGE_W_PX);
-    const heightPx = Math.round((box.height ?? 0.15) * PAGE_H_PX);
-    const style = [
-      `position: absolute`,
-      `left: ${leftPx}px`,
-      `top: ${topPx}px`,
-      `width: ${widthPx}px`,
-      `height: ${heightPx}px`,
-      `object-fit: contain`,
-      `object-position: left top`,
-    ].join('; ');
-    boxHtmlParts.push(
-      `<img class="doc-img" src="${escapeHtml(box.imageUrl)}" alt="" style="${style}" />`
     );
   }
 
@@ -217,6 +214,7 @@ export function buildDocumentHtml(options: BuildDocumentHtmlOptions): string {
       width: 595px;
       height: 842px;
       position: relative;
+      overflow: hidden;
       ${backgroundStyle}
     }
     .doc-box, .doc-img { position: absolute; }
