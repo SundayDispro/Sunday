@@ -2295,11 +2295,19 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
       const config = templateConfigByType[docType];
       // Priorizar posiciones del documento; estilos globales y customBoxes de la config para mantener formato
       const docFieldPositions = (pdfFormDraft.fieldPositions ?? {}) as Record<string, { x: number; y: number; fontSize?: number; maxWidth?: number }>;
+      const rawCustomBoxes = Array.isArray(config?.customBoxes) ? config.customBoxes : [];
+      const customBoxes = rawCustomBoxes.map((b: { id?: string; x?: number; y?: number; width?: number; height?: number; [k: string]: unknown }) => ({
+        ...b,
+        x: Math.max(0, Math.min(1, Number(b.x) || 0)),
+        y: Math.max(0, Math.min(1, Number(b.y) || 0)),
+        width: Math.max(0.01, Math.min(1, Number(b.width) ?? 0.3)),
+        height: Math.max(0.01, Math.min(1, Number(b.height) ?? 0.05)),
+      }));
       const contentToSend = config
         ? {
             ...pdfFormDraft,
             fieldPositions: { ...config.fieldPositions, ...docFieldPositions },
-            customBoxes: config.customBoxes ?? [],
+            customBoxes,
             globalFontSize: config.fontSize ?? 11,
             globalFontColor: config.fontColor ?? '#000000',
             globalFontFamily: config.fontFamily ?? 'Helvetica',
@@ -2308,6 +2316,7 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
           }
         : {
             ...pdfFormDraft,
+            customBoxes: [],
             globalFontSize: 11,
             globalFontColor: '#000000',
             globalFontFamily: 'Helvetica',
