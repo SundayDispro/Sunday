@@ -528,7 +528,7 @@ function TaskWindowCard({
             </Popover.Trigger>
             <Popover.Portal>
               <Popover.Content
-                className="z-[200] bg-white rounded-lg border border-gray-200 shadow-lg p-2"
+                className="z-[200] bg-white rounded-lg border border-monday-border shadow-lg p-2"
                 sideOffset={4}
               >
                 <div className="grid grid-cols-6 gap-1">
@@ -1138,7 +1138,7 @@ function DocsOverviewPanel({
   }
 
   return (
-    <div className="flex-1 relative overflow-auto bg-[#f0f2f5] p-6">
+    <div className="flex-1 relative overflow-auto bg-monday-bg p-6">
       {/* Menús grandes para crear documentos */}
       <div className="flex flex-wrap gap-4 mb-6">
         {DOC_TYPE_OPTIONS.map(opt => (
@@ -1147,7 +1147,7 @@ function DocsOverviewPanel({
             type="button"
             disabled={!workspaceId}
             onClick={() => onCreateDoc(opt.id)}
-            className="flex flex-col items-start justify-between w-64 p-4 rounded-2xl bg-white border border-gray-200 shadow-md hover:shadow-lg hover:border-monday-blue/50 transition-all text-left disabled:opacity-60"
+            className="flex flex-col items-start justify-between w-64 p-4 rounded-2xl bg-white border border-monday-border shadow-md hover:shadow-lg hover:border-monday-blue/50 transition-all text-left disabled:opacity-60"
           >
             <div className="flex items-center gap-3 mb-2">
               {opt.id === 'sheet' ? (
@@ -2708,7 +2708,7 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
       </div>
 
       {viewMode === 'overview' ? (
-        <div className="flex-1 flex flex-col overflow-hidden bg-[#f0f2f5]">
+        <div className="flex-1 flex flex-col overflow-hidden bg-monday-bg">
           {/* Menús superiores */}
           <div className="p-6 pb-2">
             <div className="flex flex-wrap gap-4">
@@ -2720,7 +2720,7 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
                   onClick={() => {
                     setNewDocDraft({ type: opt.id, title: getDocTypeTitle(opt.id) });
                   }}
-                  className="flex flex-col items-start justify-between w-64 p-4 rounded-2xl bg-white border border-gray-200 shadow-md hover:shadow-lg hover:border-monday-blue/50 transition-all text-left disabled:opacity-60"
+                  className="flex flex-col items-start justify-between w-64 p-4 rounded-2xl bg-white border border-monday-border shadow-md hover:shadow-lg hover:border-monday-blue/50 transition-all text-left disabled:opacity-60"
                 >
                   <div className="flex items-center gap-3 mb-2">
                     {opt.id === 'sheet' ? (
@@ -2911,7 +2911,7 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
           </div>
         </div>
       ) : (
-      <div className="flex-1 flex overflow-hidden bg-[#f0f2f5] min-h-0">
+      <div className="flex-1 flex overflow-hidden bg-monday-bg min-h-0">
         {/* Tabla agrupada tipo ventana principal (grupos con color, cabeceras, tabla) */}
         <div className="flex-1 overflow-auto custom-scrollbar px-6 py-5 min-w-0 min-h-0">
           {!workspaceId && (
@@ -2995,7 +2995,7 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
         </div>
 
         {/* Panel derecho: visualizador (solo lectura); fondo blanco, scroll si hace falta */}
-        <section className="flex-1 flex flex-col min-w-0 min-h-0 max-w-[60%] border-l border-monday-border overflow-hidden bg-white" style={{ backgroundColor: '#ffffff' }}>
+        <section className="flex-1 flex flex-col min-w-0 min-h-0 max-w-[60%] border-l border-monday-border overflow-hidden bg-white">
           {error && (
             <div className="px-4 py-2 bg-red-50 text-red-700 text-[13px] border-b border-red-200">
               {error}

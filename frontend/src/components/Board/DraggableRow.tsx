@@ -46,7 +46,7 @@ export const DraggableRow: React.FC<DraggableRowProps> = ({ row, groupColor, isS
       ref={setNodeRef}
       style={style}
       className={`h-[42px] transition group/row ${
-        isDragging ? 'shadow-xl ring-2 ring-monday-blue bg-white' : isSelected ? 'bg-blue-50' : 'bg-white hover:bg-monday-bg'
+        isDragging ? 'shadow-xl ring-2 ring-monday-blue bg-white' : isSelected ? 'bg-monday-pill' : 'bg-white hover:bg-monday-hover'
       }`}
     >
       {row.getVisibleCells().map((cell, i) => {

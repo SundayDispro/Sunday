@@ -4,8 +4,12 @@ import BoardContainer from './components/Board/BoardContainer';
 import { ItemDetailsPanel } from './components/Board/ItemDetailsPanel';
 import {
   Home, Bell, Search, ChevronDown, ChevronRight,
-  Users, BookOpen, BarChart2, Inbox, Star, Plus, Receipt, Calendar, Folder, PieChart, FolderOpen, UserCheck, GanttChart, Check, AlertCircle, X, Sun, Moon, LayoutGrid,
+  Users, BookOpen, BarChart2, Inbox, Star, Plus, Receipt, Calendar, Folder, PieChart, FolderOpen, UserCheck, GanttChart, Check, AlertCircle, X, Sun, Moon, Sparkles, LayoutGrid,
 } from 'lucide-react';
+
+type AppTheme = 'light' | 'dark' | 'night';
+const THEME_STORAGE_KEY = 'sunday-theme';
+const THEME_COLORS: Record<AppTheme, string> = { light: '#f6f7fb', dark: '#111827', night: '#0a0a0a' };
 import { Item, Board, Workspace, User } from './types';
 import { useUser } from './store/UserContext';
 import { Login } from './components/Login';
@@ -194,37 +198,30 @@ function App() {
   const [showAddViewPopover, setShowAddViewPopover] = useState(false);
   const [exportingFolders, setExportingFolders] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(true);
-  const [isDarkMode, setIsDarkMode] = useState<boolean>(() => {
-    if (typeof window === 'undefined') return false;
+  const [theme, setTheme] = useState<AppTheme>(() => {
+    if (typeof window === 'undefined') return 'light';
     try {
-      const stored = localStorage.getItem('sunday-theme');
-      if (stored === 'dark') return true;
-      if (stored === 'light') return false;
-      return window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+      const stored = localStorage.getItem(THEME_STORAGE_KEY);
+      if (stored === 'dark' || stored === 'night' || stored === 'light') return stored;
+      return window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
     } catch {
-      return false;
+      return 'light';
     }
   });
-  
+  const [themeSelectorOpen, setThemeSelectorOpen] = useState(false);
+
   useEffect(() => {
     if (typeof document === 'undefined') return;
     const root = document.documentElement;
-    if (isDarkMode) {
-      root.classList.add('dark');
-      try {
-        localStorage.setItem('sunday-theme', 'dark');
-      } catch {
-        // ignore
-      }
-    } else {
-      root.classList.remove('dark');
-      try {
-        localStorage.setItem('sunday-theme', 'light');
-      } catch {
-        // ignore
-      }
+    root.setAttribute('data-theme', theme);
+    try {
+      localStorage.setItem(THEME_STORAGE_KEY, theme);
+    } catch {
+      // ignore
     }
-  }, [isDarkMode]);
+    const meta = document.querySelector('meta[name="theme-color"]');
+    if (meta) meta.setAttribute('content', THEME_COLORS[theme]);
+  }, [theme]);
   
   // Navigation state
   const [activePage, setActivePage] = useState<'home' | 'inbox' | 'notifications' | 'board' | 'search' | 'docs' | 'team' | 'facturacion'>('board');
@@ -784,13 +781,44 @@ function App() {
           workspaceName={activeWorkspaceName}
           onOpenAdmin={() => setShowAdminPanel(true)}
         />
-        <button
-          title={isDarkMode ? 'Cambiar a tema claro' : 'Cambiar a tema oscuro'}
-          className="w-10 h-10 flex items-center justify-center rounded-lg text-white/70 hover:text-white hover:bg-monday-sidebarHover transition-all duration-150"
-          onClick={() => setIsDarkMode(prev => !prev)}
-        >
-          {isDarkMode ? <Sun size={20} strokeWidth={2.25} /> : <Moon size={20} strokeWidth={2.25} />}
-        </button>
+        <Popover.Root open={themeSelectorOpen} onOpenChange={setThemeSelectorOpen}>
+          <Popover.Trigger asChild>
+            <button
+              title={
+                theme === 'light' ? 'Tema claro' : theme === 'dark' ? 'Tema oscuro' : 'Modo noche'
+              }
+              className="w-10 h-10 flex items-center justify-center rounded-lg text-white/70 hover:text-white hover:bg-monday-sidebarHover transition-all duration-150"
+            >
+              {theme === 'light' && <Sun size={20} strokeWidth={2.25} />}
+              {theme === 'dark' && <Moon size={20} strokeWidth={2.25} />}
+              {theme === 'night' && <Sparkles size={20} strokeWidth={2.25} />}
+            </button>
+          </Popover.Trigger>
+          <Popover.Portal>
+            <Popover.Content
+              className="z-50 bg-white rounded-xl shadow-monday-lg border border-monday-border w-44 p-2 fade-in"
+              sideOffset={8}
+              align="end"
+              onClick={e => e.stopPropagation()}
+            >
+              <p className="text-[11px] font-semibold text-monday-subtext px-2 mb-1.5 uppercase tracking-wider">
+                Tema
+              </p>
+              {(['light', 'dark', 'night'] as const).map(t => (
+                <button
+                  key={t}
+                  onClick={() => { setTheme(t); setThemeSelectorOpen(false); }}
+                  className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-monday hover:bg-monday-hover transition-colors text-left text-[13px] ${theme === t ? 'bg-monday-pill text-monday-text' : 'text-monday-text'}`}
+                >
+                  {t === 'light' && <Sun size={16} className="shrink-0" />}
+                  {t === 'dark' && <Moon size={16} className="shrink-0" />}
+                  {t === 'night' && <Sparkles size={16} className="shrink-0" />}
+                  <span>{t === 'light' ? 'Claro' : t === 'dark' ? 'Oscuro' : 'Noche'}</span>
+                </button>
+              ))}
+            </Popover.Content>
+          </Popover.Portal>
+        </Popover.Root>
       </aside>
 
       {/* Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ Workspace Sidebar Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ */}
@@ -800,11 +828,11 @@ function App() {
         <div className="px-3 py-3 border-b border-monday-border">
           <Popover.Root open={workspaceSelectorOpen} onOpenChange={setWorkspaceSelectorOpen}>
             <Popover.Trigger asChild>
-              <button className="w-full flex items-center gap-2.5 text-monday-text hover:bg-monday-hover rounded-lg px-2.5 py-2 transition-colors shadow-sm">
+              <button className="w-full flex items-center gap-2.5 text-monday-text hover:bg-monday-hover rounded-lg px-2.5 py-2 transition-colors shadow-sm" title={`Workspace: ${activeWorkspaceName}`}>
                 <div className="w-7 h-7 rounded-lg bg-monday-blue flex items-center justify-center text-white shrink-0 shadow-sm">
                   <Folder size={16} />
                 </div>
-                <span className="text-[13px] font-semibold flex-1 text-left text-monday-text">Workspaces</span>
+                <span className="text-[13px] font-semibold flex-1 text-left text-monday-text truncate min-w-0">{activeWorkspaceName}</span>
                 <ChevronDown size={16} className="text-monday-subtext shrink-0" strokeWidth={2.5} />
               </button>
             </Popover.Trigger>

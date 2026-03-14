@@ -366,7 +366,7 @@ const ColumnHeader: React.FC<{ col: BoardColumn; onEditLabels?: (col: BoardColum
             </button>
           )}
           <button
-            className="w-full flex items-center gap-2.5 text-[13px] text-monday-red hover:bg-red-50 px-3 py-2 rounded-monday"
+            className="w-full flex items-center gap-2.5 text-[13px] text-monday-red hover:bg-red-500/15 px-3 py-2 rounded-monday"
             onClick={() => { setMenuOpen(false); socket.emit('delete_column', { columnId: col.id }); }}
           >
             <Trash2 size={14} />
@@ -731,7 +731,7 @@ export const BoardGroup: React.FC<Props> = ({
             e.stopPropagation();
             setShowDeleteConfirm(true);
           }}
-          className="ml-auto p-1.5 rounded-lg text-monday-subtext hover:text-monday-red hover:bg-red-50 transition-colors"
+          className="ml-auto p-1.5 rounded-lg text-monday-subtext hover:text-monday-red hover:bg-red-500/15 transition-colors"
           title="Eliminar grupo"
         >
           <Trash2 size={16} />

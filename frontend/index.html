@@ -10,10 +10,22 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
     <link rel="manifest" href="/manifest.webmanifest" />
-    <meta name="theme-color" content="#0055ff" />
+    <meta id="theme-color-meta" name="theme-color" content="#f6f7fb" />
   </head>
   <body>
     <div id="root"></div>
+    <script>
+      (function() {
+        var colors = { light: '#f6f7fb', dark: '#111827', night: '#0a0a0a' };
+        try {
+          var s = localStorage.getItem('sunday-theme');
+          var theme = (s === 'dark' || s === 'night' || s === 'light') ? s : (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+          document.documentElement.setAttribute('data-theme', theme);
+          var meta = document.querySelector('meta[name="theme-color"]');
+          if (meta) meta.setAttribute('content', colors[theme]);
+        } catch (_) {}
+      })();
+    </script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

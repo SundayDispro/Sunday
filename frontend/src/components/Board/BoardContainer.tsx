@@ -914,7 +914,7 @@ const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode }) => {
         {(viewMode === 'table' || viewMode === 'kanban' || viewMode === 'miTrabajo') && (
         <Popover.Root open={showFilter} onOpenChange={setShowFilter}>
           <Popover.Trigger asChild>
-            <button className={`toolbar-btn ${filterByStatusOptionId ? 'bg-blue-50 text-monday-blue border-blue-200' : ''}`}>
+            <button className={`toolbar-btn ${filterByStatusOptionId ? 'bg-monday-pill text-monday-blue border-monday-blue/40' : ''}`}>
               <Filter size={15} />
               <span>Filtrar {filterByStatusOptionId && <span className="w-1.5 h-1.5 rounded-full bg-monday-blue ml-1 inline-block" />}</span>
             </button>
@@ -925,7 +925,7 @@ const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode }) => {
               <button
                 type="button"
                 onClick={() => { setFilterByStatusOptionId(null); setShowFilter(false); }}
-                className={`w-full text-left px-2 py-1.5 text-[13px] rounded-md transition-colors ${!filterByStatusOptionId ? 'bg-blue-50 text-monday-blue font-medium' : 'hover:bg-monday-hover text-monday-text'}`}
+                className={`w-full text-left px-2 py-1.5 text-[13px] rounded-md transition-colors ${!filterByStatusOptionId ? 'bg-monday-pill text-monday-blue font-medium' : 'hover:bg-monday-hover text-monday-text'}`}
               >
                 Todos los estados
               </button>
@@ -934,7 +934,7 @@ const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode }) => {
                   key={opt.id}
                   type="button"
                   onClick={() => { setFilterByStatusOptionId(opt.id); setShowFilter(false); }}
-                  className={`w-full text-left px-2 py-1.5 text-[13px] rounded-md transition-colors flex items-center gap-2 ${filterByStatusOptionId === opt.id ? 'bg-blue-50 text-monday-blue font-medium' : 'hover:bg-monday-hover text-monday-text'}`}
+                  className={`w-full text-left px-2 py-1.5 text-[13px] rounded-md transition-colors flex items-center gap-2 ${filterByStatusOptionId === opt.id ? 'bg-monday-pill text-monday-blue font-medium' : 'hover:bg-monday-hover text-monday-text'}`}
                 >
                   <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: opt.color ?? '#c4c4c4' }} />
                   {opt.label}
@@ -950,7 +950,7 @@ const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode }) => {
         <>
         <Popover.Root open={showSort} onOpenChange={setShowSort}>
           <Popover.Trigger asChild>
-            <button className={`toolbar-btn ${sortConfig ? 'bg-blue-50 text-monday-blue border-blue-200' : ''}`}>
+            <button className={`toolbar-btn ${sortConfig ? 'bg-monday-pill text-monday-blue border-monday-blue/40' : ''}`}>
               <ArrowUpDown size={15} />
               <span>Ordenar {sortConfig && <span className="w-1.5 h-1.5 rounded-full bg-monday-blue ml-1 inline-block" />}</span>
             </button>
@@ -962,7 +962,7 @@ const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode }) => {
                 
                 {/* Clear sort */}
                 {sortConfig && (
-                  <button onClick={() => setSortConfig(null)} className="w-full text-left px-2 py-1.5 text-[13px] text-monday-red hover:bg-red-50 rounded-md transition-colors font-medium">
+                  <button onClick={() => setSortConfig(null)} className="w-full text-left px-2 py-1.5 text-[13px] text-monday-red hover:bg-red-500/15 rounded-md transition-colors font-medium">
                     Limpiar orden
                   </button>
                 )}
@@ -971,13 +971,13 @@ const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode }) => {
                 <div className="flex items-center gap-1 px-1">
                   <button 
                     onClick={() => setSortConfig({ columnId: 'name', direction: 'asc' })}
-                    className={`flex-1 text-left px-2 py-1.5 text-[13px] hover:bg-monday-hover rounded-md transition-colors ${sortConfig?.columnId === 'name' && sortConfig.direction === 'asc' ? 'bg-blue-50 text-monday-blue font-medium' : 'text-monday-text'}`}
+                    className={`flex-1 text-left px-2 py-1.5 text-[13px] hover:bg-monday-hover rounded-md transition-colors ${sortConfig?.columnId === 'name' && sortConfig.direction === 'asc' ? 'bg-monday-pill text-monday-blue font-medium' : 'text-monday-text'}`}
                   >
                     Nombre (A-Z)
                   </button>
                   <button 
                     onClick={() => setSortConfig({ columnId: 'name', direction: 'desc' })}
-                    className={`px-2 py-1.5 text-[13px] hover:bg-monday-hover rounded-md transition-colors ${sortConfig?.columnId === 'name' && sortConfig.direction === 'desc' ? 'bg-blue-50 text-monday-blue font-medium' : 'text-monday-subtext'}`}
+                    className={`px-2 py-1.5 text-[13px] hover:bg-monday-hover rounded-md transition-colors ${sortConfig?.columnId === 'name' && sortConfig.direction === 'desc' ? 'bg-monday-pill text-monday-blue font-medium' : 'text-monday-subtext'}`}
                     title="Z-A"
                   >
                     ↓
@@ -989,13 +989,13 @@ const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode }) => {
                   <div key={col.id} className="flex items-center gap-1 px-1">
                     <button 
                       onClick={() => setSortConfig({ columnId: col.id, direction: 'asc' })}
-                      className={`flex-1 text-left px-2 py-1.5 text-[13px] hover:bg-monday-hover rounded-md transition-colors truncate ${sortConfig?.columnId === col.id && sortConfig.direction === 'asc' ? 'bg-blue-50 text-monday-blue font-medium' : 'text-monday-text'}`}
+                      className={`flex-1 text-left px-2 py-1.5 text-[13px] hover:bg-monday-hover rounded-md transition-colors truncate ${sortConfig?.columnId === col.id && sortConfig.direction === 'asc' ? 'bg-monday-pill text-monday-blue font-medium' : 'text-monday-text'}`}
                     >
                       {col.title}
                     </button>
                     <button 
                       onClick={() => setSortConfig({ columnId: col.id, direction: 'desc' })}
-                      className={`px-2 py-1.5 text-[13px] hover:bg-monday-hover rounded-md transition-colors ${sortConfig?.columnId === col.id && sortConfig.direction === 'desc' ? 'bg-blue-50 text-monday-blue font-medium' : 'text-monday-subtext'}`}
+                      className={`px-2 py-1.5 text-[13px] hover:bg-monday-hover rounded-md transition-colors ${sortConfig?.columnId === col.id && sortConfig.direction === 'desc' ? 'bg-monday-pill text-monday-blue font-medium' : 'text-monday-subtext'}`}
                       title="Descendente"
                     >
                       ↓
@@ -1011,7 +1011,7 @@ const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode }) => {
         {(viewMode === 'table' || viewMode === 'miTrabajo') && (
         <Popover.Root open={showHide} onOpenChange={setShowHide}>
           <Popover.Trigger asChild>
-            <button className={`toolbar-btn ${hiddenColumns.length > 0 ? 'bg-blue-50 text-monday-blue border-blue-200' : ''}`}>
+            <button className={`toolbar-btn ${hiddenColumns.length > 0 ? 'bg-monday-pill text-monday-blue border-monday-blue/40' : ''}`}>
               <EyeOff size={15} />
               <span>Ocultar {hiddenColumns.length > 0 && `(${hiddenColumns.length})`}</span>
             </button>
@@ -1219,7 +1219,7 @@ const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode }) => {
               <button
                 type="button"
                 onClick={openDeleteConfirm}
-                className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-monday text-[12px] text-monday-red hover:bg-red-50"
+                className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-monday text-[12px] text-monday-red hover:bg-red-500/15"
                 title="Eliminar"
               >
                 <Trash2 size={14} />

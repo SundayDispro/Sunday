@@ -11,13 +11,75 @@
   font-display: swap;
 }
 
+/* --- Variables por tema: light (por defecto), dark, night ---
+   Referencia: Monday.com — dark con capas de gris; night con tonos azulados. */
+:root,
+[data-theme="light"] {
+  --monday-bg: #f6f7fb;
+  --monday-surface: #ffffff;
+  --monday-text: #323338;
+  --monday-subtext: #676879;
+  --monday-border: #d0d4e4;
+  --monday-hover: #e6e9ef;
+  --monday-pill: #e8ecf5;
+  --monday-sidebar: #1d2a4b;
+  --monday-sidebarHover: #2a3655;
+  --monday-sidebarPanel: #f5f6fa;
+  --monday-shadow-sm: 0 1px 4px rgba(0, 0, 0, 0.08);
+  --monday-shadow-md: 0 4px 16px rgba(0, 0, 0, 0.1);
+  --monday-shadow-lg: 0 8px 32px rgba(0, 0, 0, 0.14);
+  --monday-shadow-panel: -4px 0 24px rgba(0, 0, 0, 0.08);
+  --scrollbar-thumb: #d0d4e4;
+  --scrollbar-thumb-hover: #a9b0c5;
+}
+
+/* Modo oscuro: fondos en gris profundo, tarjetas/paneles un tono más claro (#1f2937) para jerarquía */
+[data-theme="dark"] {
+  --monday-bg: #111827;
+  --monday-surface: #1f2937;
+  --monday-text: #e5e7eb;
+  --monday-subtext: #9ca3af;
+  --monday-border: #374151;
+  --monday-hover: #1f2937;
+  --monday-pill: #374151;
+  --monday-sidebar: #111827;
+  --monday-sidebarHover: #1f2937;
+  --monday-sidebarPanel: #111827;
+  --monday-shadow-sm: 0 4px 12px rgba(0, 0, 0, 0.35);
+  --monday-shadow-md: 0 8px 24px rgba(0, 0, 0, 0.45);
+  --monday-shadow-lg: 0 12px 40px rgba(0, 0, 0, 0.5);
+  --monday-shadow-panel: -4px 0 24px rgba(0, 0, 0, 0.45);
+  --scrollbar-thumb: #4b5563;
+  --scrollbar-thumb-hover: #6b7280;
+}
+
+/* Modo noche: negro puro; fondo y sidebar casi negro, superficies un tono más claro para contraste */
+[data-theme="night"] {
+  --monday-bg: #0a0a0a;
+  --monday-surface: #141414;
+  --monday-text: #e5e5e5;
+  --monday-subtext: #a3a3a3;
+  --monday-border: #262626;
+  --monday-hover: #1a1a1a;
+  --monday-pill: #262626;
+  --monday-sidebar: #050505;
+  --monday-sidebarHover: #141414;
+  --monday-sidebarPanel: #0a0a0a;
+  --monday-shadow-sm: 0 4px 12px rgba(0, 0, 0, 0.6);
+  --monday-shadow-md: 0 8px 24px rgba(0, 0, 0, 0.65);
+  --monday-shadow-lg: 0 12px 40px rgba(0, 0, 0, 0.7);
+  --monday-shadow-panel: -4px 0 24px rgba(0, 0, 0, 0.65);
+  --scrollbar-thumb: #333;
+  --scrollbar-thumb-hover: #444;
+}
+
 @layer base {
   body {
     margin: 0;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
-    background-color: theme('colors.monday.bg');
-    color: theme('colors.monday.text');
+    background-color: var(--monday-bg);
+    color: var(--monday-text);
     font-family: 'Averta Std', 'Inter', 'Segoe UI', system-ui, sans-serif;
     font-size: 14px;
     overflow: hidden;
@@ -37,62 +99,15 @@
     font-family: inherit;
   }
 
-  /* Tema oscuro: activado cuando <html> tiene la clase .dark */
-  .dark body {
-    background-color: #020617; /* fondo principal */
-    color: #e5e7eb;
-  }
-
-  .dark .bg-monday-bg {
-    background-color: #020617;
-  }
-
-  .dark .bg-monday-sidebar {
-    background-color: #020617;
-  }
-
-  .dark .bg-monday-sidebarHover {
-    background-color: #111827;
-  }
-
-  .dark .bg-monday-sidebarPanel {
-    background-color: #020617;
-  }
-
-  .dark .bg-monday-hover {
-    background-color: #111827;
-  }
-
-  .dark .bg-monday-pill {
-    background-color: #1f2937;
-  }
-
-  .dark .bg-white {
-    background-color: #020617;
-  }
-
-  .dark .text-monday-text {
-    color: #e5e7eb;
-  }
-
-  .dark .text-monday-subtext {
-    color: #9ca3af;
-  }
-
-  .dark .border-monday-border {
-    border-color: #1f2937;
-  }
-
-  .dark .shadow-monday-sm,
-  .dark .shadow-monday-md,
-  .dark .shadow-monday-lg,
-  .dark .shadow-monday-panel {
-    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.75);
-  }
 }
 
 @layer utilities {
-  /* Scrollbar */
+  /* bg-white semántico: tarjetas/paneles usan la superficie del tema (Tailwind genera bg-white después, por eso !important) */
+  .bg-white {
+    background-color: var(--monday-surface) !important;
+  }
+
+  /* Scrollbar: usa variables por tema */
   .custom-scrollbar::-webkit-scrollbar {
     width: 6px;
     height: 6px;
@@ -101,11 +116,11 @@
     background: transparent;
   }
   .custom-scrollbar::-webkit-scrollbar-thumb {
-    background: #d0d4e4;
+    background: var(--scrollbar-thumb);
     border-radius: 10px;
   }
   .custom-scrollbar::-webkit-scrollbar-thumb:hover {
-    background: #a9b0c5;
+    background: var(--scrollbar-thumb-hover);
   }
 
   /* Monday-style table cell hover */
