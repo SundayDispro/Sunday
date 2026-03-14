@@ -224,10 +224,14 @@ export async function generatePdfFromDocument(
     ]);
 
     await page.emulateMediaType('screen');
+    // Tamaño fijo 595×842 px y scale 1 para que el PDF sea 1:1 con el HTML y el editor
+    const pdfWidth = format === 'Letter' ? '612px' : '595px';
+    const pdfHeight = format === 'Letter' ? '792px' : '842px';
     const pdf = await page.pdf({
-      format,
+      width: pdfWidth,
+      height: pdfHeight,
+      scale: 1,
       printBackground: true,
-      preferCSSPageSize: true,
       margin: { top: '0mm', right: '0mm', bottom: '0mm', left: '0mm' },
     });
 

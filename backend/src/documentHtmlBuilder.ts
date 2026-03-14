@@ -9,9 +9,7 @@ import path from 'path';
 const PAGE_W_PX = 595;
 const PAGE_H_PX = 842;
 
-// Mismas proporciones que el editor (Tailwind: 48/28px minHeight, pt-3/pt-2/py-1, px-1.5, pb-1)
-const MIN_HEIGHT_SINGLE_LINE_PX = Math.round(PAGE_H_PX * (48 / 842));
-const MIN_HEIGHT_MULTI_PX = Math.round(PAGE_H_PX * (28 / 842));
+// Paddings alineados con el editor (Tailwind: pt-3/pt-2/py-1, px-1.5, pb-1)
 const PADDING_TOP_FOLIO_PX = Math.round(PAGE_H_PX * (12 / 842));   // pt-3
 const PADDING_TOP_SINGLE_PX = Math.round(PAGE_H_PX * (8 / 842));   // pt-2
 const PADDING_TOP_MULTI_PX = Math.round(PAGE_H_PX * (4 / 842));    // py-1
@@ -119,6 +117,18 @@ export function buildDocumentHtml(options: BuildDocumentHtmlOptions): string {
 
     if (box.kind === 'image' && box.imageUrl) {
       const heightPx = Math.round((box.height ?? 0.15) * PAGE_H_PX);
+      // Diagnóstico: valores usados para esta caja (imagen)
+      console.log({
+        fieldKey: box.fieldKey ?? box.semantic ?? box.id,
+        entrada: { x: box.x, y: box.y, w: box.width, h: box.height },
+        calculado: {
+          topPx: Math.round(topPx),
+          leftPx: Math.round(leftPx),
+          widthPx: Math.round(widthPx),
+          heightPx: Math.round(heightPx),
+        },
+        paginaReferencia: `${PAGE_W_PX}x${PAGE_H_PX}`,
+      });
       const style = [
         `position: absolute`,
         `left: ${leftPx}px`,
@@ -160,10 +170,20 @@ export function buildDocumentHtml(options: BuildDocumentHtmlOptions): string {
     const isFolio = box.semantic === 'folio';
     const isSingleLine = box.singleLine === true || isFolio;
     const rawHeightPx = Math.round((box.height ?? 0.05) * PAGE_H_PX);
-    const minHeightPx = isSingleLine ? MIN_HEIGHT_SINGLE_LINE_PX : MIN_HEIGHT_MULTI_PX;
-    const heightPx = Math.max(rawHeightPx, minHeightPx);
-    // Misma regla que el editor: recortar al borde de página (equivalente a Math.min(h, 1 - y)).
-    const heightClampedPx = Math.min(heightPx, PAGE_H_PX - topPx);
+    // Sin mínimos: la altura es exactamente h*842; recortar solo al borde de página.
+    const heightClampedPx = Math.min(rawHeightPx, PAGE_H_PX - topPx);
+    // Diagnóstico: valores usados para esta caja (texto)
+    console.log({
+      fieldKey: box.fieldKey ?? box.semantic ?? box.id,
+      entrada: { x: box.x, y: box.y, w: box.width, h: box.height },
+      calculado: {
+        topPx: Math.round(topPx),
+        leftPx: Math.round(leftPx),
+        widthPx: Math.round(widthPx),
+        heightPx: Math.round(heightClampedPx),
+      },
+      paginaReferencia: `${PAGE_W_PX}x${PAGE_H_PX}`,
+    });
     const lineHeight = isSingleLine ? '1.1' : '1.35';
     // Padding alineado con el editor (Tailwind: folio pt-3, single pt-2 pb-1, multi py-1, px-1.5)
     const paddingTopPx = isFolio
@@ -181,7 +201,7 @@ export function buildDocumentHtml(options: BuildDocumentHtmlOptions): string {
       `padding: ${paddingTopPx}px ${PADDING_SIDES_PX}px ${PADDING_BOTTOM_PX}px ${PADDING_SIDES_PX}px`,
       `line-height: ${lineHeight}`,
       `box-sizing: border-box`,
-      `overflow: visible`,
+      `overflow: hidden`,
       `display: block`,
     ].join('; ');
 
@@ -192,6 +212,7 @@ export function buildDocumentHtml(options: BuildDocumentHtmlOptions): string {
       `height: 100%`,
       `min-width: 0`,
       `margin: 0`,
+      `overflow: hidden`,
       `font-family: ${escapeHtml(ff)}, sans-serif`,
       `font-size: ${size}pt`,
       `font-weight: ${bold ? 'bold' : 'normal'}`,
@@ -206,9 +227,12 @@ export function buildDocumentHtml(options: BuildDocumentHtmlOptions): string {
       `text-rendering: geometricPrecision`,
     ].join('; ');
 
-    boxHtmlParts.push(
-      `<div class="doc-box" style="${boxStyle}"><div class="doc-box-inner" style="${innerStyle}">${escapeHtml(text) || '&nbsp;'}</div></div>`
-    );
+    const boxHtml = `<div class="doc-box" style="${boxStyle}"><div class="doc-box-inner" style="${innerStyle}">${escapeHtml(text) || '&nbsp;'}</div></div>`;
+    // Diagnóstico: HTML generado para la caja Total (ver estilos de fondo)
+    if (box.fieldKey === 'total' || (box.semantic !== 'folio' && String(box.id || '').toLowerCase().includes('total'))) {
+      console.log('[PDF] HTML caja Total:', boxHtml);
+    }
+    boxHtmlParts.push(boxHtml);
   }
 
   const boxesHtml = boxHtmlParts.join('\n');
@@ -224,7 +248,7 @@ export function buildDocumentHtml(options: BuildDocumentHtmlOptions): string {
   <meta charset="UTF-8">
   <meta name="viewport" content="width=${PAGE_W_PX}, height=${PAGE_H_PX}">
   <style>
-    ${fontFaceCss ? fontFaceCss + '\n    ' : ''}@page { size: 210mm 297mm; margin: 0; }
+    ${fontFaceCss ? fontFaceCss + '\n    ' : ''}@page { size: 595px 842px; margin: 0; }
     * { box-sizing: border-box; }
     html, body {
       margin: 0;

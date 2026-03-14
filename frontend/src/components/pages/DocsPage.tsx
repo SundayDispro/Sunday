@@ -3087,10 +3087,10 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
 
               {selectedDoc && isPdfDocType(selectedDoc.type as DocType) ? (
                 <div className="flex-1 min-h-0 min-w-0 overflow-auto bg-white flex justify-center">
-                  {/* Mismo tamaño de referencia que el editor (21cm, PAGE_ASPECT) para 1:1 preview/PDF */}
+                  {/* Mismo tamaño de referencia que el editor (21cm, PAGE_ASPECT) para 1:1 preview/PDF. align-self evita que el wrapper se estire y recorte el Total. */}
                   <div
                     ref={previewWrapperRef}
-                    className="flex flex-col shrink-0 w-full max-w-full bg-white"
+                    className="flex flex-col shrink-0 w-full max-w-full bg-white self-start"
                     style={{ aspectRatio: PAGE_ASPECT, maxWidth: '21cm' }}
                   >
                     <PdfTemplateEditor

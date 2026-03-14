@@ -346,6 +346,17 @@ export const PdfTemplateEditor: React.FC<Props> = ({
     if (selectedBoxId && !customBoxes.some((b) => b.id === selectedBoxId)) setSelectedBoxId(null);
   }, [selectedBoxId, customBoxes]);
 
+  // Diagnóstico: tamaño real del contenedor (editor vs preview)
+  useEffect(() => {
+    if (!containerRef.current) return;
+    const rect = containerRef.current.getBoundingClientRect();
+    console.log('[CONTAINER]', viewerOnly ? 'PREVIEW' : 'EDITOR', {
+      width: Math.round(rect.width),
+      height: Math.round(rect.height),
+      aspectRatio: (rect.width / rect.height).toFixed(3),
+    });
+  }, [viewerOnly]);
+
   const previewImageUrl = imageDialogUrl.trim().startsWith('/') ? `${API_BASE}${imageDialogUrl}` : imageDialogUrl;
 
   return (
@@ -479,7 +490,7 @@ export const PdfTemplateEditor: React.FC<Props> = ({
           isAdmin={isAdmin}
         />
       )}
-      <div className={`flex-1 flex min-h-0 ${viewerOnly ? 'items-stretch justify-center overflow-hidden p-0' : 'items-center justify-center p-2 sm:p-4 overflow-auto'}`}>
+      <div className={`flex-1 flex min-h-0 ${viewerOnly ? 'items-stretch justify-center overflow-auto p-0' : 'items-center justify-center p-2 sm:p-4 overflow-auto'}`}>
         <div
           ref={containerRef}
           className={`relative bg-transparent ${viewerOnly ? 'w-full h-full rounded-none overflow-visible border border-gray-200' : 'overflow-hidden rounded-lg border border-monday-border/60 shadow-monday'}`}
@@ -487,8 +498,10 @@ export const PdfTemplateEditor: React.FC<Props> = ({
             viewerOnly
               ? {
                   width: '100%',
-                  height: '100%',
+                  maxWidth: '21cm',
                   aspectRatio: String(PAGE_ASPECT),
+                  maxHeight: 'calc(100vh - 12rem)',
+                  height: 'auto',
                 }
               : {
                   width: '100%',
