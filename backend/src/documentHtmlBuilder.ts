@@ -1,21 +1,22 @@
 /**
  * Genera HTML que replica el layout del editor de plantillas PDF.
- * A4 a 96dpi = 794×1123 px para que el contenido llene la hoja sin scale y sin franjas grises.
+ * Mismas dimensiones lógicas que el editor: 595×842 (A4 en puntos), para que posiciones coincidan 1:1.
  */
 import fs from 'fs';
 import path from 'path';
 
-// A4 a 96dpi (210mm≈794px, 297mm≈1123px) — contenido = página, sin márgenes grises
-const PAGE_W_PX = 794;
-const PAGE_H_PX = 1123;
+// Mismo sistema de coordenadas que PdfTemplateEditor (PAGE_ASPECT 595/842)
+const PAGE_W_PX = 595;
+const PAGE_H_PX = 842;
 
-// Proporciones iguales al editor (595×842 lógico escalado a PAGE_*)
+// Mismas proporciones que el editor (Tailwind: 48/28px minHeight, pt-3/pt-2/py-1, px-1.5, pb-1)
 const MIN_HEIGHT_SINGLE_LINE_PX = Math.round(PAGE_H_PX * (48 / 842));
 const MIN_HEIGHT_MULTI_PX = Math.round(PAGE_H_PX * (28 / 842));
-const PADDING_TOP_SINGLE_PX = Math.round(PAGE_H_PX * (8 / 842));
-const PADDING_TOP_MULTI_PX = Math.round(PAGE_H_PX * (4 / 842));
-const PADDING_SIDES_PX = Math.round(PAGE_W_PX * (6 / 595));
-const PADDING_BOTTOM_PX = Math.round(PAGE_H_PX * (4 / 842));
+const PADDING_TOP_FOLIO_PX = Math.round(PAGE_H_PX * (12 / 842));   // pt-3
+const PADDING_TOP_SINGLE_PX = Math.round(PAGE_H_PX * (8 / 842));   // pt-2
+const PADDING_TOP_MULTI_PX = Math.round(PAGE_H_PX * (4 / 842));    // py-1
+const PADDING_BOTTOM_PX = Math.round(PAGE_H_PX * (4 / 842));        // pb-1 / py-1
+const PADDING_SIDES_PX = Math.round(PAGE_W_PX * (6 / 595));        // px-1.5
 
 function escapeHtml(s: string): string {
   return s
@@ -52,23 +53,6 @@ interface CustomBox {
   imageUrl?: string;
   /** Fondo del cuadro (ej. #000000 para cajas negras con texto blanco) */
   backgroundColor?: string;
-}
-
-function isLightColor(hex: string): boolean {
-  const s = String(hex).replace(/^#/, '');
-  if (s.length === 3) {
-    const r = parseInt(s[0] + s[0], 16);
-    const g = parseInt(s[1] + s[1], 16);
-    const b = parseInt(s[2] + s[2], 16);
-    return r + g + b >= 0x2a0; // ~384
-  }
-  if (s.length === 6) {
-    const r = parseInt(s.slice(0, 2), 16);
-    const g = parseInt(s.slice(2, 4), 16);
-    const b = parseInt(s.slice(4, 6), 16);
-    return r + g + b >= 0x2a0;
-  }
-  return false;
 }
 
 /** Devuelve CSS @font-face para Averta Std (mismo nombre que en el editor) para que Puppeteer renderice igual. */
@@ -119,12 +103,8 @@ export function buildDocumentHtml(options: BuildDocumentHtmlOptions): string {
   const globalFontBold = content.globalFontBold === true || content.globalFontBold === 'true';
   const globalFontItalic = content.globalFontItalic === true || content.globalFontItalic === 'true';
 
-  // #region agent log
-  let firstTextBoxStyles: { ff: string; size: number; bold: boolean; italic: boolean } | null = null;
-  // #endregion
-
   const backgroundStyle = backgroundImageDataUrl
-    ? `background-image: url(${backgroundImageDataUrl}); background-size: 100% 100%; background-repeat: no-repeat;`
+    ? `background-image: url(${backgroundImageDataUrl}); background-size: 100% 100%; background-repeat: no-repeat; background-position: 0 0;`
     : 'background-color: #ffffff;';
 
   // Una sola pasada en orden customBoxes para que el z-order del PDF coincida 1:1 con el editor.
@@ -172,27 +152,25 @@ export function buildDocumentHtml(options: BuildDocumentHtmlOptions): string {
     const italic = typeof box.fontItalic === 'boolean' ? box.fontItalic : globalFontItalic;
     const col = typeof box.fontColor === 'string' && box.fontColor ? box.fontColor : globalFontColor;
 
-    // #region agent log
-    if (firstTextBoxStyles === null) {
-      firstTextBoxStyles = { ff, size, bold, italic };
-      fetch('http://127.0.0.1:7405/ingest/45665ed0-78e4-47ef-822c-05ea837f0351', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': 'd2a70f' }, body: JSON.stringify({ sessionId: 'd2a70f', location: 'documentHtmlBuilder.ts:buildDocumentHtml', message: 'computed first text box styles', data: { rawGlobalFontFamily: content.globalFontFamily, globalFontFamilyUsed: globalFontFamily, firstBox: firstTextBoxStyles }, hypothesisId: ['H1', 'H3', 'H5'], timestamp: Date.now() }) }).catch(() => {});
-    }
-    // #endregion
+    // Fondo siempre transparente: la plantilla PDF ya trae barras/colores; no duplicamos backgroundColor.
+    const bgCol = 'transparent';
+    // Respetar el color de texto de la caja (ej. blanco en Total sobre la barra del PDF).
+    const textCol = col;
 
-    const bgCol =
-      typeof box.backgroundColor === 'string' && box.backgroundColor
-        ? box.backgroundColor
-        : isLightColor(col)
-          ? '#000000'
-          : 'transparent';
-
+    const isFolio = box.semantic === 'folio';
+    const isSingleLine = box.singleLine === true || isFolio;
     const rawHeightPx = Math.round((box.height ?? 0.05) * PAGE_H_PX);
-    const isSingleLine = box.singleLine === true || box.semantic === 'folio';
     const minHeightPx = isSingleLine ? MIN_HEIGHT_SINGLE_LINE_PX : MIN_HEIGHT_MULTI_PX;
     const heightPx = Math.max(rawHeightPx, minHeightPx);
+    // Misma regla que el editor: recortar al borde de página (equivalente a Math.min(h, 1 - y)).
     const heightClampedPx = Math.min(heightPx, PAGE_H_PX - topPx);
     const lineHeight = isSingleLine ? '1.1' : '1.35';
-    const paddingTopPx = isSingleLine ? PADDING_TOP_SINGLE_PX : PADDING_TOP_MULTI_PX;
+    // Padding alineado con el editor (Tailwind: folio pt-3, single pt-2 pb-1, multi py-1, px-1.5)
+    const paddingTopPx = isFolio
+      ? PADDING_TOP_FOLIO_PX
+      : isSingleLine
+        ? PADDING_TOP_SINGLE_PX
+        : PADDING_TOP_MULTI_PX;
     const boxStyle = [
       `position: absolute`,
       `left: ${leftPx}px`,
@@ -218,7 +196,7 @@ export function buildDocumentHtml(options: BuildDocumentHtmlOptions): string {
       `font-size: ${size}pt`,
       `font-weight: ${bold ? 'bold' : 'normal'}`,
       `font-style: ${italic ? 'italic' : 'normal'}`,
-      `color: ${col}`,
+      `color: ${textCol}`,
       `background-color: ${bgCol}`,
       `white-space: pre-wrap`,
       `word-break: break-word`,
@@ -269,7 +247,7 @@ export function buildDocumentHtml(options: BuildDocumentHtmlOptions): string {
       min-width: ${PAGE_W_PX}px;
       min-height: ${PAGE_H_PX}px;
       position: relative;
-      overflow: hidden;
+      overflow: visible;
       border: none;
       outline: none;
       box-shadow: none;

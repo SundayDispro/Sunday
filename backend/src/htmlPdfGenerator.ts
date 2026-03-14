@@ -89,8 +89,7 @@ function resolveImageUrlsToDataUrls(content: Record<string, unknown>): Record<st
 
 /**
  * Convierte la primera página del PDF de plantilla a imagen base64.
- * Usa el browser ya abierto. Carga el PDF con parámetros para ocultar la UI del visor
- * (#toolbar=0&navpanes=0&scrollbar=0) y captura solo el contenido con clip al viewport.
+ * Mismo tamaño que la página HTML (595×842) para alineación 1:1 con el editor.
  */
 async function getTemplatePdfFirstPageAsDataUrlWithBrowser(
   browser: Awaited<ReturnType<typeof puppeteer.launch>>,
@@ -101,17 +100,17 @@ async function getTemplatePdfFirstPageAsDataUrlWithBrowser(
   const fileUrl = `file:///${absolutePath.replace(/\\/g, '/')}#toolbar=0&navpanes=0&scrollbar=0`;
   try {
     const page = await browser.newPage();
+    // Mismo tamaño que documentHtmlBuilder (595×842 = editor)
     const width = 595;
     const height = 842;
-    await page.setViewport({ width, height });
+    await page.setViewport({ width, height, deviceScaleFactor: 1 });
     await page.goto(fileUrl, { waitUntil: 'networkidle0', timeout: 15000 });
-    // Dar tiempo a que el visor oculte la barra y renderice la página
-    await page.evaluate(() => new Promise((r) => setTimeout(r, 500)));
-    // Capturar solo el área del viewport (evitar barras si aún aparecen)
+    // Dar más tiempo para que el visor renderice la página completa incluyendo la parte inferior
+    await page.evaluate(() => new Promise((r) => setTimeout(r, 1000)));
+    // Capturar todo el viewport sin clip para obtener la página completa sin recortes
     const buffer = await page.screenshot({
       type: 'png',
       omitBackground: false,
-      clip: { x: 0, y: 0, width, height },
     });
     await page.close();
     if (!buffer || !(buffer instanceof Buffer)) return null;
@@ -198,9 +197,9 @@ export async function generatePdfFromDocument(
     });
 
     const page = await browser.newPage();
-    // Viewport = A4 a 96dpi (794×1123) para que el contenido llene la página sin scale y sin franjas grises
-    const width = format === 'Letter' ? 816 : 794;
-    const height = format === 'Letter' ? 1056 : 1123;
+    // Viewport = mismas dimensiones que el editor (595×842) para posiciones 1:1
+    const width = format === 'Letter' ? 612 : 595;
+    const height = format === 'Letter' ? 792 : 842;
     await page.setViewport({ width, height, deviceScaleFactor: 1 });
     await page.setContent(html, {
       waitUntil: 'networkidle0',

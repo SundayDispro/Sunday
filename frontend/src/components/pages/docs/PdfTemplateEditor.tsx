@@ -25,7 +25,29 @@ interface Props {
   viewerOnly?: boolean;
 }
 
-const PAGE_ASPECT = 595 / 842; // A4
+/** Relación de aspecto A4 (595×842); usar en editor y preview para 1:1 con PDF. */
+export const PAGE_ASPECT = 595 / 842;
+
+/** Devuelve el texto de placeholder sugerido según el campo semántico del cuadro. */
+function getSemanticPlaceholder(box: import('./pdfTemplateConfig').CustomBoxDef): string {
+  const key = box.fieldKey ?? (box.semantic === 'folio' ? 'folio' : '');
+  switch (key) {
+    case 'cliente':       return 'Nombre del cliente';
+    case 'folio':         return '0000';
+    case 'fecha':         return '00/00/0000';
+    case 'descripcion_corta':
+    case 'vigencia':
+    case 'item':          return 'Breve descripción';
+    case 'descripcion_larga':
+    case 'descripcion':
+    case 'observaciones': return 'Descripción detallada del proyecto';
+    case 'total':         return 'Total : $00,000.00';
+    case 'nota_iva':
+    case 'notas':         return 'Esta cotización no incluye I.V.A.';
+    default:
+      return box.singleLine ? 'Texto (una línea)' : 'Texto (varios renglones)';
+  }
+}
 
 const DEFAULT_TEMPLATE_CONFIG: TemplateConfigState = {
   fieldPositions: {},
@@ -496,7 +518,7 @@ export const PdfTemplateEditor: React.FC<Props> = ({
           </div>
           {/* Capa 2: solo cuadros que ADMIN agrega/modifica (customBoxes). En viewerOnly sin overflow-hidden para no recortar. */}
           <div className={`absolute inset-0 z-20 ${viewerOnly ? 'pointer-events-none overflow-visible' : 'overflow-hidden'}`}>
-            <div className={`absolute inset-0 ${viewerOnly ? 'pl-[2%]' : ''} ${viewerOnly ? '' : 'pointer-events-auto'}`} style={viewerOnly ? { boxSizing: 'border-box', width: '100%' } : undefined}>
+            <div className={`absolute inset-0 ${viewerOnly ? '' : 'pointer-events-auto'}`}>
               {customBoxes.map((box) => {
                 const canMoveOrDelete = !viewerOnly && (isAdmin || (currentUser?.id && box.ownerId === currentUser.id));
                 // Para usuarios no admin y que no son dueños del cuadro: solo mostrar texto “plano” sin marco
@@ -516,10 +538,11 @@ export const PdfTemplateEditor: React.FC<Props> = ({
                 const boxTextStyle = getTextStyleForBox(box);
                 const isSelected = selectedBoxId === box.id;
                 const isSingleLineOrFolio = box.singleLine === true || box.semantic === 'folio';
+                const isFolio = box.semantic === 'folio';
                 return (
                   <div
                     key={box.id}
-                    className="absolute flex items-stretch overflow-hidden"
+                    className="absolute flex items-stretch overflow-visible"
                     style={{
                       left: `${x * 100}%`,
                       top: `${y * 100}%`,
@@ -561,7 +584,7 @@ export const PdfTemplateEditor: React.FC<Props> = ({
                           readOnly
                           value={boxVal}
                           style={boxTextStyle}
-                          className={`w-full h-full min-h-0 resize-none border-0 outline-none bg-transparent px-1.5 overflow-hidden block whitespace-pre-wrap break-words ${isSingleLineOrFolio ? 'pt-2 pb-1' : 'py-1'}`}
+                          className={`w-full h-full min-h-0 resize-none border-0 outline-none bg-transparent px-1.5 overflow-hidden block whitespace-pre-wrap break-words ${isFolio ? 'pt-3 pb-1' : isSingleLineOrFolio ? 'pt-2 pb-1' : 'py-1'}`}
                         />
                       ) : box.singleLine ? (
                         <input
@@ -572,12 +595,12 @@ export const PdfTemplateEditor: React.FC<Props> = ({
                               customFieldValues: { ...customValues, [box.id]: e.target.value },
                             })
                           }
-                          placeholder="Texto (una línea)"
+                          placeholder={getSemanticPlaceholder(box)}
                           style={{
                             ...boxTextStyle,
                             backgroundColor: showFrame ? 'rgba(255,255,255,0.95)' : 'transparent',
                           }}
-                          className={`w-full h-full min-h-0 border-0 outline-none focus:ring-0 px-1.5 placeholder:text-gray-500 block ${isSingleLineOrFolio ? 'pt-2 pb-1' : 'py-1'} ${
+                          className={`w-full h-full min-h-0 border-0 outline-none focus:ring-0 px-1.5 placeholder:text-gray-500 block ${isFolio ? 'pt-3 pb-1' : isSingleLineOrFolio ? 'pt-2 pb-1' : 'py-1'} ${
                             showFrame ? 'rounded' : ''
                           }`}
                           onClick={(e) => {
@@ -597,7 +620,7 @@ export const PdfTemplateEditor: React.FC<Props> = ({
                               customFieldValues: { ...customValues, [box.id]: e.target.value },
                             })
                           }
-                          placeholder="Texto (varios renglones)"
+                          placeholder={getSemanticPlaceholder(box)}
                           style={{
                             ...boxTextStyle,
                             backgroundColor: showFrame ? 'rgba(255,255,255,0.95)' : 'transparent',

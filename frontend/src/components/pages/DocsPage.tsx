@@ -36,7 +36,7 @@ import {
   isPdfDocType,
 } from './docs/docTypes';
 import type { TemplateConfigState } from './docs/pdfTemplateConfig';
-import { PdfTemplateEditor } from './docs/PdfTemplateEditor';
+import { PdfTemplateEditor, PAGE_ASPECT } from './docs/PdfTemplateEditor';
 import { TextFormatBarForEditor } from '../docs/TextFormatBar';
 import { useUser } from '../../store/UserContext';
 import { useToast } from '../Toast';
@@ -2324,13 +2324,6 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
             globalFontBold: false,
             globalFontItalic: false,
           };
-      // #region agent log
-      (() => {
-        const boxes = contentToSend.customBoxes as { fontFamily?: string; fontSize?: number; fontColor?: string }[] | undefined;
-        const b0 = boxes?.[0];
-        fetch('http://127.0.0.1:7405/ingest/45665ed0-78e4-47ef-822c-05ea837f0351', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': 'd2a70f' }, body: JSON.stringify({ sessionId: 'd2a70f', location: 'DocsPage.tsx:handleDownloadPdf', message: 'contentToSend fonts and first boxes', data: { globalFontFamily: contentToSend.globalFontFamily, globalFontSize: contentToSend.globalFontSize, globalFontBold: contentToSend.globalFontBold, globalFontItalic: contentToSend.globalFontItalic, globalFontColor: contentToSend.globalFontColor, customBoxesLen: boxes?.length ?? 0, firstBoxFontFamily: b0?.fontFamily, firstBoxFontSize: b0?.fontSize, firstBoxFontColor: b0?.fontColor }, hypothesisId: ['H1', 'H2', 'H4'], timestamp: Date.now() }) }).catch(() => {});
-      })();
-      // #endregion
       const res = await fetch(`${API_BASE}/api/templates/${docType}/generate`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -3094,11 +3087,11 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
 
               {selectedDoc && isPdfDocType(selectedDoc.type as DocType) ? (
                 <div className="flex-1 min-h-0 min-w-0 overflow-auto bg-white flex justify-center">
-                  {/* Documento A4: ancho 100% del panel, altura por aspect-ratio; scroll blanco si no cabe */}
+                  {/* Mismo tamaño de referencia que el editor (21cm, PAGE_ASPECT) para 1:1 preview/PDF */}
                   <div
                     ref={previewWrapperRef}
                     className="flex flex-col shrink-0 w-full max-w-full bg-white"
-                    style={{ aspectRatio: '595/842' }}
+                    style={{ aspectRatio: PAGE_ASPECT, maxWidth: '21cm' }}
                   >
                     <PdfTemplateEditor
                       key={selectedDoc.id}

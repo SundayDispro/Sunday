@@ -145,6 +145,11 @@ export interface CustomBoxDef {
   backgroundColor?: string;
   /** Semántica opcional del cuadro para auto-rellenar desde tablero */
   semantic?: 'element' | 'folio';
+  /**
+   * Clave de campo semántico para placeholders sugeridos y para vincular con datos del tablero.
+   * Valores reconocidos: 'cliente' | 'folio' | 'fecha' | 'descripcion_corta' | 'descripcion_larga' | 'total' | 'nota_iva'
+   */
+  fieldKey?: string;
 }
 
 export interface TemplateConfigState {

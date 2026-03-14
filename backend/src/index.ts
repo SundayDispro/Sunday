@@ -1464,11 +1464,6 @@ app.post('/api/templates/:kind/generate', async (req, res) => {
       rawContent && typeof rawContent === 'object' && !Array.isArray(rawContent)
         ? (rawContent as Record<string, unknown>)
         : {};
-    // #region agent log
-    const cboxes = (content.customBoxes as { fontFamily?: string; fontSize?: number }[] | undefined);
-    const fb = cboxes?.[0];
-    await fetch('http://127.0.0.1:7405/ingest/45665ed0-78e4-47ef-822c-05ea837f0351', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': 'd2a70f' }, body: JSON.stringify({ sessionId: 'd2a70f', location: 'index.ts:generate', message: 'backend received content', data: { globalFontFamily: content.globalFontFamily, globalFontSize: content.globalFontSize, customBoxesLen: Array.isArray(content.customBoxes) ? content.customBoxes.length : 0, firstBoxFontFamily: fb?.fontFamily, firstBoxFontSize: fb?.fontSize }, hypothesisId: ['H1', 'H4'], timestamp: Date.now() }) }).catch(() => {});
-    // #endregion
     const templatePdfPath = getTemplatePathIfExists(kind as (typeof TEMPLATE_KINDS)[number]);
     const { generatePdfFromDocument } = await import('./htmlPdfGenerator');
     const buffer = await generatePdfFromDocument({
