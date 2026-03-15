@@ -35,12 +35,14 @@ import {
   DOC_TYPE_OPTIONS,
   isPdfDocType,
 } from './docs/docTypes';
+import { FONT_OPTIONS, FONT_SIZES } from '../docs/TextFormatBar';
 import type { TemplateConfigState } from './docs/pdfTemplateConfig';
 import { PdfTemplateEditor, PAGE_ASPECT } from './docs/PdfTemplateEditor';
 import { TextFormatBarForEditor } from '../docs/TextFormatBar';
 import { useUser } from '../../store/UserContext';
 import { useToast } from '../Toast';
 import { socket } from '../../store/socket';
+import * as XLSX from 'xlsx';
 
 const API_BASE = import.meta.env.DEV ? '' : (import.meta.env.VITE_API_URL || 'http://localhost:3001');
 
@@ -120,9 +122,13 @@ function normalizeNote(raw: unknown): TaskWindow | null {
   return { id, title, color, ownerId, tasks };
 }
 
+export type CellStyleDef = { bg?: string; fontFamily?: string; fontSize?: string; color?: string };
+export type CellStylesMap = Record<string, CellStyleDef>;
+
 type DocContent = {
   text?: string;
   table?: string[][];
+  cellStyles?: CellStylesMap;
   headerImageUrl?: string | null;
   [key: string]: unknown;
 };
@@ -1331,6 +1337,70 @@ function evaluateFormula(
       return total;
     }
 
+    // Helper: collect numeric values from range or list (same as SUM arg)
+    const collectNumbers = (arg: string): number[] => {
+      const nums: number[] = [];
+      if (arg.includes(':')) {
+        const [start, end] = arg.split(':').map(s => parseCellRef(s.trim())).filter(Boolean) as { r: number; c: number }[];
+        if (!start || !end) return [];
+        const minR = Math.min(start.r, end.r);
+        const maxR = Math.max(start.r, end.r);
+        const minC = Math.min(start.c, end.c);
+        const maxC = Math.max(start.c, end.c);
+        for (let r = minR; r <= maxR; r++) {
+          for (let c = minC; c <= maxC; c++) {
+            const cell = table[r]?.[c] ?? '';
+            if (cell.startsWith('=')) {
+              const v = evaluateFormula(table, cell, r, c, new Set(vis));
+              if (typeof v === 'number') nums.push(v);
+            } else {
+              const n = parseFloat(String(cell).replace(/,/g, '.'));
+              if (!Number.isNaN(n)) nums.push(n);
+            }
+          }
+        }
+      } else {
+        arg.split(',').forEach(part => {
+          const ref = parseCellRef(part.trim());
+          if (ref) {
+            const cell = table[ref.r]?.[ref.c] ?? '';
+            if (cell.startsWith('=')) {
+              const v = evaluateFormula(table, cell, ref.r, ref.c, new Set(vis));
+              if (typeof v === 'number') nums.push(v);
+            } else {
+              const n = parseFloat(String(cell).replace(/,/g, '.'));
+              if (!Number.isNaN(n)) nums.push(n);
+            }
+          }
+        });
+      }
+      return nums;
+    };
+
+    const avgMatch = expr.match(/^AVERAGE\s*\((.*)\)$/i);
+    if (avgMatch) {
+      const nums = collectNumbers(avgMatch[1].trim());
+      if (nums.length === 0) return 0;
+      return nums.reduce((a, b) => a + b, 0) / nums.length;
+    }
+    const minMatch = expr.match(/^MIN\s*\((.*)\)$/i);
+    if (minMatch) {
+      const nums = collectNumbers(minMatch[1].trim());
+      if (nums.length === 0) return 0;
+      return Math.min(...nums);
+    }
+    const maxMatch = expr.match(/^MAX\s*\((.*)\)$/i);
+    if (maxMatch) {
+      const nums = collectNumbers(maxMatch[1].trim());
+      if (nums.length === 0) return 0;
+      return Math.max(...nums);
+    }
+    const countMatch = expr.match(/^COUNT\s*\((.*)\)$/i);
+    if (countMatch) {
+      const nums = collectNumbers(countMatch[1].trim());
+      return nums.length;
+    }
+
     // Expresión simple: A1+B1, A1-B1, A1*B1, A1/B1, (A1+B1)*C1, etc.
     const tokens: string[] = [];
     let rest = expr.replace(/\s/g, '');
@@ -1415,20 +1485,56 @@ function getCellDisplayValue(
   return result;
 }
 
+const SHEET_COLOR_PALETTE = [
+  '#ffffff', '#fef08a', '#bbf7d0', '#bfdbfe', '#fbcfe8', '#e9d5ff', '#fed7aa',
+  '#fde047', '#86efac', '#93c5fd', '#f9a8d4', '#d8b4fe', '#fdba74',
+  '#facc15', '#4ade80', '#60a5fa', '#f472b6', '#c084fc', '#fb923c',
+];
+
+const SHEET_TEXT_COLOR_PALETTE = [
+  '#000000', '#374151', '#6b7280', '#ef4444', '#ea580c', '#ca8a04', '#65a30d', '#059669', '#0d9488', '#0891b2', '#2563eb', '#7c3aed', '#c026d3',
+];
+
 // Editor de hoja tipo Excel: integrado a la interfaz, barra de fórmula y opciones
 function ExcelLikeSheet({
   tableDraft,
   setTableDraft,
   ensureTableSize,
+  cellStyles = {},
+  setCellStyles,
+  documentTitle,
   readOnly = false,
+  pushSheetHistory,
+  undoSheet,
+  redoSheet,
 }: {
   tableDraft: string[][];
   setTableDraft: React.Dispatch<React.SetStateAction<string[][]>>;
   ensureTableSize: (rows: number, cols: number) => void;
+  cellStyles?: CellStylesMap;
+  setCellStyles?: React.Dispatch<React.SetStateAction<CellStylesMap>>;
+  documentTitle?: string;
   readOnly?: boolean;
+  pushSheetHistory?: () => void;
+  undoSheet?: () => void;
+  redoSheet?: () => void;
 }) {
   const cols = tableDraft[0]?.length ?? 1;
+  const rows = tableDraft.length;
   const [focusedCell, setFocusedCell] = useState<{ r: number; c: number } | null>(null);
+  const [selectionRange, setSelectionRange] = useState<{ start: { r: number; c: number }; end: { r: number; c: number } } | null>(null);
+  const gridContainerRef = useRef<HTMLDivElement>(null);
+  const isDraggingRef = useRef(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const formatTargetRef = useRef<{ cell: { r: number; c: number } | null; range: { start: { r: number; c: number }; end: { r: number; c: number } } | null }>({ cell: null, range: null });
+  const [colorMenuOpen, setColorMenuOpen] = useState(false);
+  const [fontMenuOpen, setFontMenuOpen] = useState(false);
+  const [fontSizeMenuOpen, setFontSizeMenuOpen] = useState(false);
+  const [fontColorMenuOpen, setFontColorMenuOpen] = useState(false);
+  const colorMenuRef = useRef<HTMLDivElement>(null);
+  const fontMenuRef = useRef<HTMLDivElement>(null);
+  const fontSizeMenuRef = useRef<HTMLDivElement>(null);
+  const fontColorMenuRef = useRef<HTMLDivElement>(null);
   const formulaBarValue = focusedCell != null ? (tableDraft[focusedCell.r]?.[focusedCell.c] ?? '') : '';
 
   const colLetters = (n: number) => {
@@ -1447,11 +1553,91 @@ function ExcelLikeSheet({
     });
   };
 
+  const getFormatTarget = () => {
+    const range = selectionRange ?? formatTargetRef.current?.range;
+    const cell = focusedCell ?? formatTargetRef.current?.cell;
+    return { range, cell };
+  };
+
+  const applyToCellsInTarget = (applyOne: (key: string, prev: CellStyleDef) => CellStyleDef) => {
+    if (!setCellStyles) return;
+    pushSheetHistory?.();
+    const { range, cell } = getFormatTarget();
+    setCellStyles(prev => {
+      const next = { ...prev };
+      if (range) {
+        const minR = Math.min(range.start.r, range.end.r);
+        const maxR = Math.max(range.start.r, range.end.r);
+        const minC = Math.min(range.start.c, range.end.c);
+        const maxC = Math.max(range.start.c, range.end.c);
+        for (let r = minR; r <= maxR; r++) {
+          for (let c = minC; c <= maxC; c++) {
+            const key = `${r},${c}`;
+            next[key] = applyOne(key, next[key] ?? {});
+          }
+        }
+      } else if (cell != null) {
+        const key = `${cell.r},${cell.c}`;
+        next[key] = applyOne(key, next[key] ?? {});
+      }
+      return next;
+    });
+  };
+
+  const applyColorToTarget = (color: string) => {
+    if (!setCellStyles) return;
+    pushSheetHistory?.();
+    const { range, cell } = getFormatTarget();
+    if (range) {
+      const minR = Math.min(range.start.r, range.end.r);
+      const maxR = Math.max(range.start.r, range.end.r);
+      const minC = Math.min(range.start.c, range.end.c);
+      const maxC = Math.max(range.start.c, range.end.c);
+      setCellStyles(prev => {
+        const next = { ...prev };
+        for (let r = minR; r <= maxR; r++) {
+          for (let c = minC; c <= maxC; c++) {
+            const key = `${r},${c}`;
+            if (color === '' || color === 'transparent') {
+              const cur = next[key];
+              if (cur) { const { bg: _, ...rest } = cur; if (Object.keys(rest).length) next[key] = rest; else delete next[key]; }
+            } else next[key] = { ...(next[key] ?? {}), bg: color };
+          }
+        }
+        return next;
+      });
+    } else if (cell != null) {
+      const key = `${cell.r},${cell.c}`;
+      if (color === '' || color === 'transparent') {
+        setCellStyles(prev => {
+          const cur = prev[key];
+          if (!cur) return prev;
+          const { bg: _, ...rest } = cur;
+          if (Object.keys(rest).length === 0) { const { [key]: __, ...r } = prev; return r; }
+          return { ...prev, [key]: rest };
+        });
+      } else setCellStyles(prev => ({ ...prev, [key]: { ...(prev[key] ?? {}), bg: color } }));
+    }
+  };
+
+  const applyFontToTarget = (fontFamily: string) => {
+    applyToCellsInTarget((_, prev) => ({ ...prev, fontFamily }));
+  };
+
+  const applyFontSizeToTarget = (fontSize: string) => {
+    applyToCellsInTarget((_, prev) => ({ ...prev, fontSize }));
+  };
+
+  const applyTextColorToTarget = (color: string) => {
+    applyToCellsInTarget((_, prev) => ({ ...prev, color }));
+  };
+
   const insertRowAbove = () => {
     if (focusedCell == null) {
       ensureTableSize(tableDraft.length + 1, tableDraft[0]?.length || 1);
       return;
     }
+    pushSheetHistory?.();
     setTableDraft(prev => {
       const newRow = new Array(prev[0]?.length || 1).fill('');
       const next = [...prev.slice(0, focusedCell.r), newRow, ...prev.slice(focusedCell.r)];
@@ -1465,9 +1651,208 @@ function ExcelLikeSheet({
       ensureTableSize(tableDraft.length, (tableDraft[0]?.length || 0) + 1);
       return;
     }
+    pushSheetHistory?.();
     setTableDraft(prev => prev.map(row => [...row.slice(0, focusedCell.c), '', ...row.slice(focusedCell.c)]));
     setFocusedCell(prev => prev ? { r: prev.r, c: prev.c + 1 } : null);
   };
+
+  const handlePaste = useCallback((e: React.ClipboardEvent, anchorR: number, anchorC: number) => {
+    e.preventDefault();
+    const raw = e.clipboardData.getData('text/plain');
+    if (!raw.trim()) return;
+    const lines = raw.split(/\r?\n/).map(line => line.split('\t'));
+    if (lines.length === 0) return;
+    const maxCols = Math.max(...lines.map(l => l.length));
+    const newRows = anchorR + lines.length;
+    const newCols = anchorC + maxCols;
+    ensureTableSize(Math.max(rows, newRows), Math.max(cols, newCols));
+    setTableDraft(prev => {
+      const next = prev.map(r => [...r]);
+      lines.forEach((line, dr) => {
+        const r = anchorR + dr;
+        if (!next[r]) next[r] = [];
+        line.forEach((val, dc) => {
+          const c = anchorC + dc;
+          while (next[r].length <= c) next[r].push('');
+          next[r][c] = val;
+        });
+      });
+      return next;
+    });
+  }, [rows, cols, ensureTableSize]);
+
+  const focusCell = useCallback((r: number, c: number) => {
+    const el = gridContainerRef.current?.querySelector(`input[data-cell="${r},${c}"]`) as HTMLInputElement | null;
+    el?.focus();
+  }, []);
+
+  const handleKeyDown = useCallback((e: React.KeyboardEvent, r: number, c: number) => {
+    if (readOnly) return;
+    let nextR = r;
+    let nextC = c;
+    let handled = false;
+    let extendedSelection = false;
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      nextR = e.shiftKey ? r - 1 : r + 1;
+      if (e.shiftKey) {
+        const anchor = selectionRange ? selectionRange.start : { r, c };
+        setSelectionRange({ start: anchor, end: { r: nextR, c: nextC } });
+        extendedSelection = true;
+      } else setSelectionRange(null);
+      handled = true;
+    } else if (e.key === 'Tab') {
+      e.preventDefault();
+      if (e.shiftKey) nextC = c - 1;
+      else nextC = c + 1;
+      setSelectionRange(null);
+      handled = true;
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      nextR = r - 1;
+      if (e.shiftKey) {
+        const anchor = selectionRange ? selectionRange.start : { r, c };
+        setSelectionRange({ start: anchor, end: { r: nextR, c: nextC } });
+        extendedSelection = true;
+      } else setSelectionRange(null);
+      handled = true;
+    } else if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      nextR = r + 1;
+      if (e.shiftKey) {
+        const anchor = selectionRange ? selectionRange.start : { r, c };
+        setSelectionRange({ start: anchor, end: { r: nextR, c: nextC } });
+        extendedSelection = true;
+      } else setSelectionRange(null);
+      handled = true;
+    } else if (e.key === 'ArrowLeft') {
+      e.preventDefault();
+      nextC = c - 1;
+      if (e.shiftKey) {
+        const anchor = selectionRange ? selectionRange.start : { r, c };
+        setSelectionRange({ start: anchor, end: { r: nextR, c: nextC } });
+        extendedSelection = true;
+      } else setSelectionRange(null);
+      handled = true;
+    } else if (e.key === 'ArrowRight') {
+      e.preventDefault();
+      nextC = c + 1;
+      if (e.shiftKey) {
+        const anchor = selectionRange ? selectionRange.start : { r, c };
+        setSelectionRange({ start: anchor, end: { r: nextR, c: nextC } });
+        extendedSelection = true;
+      } else setSelectionRange(null);
+      handled = true;
+    } else if (e.key === 'z' && (e.ctrlKey || e.metaKey)) {
+      e.preventDefault();
+      if (e.shiftKey) redoSheet?.();
+      else undoSheet?.();
+      handled = true;
+    } else if (e.key === 'y' && (e.ctrlKey || e.metaKey)) {
+      e.preventDefault();
+      redoSheet?.();
+      handled = true;
+    } else if (e.key === 'c' && (e.ctrlKey || e.metaKey)) {
+      e.preventDefault();
+      if (selectionRange) {
+        const minR = Math.min(selectionRange.start.r, selectionRange.end.r);
+        const maxR = Math.max(selectionRange.start.r, selectionRange.end.r);
+        const minC = Math.min(selectionRange.start.c, selectionRange.end.c);
+        const maxC = Math.max(selectionRange.start.c, selectionRange.end.c);
+        const lines: string[] = [];
+        for (let rr = minR; rr <= maxR; rr++) {
+          const row = tableDraft[rr] ?? [];
+          lines.push(Array.from({ length: maxC - minC + 1 }, (_, cc) => row[minC + cc] ?? '').join('\t'));
+        }
+        navigator.clipboard.writeText(lines.join('\n')).catch(() => {});
+      } else if (focusedCell != null) {
+        const val = tableDraft[focusedCell.r]?.[focusedCell.c] ?? '';
+        navigator.clipboard.writeText(val).catch(() => {});
+      }
+      handled = true;
+    }
+    if (handled && nextR >= 0 && nextC >= 0) {
+      ensureTableSize(Math.max(rows, nextR + 1), Math.max(cols, nextC + 1));
+      setFocusedCell({ r: nextR, c: nextC });
+      if (!extendedSelection) setSelectionRange(null);
+      requestAnimationFrame(() => focusCell(nextR, nextC));
+    }
+  }, [readOnly, rows, cols, tableDraft, selectionRange, focusedCell, ensureTableSize, focusCell, undoSheet, redoSheet]);
+
+  const handleCellMouseDown = useCallback((r: number, c: number) => {
+    if (readOnly) return;
+    isDraggingRef.current = true;
+    setFocusedCell({ r, c });
+    setSelectionRange({ start: { r, c }, end: { r, c } });
+  }, [readOnly]);
+
+  const handleCellMouseEnter = useCallback((r: number, c: number) => {
+    if (!readOnly && isDraggingRef.current) {
+      setSelectionRange(prev => prev ? { ...prev, end: { r, c } } : null);
+    }
+  }, [readOnly]);
+
+  useEffect(() => {
+    const onMouseUp = () => { isDraggingRef.current = false; };
+    window.addEventListener('mouseup', onMouseUp);
+    return () => window.removeEventListener('mouseup', onMouseUp);
+  }, []);
+
+  useEffect(() => {
+    if (!colorMenuOpen && !fontMenuOpen && !fontSizeMenuOpen && !fontColorMenuOpen) return;
+    const onDocMouseDown = (e: MouseEvent) => {
+      const t = e.target as Node;
+      if (colorMenuRef.current?.contains(t) || fontMenuRef.current?.contains(t) || fontSizeMenuRef.current?.contains(t) || fontColorMenuRef.current?.contains(t)) return;
+      setColorMenuOpen(false);
+      setFontMenuOpen(false);
+      setFontSizeMenuOpen(false);
+      setFontColorMenuOpen(false);
+    };
+    document.addEventListener('mousedown', onDocMouseDown);
+    return () => document.removeEventListener('mousedown', onDocMouseDown);
+  }, [colorMenuOpen, fontMenuOpen, fontSizeMenuOpen, fontColorMenuOpen]);
+
+  const handleImportExcel = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    const anchorR = focusedCell?.r ?? 0;
+    const anchorC = focusedCell?.c ?? 0;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      try {
+        const ab = ev.target?.result;
+        if (!ab || typeof ab === 'string') return;
+        const wb = XLSX.read(ab, { type: 'array' });
+        const firstSheetName = wb.SheetNames[0];
+        if (!firstSheetName) return;
+        const ws = wb.Sheets[firstSheetName];
+        const data: string[][] = XLSX.utils.sheet_to_json<string[]>(ws, { header: 1, defval: '' });
+        const arr = Array.isArray(data) ? data : [];
+        if (arr.length === 0) return;
+        const maxCols = Math.max(...arr.map((r: string[]) => r.length));
+        const newRows = anchorR + arr.length;
+        const newCols = anchorC + maxCols;
+        ensureTableSize(Math.max(rows, newRows), Math.max(cols, newCols));
+        setTableDraft(prev => {
+          const next = prev.map(r => [...r]);
+          arr.forEach((line: string[], dr: number) => {
+            const r = anchorR + dr;
+            if (!next[r]) next[r] = [];
+            (line as string[]).forEach((val: string, dc: number) => {
+              const c = anchorC + dc;
+              while (next[r].length <= c) next[r].push('');
+              next[r][c] = String(val ?? '');
+            });
+          });
+          return next;
+        });
+      } catch (err) {
+        console.error('Error importing Excel', err);
+      }
+    };
+    reader.readAsArrayBuffer(file);
+  }, [focusedCell, rows, cols, ensureTableSize]);
 
   const sheetBtn = 'px-2.5 py-1.5 rounded-monday border border-monday-border bg-white text-[12px] text-monday-text hover:bg-monday-hover transition-colors';
 
@@ -1506,10 +1891,153 @@ function ExcelLikeSheet({
               </button>
             </>
           )}
+          {setCellStyles && (
+            <>
+              <div className="relative inline-block" ref={colorMenuRef}>
+                <button
+                  type="button"
+                  className={`${sheetBtn} flex items-center gap-1.5 ${colorMenuOpen ? 'ring-1 ring-monday-blue bg-monday-hover/50' : ''}`}
+                  title="Color de fondo de celda"
+                  onMouseDown={(e) => {
+                    e.preventDefault();
+                    formatTargetRef.current = { cell: focusedCell, range: selectionRange };
+                    setColorMenuOpen(v => !v);
+                  }}
+                >
+                  <Palette size={14} />
+                  Color
+                </button>
+                {colorMenuOpen && (
+                  <div className="absolute left-0 top-full mt-1 z-[200] min-w-[140px] rounded-monday border border-monday-border bg-white shadow-monday-lg overflow-hidden">
+                    <div className="px-2 py-1.5 border-b border-monday-border bg-monday-hover/30">
+                      <span className="text-[11px] font-medium text-monday-subtext">Color de fondo</span>
+                    </div>
+                    <div className="p-2">
+                      <div className="grid grid-cols-6 gap-1">
+                        {SHEET_COLOR_PALETTE.map((hex) => (
+                          <button
+                            key={hex}
+                            type="button"
+                            className="w-6 h-6 rounded border border-monday-border hover:ring-2 hover:ring-monday-blue transition-shadow"
+                            style={{ backgroundColor: hex }}
+                            onMouseDown={(ev) => ev.preventDefault()}
+                            onClick={() => { applyColorToTarget(hex); setColorMenuOpen(false); }}
+                            title={hex}
+                          />
+                        ))}
+                      </div>
+                      <button type="button" className="mt-2 w-full py-1.5 text-[11px] text-monday-subtext hover:bg-monday-hover rounded-monday transition-colors" onMouseDown={(e) => e.preventDefault()} onClick={() => { applyColorToTarget(''); setColorMenuOpen(false); }}>
+                        Quitar color
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+              <div className="relative inline-block" ref={fontMenuRef}>
+                <button
+                  type="button"
+                  className={`${sheetBtn} flex items-center gap-1.5 ${fontMenuOpen ? 'ring-1 ring-monday-blue bg-monday-hover/50' : ''}`}
+                  title="Fuente"
+                  onMouseDown={(e) => { e.preventDefault(); formatTargetRef.current = { cell: focusedCell, range: selectionRange }; setFontMenuOpen(v => !v); }}
+                >
+                  Fuente
+                </button>
+                {fontMenuOpen && (
+                  <div className="absolute left-0 top-full mt-1 z-[200] min-w-[140px] rounded-monday border border-monday-border bg-white shadow-monday-lg overflow-hidden">
+                    <div className="px-2 py-1.5 border-b border-monday-border bg-monday-hover/30">
+                      <span className="text-[11px] font-medium text-monday-subtext">Fuente</span>
+                    </div>
+                    <div className="p-1 max-h-[200px] overflow-auto">
+                      {FONT_OPTIONS.map(({ label, value }) => (
+                        <button key={value} type="button" className="block w-full px-3 py-1.5 text-left text-[12px] text-monday-text hover:bg-monday-hover rounded-monday" onMouseDown={(ev) => ev.preventDefault()} onClick={() => { applyFontToTarget(value); setFontMenuOpen(false); }}>
+                          {label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+              <div className="relative inline-block" ref={fontSizeMenuRef}>
+                <button
+                  type="button"
+                  className={`${sheetBtn} flex items-center gap-1.5 ${fontSizeMenuOpen ? 'ring-1 ring-monday-blue bg-monday-hover/50' : ''}`}
+                  title="Tamaño de fuente"
+                  onMouseDown={(e) => { e.preventDefault(); formatTargetRef.current = { cell: focusedCell, range: selectionRange }; setFontSizeMenuOpen(v => !v); }}
+                >
+                  Tamaño
+                </button>
+                {fontSizeMenuOpen && (
+                  <div className="absolute left-0 top-full mt-1 z-[200] min-w-[100px] rounded-monday border border-monday-border bg-white shadow-monday-lg overflow-hidden">
+                    <div className="px-2 py-1.5 border-b border-monday-border bg-monday-hover/30">
+                      <span className="text-[11px] font-medium text-monday-subtext">Tamaño</span>
+                    </div>
+                    <div className="p-1">
+                      {FONT_SIZES.map(({ label, value }) => (
+                        <button key={value} type="button" className="block w-full px-3 py-1.5 text-left text-[12px] text-monday-text hover:bg-monday-hover rounded-monday" onMouseDown={(ev) => ev.preventDefault()} onClick={() => { applyFontSizeToTarget(value); setFontSizeMenuOpen(false); }}>
+                          {label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+              <div className="relative inline-block" ref={fontColorMenuRef}>
+                <button
+                  type="button"
+                  className={`${sheetBtn} flex items-center gap-1.5 ${fontColorMenuOpen ? 'ring-1 ring-monday-blue bg-monday-hover/50' : ''}`}
+                  title="Color de texto"
+                  onMouseDown={(e) => { e.preventDefault(); formatTargetRef.current = { cell: focusedCell, range: selectionRange }; setFontColorMenuOpen(v => !v); }}
+                >
+                  <span className="w-3 h-3 rounded border border-monday-border bg-monday-text" />
+                  Color texto
+                </button>
+                {fontColorMenuOpen && (
+                  <div className="absolute left-0 top-full mt-1 z-[200] min-w-[140px] rounded-monday border border-monday-border bg-white shadow-monday-lg overflow-hidden">
+                    <div className="px-2 py-1.5 border-b border-monday-border bg-monday-hover/30">
+                      <span className="text-[11px] font-medium text-monday-subtext">Color de texto</span>
+                    </div>
+                    <div className="p-2">
+                      <div className="grid grid-cols-6 gap-1">
+                        {SHEET_TEXT_COLOR_PALETTE.map((hex) => (
+                          <button key={hex} type="button" className="w-6 h-6 rounded border border-monday-border hover:ring-2 hover:ring-monday-blue transition-shadow" style={{ backgroundColor: hex }} onMouseDown={(ev) => ev.preventDefault()} onClick={() => { applyTextColorToTarget(hex); setFontColorMenuOpen(false); }} title={hex} />
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </>
+          )}
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".xlsx,.xls,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel,text/csv"
+            className="hidden"
+            onChange={handleImportExcel}
+          />
+          <button type="button" className={`${sheetBtn} flex items-center gap-1.5`} title="Importar desde Excel" onClick={() => fileInputRef.current?.click()}>
+            <Upload size={14} />
+            Importar Excel
+          </button>
+          <button
+            type="button"
+            className={`${sheetBtn} flex items-center gap-1.5`}
+            title="Descargar como Excel"
+            onClick={() => {
+              const ws = XLSX.utils.aoa_to_sheet(tableDraft);
+              const wb = XLSX.utils.book_new();
+              XLSX.utils.book_append_sheet(wb, ws, 'Hoja1');
+              const name = (documentTitle || 'Hoja').replace(/[^\w\s-]/g, '').trim() || 'Hoja';
+              XLSX.writeFile(wb, `${name}.xlsx`);
+            }}
+          >
+            <Download size={14} />
+            Descargar Excel
+          </button>
           <span className="text-[11px] text-monday-subtext px-2">Hoja</span>
         </div>
       )}
-      <div className="flex-1 overflow-auto p-4">
+      <div className="flex-1 overflow-auto p-4" ref={gridContainerRef} onPaste={e => { if (!readOnly && focusedCell != null) { e.preventDefault(); handlePaste(e, focusedCell.r, focusedCell.c); } }}>
         <div className="inline-block bg-white rounded-lg border border-monday-border shadow-monday-lg overflow-hidden">
           <table className="border-collapse">
             <thead>
@@ -1530,15 +2058,32 @@ function ExcelLikeSheet({
                   </td>
                   {row.map((cell, cIdx) => {
                     const isFocused = !readOnly && focusedCell?.r === rIdx && focusedCell?.c === cIdx;
+                    const inSelection = selectionRange && (() => {
+                      const minR = Math.min(selectionRange.start.r, selectionRange.end.r);
+                      const maxR = Math.max(selectionRange.start.r, selectionRange.end.r);
+                      const minC = Math.min(selectionRange.start.c, selectionRange.end.c);
+                      const maxC = Math.max(selectionRange.start.c, selectionRange.end.c);
+                      return rIdx >= minR && rIdx <= maxR && cIdx >= minC && cIdx <= maxC;
+                    })();
                     const displayVal = getCellDisplayValue(tableDraft, rIdx, cIdx, isFocused, focusedCell);
+                    const cellStyle = cellStyles[`${rIdx},${cIdx}`] ?? {};
+                    const bgStyle = cellStyle.bg;
+                    const cellBg = bgStyle ?? 'transparent';
                     return (
-                      <td key={cIdx} className="border border-monday-border p-0">
+                      <td
+                        key={cIdx}
+                        className="border border-monday-border p-0"
+                        style={cellBg !== 'transparent' ? { backgroundColor: cellBg } : undefined}
+                        onMouseDown={() => handleCellMouseDown(rIdx, cIdx)}
+                        onMouseEnter={() => handleCellMouseEnter(rIdx, cIdx)}
+                      >
                         {readOnly ? (
-                          <div className="w-full min-w-[110px] min-h-8 h-8 px-2 py-1 text-[12px] font-averta text-monday-text bg-white flex items-center">
+                          <div className="w-full min-w-[110px] min-h-8 h-8 px-2 py-1 text-monday-text flex items-center" style={{ ...(cellBg !== 'transparent' ? { backgroundColor: cellBg } : { backgroundColor: '#fff' }), fontFamily: cellStyle.fontFamily ?? undefined, fontSize: cellStyle.fontSize ?? '12px', color: cellStyle.color ?? undefined }}>
                             {displayVal}
                           </div>
                         ) : (
                           <input
+                            data-cell={`${rIdx},${cIdx}`}
                             value={displayVal}
                             onChange={e => {
                               const v = e.target.value;
@@ -1548,10 +2093,18 @@ function ExcelLikeSheet({
                                 return next;
                               });
                             }}
-                            onFocus={() => setFocusedCell({ r: rIdx, c: cIdx })}
-                            onBlur={() => setFocusedCell(null)}
+                            onFocus={() => { setFocusedCell({ r: rIdx, c: cIdx }); }}
+                            onBlur={() => { setFocusedCell(null); }}
+                            onPaste={e => handlePaste(e, rIdx, cIdx)}
+                            onKeyDown={e => handleKeyDown(e, rIdx, cIdx)}
                             readOnly={!isFocused}
-                            className={`w-full min-w-[110px] h-8 px-2 text-[12px] font-averta text-monday-text outline-none focus:ring-1 focus:ring-inset focus:ring-monday-blue focus:border-monday-blue bg-white ${!isFocused ? 'cursor-cell' : ''}`}
+                            className={`w-full min-w-[110px] h-8 px-2 text-monday-text outline-none focus:ring-1 focus:ring-inset focus:ring-monday-blue focus:border-monday-blue ${!isFocused ? 'cursor-cell' : ''}`}
+                            style={{
+                              ...(cellBg !== 'transparent' ? { backgroundColor: cellBg } : inSelection ? { backgroundColor: 'rgba(25, 118, 210, 0.12)' } : { backgroundColor: '#fff' }),
+                              fontFamily: cellStyle.fontFamily ?? undefined,
+                              fontSize: cellStyle.fontSize ?? '12px',
+                              color: cellStyle.color ?? undefined,
+                            }}
                           />
                         )}
                       </td>
@@ -1587,11 +2140,21 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
   const parsed = useMemo(() => parseContent(selectedDoc), [selectedDoc]);
   const [textDraft, setTextDraft] = useState(() => getInitialHtml(parsed.text ?? ''));
   const [tableDraft, setTableDraft] = useState<string[][]>(parsed.table ?? [['']]);
+  const [cellStylesDraft, setCellStylesDraft] = useState<CellStylesMap>(() => {
+    const cs = parsed.cellStyles;
+    return cs && typeof cs === 'object' && !Array.isArray(cs) ? { ...cs } : {};
+  });
+  const [sheetHistory, setSheetHistory] = useState<{
+    past: Array<{ table: string[][]; cellStyles: CellStylesMap }>;
+    future: Array<{ table: string[][]; cellStyles: CellStylesMap }>;
+  }>({ past: [], future: [] });
   const [headerImageUrlDraft, setHeaderImageUrlDraft] = useState<string | null>(
     (parsed.headerImageUrl as string | null) ?? null
   );
   const [pdfFormDraft, setPdfFormDraft] = useState<Record<string, unknown>>({});
+  const skipNextPdfDraftSyncFromParsed = useRef(false);
   const [templateConfigByType, setTemplateConfigByType] = useState<Record<string, TemplateConfigState>>({});
+  const [templateConfigLoading, setTemplateConfigLoading] = useState<boolean>(false);
   const [savingTemplateConfig, setSavingTemplateConfig] = useState(false);
   const [viewMode, setViewMode] = useState<'docs' | 'overview'>('overview');
   const [deleteConfirm, setDeleteConfirm] = useState<{ docId: string } | null>(null);
@@ -1895,10 +2458,45 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
   useEffect(() => {
     setTextDraft(getInitialHtml(parsed.text ?? ''));
     setTableDraft(parsed.table ?? [['']]);
+    const cs = parsed.cellStyles;
+    setCellStylesDraft(cs && typeof cs === 'object' && !Array.isArray(cs) ? { ...cs } : {});
+    setSheetHistory({ past: [], future: [] });
     setHeaderImageUrlDraft((parsed.headerImageUrl as string | null) ?? null);
     if (selectedDoc && isPdfDocType(selectedDoc.type as DocType)) {
-      const initial = getInitialContentForType(selectedDoc.type as DocType);
-      setPdfFormDraft({ ...initial, ...(parsed as Record<string, unknown>) });
+      if (skipNextPdfDraftSyncFromParsed.current) {
+        skipNextPdfDraftSyncFromParsed.current = false;
+      } else {
+        const initial = getInitialContentForType(selectedDoc.type as DocType);
+        const merged = { ...initial, ...(parsed as Record<string, unknown>) };
+        // Fecha: nunca rellenar desde el documento guardado; solo lo que el usuario escribe (evitar 15/03/2026 automático)
+        (merged as Record<string, unknown>).fecha = (initial as Record<string, unknown>).fecha ?? '';
+        setPdfFormDraft(merged);
+        // Fallback para no-admin: si el documento tiene customBoxes guardados y aún no tenemos config de la API, usar la del doc
+        const docType = selectedDoc.type as 'cotizacion' | 'levantamiento' | 'hoja_trabajo';
+        const docBoxes = Array.isArray((parsed as Record<string, unknown>).customBoxes)
+          ? (parsed as Record<string, unknown>).customBoxes
+          : [];
+        if (docBoxes.length > 0) {
+          setTemplateConfigByType((prev) => {
+            const current = prev[docType];
+            if (current?.customBoxes?.length) return prev; // ya hay config (API); no sobrescribir
+            return {
+              ...prev,
+              [docType]: {
+                fieldPositions: (typeof (parsed as Record<string, unknown>).fieldPositions === 'object' && (parsed as Record<string, unknown>).fieldPositions != null)
+                  ? (parsed as Record<string, unknown>).fieldPositions as Record<string, { x: number; y: number }>
+                  : {},
+                fontColor: typeof (parsed as Record<string, unknown>).globalFontColor === 'string' ? (parsed as Record<string, unknown>).globalFontColor as string : '#000000',
+                fontFamily: typeof (parsed as Record<string, unknown>).globalFontFamily === 'string' ? (parsed as Record<string, unknown>).globalFontFamily as string : 'Helvetica',
+                fontSize: typeof (parsed as Record<string, unknown>).globalFontSize === 'number' ? (parsed as Record<string, unknown>).globalFontSize as number : 11,
+                fontBold: (parsed as Record<string, unknown>).globalFontBold === true || (parsed as Record<string, unknown>).globalFontBold === 'true',
+                fontItalic: (parsed as Record<string, unknown>).globalFontItalic === true || (parsed as Record<string, unknown>).globalFontItalic === 'true',
+                customBoxes: docBoxes as Array<{ id: string; x: number; y: number; width?: number; height?: number; [k: string]: unknown }>,
+              },
+            };
+          });
+        }
+      }
     }
   }, [parsed, selectedId, selectedDoc?.type]);
 
@@ -1909,6 +2507,9 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
     const initial = getInitialContentForType(newDocDraft.type);
     setTextDraft(getInitialHtml((initial.text as string) ?? ''));
     setTableDraft(Array.isArray(initial.table) ? (initial.table as string[][]) : [['']]);
+    const cs = initial.cellStyles;
+    setCellStylesDraft(cs && typeof cs === 'object' && !Array.isArray(cs) ? { ...cs } : {});
+    setSheetHistory({ past: [], future: [] });
     setHeaderImageUrlDraft((initial.headerImageUrl as string | null) ?? null);
     if (!(isPdfDocType(newDocDraft.type) && linkToBoardItem)) {
       setPdfFormDraft(initial as Record<string, unknown>);
@@ -1916,9 +2517,37 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
   }, [newDocDraft?.type, linkToBoardItem]);
 
   const pdfDocType = (selectedDoc && isPdfDocType(selectedDoc.type as DocType) ? selectedDoc.type : newDocDraft && isPdfDocType(newDocDraft.type) ? newDocDraft.type : null) as 'cotizacion' | 'levantamiento' | 'hoja_trabajo' | null;
+
+  // Config efectiva para el viewer: priorizar API; si no hay cajas desde API, usar las del documento para que todos los roles vean igual
+  const effectiveTemplateConfigForPdf = useMemo((): TemplateConfigState | null => {
+    if (!pdfDocType) return null;
+    const fromApi = templateConfigByType[pdfDocType];
+    const apiBoxes = fromApi?.customBoxes ?? [];
+    if (apiBoxes.length > 0) return fromApi ?? null;
+    const fromDoc = Array.isArray(pdfFormDraft.customBoxes) ? pdfFormDraft.customBoxes : [];
+    if (fromDoc.length > 0) {
+      return {
+        fieldPositions: (typeof pdfFormDraft.fieldPositions === 'object' && pdfFormDraft.fieldPositions != null)
+          ? (pdfFormDraft.fieldPositions as Record<string, { x: number; y: number }>)
+          : {},
+        fontColor: typeof pdfFormDraft.globalFontColor === 'string' ? (pdfFormDraft.globalFontColor as string) : '#000000',
+        fontFamily: typeof pdfFormDraft.globalFontFamily === 'string' ? (pdfFormDraft.globalFontFamily as string) : 'Helvetica',
+        fontSize: typeof pdfFormDraft.globalFontSize === 'number' ? (pdfFormDraft.globalFontSize as number) : 11,
+        fontBold: pdfFormDraft.globalFontBold === true || pdfFormDraft.globalFontBold === 'true',
+        fontItalic: pdfFormDraft.globalFontItalic === true || pdfFormDraft.globalFontItalic === 'true',
+        customBoxes: fromDoc as TemplateConfigState['customBoxes'],
+      };
+    }
+    return fromApi ?? null;
+  }, [pdfDocType, templateConfigByType, pdfFormDraft]);
+
   useEffect(() => {
-    if (!pdfDocType) return;
+    if (!pdfDocType) {
+      setTemplateConfigLoading(false);
+      return;
+    }
     let cancelled = false;
+    setTemplateConfigLoading(true);
     fetch(`${API_BASE}/api/templates/${pdfDocType}/config`)
       .then((res) => (res.ok ? res.json() : null))
       .then((data: { fieldPositions?: Record<string, { x: number; y: number }>; fontColor?: string; fontFamily?: string } | null) => {
@@ -1936,7 +2565,10 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
           },
         }));
       })
-      .catch(() => {});
+      .catch(() => {})
+      .finally(() => {
+        if (!cancelled) setTemplateConfigLoading(false);
+      });
     return () => { cancelled = true; };
   }, [pdfDocType]);
 
@@ -2140,12 +2772,30 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
     setSaving(true);
     setError(null);
     try {
-      const content: DocContent =
-        selectedDoc.type === 'sheet'
-          ? { table: tableDraft }
-          : isPdfDocType(selectedDoc.type as DocType)
-            ? pdfFormDraft
-          : { text: textDraft, headerImageUrl: headerImageUrlDraft };
+      let content: DocContent;
+      if (selectedDoc.type === 'sheet') {
+        content = { table: tableDraft, cellStyles: cellStylesDraft };
+      } else if (isPdfDocType(selectedDoc.type as DocType)) {
+        // Incluir customBoxes y fuentes en el contenido del doc para que cualquier usuario vea la misma plantilla al abrirlo
+        const docType = selectedDoc.type as 'cotizacion' | 'levantamiento' | 'hoja_trabajo';
+        const config = templateConfigByType[docType];
+        content = {
+          ...pdfFormDraft,
+          ...(config && Array.isArray(config.customBoxes)
+            ? {
+                customBoxes: config.customBoxes,
+                globalFontColor: config.fontColor,
+                globalFontFamily: config.fontFamily,
+                globalFontSize: config.fontSize,
+                globalFontBold: config.fontBold,
+                globalFontItalic: config.fontItalic,
+                fieldPositions: config.fieldPositions,
+              }
+            : {}),
+        } as DocContent;
+      } else {
+        content = { text: textDraft, headerImageUrl: headerImageUrlDraft };
+      }
       const res = await fetch(`${API_BASE}/api/docs/${selectedDoc.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
@@ -2157,6 +2807,15 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
         throw new Error(msg);
       }
       setDocs(prev => prev.map(d => (d.id === data.id ? data : d)));
+      if (isPdfDocType(selectedDoc.type as DocType) && data.content != null) {
+        try {
+          const savedContent = typeof data.content === 'string' ? JSON.parse(data.content as string) : (data.content as Record<string, unknown>);
+          if (savedContent && typeof savedContent === 'object') {
+            skipNextPdfDraftSyncFromParsed.current = true;
+            setPdfFormDraft((prev) => ({ ...prev, ...savedContent }));
+          }
+        } catch (_) {}
+      }
       if (linkToBoardItem) {
         await linkDocToBoardItem({
           boardId: linkToBoardItem.boardId,
@@ -2294,19 +2953,84 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
     try {
       const docType = selectedDoc.type as 'cotizacion' | 'levantamiento' | 'hoja_trabajo';
       const config = templateConfigByType[docType];
-      // Priorizar posiciones del documento; estilos globales y customBoxes de la config para mantener formato
       const docFieldPositions = (pdfFormDraft.fieldPositions ?? {}) as Record<string, { x: number; y: number; fontSize?: number; maxWidth?: number }>;
       const rawCustomBoxes = Array.isArray(config?.customBoxes) ? config.customBoxes : [];
-      const customBoxes = rawCustomBoxes.map((b: { id?: string; x?: number; y?: number; width?: number; height?: number; [k: string]: unknown }) => ({
-        ...b,
-        x: Math.max(0, Math.min(1, Number(b.x) || 0)),
-        y: Math.max(0, Math.min(1, Number(b.y) || 0)),
-        width: Math.max(0.01, Math.min(1, Number(b.width) ?? 0.3)),
-        height: Math.max(0.01, Math.min(1, Number(b.height) ?? 0.05)),
-      }));
+      const customFieldValues = (pdfFormDraft.customFieldValues ?? {}) as Record<string, string>;
+      const fieldKeysByType: Record<string, string[]> = {
+        cotizacion: ['cliente', 'fecha', 'vigencia', 'descripcion_corta', 'elemento', 'total', 'notas'],
+        levantamiento: ['proyecto', 'fecha', 'direccion', 'descripcion', 'observaciones'],
+        hoja_trabajo: ['titulo', 'fecha', 'item', 'descripcion', 'observaciones'],
+      };
+      const keysByIndex = (fieldKeysByType[docType] ?? []).filter((k) => k !== 'folio');
+      let keyIndex = 0;
+      const customBoxes = rawCustomBoxes.map((b: { id?: string; x?: number; y?: number; width?: number; height?: number; semantic?: string; fieldKey?: string; [k: string]: unknown }) => {
+        const fieldKey =
+          b.fieldKey
+            ? b.fieldKey
+            : b.semantic === 'folio'
+              ? 'folio'
+              : b.semantic === 'element'
+                ? 'elemento'
+                : keysByIndex[keyIndex++] ?? undefined;
+        return {
+          ...b,
+          fieldKey: b.fieldKey ?? fieldKey,
+          x: Math.max(0, Math.min(1, Number(b.x) || 0)),
+          y: Math.max(0, Math.min(1, Number(b.y) || 0)),
+          width: Math.max(0.01, Math.min(1, Number(b.width) ?? 0.3)),
+          height: Math.max(0.01, Math.min(1, Number(b.height) ?? 0.05)),
+        };
+      });
+      const contentFromDraft = { ...(parsed as Record<string, unknown>), ...pdfFormDraft } as Record<string, unknown>;
+
+      // PDF 1:1 con el editor: cada caja con fieldKey usa exactamente el valor visible en el editor (pdfFormDraft[fieldKey] ?? customFieldValues[box.id])
+      customBoxes.forEach((box: { id?: string; fieldKey?: string }) => {
+        if (!box.fieldKey || !box.id) return;
+        const visibleInEditor = (pdfFormDraft[box.fieldKey] ?? customFieldValues[box.id] ?? '');
+        const visibleStr = (typeof visibleInEditor === 'string' ? visibleInEditor : String(visibleInEditor ?? '')).trim();
+        if (visibleStr !== '') contentFromDraft[box.fieldKey] = visibleStr;
+      });
+      const knownFields = (fieldKeysByType[docType] ?? []).concat('folio');
+      knownFields.forEach((key) => {
+        if (contentFromDraft[key] === undefined || contentFromDraft[key] === null || String(contentFromDraft[key]).trim() === '') {
+          const box = customBoxes.find((b: { fieldKey?: string }) => b.fieldKey === key);
+          if (box?.id && customFieldValues[box.id]?.trim()) {
+            contentFromDraft[key] = String(customFieldValues[box.id]).trim();
+          }
+        }
+      });
+
+      // Fecha en el PDF = exactamente lo que muestra la vista previa (1:1). Si está vacío, enviar vacío; nunca inyectar fecha actual ni parsed.
+      const fechaBox = customBoxes.find((b: { fieldKey?: string }) => b.fieldKey === 'fecha');
+      const fechaFromBox = fechaBox
+        ? (pdfFormDraft.fecha ?? customFieldValues[fechaBox.id] ?? '')
+        : (contentFromDraft.fecha ?? '');
+      const fechaStr = (typeof fechaFromBox === 'string' ? fechaFromBox : String(fechaFromBox ?? '')).trim();
+      contentFromDraft.fecha = fechaStr;
+
+      // Folio en el PDF = solo lo que muestra la caja de folio. No usar parsed.folio ni selectedDoc.id como valor visible.
+      const folioBox = customBoxes.find((b: { fieldKey?: string }) => b.fieldKey === 'folio' || b.semantic === 'folio');
+      const folioFromBox = folioBox
+        ? (pdfFormDraft.folio ?? customFieldValues[folioBox.id] ?? '')
+        : (contentFromDraft.folio ?? '');
+      const folioStr = (typeof folioFromBox === 'string' ? folioFromBox : String(folioFromBox ?? '')).trim();
+      contentFromDraft.folio = folioStr !== '' ? folioStr : (selectedDoc?.id ?? '');
+
+      // Total en el PDF = valor visible en la caja de total (draft o customFieldValues) para que siempre se muestre
+      const totalBox = customBoxes.find((b: { fieldKey?: string }) => b.fieldKey === 'total');
+      const totalFromBox = totalBox
+        ? (pdfFormDraft.total ?? customFieldValues[totalBox.id] ?? (contentFromDraft.total ?? '')).toString().trim()
+        : String(contentFromDraft.total ?? '').trim();
+      contentFromDraft.total = totalFromBox;
+
+      // Asegurar que elemento esté en content para el PDF
+      const elementoBox = customBoxes.find((b: { fieldKey?: string }) => b.fieldKey === 'elemento');
+      if (elementoBox?.id && (contentFromDraft.elemento === undefined || contentFromDraft.elemento === null || String(contentFromDraft.elemento).trim() === '') && customFieldValues[elementoBox.id]?.trim()) {
+        contentFromDraft.elemento = String(customFieldValues[elementoBox.id]).trim();
+      }
       const contentToSend = config
         ? {
-            ...pdfFormDraft,
+            ...contentFromDraft,
             fieldPositions: { ...config.fieldPositions, ...docFieldPositions },
             customBoxes,
             globalFontSize: config.fontSize ?? 11,
@@ -2316,7 +3040,7 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
             globalFontItalic: config.fontItalic ?? false,
           }
         : {
-            ...pdfFormDraft,
+            ...contentFromDraft,
             customBoxes: [],
             globalFontSize: 11,
             globalFontColor: '#000000',
@@ -2364,7 +3088,7 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
     }
   };
 
-  const ensureTableSize = (rows: number, cols: number) => {
+  const ensureTableSize = useCallback((rows: number, cols: number) => {
     setTableDraft(prev => {
       const next = [...prev];
       while (next.length < rows) next.push(new Array(cols).fill(''));
@@ -2374,7 +3098,45 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
         return row;
       });
     });
-  };
+  }, []);
+
+  const pushSheetHistory = useCallback(() => {
+    setSheetHistory(prev => ({
+      past: [...prev.past.slice(-49), { table: tableDraft, cellStyles: cellStylesDraft }],
+      future: [],
+    }));
+  }, [tableDraft, cellStylesDraft]);
+
+  const undoSheet = useCallback(() => {
+    setSheetHistory(prev => {
+      if (prev.past.length === 0) return prev;
+      const toRestore = prev.past[prev.past.length - 1];
+      setTableDraft(toRestore.table);
+      setCellStylesDraft(toRestore.cellStyles);
+      return {
+        past: prev.past.slice(0, -1),
+        future: [{ table: tableDraft, cellStyles: cellStylesDraft }, ...prev.future],
+      };
+    });
+  }, [tableDraft, cellStylesDraft]);
+
+  const redoSheet = useCallback(() => {
+    setSheetHistory(prev => {
+      if (prev.future.length === 0) return prev;
+      const toRestore = prev.future[0];
+      setTableDraft(toRestore.table);
+      setCellStylesDraft(toRestore.cellStyles);
+      return {
+        past: [...prev.past, { table: tableDraft, cellStyles: cellStylesDraft }],
+        future: prev.future.slice(1),
+      };
+    });
+  }, [tableDraft, cellStylesDraft]);
+
+  const ensureTableSizeWithHistory = useCallback((rows: number, cols: number) => {
+    pushSheetHistory();
+    ensureTableSize(rows, cols);
+  }, [pushSheetHistory, ensureTableSize]);
 
   const saveModalDocType = saveModal?.mode === 'new' ? newDocDraft?.type : saveModal?.mode === 'saveAs' ? saveModal.doc.type : null;
 
@@ -2385,12 +3147,29 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
     setSaving(true);
     setError(null);
     try {
-      const content: DocContent =
-        docType === 'sheet'
-          ? { table: tableDraft }
-          : isPdfDocType(docType as DocType)
-            ? pdfFormDraft
-            : { text: textDraft, headerImageUrl: headerImageUrlDraft };
+      let content: DocContent;
+      if (docType === 'sheet') {
+        content = { table: tableDraft, cellStyles: cellStylesDraft };
+      } else if (isPdfDocType(docType as DocType)) {
+        const pdfType = docType as 'cotizacion' | 'levantamiento' | 'hoja_trabajo';
+        const config = templateConfigByType[pdfType];
+        content = {
+          ...pdfFormDraft,
+          ...(config && Array.isArray(config.customBoxes)
+            ? {
+                customBoxes: config.customBoxes,
+                globalFontColor: config.fontColor,
+                globalFontFamily: config.fontFamily,
+                globalFontSize: config.fontSize,
+                globalFontBold: config.fontBold,
+                globalFontItalic: config.fontItalic,
+                fieldPositions: config.fieldPositions,
+              }
+            : {}),
+        } as DocContent;
+      } else {
+        content = { text: textDraft, headerImageUrl: headerImageUrlDraft };
+      }
       const titleBase = saveModal.mode === 'saveAs'
         ? saveModal.doc.title
         : newDocDraft?.title ?? 'Nuevo doc';
@@ -2457,12 +3236,29 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
     const docType = saveModalDocType;
     if (!docType) return;
 
-    const content: DocContent =
-      docType === 'sheet'
-        ? { table: tableDraft }
-        : isPdfDocType(docType as DocType)
-          ? pdfFormDraft
-          : { text: textDraft, headerImageUrl: headerImageUrlDraft };
+    let content: DocContent;
+    if (docType === 'sheet') {
+      content = { table: tableDraft, cellStyles: cellStylesDraft };
+    } else if (isPdfDocType(docType as DocType)) {
+      const pdfType = docType as 'cotizacion' | 'levantamiento' | 'hoja_trabajo';
+      const config = templateConfigByType[pdfType];
+      content = {
+        ...pdfFormDraft,
+        ...(config && Array.isArray(config.customBoxes)
+          ? {
+              customBoxes: config.customBoxes,
+              globalFontColor: config.fontColor,
+              globalFontFamily: config.fontFamily,
+              globalFontSize: config.fontSize,
+              globalFontBold: config.fontBold,
+              globalFontItalic: config.fontItalic,
+              fieldPositions: config.fieldPositions,
+            }
+          : {}),
+      } as DocContent;
+    } else {
+      content = { text: textDraft, headerImageUrl: headerImageUrlDraft };
+    }
     const titleBase = saveModal.mode === 'saveAs'
       ? saveModal.doc.title
       : newDocDraft?.title ?? 'Nuevo doc';
@@ -2867,27 +3663,41 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
 
                   {(selectedDoc && isPdfDocType(selectedDoc.type as DocType)) || (newDocDraft && isPdfDocType(newDocDraft.type)) ? (
                     <div className="flex-1 overflow-auto custom-scrollbar p-2">
-                      <PdfTemplateEditor
-                        docType={(selectedDoc?.type ?? newDocDraft?.type) as 'cotizacion' | 'levantamiento' | 'hoja_trabajo'}
-                        value={pdfFormDraft}
-                        onChange={setPdfFormDraft}
-                        docId={selectedDoc?.id ?? ''}
-                        templateConfig={pdfDocType ? templateConfigByType[pdfDocType] : null}
-                        isAdmin={isAdmin}
-                        onTemplateConfigChange={
-                          pdfDocType
-                            ? (config) => setTemplateConfigByType((prev) => ({ ...prev, [pdfDocType]: { ...(prev[pdfDocType] || {}), ...config } }))
-                            : undefined
-                        }
-                        onSaveTemplateConfig={canSaveTemplateConfig ? handleSaveTemplateConfig : undefined}
-                        savingTemplateConfig={savingTemplateConfig}
-                      />
+                      {templateConfigLoading && !(effectiveTemplateConfigForPdf?.customBoxes?.length) ? (
+                        <div className="flex items-center justify-center h-full">
+                          <span className="text-sm text-gray-400">
+                            Cargando plantilla...
+                          </span>
+                        </div>
+                      ) : (
+                        <PdfTemplateEditor
+                          docType={(selectedDoc?.type ?? newDocDraft?.type) as 'cotizacion' | 'levantamiento' | 'hoja_trabajo'}
+                          value={pdfFormDraft}
+                          onChange={setPdfFormDraft}
+                          docId={selectedDoc?.id ?? ''}
+                          templateConfig={effectiveTemplateConfigForPdf}
+                          isAdmin={isAdmin}
+                          onTemplateConfigChange={
+                            pdfDocType
+                              ? (config) => setTemplateConfigByType((prev) => ({ ...prev, [pdfDocType]: { ...(prev[pdfDocType] || {}), ...config } }))
+                              : undefined
+                          }
+                          onSaveTemplateConfig={canSaveTemplateConfig ? handleSaveTemplateConfig : undefined}
+                          savingTemplateConfig={savingTemplateConfig}
+                        />
+                      )}
                     </div>
                   ) : (selectedDoc?.type ?? newDocDraft?.type) === 'sheet' ? (
                     <ExcelLikeSheet
                       tableDraft={tableDraft}
                       setTableDraft={setTableDraft}
-                      ensureTableSize={ensureTableSize}
+                      ensureTableSize={ensureTableSizeWithHistory}
+                      cellStyles={cellStylesDraft}
+                      setCellStyles={setCellStylesDraft}
+                      documentTitle={selectedDoc?.title ?? newDocDraft?.title ?? 'Nueva hoja'}
+                      pushSheetHistory={pushSheetHistory}
+                      undoSheet={undoSheet}
+                      redoSheet={redoSheet}
                     />
                   ) : (
                     <WordLikeEditor
@@ -3087,23 +3897,30 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
 
               {selectedDoc && isPdfDocType(selectedDoc.type as DocType) ? (
                 <div className="flex-1 min-h-0 min-w-0 overflow-auto bg-white flex justify-center">
-                  {/* Mismo tamaño de referencia que el editor (21cm, PAGE_ASPECT) para 1:1 preview/PDF. align-self evita que el wrapper se estire y recorte el Total. */}
-                  <div
-                    ref={previewWrapperRef}
-                    className="flex flex-col shrink-0 w-full max-w-full bg-white self-start"
-                    style={{ aspectRatio: PAGE_ASPECT, maxWidth: '21cm' }}
-                  >
-                    <PdfTemplateEditor
-                      key={selectedDoc.id}
-                      docType={selectedDoc.type as 'cotizacion' | 'levantamiento' | 'hoja_trabajo'}
-                      value={pdfFormDraft}
-                      onChange={setPdfFormDraft}
-                      docId={selectedDoc.id}
-                      templateConfig={pdfDocType ? templateConfigByType[pdfDocType] : null}
-                      isAdmin={isAdmin}
-                      viewerOnly
-                    />
-                  </div>
+                  {templateConfigLoading && !(effectiveTemplateConfigForPdf?.customBoxes?.length) ? (
+                    <div className="flex items-center justify-center h-full">
+                      <span className="text-sm text-gray-400">
+                        Cargando plantilla...
+                      </span>
+                    </div>
+                  ) : (
+                    <div
+                      ref={previewWrapperRef}
+                      className="flex flex-col shrink-0 bg-white self-start"
+                      style={{ width: '612px', height: '792px', minWidth: '612px', minHeight: '792px' }}
+                    >
+                      <PdfTemplateEditor
+                        key={selectedDoc.id}
+                        docType={selectedDoc.type as 'cotizacion' | 'levantamiento' | 'hoja_trabajo'}
+                        value={pdfFormDraft}
+                        onChange={setPdfFormDraft}
+                        docId={selectedDoc.id}
+                        templateConfig={effectiveTemplateConfigForPdf}
+                        isAdmin={isAdmin}
+                        viewerOnly
+                      />
+                    </div>
+                  )}
                 </div>
               ) : selectedDoc.type === 'sheet' ? (
                 <div className="flex-1 min-h-0 overflow-auto">
@@ -3111,6 +3928,8 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
                     tableDraft={tableDraft}
                     setTableDraft={setTableDraft}
                     ensureTableSize={ensureTableSize}
+                    cellStyles={cellStylesDraft}
+                    documentTitle={selectedDoc.title}
                     readOnly
                   />
                 </div>
@@ -3128,3 +3947,4 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
     </div>
   );
 };
+export default DocsPage;

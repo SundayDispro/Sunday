@@ -18,10 +18,10 @@ export function getDocTypeTitle(type: DocType): string {
   return opt?.title ?? 'Documento';
 }
 
-/** Estructura inicial de content para cotización */
+/** Estructura inicial de content para cotización. Fecha vacía: el usuario la escribe manualmente. */
 export const COTIZACION_INITIAL = {
   cliente: '',
-  fecha: new Date().toISOString().slice(0, 10),
+  fecha: '',
   vigencia: '',
   items: [{ descripcion: '', cantidad: '', precio: '', total: '' }],
   subtotal: '',
@@ -30,19 +30,19 @@ export const COTIZACION_INITIAL = {
   notas: '',
 };
 
-/** Estructura inicial de content para levantamiento */
+/** Estructura inicial de content para levantamiento. Fecha vacía: el usuario la escribe manualmente. */
 export const LEVANTAMIENTO_INITIAL = {
   proyecto: '',
-  fecha: new Date().toISOString().slice(0, 10),
+  fecha: '',
   direccion: '',
   descripcion: '',
   observaciones: '',
 };
 
-/** Estructura inicial de content para hoja de trabajo */
+/** Estructura inicial de content para hoja de trabajo. Fecha vacía: el usuario la escribe manualmente. */
 export const HOJA_TRABAJO_INITIAL = {
   titulo: '',
-  fecha: new Date().toISOString().slice(0, 10),
+  fecha: '',
   item: '',
   descripcion: '',
   observaciones: '',
@@ -59,9 +59,9 @@ export function getInitialContentForType(type: DocType): Record<string, unknown>
     case 'text':
       return { text: '' };
     case 'sheet':
-      // Hoja nueva: tabla inicial 5x5 vacía
+      // Hoja nueva: 5 filas x 6 columnas por defecto
       return {
-        table: Array.from({ length: 5 }, () => Array.from({ length: 5 }, () => '')),
+        table: Array.from({ length: 5 }, () => Array.from({ length: 6 }, () => '')),
       };
     case 'cotizacion':
       return COTIZACION_INITIAL as unknown as Record<string, unknown>;
