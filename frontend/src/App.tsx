@@ -927,9 +927,9 @@ if (ok && data && typeof data.id === 'string') {
           </Popover.Root>
         </div>
 
-        <div className="flex-1 overflow-y-auto custom-scrollbar py-2 px-2">
+        <div className="flex-1 overflow-y-auto overflow-x-auto custom-scrollbar py-2 px-2 min-w-0">
           {activePage === 'board' ? (
-            <>
+            <div className="min-w-max">
               {/* Header Area */}
               <div className="flex items-center justify-between mb-4 px-2">
                 <h2 className="text-[17px] font-bold text-monday-text tracking-tight flex items-center gap-2">
@@ -969,11 +969,11 @@ if (ok && data && typeof data.id === 'string') {
                     setActiveBoardId(b.id);
                     setCurrentView('table');
                   }}
-                  className={`w-full flex items-center gap-2 text-[13px] px-2.5 py-2 rounded-lg transition-colors mb-0.5 ${activeBoardId === b.id ? 'bg-monday-blue text-white font-medium' : 'text-monday-text hover:bg-monday-hover'}`}
+                  className={`w-full min-w-max flex items-center gap-2 text-[13px] px-2.5 py-2 rounded-lg transition-colors mb-0.5 ${activeBoardId === b.id ? 'bg-monday-blue text-white font-medium' : 'text-monday-text hover:bg-monday-hover'}`}
                 >
                   <span className="w-1.5 h-1.5 rounded-full bg-current opacity-60 shrink-0" />
-                  {b.name}
-                  {activeBoardId === b.id && <Star size={13} className="ml-auto opacity-50 text-monday-orange" />}
+                  <span className="whitespace-nowrap">{b.name}</span>
+                  {activeBoardId === b.id && <Star size={13} className="ml-auto opacity-50 text-monday-orange shrink-0" />}
                 </button>
               ))}
               <Popover.Root
@@ -1046,7 +1046,7 @@ if (ok && data && typeof data.id === 'string') {
                   </Popover.Content>
                 </Popover.Portal>
               </Popover.Root>
-            </>
+            </div>
           ) : activePage === 'inbox' ? (
             <div className="p-3">
               <p className="text-monday-subtext text-[11px] font-semibold px-2 mb-2 uppercase tracking-wider">Bandeja</p>

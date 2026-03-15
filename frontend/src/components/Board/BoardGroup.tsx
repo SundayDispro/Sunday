@@ -25,6 +25,7 @@ import { TimelineCellRenderer } from './TimelineCellRenderer';
 import { FileCellRenderer } from './FileCellRenderer';
 import { GroupColorPicker, GROUP_PALETTE } from './GroupColorPicker';
 import { StatusLabelsEditor } from './StatusLabelsEditor';
+import { HorizontalScrollArea } from '../HorizontalScrollArea';
 import { useUser } from '../../store/UserContext';
 
 interface Props {
@@ -784,9 +785,9 @@ export const BoardGroup: React.FC<Props> = ({
         />
       )}
 
-      {/* ── Table (z-0; sin transform en filas para no crear stacking contexts que tapen el header) ──────── */}
+      {/* ── Table (barra horizontal dibujada por la app: visible en Arc y todos los navegadores) ──────── */}
       {!isCollapsed && (
-        <div className="relative z-0 w-full overflow-x-auto rounded-l-md shadow-monday-sm border border-monday-border">
+        <HorizontalScrollArea className="relative z-0 w-full rounded-l-md shadow-monday-sm border border-monday-border">
           <table className="w-max text-left border-collapse whitespace-nowrap table-fixed">
             {/* Header */}
             <thead>
@@ -860,7 +861,7 @@ export const BoardGroup: React.FC<Props> = ({
               </tbody>
             </SortableContext>
           </table>
-        </div>
+        </HorizontalScrollArea>
       )}
 
       {/* Collapsed summary bar */}

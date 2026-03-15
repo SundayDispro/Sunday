@@ -2,6 +2,9 @@
 @tailwind components;
 @tailwind utilities;
 
+/* SimpleBar: barra de desplazamiento custom, mismo comportamiento en todos los navegadores */
+@import 'simplebar-react/dist/simplebar.min.css';
+
 /* Averta Demo PE – títulos de grupo (Vite resuelve la ruta desde assets) */
 @font-face {
   font-family: 'Averta Std';
@@ -29,8 +32,9 @@
   --monday-shadow-md: 0 4px 16px rgba(0, 0, 0, 0.1);
   --monday-shadow-lg: 0 8px 32px rgba(0, 0, 0, 0.14);
   --monday-shadow-panel: -4px 0 24px rgba(0, 0, 0, 0.08);
-  --scrollbar-thumb: #d0d4e4;
-  --scrollbar-thumb-hover: #a9b0c5;
+  --scrollbar-thumb: #a9b0c5;
+  --scrollbar-thumb-hover: #7c85a0;
+  --scrollbar-track: rgba(0, 0, 0, 0.06);
 }
 
 /* Modo oscuro: fondos en gris profundo, tarjetas/paneles un tono más claro (#1f2937) para jerarquía */
@@ -51,6 +55,7 @@
   --monday-shadow-panel: -4px 0 24px rgba(0, 0, 0, 0.45);
   --scrollbar-thumb: #4b5563;
   --scrollbar-thumb-hover: #6b7280;
+  --scrollbar-track: rgba(255, 255, 255, 0.06);
 }
 
 /* Modo noche: negro puro; fondo y sidebar casi negro, superficies un tono más claro para contraste */
@@ -69,8 +74,9 @@
   --monday-shadow-md: 0 8px 24px rgba(0, 0, 0, 0.65);
   --monday-shadow-lg: 0 12px 40px rgba(0, 0, 0, 0.7);
   --monday-shadow-panel: -4px 0 24px rgba(0, 0, 0, 0.65);
-  --scrollbar-thumb: #333;
-  --scrollbar-thumb-hover: #444;
+  --scrollbar-thumb: #404040;
+  --scrollbar-thumb-hover: #555;
+  --scrollbar-track: rgba(255, 255, 255, 0.06);
 }
 
 @layer base {
@@ -107,20 +113,77 @@
     background-color: var(--monday-surface) !important;
   }
 
-  /* Scrollbar: usa variables por tema */
+  /* Scrollbar: visible y usable en todos los navegadores (Arc, Edge, etc.). El rol de usuario no afecta estos estilos. */
+  .custom-scrollbar {
+    scrollbar-gutter: stable;
+    scrollbar-width: thin;
+    scrollbar-color: var(--scrollbar-thumb) transparent;
+  }
   .custom-scrollbar::-webkit-scrollbar {
-    width: 6px;
-    height: 6px;
+    width: 10px;
+    height: 10px;
   }
   .custom-scrollbar::-webkit-scrollbar-track {
-    background: transparent;
+    background: var(--scrollbar-track, rgba(0, 0, 0, 0.04));
+    border-radius: 10px;
   }
   .custom-scrollbar::-webkit-scrollbar-thumb {
     background: var(--scrollbar-thumb);
     border-radius: 10px;
+    border: 2px solid var(--scrollbar-track, rgba(0, 0, 0, 0.04));
+    min-height: 24px;
+    min-width: 24px;
   }
   .custom-scrollbar::-webkit-scrollbar-thumb:hover {
     background: var(--scrollbar-thumb-hover);
+  }
+  .custom-scrollbar::-webkit-scrollbar-thumb:active {
+    background: var(--scrollbar-thumb-hover);
+  }
+  .custom-scrollbar::-webkit-scrollbar-corner {
+    background: var(--scrollbar-track, rgba(0, 0, 0, 0.04));
+  }
+
+  /* SimpleBar: tema unificado (track y thumb con variables del proyecto) */
+  .simplebar-track {
+    background: var(--scrollbar-track, rgba(0, 0, 0, 0.06));
+    border-radius: 10px;
+    pointer-events: auto;
+  }
+  .simplebar-track.simplebar-vertical {
+    width: 10px;
+    right: 0;
+    top: 2px;
+    bottom: 2px;
+  }
+  .simplebar-track.simplebar-horizontal {
+    height: 10px;
+    left: 0;
+    right: 0;
+    bottom: 0;
+  }
+  .simplebar-track.simplebar-horizontal .simplebar-scrollbar {
+    min-width: 24px;
+  }
+  .simplebar-scrollbar:before {
+    background: var(--scrollbar-thumb);
+    border-radius: 10px;
+    opacity: 1;
+    left: 2px;
+    right: 2px;
+    top: 2px;
+    bottom: 2px;
+    transition: background 0.1s;
+  }
+  .simplebar-scrollbar:hover:before,
+  .simplebar-scrollbar.simplebar-visible:before {
+    background: var(--scrollbar-thumb-hover);
+  }
+
+  /* Ocultar barra nativa en HorizontalScrollArea (solo se muestra la barra custom) */
+  .horizontal-scroll-area-hide-native::-webkit-scrollbar {
+    display: none;
+    height: 0;
   }
 
   /* Monday-style table cell hover */
