@@ -2156,6 +2156,8 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
   const [templateConfigByType, setTemplateConfigByType] = useState<Record<string, TemplateConfigState>>({});
   const [templateConfigLoading, setTemplateConfigLoading] = useState<boolean>(false);
   const [savingTemplateConfig, setSavingTemplateConfig] = useState(false);
+  /** Evita auto-guardar justo después de cargar la config desde la API. */
+  const templateConfigJustLoadedRef = useRef(false);
   const [viewMode, setViewMode] = useState<'docs' | 'overview'>('overview');
   const [deleteConfirm, setDeleteConfirm] = useState<{ docId: string } | null>(null);
   type PromptDialog =
@@ -2550,20 +2552,31 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
     setTemplateConfigLoading(true);
     fetch(`${API_BASE}/api/templates/${pdfDocType}/config`)
       .then((res) => (res.ok ? res.json() : null))
-      .then((data: { fieldPositions?: Record<string, { x: number; y: number }>; fontColor?: string; fontFamily?: string } | null) => {
+      .then((data: { fieldPositions?: Record<string, { x: number; y: number }>; fontColor?: string; fontFamily?: string; customBoxes?: unknown[] } | null) => {
         if (cancelled || !data) return;
-        setTemplateConfigByType((prev) => ({
-          ...prev,
-          [pdfDocType]: {
-            fieldPositions: data.fieldPositions ?? {},
-            fontColor: data.fontColor ?? '#000000',
-            fontFamily: data.fontFamily ?? 'Helvetica',
-            fontSize: data.fontSize ?? 11,
-            fontBold: data.fontBold ?? false,
-            fontItalic: data.fontItalic ?? false,
-            customBoxes: Array.isArray(data.customBoxes) ? data.customBoxes : [],
-          },
-        }));
+        templateConfigJustLoadedRef.current = true;
+        setTemplateConfigByType((prev) => {
+          const current = prev[pdfDocType];
+          const currentBoxes = current?.customBoxes ?? [];
+          const currentImageCount = currentBoxes.filter((b: { kind?: string }) => (b as { kind?: string })?.kind === 'image').length;
+          const apiBoxes = Array.isArray(data.customBoxes) ? data.customBoxes : [];
+          const apiImageCount = apiBoxes.filter((b: { kind?: string }) => (b as { kind?: string })?.kind === 'image').length;
+          if (currentImageCount > apiImageCount && currentImageCount > 0) {
+            return prev;
+          }
+          return {
+            ...prev,
+            [pdfDocType]: {
+              fieldPositions: data.fieldPositions ?? {},
+              fontColor: data.fontColor ?? '#000000',
+              fontFamily: data.fontFamily ?? 'Helvetica',
+              fontSize: data.fontSize ?? 11,
+              fontBold: data.fontBold ?? false,
+              fontItalic: data.fontItalic ?? false,
+              customBoxes: apiBoxes,
+            },
+          };
+        });
       })
       .catch(() => {})
       .finally(() => {
@@ -2571,6 +2584,41 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
       });
     return () => { cancelled = true; };
   }, [pdfDocType]);
+
+  // Auto-guardar configuración de plantilla cuando cambian customBoxes (p. ej. al añadir/editar imagen),
+  // para que no se pierda al recargar sin haber pulsado "Guardar cambios".
+  useEffect(() => {
+    if (!currentUser || !isAdmin || !pdfDocType) return;
+    const config = templateConfigByType[pdfDocType];
+    if (!config) return;
+    if (templateConfigJustLoadedRef.current) {
+      templateConfigJustLoadedRef.current = false;
+      return;
+    }
+    const timer = setTimeout(() => {
+      const toSave = {
+        userId: currentUser.id,
+        username: currentUser.username,
+        fieldPositions: config.fieldPositions ?? {},
+        fontColor: config.fontColor ?? '#000000',
+        fontFamily: config.fontFamily ?? 'Helvetica',
+        fontSize: config.fontSize ?? 11,
+        fontBold: config.fontBold ?? false,
+        fontItalic: config.fontItalic ?? false,
+        customBoxes: config.customBoxes ?? [],
+      };
+      fetch(`${API_BASE}/api/templates/${pdfDocType}/config?userId=${encodeURIComponent(currentUser.id)}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-User-Id': currentUser.id,
+          'X-User-Username': currentUser.username ?? '',
+        },
+        body: JSON.stringify(toSave),
+      }).catch(() => {});
+    }, 1500);
+    return () => clearTimeout(timer);
+  }, [pdfDocType, templateConfigByType, isAdmin, currentUser?.id, currentUser?.username]);
 
   async function handleCreate(
     type: DocType,
@@ -2904,9 +2952,9 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
     }
   };
 
-  const handleSaveTemplateConfig = async () => {
+  const handleSaveTemplateConfig = async (configOverride?: TemplateConfigState) => {
     if (!currentUser || !isAdmin || !pdfDocType) return;
-    const config = templateConfigByType[pdfDocType];
+    const config = configOverride ?? templateConfigByType[pdfDocType];
     if (!config) return;
     setSavingTemplateConfig(true);
     setError(null);
