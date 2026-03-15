@@ -153,3 +153,9 @@
            px-2.5 py-1.5 rounded-monday transition-colors duration-100 cursor-pointer;
   }
 }
+
+@media (max-width: 768px) {
+  .btn-export-folders {
+    display: none;
+  }
+}

@@ -1,10 +1,11 @@
 import fs from 'fs';
 import path from 'path';
 import puppeteer from 'puppeteer';
+import { buildDocumentWrapperHtml } from './documentHtmlBuilder';
 
 export interface HtmlPdfOptions {
   /**
-   * Tamaño de página. Usamos 'A4' para cotizaciones.
+   * Tamaño de página. El tamaño efectivo usado es US Letter (612×792 pts) para coincidir con la plantilla y el editor.
    */
   format?: 'A4' | 'Letter';
 }
@@ -89,7 +90,7 @@ function resolveImageUrlsToDataUrls(content: Record<string, unknown>): Record<st
 
 /**
  * Convierte la primera página del PDF de plantilla a imagen base64.
- * Mismo tamaño que la página HTML (595×842) para alineación 1:1 con el editor.
+ * Mismo tamaño que la página HTML (612×792 US Letter) para alineación 1:1 con el editor.
  */
 async function getTemplatePdfFirstPageAsDataUrlWithBrowser(
   browser: Awaited<ReturnType<typeof puppeteer.launch>>,
@@ -100,21 +101,34 @@ async function getTemplatePdfFirstPageAsDataUrlWithBrowser(
   const fileUrl = `file:///${absolutePath.replace(/\\/g, '/')}#toolbar=0&navpanes=0&scrollbar=0`;
   try {
     const page = await browser.newPage();
-    // Mismo tamaño que documentHtmlBuilder (595×842 = editor)
-    const width = 595;
-    const height = 842;
+    // Plantilla en US Letter (612×792)
+    const width = 612;
+    const height = 792;
     await page.setViewport({ width, height, deviceScaleFactor: 1 });
     await page.goto(fileUrl, { waitUntil: 'networkidle0', timeout: 15000 });
     // Dar más tiempo para que el visor renderice la página completa incluyendo la parte inferior
     await page.evaluate(() => new Promise((r) => setTimeout(r, 1000)));
-    // Capturar todo el viewport sin clip para obtener la página completa sin recortes
-    const buffer = await page.screenshot({
+    // Detectar si hay toolbar del visor PDF
+    const toolbarHeight = await page.evaluate(() => {
+      const embed = document.querySelector('embed');
+      if (embed) {
+        const rect = embed.getBoundingClientRect();
+        return rect.top; // altura de lo que hay encima del PDF
+      }
+      return 0;
+    });
+    const screenshotBuffer = await page.screenshot({
       type: 'png',
-      omitBackground: false,
+      clip: {
+        x: 0,
+        y: toolbarHeight,
+        width: 612,
+        height: 792,
+      },
     });
     await page.close();
-    if (!buffer || !(buffer instanceof Buffer)) return null;
-    return `data:image/png;base64,${buffer.toString('base64')}`;
+    if (!screenshotBuffer || !(screenshotBuffer instanceof Buffer)) return null;
+    return `data:image/png;base64,${screenshotBuffer.toString('base64')}`;
   } catch {
     return null;
   }
@@ -164,6 +178,18 @@ export interface GeneratePdfFromDocumentOptions {
  * la ventana ni la UI de la aplicación. Puppeteer recibe HTML mínimo (body > .page > cajas).
  * Si hay plantilla, la convierte a imagen y la usa de fondo en una sola ejecución de Puppeteer.
  */
+/** Carga renderDocumentHtml del bundle (React). Si no existe el bundle, devuelve null. */
+function loadRenderDocumentHtml(): ((props: { content: Record<string, unknown>; backgroundImageDataUrl?: string | null }) => string) | null {
+  try {
+    const bundlePath = path.join(__dirname, '..', 'dist', 'documentViewBundle.cjs');
+    if (!fs.existsSync(bundlePath)) return null;
+    const mod = require(bundlePath);
+    return typeof mod?.renderDocumentHtml === 'function' ? mod.renderDocumentHtml : null;
+  } catch {
+    return null;
+  }
+}
+
 export async function generatePdfFromDocument(
   options: GeneratePdfFromDocumentOptions
 ): Promise<Buffer> {
@@ -191,16 +217,24 @@ export async function generatePdfFromDocument(
     // Resolver imageUrl de cajas imagen a data URLs para que Puppeteer no dependa de red
     const resolvedContent = resolveImageUrlsToDataUrls(content);
 
-    const html = buildDocumentHtml({
-      content: resolvedContent,
-      backgroundImageDataUrl,
-    });
+    const renderDocumentHtml = loadRenderDocumentHtml();
+    const html =
+      renderDocumentHtml
+        ? buildDocumentWrapperHtml(
+            renderDocumentHtml({
+              content: resolvedContent,
+              backgroundImageDataUrl,
+            }),
+            { content: resolvedContent }
+          )
+        : buildDocumentHtml({
+            content: resolvedContent,
+            backgroundImageDataUrl,
+          });
 
     const page = await browser.newPage();
-    // Viewport = mismas dimensiones que el editor (595×842) para posiciones 1:1
-    const width = format === 'Letter' ? 612 : 595;
-    const height = format === 'Letter' ? 792 : 842;
-    await page.setViewport({ width, height, deviceScaleFactor: 1 });
+    // Viewport en px para que 612pt×792pt se renderice 1:1 (96 DPI: 612pt=816px, 792pt=1056px)
+    await page.setViewport({ width: 816, height: 1056, deviceScaleFactor: 1 });
     await page.setContent(html, {
       waitUntil: 'networkidle0',
       baseURL: process.env.API_BASE_URL || 'http://localhost:3001',
@@ -224,13 +258,9 @@ export async function generatePdfFromDocument(
     ]);
 
     await page.emulateMediaType('screen');
-    // Tamaño fijo 595×842 px y scale 1 para que el PDF sea 1:1 con el HTML y el editor
-    const pdfWidth = format === 'Letter' ? '612px' : '595px';
-    const pdfHeight = format === 'Letter' ? '792px' : '842px';
+    // US Letter exacto (612×792 pt): format 'Letter' evita que px se interprete distinto y la hoja quede mal
     const pdf = await page.pdf({
-      width: pdfWidth,
-      height: pdfHeight,
-      scale: 1,
+      format: 'Letter',
       printBackground: true,
       margin: { top: '0mm', right: '0mm', bottom: '0mm', left: '0mm' },
     });

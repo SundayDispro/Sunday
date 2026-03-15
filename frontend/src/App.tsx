@@ -18,7 +18,7 @@ import { UserPanel } from './components/UserPanel';
 import { InboxPage } from './components/pages/InboxPage';
 import { NotificationsPage } from './components/pages/NotificationsPage';
 import { SearchPage } from './components/pages/SearchPage';
-import { DocsPage } from './components/pages/DocsPage';
+import DocsPage from './components/pages/DocsPage';
 import { TeamPage } from './components/pages/TeamPage';
 import { FacturacionPage } from './components/pages/FacturacionPage';
 import { WorkspaceOverviewPage } from './components/pages/WorkspaceOverviewPage';
@@ -1472,21 +1472,32 @@ if (ok && data && typeof data.id === 'string') {
                             headers: { 'Content-Type': 'application/json' },
                             body: JSON.stringify({ userId: currentUser.id, boardId: activeBoardId }),
                           });
-                          if (!res.ok) throw new Error('Export failed');
-                          toast('Exportación de carpetas lanzada. Revisa la carpeta SundayExports en tu usuario.', 'success');
+                          const data = await res.json();
+                          if (!res.ok) throw new Error(data.error || 'Export failed');
+                          if (data.copied === 0 && data.skipped === 0) {
+                            toast('No hay archivos asignados a ti para exportar en este tablero.', 'info');
+                          } else if (data.copied === 0) {
+                            toast(`Todo al día — ${data.skipped} archivos ya estaban guardados.`, 'success');
+                          } else {
+                            toast(`${data.copied} archivos nuevos guardados. ${data.skipped} ya existían.`, 'success');
+                          }
+                          if (data.errors?.length) {
+                            console.warn('Export warnings:', data.errors);
+                          }
                         } catch (e) {
                           console.error('Error exporting folders', e);
-                          toast('No se pudo exportar la estructura de carpetas.', 'error');
+                          const msg = e instanceof Error ? e.message : 'No se pudo exportar la estructura de carpetas.';
+                          toast(msg, 'error');
                         } finally {
                           setExportingFolders(false);
                         }
                       }}
                       disabled={!activeBoardId || exportingFolders}
-                      className="toolbar-btn"
+                      className="toolbar-btn btn-export-folders"
                       title="Exportar estructura de carpetas del tablero"
                     >
                       <Folder size={16} />
-                      <span>{exportingFolders ? 'Exportando…' : 'Exportar carpetas'}</span>
+                      <span>{exportingFolders ? 'Exportando...' : 'Exportar carpetas'}</span>
                     </button>
                     <div className="w-px h-5 bg-monday-border" />
                     <button

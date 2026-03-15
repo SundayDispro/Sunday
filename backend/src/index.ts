@@ -169,6 +169,7 @@ app.get('/api/workspaces', async (_req, res) => {
     });
     res.json(workspaces);
   } catch (error) {
+    console.error('Error fetching workspaces:', error);
     res.status(500).json({ error: 'Failed to fetch workspaces' });
   }
 });
@@ -837,6 +838,7 @@ app.get('/api/users', async (req, res) => {
     const safe = users.map(({ password: _p, ...u }) => u);
     res.json(safe);
   } catch (e) {
+    console.error('Error fetching users:', e);
     res.status(500).json({ error: 'Failed' });
   }
 });
@@ -1092,31 +1094,45 @@ app.post('/api/push/unsubscribe', async (req, res) => {
   }
 });
 
-// --- Export folders from boards (one-shot) ---
+// --- Export folders: copiar archivos de uploads a ~/SundayExports (solo ítems asignados al usuario) ---
 import os from 'os';
 
-function classifyFileType(url: string): 'docs' | 'excel' | 'file' {
-  const lower = url.toLowerCase();
-  if (lower.endsWith('.doc') || lower.endsWith('.docx') || lower.endsWith('.pdf')) return 'docs';
-  if (lower.endsWith('.xls') || lower.endsWith('.xlsx') || lower.endsWith('.csv')) return 'excel';
-  return 'file';
+const EXPORT_BASE = path.join(os.homedir(), 'SundayExports');
+const UPLOADS_DIR = path.join(process.cwd(), 'uploads');
+
+function sanitizeFolderName(name: string): string {
+  return (name || '').replace(/[<>:"/\\|?*]/g, '_').trim() || 'Sin_nombre';
+}
+
+function isAssignedToUser(columnValues: { columnId: string; value: string }[], personColumnId: string, userId: string): boolean {
+  const cv = columnValues.find(v => v.columnId === personColumnId);
+  if (!cv?.value) return false;
+  const raw = cv.value.trim();
+  if (!raw) return false;
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (Array.isArray(parsed)) return parsed.includes(userId);
+    return String(parsed) === userId;
+  } catch {
+    return raw === userId;
+  }
 }
 
 app.post('/api/export/folders', async (req, res) => {
+  const errors: string[] = [];
+  let copied = 0;
+  let skipped = 0;
   try {
-    const { userId, boardId, basePath } = req.body ?? {};
+    const { userId, boardId } = req.body ?? {};
     if (!userId || !boardId) {
       return res.status(400).json({ error: 'userId y boardId son obligatorios' });
     }
     const user = await prisma.user.findUnique({ where: { id: userId } });
     if (!user) return res.status(404).json({ error: 'Usuario no encontrado' });
 
-    const syncProfile = getSyncProfileForRole(user.role);
-
     const board = await prisma.board.findUnique({
       where: { id: boardId },
       include: {
-        workspace: true,
         groups: {
           orderBy: { position: 'asc' },
           include: {
@@ -1132,84 +1148,74 @@ app.post('/api/export/folders', async (req, res) => {
 
     if (!board) return res.status(404).json({ error: 'Tablero no encontrado' });
 
-    const rootPath = basePath && typeof basePath === 'string' && basePath.trim()
-      ? basePath
-      : path.join(os.homedir(), 'SundayExports');
+    const personCol = board.columns.find(c => c.type === 'person');
+    const fileColumns = board.columns.filter(c => c.type === 'docs' || c.type === 'excel' || c.type === 'file');
 
-    const workspaceDir = path.join(rootPath, board.workspace?.name || 'Workspace');
-    const boardDir = path.join(workspaceDir, board.name);
-
-    fs.mkdirSync(boardDir, { recursive: true });
-
-    const docsColumns = board.columns.filter(c => c.type === 'docs');
-    const excelColumns = board.columns.filter(c => c.type === 'excel');
-    const fileColumns = board.columns.filter(c => c.type === 'file');
-
-    const createdPaths: string[] = [];
-
-    const allGroups = board.groups as any[];
+    const allGroups = board.groups as { id: string; name: string; parentGroupId: string | null; items: { id: string; name: string; columnValues: { columnId: string; value: string }[] }[] }[];
+    const getChildren = (parentId: string) => allGroups.filter(g => g.parentGroupId === parentId);
     const rootGroups = allGroups.filter(g => !g.parentGroupId);
 
-    const getChildren = (parentId: string) =>
-      allGroups.filter(g => g.parentGroupId === parentId);
+    for (const rootGroup of rootGroups) {
+      const yearMonth = sanitizeFolderName(rootGroup.name);
+      const clientGroups = getChildren(rootGroup.id);
+      const targetClients = clientGroups.length > 0 ? clientGroups : [rootGroup];
 
-    for (const group of rootGroups) {
-      const monthDir = path.join(boardDir, group.name);
-      fs.mkdirSync(monthDir, { recursive: true });
-      createdPaths.push(monthDir);
-
-      const clientGroups = getChildren(group.id);
-      const targetGroups = clientGroups.length > 0 ? clientGroups : [group];
-
-      for (const client of targetGroups) {
-        const clientDir = clientGroups.length > 0
-          ? path.join(monthDir, client.name)
-          : monthDir;
-        if (!fs.existsSync(clientDir)) {
-          fs.mkdirSync(clientDir, { recursive: true });
-          createdPaths.push(clientDir);
-        }
-
+      for (const client of targetClients) {
+        const clientName = sanitizeFolderName(client.name);
         for (const item of client.items) {
-          const safeItemName = item.name || 'Elemento';
-          const itemDir = path.join(clientDir, safeItemName.replace(/[\\\\/:*?\"<>|]/g, '_'));
-          fs.mkdirSync(itemDir, { recursive: true });
-          createdPaths.push(itemDir);
+          if (!personCol || !isAssignedToUser(item.columnValues, personCol.id, String(userId))) continue;
 
-          const handleColumnSet = (columnsArr: typeof board.columns, enabled: boolean) => {
-            if (!enabled) return;
-            for (const col of columnsArr) {
-              const cv = item.columnValues.find((v: any) => v.columnId === col.id);
-              if (!cv || !cv.value) continue;
-              const value = cv.value.trim();
-              if (!value) continue;
-              const type = classifyFileType(value);
-              if (type === 'docs' && !syncProfile.syncDocs) continue;
-              if (type === 'excel' && !syncProfile.syncExcel) continue;
-              if (type === 'file' && !syncProfile.syncFiles) continue;
+          const itemName = sanitizeFolderName(item.name || 'Elemento');
+          const itemDir = path.join(EXPORT_BASE, yearMonth, clientName, itemName);
 
-              const filename = `${col.title.replace(/[\\\\/:*?\"<>|]/g, '_')}.url.txt`;
-              const filePath = path.join(itemDir, filename);
-              fs.writeFileSync(filePath, value, 'utf8');
-              createdPaths.push(filePath);
+          for (const col of fileColumns) {
+            const cv = item.columnValues.find(v => v.columnId === col.id);
+            if (!cv?.value) continue;
+            const value = cv.value.trim();
+            if (!value.startsWith('/uploads/')) continue;
+
+            const filename = path.basename(value);
+            if (!filename) continue;
+            const srcPath = path.join(UPLOADS_DIR, filename);
+            const destPath = path.join(itemDir, filename);
+
+            if (!fs.existsSync(srcPath)) {
+              errors.push(`Origen no encontrado: ${value}`);
+              continue;
             }
-          };
-
-          handleColumnSet(docsColumns, syncProfile.syncDocs);
-          handleColumnSet(excelColumns, syncProfile.syncExcel);
-          handleColumnSet(fileColumns, syncProfile.syncFiles);
+            if (fs.existsSync(destPath)) {
+              skipped++;
+              continue;
+            }
+            try {
+              fs.mkdirSync(itemDir, { recursive: true });
+              fs.copyFileSync(srcPath, destPath);
+              copied++;
+            } catch (err) {
+              const msg = err instanceof Error ? err.message : String(err);
+              errors.push(`${filename}: ${msg}`);
+            }
+          }
         }
       }
     }
 
     return res.json({
       ok: true,
-      rootPath,
-      createdCount: createdPaths.length,
+      exportPath: EXPORT_BASE,
+      copied,
+      skipped,
+      errors,
     });
   } catch (e) {
     console.error('Export folders error:', e);
-    return res.status(500).json({ error: 'Error al exportar carpetas' });
+    return res.status(500).json({
+      ok: false,
+      error: e instanceof Error ? e.message : 'Error al exportar carpetas',
+      copied,
+      skipped,
+      errors,
+    });
   }
 });
 
@@ -1468,7 +1474,7 @@ app.post('/api/templates/:kind/generate', async (req, res) => {
     const { generatePdfFromDocument } = await import('./htmlPdfGenerator');
     const buffer = await generatePdfFromDocument({
       content,
-      format: 'A4',
+      format: 'Letter',
       templatePdfPath: templatePdfPath ?? undefined,
     });
     res.setHeader('Content-Type', 'application/pdf');

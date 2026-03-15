@@ -1,20 +1,23 @@
 /**
  * Genera HTML que replica el layout del editor de plantillas PDF.
- * Mismas dimensiones lógicas que el editor: 595×842 (A4 en puntos), para que posiciones coincidan 1:1.
+ * Mismas dimensiones lógicas que el editor: 612×792 (US Letter en puntos), para que posiciones coincidan 1:1.
  */
 import fs from 'fs';
 import path from 'path';
 
-// Mismo sistema de coordenadas que PdfTemplateEditor (PAGE_ASPECT 595/842)
-const PAGE_W_PX = 595;
-const PAGE_H_PX = 842;
+// US Letter en puntos (no píxeles). Mismo sistema que PdfTemplateEditor.
+const PAGE_W_PT = 612;
+const PAGE_H_PT = 792;
 
-// Paddings alineados con el editor (Tailwind: pt-3/pt-2/py-1, px-1.5, pb-1)
-const PADDING_TOP_FOLIO_PX = Math.round(PAGE_H_PX * (12 / 842));   // pt-3
-const PADDING_TOP_SINGLE_PX = Math.round(PAGE_H_PX * (8 / 842));   // pt-2
-const PADDING_TOP_MULTI_PX = Math.round(PAGE_H_PX * (4 / 842));    // py-1
-const PADDING_BOTTOM_PX = Math.round(PAGE_H_PX * (4 / 842));        // pb-1 / py-1
-const PADDING_SIDES_PX = Math.round(PAGE_W_PX * (6 / 595));        // px-1.5
+// Paddings en px (Tailwind); inyectar como px en CSS para no escalar mal en PDF
+const PADDING_TOP_FOLIO_PX = 12;
+const PADDING_TOP_SINGLE_PX = 16;
+const PADDING_TOP_DESCRIPCION_CORTA_PX = 28;
+const PADDING_TOP_MULTI_PX = 8;
+const PADDING_BOTTOM_PX = 4;
+const PADDING_SIDES_PX = 6;
+const PADDING_FOLIO_LEFT_PX = 26;
+const PADDING_TOTAL_RIGHT_PX = 12;
 
 function escapeHtml(s: string): string {
   return s
@@ -88,13 +91,14 @@ export interface BuildDocumentHtmlOptions {
 }
 
 /**
- * Construye el HTML de una página A4 con los mismos cuadros y estilos que el editor.
+ * Construye el HTML de una página US Letter (612×792) con los mismos cuadros y estilos que el editor.
  * Posiciones y tamaños en % (0-1), igual que en PdfTemplateEditor.
  */
 export function buildDocumentHtml(options: BuildDocumentHtmlOptions): string {
   const { content, backgroundImageDataUrl } = options;
   const customBoxes = (content.customBoxes ?? []) as CustomBox[];
   const customFieldValues = (content.customFieldValues ?? {}) as Record<string, string>;
+
   const globalFontSize = typeof content.globalFontSize === 'number' ? content.globalFontSize : 11;
   const globalFontFamily = String(content.globalFontFamily ?? 'Averta Std').trim();
   const globalFontColor = String(content.globalFontColor ?? '#000000').trim();
@@ -102,7 +106,7 @@ export function buildDocumentHtml(options: BuildDocumentHtmlOptions): string {
   const globalFontItalic = content.globalFontItalic === true || content.globalFontItalic === 'true';
 
   const backgroundStyle = backgroundImageDataUrl
-    ? `background-image: url(${backgroundImageDataUrl}); background-size: 100% 100%; background-repeat: no-repeat; background-position: 0 0;`
+    ? `background-image: url(${backgroundImageDataUrl}); background-size: 612pt 792pt; background-position: 0 0; background-repeat: no-repeat;`
     : 'background-color: #ffffff;';
 
   // Una sola pasada en orden customBoxes para que el z-order del PDF coincida 1:1 con el editor.
@@ -111,30 +115,24 @@ export function buildDocumentHtml(options: BuildDocumentHtmlOptions): string {
   for (const box of customBoxes) {
     if (!box) continue;
 
-    const leftPx = Math.round((box.x ?? 0) * PAGE_W_PX);
-    const topPx = Math.round((box.y ?? 0) * PAGE_H_PX);
-    const widthPx = Math.round((box.width ?? 0.3) * PAGE_W_PX);
+    const leftPt = Math.max(0, Math.min(
+      Math.round((box.x ?? 0) * PAGE_W_PT),
+      PAGE_W_PT - 1
+    ));
+    const topPt = Math.max(0, Math.min(
+      Math.round((box.y ?? 0) * PAGE_H_PT),
+      PAGE_H_PT - 1
+    ));
+    const widthPt = Math.round((box.width ?? 0.3) * PAGE_W_PT);
 
     if (box.kind === 'image' && box.imageUrl) {
-      const heightPx = Math.round((box.height ?? 0.15) * PAGE_H_PX);
-      // Diagnóstico: valores usados para esta caja (imagen)
-      console.log({
-        fieldKey: box.fieldKey ?? box.semantic ?? box.id,
-        entrada: { x: box.x, y: box.y, w: box.width, h: box.height },
-        calculado: {
-          topPx: Math.round(topPx),
-          leftPx: Math.round(leftPx),
-          widthPx: Math.round(widthPx),
-          heightPx: Math.round(heightPx),
-        },
-        paginaReferencia: `${PAGE_W_PX}x${PAGE_H_PX}`,
-      });
+      const heightPt = Math.round((box.height ?? 0.15) * PAGE_H_PT);
       const style = [
         `position: absolute`,
-        `left: ${leftPx}px`,
-        `top: ${topPx}px`,
-        `width: ${widthPx}px`,
-        `height: ${heightPx}px`,
+        `left: ${leftPt}pt`,
+        `top: ${topPt}pt`,
+        `width: ${widthPt}pt`,
+        `height: ${heightPt}pt`,
         `object-fit: contain`,
         `object-position: left top`,
       ].join('; ');
@@ -144,71 +142,99 @@ export function buildDocumentHtml(options: BuildDocumentHtmlOptions): string {
       continue;
     }
 
-    // Caja de texto
+    // Caja de texto: content[fieldKey] -> customFieldValues[box.id] -> alias/fallback por fieldKey
     let text = '';
-    if (box.fieldKey && content[box.fieldKey] !== undefined && content[box.fieldKey] !== null) {
-      const raw = content[box.fieldKey];
+    const rawFromField = box.fieldKey ? content[box.fieldKey] : undefined;
+    const strFromField = rawFromField !== undefined && rawFromField !== null ? String(rawFromField).trim() : '';
+    const hasFieldValue = strFromField !== '';
+    // Elemento: permitir también descripcion_corta si elemento viene vacío
+    const rawElemento = (content['elemento'] ?? content['descripcion_corta']);
+    const strElemento = rawElemento !== undefined && rawElemento !== null ? String(rawElemento).trim() : '';
+    const isElementBox = box.fieldKey === 'elemento' || box.semantic === 'element';
+    if (box.fieldKey && hasFieldValue) {
       text =
         box.fieldKey === 'fecha'
-          ? formatDateForPdf(String(raw))
-          : String(raw).trim();
+          ? formatDateForPdf(String(rawFromField))
+          : strFromField;
+    } else if (isElementBox && strElemento) {
+      text = strElemento;
     } else {
-      text = (customFieldValues[box.id] ?? '').trim();
+      const byId = (customFieldValues[box.id] ?? '').trim();
+      if (byId) {
+        text = box.fieldKey === 'fecha' ? formatDateForPdf(byId) : byId;
+      } else if (box.fieldKey === 'cliente') {
+        const alt = (content['cliente'] ?? content['client'] ?? '');
+        text = (typeof alt === 'string' ? alt : String(alt ?? '')).trim();
+      } else if (box.fieldKey === 'total' || box.fieldKey === 'folio') {
+        const alt = content[box.fieldKey] ?? customFieldValues[box.id];
+        text = (alt !== undefined && alt !== null ? String(alt) : '').trim();
+      } else if (isElementBox) {
+        text = strElemento;
+      } else if (box.fieldKey && strFromField === '' && rawFromField !== undefined && rawFromField !== null) {
+        text = box.fieldKey === 'fecha' ? formatDateForPdf(String(rawFromField)) : String(rawFromField).trim();
+      }
     }
 
-    const size = typeof box.fontSize === 'number' ? box.fontSize : globalFontSize;
+    let size = typeof box.fontSize === 'number' ? box.fontSize : globalFontSize;
+    if (box.fieldKey === 'total') {
+      size = Math.max(size, 11);
+    }
+    // Fecha: respetar fontSize/fuente de la plantilla (1:1 con editor), sin tope
+    if (box.semantic === 'folio' || box.fieldKey === 'folio') {
+      size = typeof box.fontSize === 'number' ? box.fontSize : globalFontSize;
+    }
     const ff = (box.fontFamily ?? globalFontFamily).trim();
-    const bold = typeof box.fontBold === 'boolean' ? box.fontBold : globalFontBold;
+    let bold = typeof box.fontBold === 'boolean' ? box.fontBold : globalFontBold;
+    if (box.fieldKey === 'total') bold = true;
     const italic = typeof box.fontItalic === 'boolean' ? box.fontItalic : globalFontItalic;
-    const col = typeof box.fontColor === 'string' && box.fontColor ? box.fontColor : globalFontColor;
+    const colRaw = typeof box.fontColor === 'string' && box.fontColor ? box.fontColor : globalFontColor;
+    // Normalizar color como en el editor: solo #ffffff o #000000
+    const textCol = colRaw.toLowerCase().trim() === '#ffffff' ? '#ffffff' : '#000000';
 
-    // Fondo siempre transparente: la plantilla PDF ya trae barras/colores; no duplicamos backgroundColor.
-    const bgCol = 'transparent';
-    // Respetar el color de texto de la caja (ej. blanco en Total sobre la barra del PDF).
-    const textCol = col;
+    // Respetar backgroundColor del cuadro (ej. total con barra negra y texto blanco) para que el PDF sea 1:1 con el preview
+    const bgCol =
+      typeof box.backgroundColor === 'string' && box.backgroundColor.trim()
+        ? box.backgroundColor.trim()
+        : 'transparent';
 
     const isFolio = box.semantic === 'folio';
     const isSingleLine = box.singleLine === true || isFolio;
-    const rawHeightPx = Math.round((box.height ?? 0.05) * PAGE_H_PX);
-    // Sin mínimos: la altura es exactamente h*842; recortar solo al borde de página.
-    const heightClampedPx = Math.min(rawHeightPx, PAGE_H_PX - topPx);
-    // Diagnóstico: valores usados para esta caja (texto)
-    console.log({
-      fieldKey: box.fieldKey ?? box.semantic ?? box.id,
-      entrada: { x: box.x, y: box.y, w: box.width, h: box.height },
-      calculado: {
-        topPx: Math.round(topPx),
-        leftPx: Math.round(leftPx),
-        widthPx: Math.round(widthPx),
-        heightPx: Math.round(heightClampedPx),
-      },
-      paginaReferencia: `${PAGE_W_PX}x${PAGE_H_PX}`,
-    });
+    const isDescripcionCorta = box.fieldKey === 'descripcion_corta';
+    const rawHeightPt = Math.round((box.height ?? 0.05) * PAGE_H_PT);
+    const heightClampedPt = Math.min(rawHeightPt, PAGE_H_PT - topPt);
     const lineHeight = isSingleLine ? '1.1' : '1.35';
-    // Padding alineado con el editor (Tailwind: folio pt-3, single pt-2 pb-1, multi py-1, px-1.5)
-    const paddingTopPx = isFolio
-      ? PADDING_TOP_FOLIO_PX
-      : isSingleLine
-        ? PADDING_TOP_SINGLE_PX
-        : PADDING_TOP_MULTI_PX;
+    // Padding alineado con el editor (Tailwind: folio pt-3, single pt-4, descripcion_corta pt-6, multi pt-2, pb-1, px-1.5)
+    const paddingTopPx = isDescripcionCorta
+      ? PADDING_TOP_DESCRIPCION_CORTA_PX
+      : isFolio
+        ? PADDING_TOP_FOLIO_PX
+        : isSingleLine
+          ? PADDING_TOP_SINGLE_PX
+          : PADDING_TOP_MULTI_PX;
+    const isTotal = box.fieldKey === 'total';
+    const paddingLeftPx = isFolio ? PADDING_FOLIO_LEFT_PX : PADDING_SIDES_PX;
+    const paddingRightPx = isTotal ? PADDING_TOTAL_RIGHT_PX : PADDING_SIDES_PX;
     const boxStyle = [
       `position: absolute`,
-      `left: ${leftPx}px`,
-      `top: ${topPx}px`,
-      `width: ${widthPx}px`,
-      `height: ${heightClampedPx}px`,
+      `left: ${leftPt}pt`,
+      `top: ${topPt}pt`,
+      `width: ${widthPt}pt`,
+      `height: ${heightClampedPt}pt`,
       `margin: 0`,
-      `padding: ${paddingTopPx}px ${PADDING_SIDES_PX}px ${PADDING_BOTTOM_PX}px ${PADDING_SIDES_PX}px`,
+      `padding: ${paddingTopPx}px ${paddingRightPx}px ${PADDING_BOTTOM_PX}px ${paddingLeftPx}px`,
       `line-height: ${lineHeight}`,
       `box-sizing: border-box`,
       `overflow: hidden`,
       `display: block`,
+      `z-index: 5`,
+      `background-color: ${bgCol}`,
+      `-webkit-print-color-adjust: exact`,
+      `print-color-adjust: exact`,
     ].join('; ');
 
-    const innerWidthPx = Math.max(0, widthPx - PADDING_SIDES_PX * 2);
     const innerStyle = [
       `display: block`,
-      `width: ${innerWidthPx}px`,
+      `width: 100%`,
       `height: 100%`,
       `min-width: 0`,
       `margin: 0`,
@@ -218,45 +244,87 @@ export function buildDocumentHtml(options: BuildDocumentHtmlOptions): string {
       `font-weight: ${bold ? 'bold' : 'normal'}`,
       `font-style: ${italic ? 'italic' : 'normal'}`,
       `color: ${textCol}`,
-      `background-color: ${bgCol}`,
+      `background-color: transparent`,
       `white-space: pre-wrap`,
       `word-break: break-word`,
       `overflow-wrap: break-word`,
       `box-sizing: border-box`,
+      `text-align: ${isTotal ? 'right' : 'left'}`,
+      `direction: ltr`,
       `font-variant: no-common-ligatures`,
       `text-rendering: geometricPrecision`,
+      `-webkit-print-color-adjust: exact !important`,
+      `print-color-adjust: exact !important`,
     ].join('; ');
 
     const boxHtml = `<div class="doc-box" style="${boxStyle}"><div class="doc-box-inner" style="${innerStyle}">${escapeHtml(text) || '&nbsp;'}</div></div>`;
-    // Diagnóstico: HTML generado para la caja Total (ver estilos de fondo)
-    if (box.fieldKey === 'total' || (box.semantic !== 'folio' && String(box.id || '').toLowerCase().includes('total'))) {
-      console.log('[PDF] HTML caja Total:', boxHtml);
-    }
     boxHtmlParts.push(boxHtml);
   }
 
   const boxesHtml = boxHtmlParts.join('\n');
+
+  console.log('[PDF BOXES DEBUG]', JSON.stringify(
+    (content.customBoxes ?? []).map((b: CustomBox) => ({
+      id: b.id,
+      fieldKey: b.fieldKey,
+      fontColor: b.fontColor,
+      customVal: (content.customFieldValues as Record<string, string> | undefined)?.[b.id],
+      contentVal: b.fieldKey ? (content as Record<string, unknown>)[b.fieldKey] : undefined,
+    })),
+    null,
+    2
+  ));
 
   const needsAverta =
     /averta\s*std/i.test(globalFontFamily) ||
     customBoxes.some((b) => b && typeof b.fontFamily === 'string' && /averta\s*std/i.test(b.fontFamily));
   const fontFaceCss = needsAverta ? getAvertaStdFontFaceCss() : '';
 
+  const pageDivHtml = `<div class="page" style="width:${PAGE_W_PT}pt;height:${PAGE_H_PT}pt;min-width:${PAGE_W_PT}pt;min-height:${PAGE_H_PT}pt;position:relative;overflow:hidden;background-color:#ffffff;${backgroundStyle}">\n${boxesHtml}\n</div>`;
+  return buildDocumentWrapperHtml(pageDivHtml, { content, fontFaceCss });
+}
+
+/**
+ * Envuelve el HTML del contenido de la página (div.page o equivalente) en documento completo.
+ * Usado cuando el cuerpo viene de renderDocumentHtml (React) para reutilizar fuentes y estilos base.
+ */
+export function buildDocumentWrapperHtml(
+  pageContentHtml: string,
+  options: {
+    content?: Record<string, unknown>;
+    backgroundStyle?: string;
+    fontFaceCss?: string;
+  }
+): string {
+  const { content = {}, backgroundStyle = 'background-color: #ffffff;', fontFaceCss: injectedFontCss } = options;
+  const customBoxes = (content.customBoxes ?? []) as CustomBox[];
+  const globalFontFamily = String(content.globalFontFamily ?? 'Averta Std').trim();
+  const needsAverta =
+    injectedFontCss !== undefined
+      ? !!injectedFontCss
+      : /averta\s*std/i.test(globalFontFamily) ||
+        customBoxes.some((b) => b && typeof b.fontFamily === 'string' && /averta\s*std/i.test(b.fontFamily));
+  const fontFaceCss = injectedFontCss ?? (needsAverta ? getAvertaStdFontFaceCss() : '');
+
   return `<!DOCTYPE html>
 <html lang="es">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=${PAGE_W_PX}, height=${PAGE_H_PX}">
+  <meta name="viewport" content="width=816, height=1056">
   <style>
-    ${fontFaceCss ? fontFaceCss + '\n    ' : ''}@page { size: 595px 842px; margin: 0; }
-    * { box-sizing: border-box; }
+    ${fontFaceCss ? fontFaceCss + '\n    ' : ''}@page { size: 612pt 792pt; margin: 0; }
+    * {
+      box-sizing: border-box;
+      -webkit-print-color-adjust: exact !important;
+      print-color-adjust: exact !important;
+    }
     html, body {
       margin: 0;
       padding: 0;
-      width: ${PAGE_W_PX}px;
-      height: ${PAGE_H_PX}px;
-      min-width: ${PAGE_W_PX}px;
-      min-height: ${PAGE_H_PX}px;
+      width: ${PAGE_W_PT}pt;
+      height: ${PAGE_H_PT}pt;
+      min-width: ${PAGE_W_PT}pt;
+      min-height: ${PAGE_H_PT}pt;
       overflow: hidden;
       background-color: #ffffff !important;
       border: none;
@@ -265,27 +333,10 @@ export function buildDocumentHtml(options: BuildDocumentHtmlOptions): string {
       -webkit-print-color-adjust: exact;
       print-color-adjust: exact;
     }
-    .page {
-      width: ${PAGE_W_PX}px;
-      height: ${PAGE_H_PX}px;
-      min-width: ${PAGE_W_PX}px;
-      min-height: ${PAGE_H_PX}px;
-      position: relative;
-      overflow: visible;
-      border: none;
-      outline: none;
-      box-shadow: none;
-      background-color: #ffffff;
-      ${backgroundStyle}
-    }
-    .doc-box, .doc-img { position: absolute; }
-    .doc-box-inner { display: block; min-width: 0; white-space: pre-wrap; word-break: break-word; overflow-wrap: break-word; font-variant: no-common-ligatures; text-rendering: geometricPrecision; }
   </style>
 </head>
 <body>
-  <div class="page">
-${boxesHtml}
-  </div>
+${pageContentHtml}
 </body>
 </html>`;
 }

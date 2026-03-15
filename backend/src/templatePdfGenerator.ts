@@ -158,15 +158,15 @@ export async function generatePdfFromTemplate(
     pdfDoc = await PDFDocument.load(bytes);
   } else if (templateImage) {
     pdfDoc = await PDFDocument.create();
-    const page = pdfDoc.addPage([595, 842]);
+    const page = pdfDoc.addPage([612, 792]); // US Letter
     const imgBytes = fs.readFileSync(templateImage.path);
     const embedded = templateImage.isPng
       ? await pdfDoc.embedPng(imgBytes)
       : await pdfDoc.embedJpg(imgBytes);
-    page.drawImage(embedded, { x: 0, y: 0, width: 595, height: 842 });
+    page.drawImage(embedded, { x: 0, y: 0, width: 612, height: 792 });
   } else {
     pdfDoc = await PDFDocument.create();
-    pdfDoc.addPage([595, 842]); // A4
+    pdfDoc.addPage([612, 792]); // US Letter
   }
 
   const page = pdfDoc.getPage(pageIndex);
@@ -222,8 +222,10 @@ export async function generatePdfFromTemplate(
   const lineHeight = 1.2;
   /** Relación aproximada ascenso/tamaño (em). Valor conservador para que la parte superior del glifo no se corte en el cuadro (folio, etc.). */
   const ascentFactor = 0.82;
-  /** Margen superior en puntos para que el texto no se corte por el borde del cuadro (cap height / ascendente). */
-  const TOP_MARGIN_PT = 5;
+  /** Margen superior en puntos; alineado con pt-4 del preview (Documentos) para coincidir con vista general. */
+  const TOP_MARGIN_PT = 14;
+  /** Padding lateral (izq/der) en puntos; debe coincidir con documentHtmlBuilder PADDING_SIDES_PX para que preview y PDF alineen igual. */
+  const PADDING_SIDES_PT = 6;
 
   /** Dibuja texto respetando saltos de línea (\n) y word-wrap. y = distancia desde el borde SUPERIOR de la página hasta la parte superior del cuadro (origen arriba-izq). */
   function drawText(
@@ -356,8 +358,9 @@ export async function generatePdfFromTemplate(
           ? hexToRgb(box.fontColor)
           : defaultColor;
       const boxW = num(box.width, 0.3);
-      const maxWidth = boxW > 0 ? boxW * width : undefined;
-      const xPts = num(box.x, 0) * width;
+      const boxWidthPts = boxW > 0 ? boxW * width : 0;
+      const maxWidth = boxWidthPts > PADDING_SIDES_PT * 2 ? boxWidthPts - PADDING_SIDES_PT * 2 : undefined;
+      const xPts = num(box.x, 0) * width + PADDING_SIDES_PT;
       const yPts = num(box.y, 0) * height;
       drawText(text, xPts, yPts, size, maxWidth, boxFont, boxColor);
     }

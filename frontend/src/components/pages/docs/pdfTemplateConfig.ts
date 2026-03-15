@@ -1,7 +1,7 @@
 /**
  * Configuración de campos por tipo de plantilla PDF.
  * Posiciones por defecto en 0-1 (origen arriba-izquierda), derivadas de backend/templatePdfGenerator TEMPLATE_FIELD_POSITIONS.
- * A4: 595x842 pts -> x% = x/595, y% = 1 - y/842
+ * US Letter: 612×792 pts -> x% = x/612, y% = 1 - y/792
  */
 export type PdfDocType = 'cotizacion' | 'levantamiento' | 'hoja_trabajo';
 
@@ -18,10 +18,10 @@ export interface FieldDef {
   inputType?: 'text' | 'date' | 'textarea';
 }
 
-const A4_W = 595;
-const A4_H = 842;
+const LETTER_W = 612;
+const LETTER_H = 792;
 function pct(xPts: number, yPts: number) {
-  return { x: xPts / A4_W, y: 1 - yPts / A4_H };
+  return { x: xPts / LETTER_W, y: 1 - yPts / LETTER_H };
 }
 
 /** Posiciones alineadas con backend (estilo Corel: valor debajo del rótulo). */

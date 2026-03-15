@@ -25,12 +25,12 @@ interface Props {
   viewerOnly?: boolean;
 }
 
-/** Relación de aspecto A4 (595×842); usar en editor y preview para 1:1 con PDF. */
-export const PAGE_ASPECT = 595 / 842;
+/** Relación de aspecto US Letter (612×792); usar en editor y preview para 1:1 con PDF. */
+export const PAGE_ASPECT = 612 / 792;
 
 /** Devuelve el texto de placeholder sugerido según el campo semántico del cuadro. */
 function getSemanticPlaceholder(box: import('./pdfTemplateConfig').CustomBoxDef): string {
-  const key = box.fieldKey ?? (box.semantic === 'folio' ? 'folio' : '');
+  const key = box.fieldKey ?? (box.semantic === 'folio' ? 'folio' : box.semantic === 'element' ? 'elemento' : '');
   switch (key) {
     case 'cliente':       return 'Nombre del cliente';
     case 'folio':         return '0000';
@@ -38,6 +38,7 @@ function getSemanticPlaceholder(box: import('./pdfTemplateConfig').CustomBoxDef)
     case 'descripcion_corta':
     case 'vigencia':
     case 'item':          return 'Breve descripción';
+    case 'elemento':      return 'Elemento / concepto';
     case 'descripcion_larga':
     case 'descripcion':
     case 'observaciones': return 'Descripción detallada del proyecto';
@@ -74,6 +75,8 @@ export const PdfTemplateEditor: React.FC<Props> = ({
   const { currentUser } = useUser();
   const [templatePdfUrl, setTemplatePdfUrl] = useState<string | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  const wrapperRef = useRef<HTMLDivElement>(null);
+  const [scale, setScale] = useState(1);
   const [dragging, setDragging] = useState<{ fieldKey: string; startX: number; startY: number; startLeft: number; startTop: number } | null>(null);
   const [dragPreview, setDragPreview] = useState<{ x: number; y: number } | null>(null);
   type ResizeAxis = 'e' | 's' | 'se';
@@ -95,12 +98,15 @@ export const PdfTemplateEditor: React.FC<Props> = ({
   );
 
   const effectiveConfig = templateConfig ?? DEFAULT_TEMPLATE_CONFIG;
+  // Fallback: si la config de la API no tiene cajas pero el documento sí (guardadas en content), usarlas para que todos los roles vean igual
+  const configBoxes = effectiveConfig.customBoxes ?? [];
+  const valueBoxes = Array.isArray(value.customBoxes) ? value.customBoxes : [];
+  const customBoxes = configBoxes.length > 0 ? configBoxes : valueBoxes;
   const fontColor = effectiveConfig.fontColor ?? '#000000';
   const fontFamily = effectiveConfig.fontFamily ?? 'Helvetica';
   const fontSize = effectiveConfig.fontSize ?? 11;
   const fontBold = effectiveConfig.fontBold ?? false;
   const fontItalic = effectiveConfig.fontItalic ?? false;
-  const customBoxes = effectiveConfig.customBoxes ?? [];
 
   // Cargar URL de plantilla PDF para usarla como fondo
   useEffect(() => {
@@ -125,6 +131,24 @@ export const PdfTemplateEditor: React.FC<Props> = ({
       if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
   }, [docType]);
+
+  const PAGE_WIDTH_PX = 612;
+  const PAGE_HEIGHT_PX = 792;
+
+  useEffect(() => {
+    const el = wrapperRef.current;
+    if (!el) return;
+    const calcScale = () => {
+      if (!wrapperRef.current) return;
+      const available = wrapperRef.current.clientWidth ?? 0;
+      const raw = available > 0 ? available / PAGE_WIDTH_PX : 1;
+      setScale(Math.max(0.25, Math.min(1, raw)));
+    };
+    calcScale();
+    const ro = new ResizeObserver(calcScale);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
 
   const handleCustomBoxMouseDown = useCallback((e: React.MouseEvent, box: CustomBoxDef) => {
     e.preventDefault();
@@ -325,7 +349,9 @@ export const PdfTemplateEditor: React.FC<Props> = ({
     // Estilos globales definidos por admin en TemplateConfig;
     // los valores específicos por cuadro (fontSize, fontFamily, etc.)
     // prevalecen sobre los globales. line-height 1.1 para folio/una línea = igual que backend (documentHtmlBuilder).
-    const size = box.fontSize ?? fontSize;
+    // fontSize en px para consistencia entre navegadores (Edge, Arc, etc.)
+    const sizePt = box.fontSize ?? fontSize;
+    const sizePx = Math.round(sizePt * (4 / 3));
     const colBase = box.fontColor ?? fontColor;
     const col = colBase.toLowerCase() === '#ffffff' ? '#ffffff' : '#000000';
     const ff = box.fontFamily ?? fontFamily;
@@ -337,25 +363,16 @@ export const PdfTemplateEditor: React.FC<Props> = ({
       fontWeight: bold ? 'bold' : 'normal',
       fontStyle: italic ? 'italic' : 'normal',
       color: col,
-      fontSize: `${size}pt`,
-      ...(isSingleLineOrFolio ? { lineHeight: 1.1 } : {}),
+      fontSize: `${sizePx}px`,
+      textAlign: 'left',
+      direction: 'ltr',
+      lineHeight: isSingleLineOrFolio ? 1.1 : 1.35,
       ...(box.backgroundColor ? { backgroundColor: box.backgroundColor } : {}),
     };
   };
   useEffect(() => {
     if (selectedBoxId && !customBoxes.some((b) => b.id === selectedBoxId)) setSelectedBoxId(null);
   }, [selectedBoxId, customBoxes]);
-
-  // Diagnóstico: tamaño real del contenedor (editor vs preview)
-  useEffect(() => {
-    if (!containerRef.current) return;
-    const rect = containerRef.current.getBoundingClientRect();
-    console.log('[CONTAINER]', viewerOnly ? 'PREVIEW' : 'EDITOR', {
-      width: Math.round(rect.width),
-      height: Math.round(rect.height),
-      aspectRatio: (rect.width / rect.height).toFixed(3),
-    });
-  }, [viewerOnly]);
 
   const previewImageUrl = imageDialogUrl.trim().startsWith('/') ? `${API_BASE}${imageDialogUrl}` : imageDialogUrl;
 
@@ -492,26 +509,30 @@ export const PdfTemplateEditor: React.FC<Props> = ({
       )}
       <div className={`flex-1 flex min-h-0 ${viewerOnly ? 'items-stretch justify-center overflow-auto p-0' : 'items-center justify-center p-2 sm:p-4 overflow-auto'}`}>
         <div
-          ref={containerRef}
-          className={`relative bg-transparent ${viewerOnly ? 'w-full h-full rounded-none overflow-visible border border-gray-200' : 'overflow-hidden rounded-lg border border-monday-border/60 shadow-monday'}`}
-          style={
-            viewerOnly
-              ? {
-                  width: '100%',
-                  maxWidth: '21cm',
-                  aspectRatio: String(PAGE_ASPECT),
-                  maxHeight: 'calc(100vh - 12rem)',
-                  height: 'auto',
-                }
+          ref={wrapperRef}
+          style={{
+            width: '100%',
+            maxWidth: `${PAGE_WIDTH_PX}px`,
+            ...(viewerOnly
+              ? { aspectRatio: '612/792', minHeight: 0, position: 'relative' as const, overflow: 'hidden' as const }
               : {
-                  width: '100%',
-                  maxWidth: '21cm',
-                  aspectRatio: String(PAGE_ASPECT),
-                  maxHeight: 'calc(100vh - 12rem)',
-                  height: 'auto',
-                }
-          }
+                  height: `${Math.max(100, PAGE_HEIGHT_PX * scale)}px`,
+                  position: 'relative' as const,
+                  overflow: 'hidden' as const,
+                }),
+          }}
         >
+          <div
+            ref={containerRef}
+            className={`relative bg-transparent ${viewerOnly ? 'w-full h-full rounded-none overflow-visible border border-gray-200' : 'overflow-hidden rounded-lg border border-monday-border/60 shadow-monday'}`}
+            style={{
+              width: `${PAGE_WIDTH_PX}px`,
+              height: `${PAGE_HEIGHT_PX}px`,
+              position: 'relative',
+              transformOrigin: 'top left',
+              transform: `scale(${scale})`,
+            }}
+          >
           {/* Capa 1: Fondo (PDF o blanco). Sin recorte para mostrar documento completo. */}
           <div
             className={`absolute inset-0 z-0 bg-white ${viewerOnly ? 'overflow-visible' : 'overflow-hidden'}`}
@@ -529,7 +550,7 @@ export const PdfTemplateEditor: React.FC<Props> = ({
               </div>
             )}
           </div>
-          {/* Capa 2: solo cuadros que ADMIN agrega/modifica (customBoxes). En viewerOnly sin overflow-hidden para no recortar. */}
+          {/* Capa 2: cuadros que ADMIN agrega/modifica (customBoxes). En viewerOnly sin overflow-hidden para no recortar. */}
           <div className={`absolute inset-0 z-20 ${viewerOnly ? 'pointer-events-none overflow-visible' : 'overflow-hidden'}`}>
             <div className={`absolute inset-0 ${viewerOnly ? '' : 'pointer-events-auto'}`}>
               {customBoxes.map((box) => {
@@ -547,29 +568,33 @@ export const PdfTemplateEditor: React.FC<Props> = ({
                 w = Math.min(Number(w) || 0.3, Math.max(0, 1 - (Number(x) || 0)));
                 h = Math.min(Number(h) || 0.05, Math.max(0, 1 - (Number(y) || 0)));
                 const customValues = (value.customFieldValues as Record<string, string>) ?? {};
-                const boxVal = customValues[box.id] ?? '';
+                const boxVal =
+                  box.fieldKey && value[box.fieldKey] !== undefined && value[box.fieldKey] !== null
+                    ? (box.fieldKey === 'fecha' ? String(value[box.fieldKey]) : String(value[box.fieldKey]).trim())
+                    : (customValues[box.id] ?? '');
                 const boxTextStyle = getTextStyleForBox(box);
                 const isSelected = selectedBoxId === box.id;
                 const isSingleLineOrFolio = box.singleLine === true || box.semantic === 'folio';
                 const isFolio = box.semantic === 'folio';
+                const isDescripcionCorta = box.fieldKey === 'descripcion_corta';
                 return (
                   <div
                     key={box.id}
-                    className="absolute flex items-stretch overflow-visible"
+                    className={`absolute flex items-stretch overflow-visible ${isDescripcionCorta ? 'pt-3' : ''}`}
                     style={{
                       left: `${x * 100}%`,
                       top: `${y * 100}%`,
                       width: `${w * 100}%`,
                       height: `${h * 100}%`,
-                      minHeight: isSingleLineOrFolio ? '48px' : '28px',
-                      minWidth: '60px',
+                      minHeight: 0,
+                      minWidth: 0,
                     }}
                   >
                     <div
                       role={viewerOnly ? undefined : 'button'}
                       tabIndex={viewerOnly ? undefined : 0}
                       onClick={viewerOnly ? undefined : () => canFormatBox && setSelectedBoxId(box.id)}
-                      className={`flex-1 min-w-0 flex flex-col transition-all overflow-hidden ${
+                      className={`flex-1 min-w-0 flex flex-col transition-all overflow-hidden box-border relative ${
                         showFrame
                           ? isSelected
                             ? 'rounded border border-monday-blue ring-2 ring-monday-blue/30 bg-white shadow-md'
@@ -578,7 +603,7 @@ export const PdfTemplateEditor: React.FC<Props> = ({
                       }`}
                     >
                     <div
-                      className={`flex-1 min-h-0 flex overflow-hidden rounded-sm ${
+                      className={`flex-1 min-h-0 min-w-0 flex overflow-hidden rounded-sm ${
                         showFrame ? 'bg-white/95 focus-within:bg-white focus-within:ring-1 focus-within:ring-monday-blue/40' : 'bg-transparent'
                       }`}
                     >
@@ -597,23 +622,25 @@ export const PdfTemplateEditor: React.FC<Props> = ({
                           readOnly
                           value={boxVal}
                           style={boxTextStyle}
-                          className={`w-full h-full min-h-0 resize-none border-0 outline-none bg-transparent px-1.5 overflow-hidden block whitespace-pre-wrap break-words ${isFolio ? 'pt-3 pb-1' : isSingleLineOrFolio ? 'pt-2 pb-1' : 'py-1'}`}
+                          className={`w-full h-full min-h-0 resize-none border-0 outline-none bg-transparent px-1.5 overflow-hidden block whitespace-pre-wrap break-words text-left box-border ${isDescripcionCorta ? 'pt-6 pb-1' : isFolio ? 'pt-3 pb-1' : isSingleLineOrFolio ? 'pt-4 pb-1' : 'pt-2 py-1'}`}
                         />
                       ) : box.singleLine ? (
                         <input
                           type="text"
                           value={boxVal}
                           onChange={(e) =>
-                            update({
-                              customFieldValues: { ...customValues, [box.id]: e.target.value },
-                            })
+                            box.fieldKey
+                              ? update({ [box.fieldKey]: e.target.value })
+                              : update({
+                                  customFieldValues: { ...customValues, [box.id]: e.target.value },
+                                })
                           }
                           placeholder={getSemanticPlaceholder(box)}
                           style={{
                             ...boxTextStyle,
                             backgroundColor: showFrame ? 'rgba(255,255,255,0.95)' : 'transparent',
                           }}
-                          className={`w-full h-full min-h-0 border-0 outline-none focus:ring-0 px-1.5 placeholder:text-gray-500 block ${isFolio ? 'pt-3 pb-1' : isSingleLineOrFolio ? 'pt-2 pb-1' : 'py-1'} ${
+                          className={`w-full h-full min-h-0 border-0 outline-none focus:ring-0 px-1.5 placeholder:text-gray-500 block text-left box-border ${isDescripcionCorta ? 'pt-6 pb-1' : isFolio ? 'pt-3 pb-1' : isSingleLineOrFolio ? 'pt-4 pb-1' : 'pt-2 py-1'} ${
                             showFrame ? 'rounded' : ''
                           }`}
                           onClick={(e) => {
@@ -629,16 +656,18 @@ export const PdfTemplateEditor: React.FC<Props> = ({
                         <textarea
                           value={boxVal}
                           onChange={(e) =>
-                            update({
-                              customFieldValues: { ...customValues, [box.id]: e.target.value },
-                            })
+                            box.fieldKey
+                              ? update({ [box.fieldKey]: e.target.value })
+                              : update({
+                                  customFieldValues: { ...customValues, [box.id]: e.target.value },
+                                })
                           }
                           placeholder={getSemanticPlaceholder(box)}
                           style={{
                             ...boxTextStyle,
                             backgroundColor: showFrame ? 'rgba(255,255,255,0.95)' : 'transparent',
                           }}
-                          className={`w-full h-full min-h-0 resize-none border-0 outline-none focus:ring-0 py-1 px-1.5 placeholder:text-gray-500 overflow-auto block ${
+                          className={`w-full h-full min-h-0 resize-none border-0 outline-none focus:ring-0 ${isDescripcionCorta ? 'pt-6' : 'pt-2'} py-1 px-1.5 placeholder:text-gray-500 overflow-auto block text-left box-border ${
                             showFrame ? 'rounded' : ''
                           }`}
                           onClick={(e) => {
@@ -676,7 +705,8 @@ export const PdfTemplateEditor: React.FC<Props> = ({
                     </div>
                     {canMoveOrDelete && (
                       <div
-                        className="shrink-0 flex flex-col gap-1 pl-1.5 pr-1 py-1 justify-start items-center bg-white rounded-r border border-l-0 border-monday-border/50 min-w-[40px]"
+                        className="absolute top-0 right-0 bottom-0 w-10 flex flex-col gap-1 pl-1.5 pr-1 py-1 justify-start items-center bg-white/95 rounded-r border border-l-0 border-monday-border/50 z-10"
+                        style={{ width: '40px' }}
                         onClick={(e) => e.stopPropagation()}
                       >
                         <div
@@ -720,6 +750,7 @@ export const PdfTemplateEditor: React.FC<Props> = ({
                 );
               })}
             </div>
+          </div>
           </div>
         </div>
       </div>
