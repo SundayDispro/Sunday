@@ -88,9 +88,13 @@ function resolveImageUrlsToDataUrls(content: Record<string, unknown>): Record<st
   return { ...content, customBoxes: resolvedBoxes };
 }
 
+/** US Letter en px a 96 DPI: 612pt = 816px, 792pt = 1056px. Misma escala que el HTML de export. */
+const TEMPLATE_VIEWPORT_WIDTH = 816;
+const TEMPLATE_VIEWPORT_HEIGHT = 1056;
+
 /**
  * Convierte la primera página del PDF de plantilla a imagen base64.
- * Mismo tamaño que la página HTML (612×792 US Letter) para alineación 1:1 con el editor.
+ * Viewport 816×1056 (96 DPI) para que la imagen no se reescale en el HTML (612pt×792pt = 816×1056 px).
  */
 async function getTemplatePdfFirstPageAsDataUrlWithBrowser(
   browser: Awaited<ReturnType<typeof puppeteer.launch>>,
@@ -101,29 +105,20 @@ async function getTemplatePdfFirstPageAsDataUrlWithBrowser(
   const fileUrl = `file:///${absolutePath.replace(/\\/g, '/')}#toolbar=0&navpanes=0&scrollbar=0`;
   try {
     const page = await browser.newPage();
-    // Plantilla en US Letter (612×792)
-    const width = 612;
-    const height = 792;
-    await page.setViewport({ width, height, deviceScaleFactor: 1 });
-    await page.goto(fileUrl, { waitUntil: 'networkidle0', timeout: 15000 });
-    // Dar más tiempo para que el visor renderice la página completa incluyendo la parte inferior
-    await page.evaluate(() => new Promise((r) => setTimeout(r, 1000)));
-    // Detectar si hay toolbar del visor PDF
-    const toolbarHeight = await page.evaluate(() => {
-      const embed = document.querySelector('embed');
-      if (embed) {
-        const rect = embed.getBoundingClientRect();
-        return rect.top; // altura de lo que hay encima del PDF
-      }
-      return 0;
+    await page.setViewport({
+      width: TEMPLATE_VIEWPORT_WIDTH,
+      height: TEMPLATE_VIEWPORT_HEIGHT,
+      deviceScaleFactor: 1,
     });
+    await page.goto(fileUrl, { waitUntil: 'networkidle0', timeout: 15000 });
+    await page.evaluate(() => new Promise((r) => setTimeout(r, 1000)));
     const screenshotBuffer = await page.screenshot({
       type: 'png',
       clip: {
         x: 0,
-        y: toolbarHeight,
-        width: 612,
-        height: 792,
+        y: 0,
+        width: TEMPLATE_VIEWPORT_WIDTH,
+        height: TEMPLATE_VIEWPORT_HEIGHT,
       },
     });
     await page.close();
@@ -258,7 +253,7 @@ export async function generatePdfFromDocument(
     ]);
 
     await page.emulateMediaType('screen');
-    // US Letter exacto (612×792 pt): format 'Letter' evita que px se interprete distinto y la hoja quede mal
+    // US Letter exacto (612×792 pt). printBackground: true para que se vean fondos y texto blanco en el PDF.
     const pdf = await page.pdf({
       format: 'Letter',
       printBackground: true,

@@ -27,7 +27,7 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
 ));
 var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: true }), mod);
 
-// ../frontend/src/renderDocumentToHtml.tsx
+// frontend/src/renderDocumentToHtml.tsx
 var renderDocumentToHtml_exports = {};
 __export(renderDocumentToHtml_exports, {
   renderDocumentHtml: () => renderDocumentHtml
@@ -36,7 +36,7 @@ module.exports = __toCommonJS(renderDocumentToHtml_exports);
 var import_react = __toESM(require("react"), 1);
 var import_server = require("react-dom/server");
 
-// ../frontend/src/components/pages/docs/DocumentPageForPdf.tsx
+// frontend/src/components/pages/docs/DocumentPageForPdf.tsx
 var import_jsx_runtime = require("react/jsx-runtime");
 var PAGE_W_PT = 612;
 var PAGE_H_PT = 792;
@@ -46,8 +46,9 @@ var PADDING_TOP_DESCRIPCION_CORTA_PX = 28;
 var PADDING_TOP_MULTI_PX = 8;
 var PADDING_BOTTOM_PX = 4;
 var PADDING_SIDES_PX = 6;
-var PADDING_FOLIO_LEFT_PX = 26;
-var PADDING_TOTAL_RIGHT_PX = 12;
+var PADDING_FOLIO_LEFT_PX = 8;
+var PADDING_TOP_TOTAL_PX = 6;
+var PADDING_TOTAL_RIGHT_PX = 16;
 function formatDateForPdf(value) {
   const s = String(value).trim();
   if (!s) return s;
@@ -84,6 +85,20 @@ function getBoxText(box, content, customFieldValues) {
   }
   return "";
 }
+var PDF_WHITE_COLOR = "rgb(254,254,254)";
+function normalizeTextColor(raw) {
+  const s = raw.toLowerCase().trim();
+  if (s === "#ffffff" || s === "#fff" || s === "white") return PDF_WHITE_COLOR;
+  if (/^rgb\s*\(\s*255\s*,\s*255\s*,\s*255\s*\)$/.test(s.replace(/\s/g, ""))) return PDF_WHITE_COLOR;
+  return "#000000";
+}
+function normalizeBackgroundColor(raw) {
+  const s = raw.toLowerCase().trim();
+  if (!s) return "transparent";
+  if (s === "#000000" || s === "#000" || s === "black") return "#000000";
+  if (/^rgb\s*\(\s*0\s*,\s*0\s*,\s*0\s*\)$/.test(s.replace(/\s/g, ""))) return "#000000";
+  return s;
+}
 var DocumentPageForPdf = ({
   content,
   backgroundImageDataUrl
@@ -115,9 +130,13 @@ var DocumentPageForPdf = ({
   };
   const boxes = customBoxes.map((box) => {
     if (!box) return null;
-    const leftPt = Math.round((box.x ?? 0) * PAGE_W_PT);
+    const isFolioBox = box.semantic === "folio" || box.fieldKey === "folio";
+    const FOLIO_OFFSET_PT = 40;
+    const rawLeftPt = Math.round((box.x ?? 0) * PAGE_W_PT);
+    const leftPt = isFolioBox ? Math.min(rawLeftPt + FOLIO_OFFSET_PT, PAGE_W_PT - 28) : rawLeftPt;
     const topPt = Math.round((box.y ?? 0) * PAGE_H_PT);
-    const widthPt = Math.round((box.width ?? 0.3) * PAGE_W_PT);
+    const rawWidthPt = Math.round((box.width ?? 0.3) * PAGE_W_PT);
+    const widthPt = isFolioBox ? Math.max(28, rawWidthPt - FOLIO_OFFSET_PT) : rawWidthPt;
     if (box.kind === "image" && box.imageUrl) {
       const heightPt = Math.round((box.height ?? 0.15) * PAGE_H_PT);
       return /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
@@ -139,8 +158,10 @@ var DocumentPageForPdf = ({
       );
     }
     const text = getBoxText(box, content, customFieldValues);
+    const totalStr = String(content?.total ?? "").trim();
+    const isTotalBox = box.fieldKey === "total" || totalStr !== "" && text.trim() === totalStr;
     let size = typeof box.fontSize === "number" ? box.fontSize : globalFontSize;
-    if (box.fieldKey === "total") {
+    if (isTotalBox) {
       size = Math.max(size, 11);
     }
     if (box.semantic === "folio" || box.fieldKey === "folio") {
@@ -148,19 +169,24 @@ var DocumentPageForPdf = ({
     }
     const ff = (box.fontFamily ?? globalFontFamily).trim();
     let bold = typeof box.fontBold === "boolean" ? box.fontBold : globalFontBold;
-    if (box.fieldKey === "total") bold = true;
+    if (isTotalBox) bold = true;
     const italic = typeof box.fontItalic === "boolean" ? box.fontItalic : globalFontItalic;
     const colRaw = typeof box.fontColor === "string" && box.fontColor ? box.fontColor : globalFontColor;
-    const textCol = colRaw.toLowerCase().trim() === "#ffffff" ? "#ffffff" : "#000000";
-    const bgCol = typeof box.backgroundColor === "string" && box.backgroundColor.trim() ? box.backgroundColor.trim() : "transparent";
+    let textCol = normalizeTextColor(colRaw);
+    const bgRaw = typeof box.backgroundColor === "string" && box.backgroundColor.trim() ? box.backgroundColor.trim() : "transparent";
+    let bgCol = bgRaw === "transparent" ? "transparent" : normalizeBackgroundColor(bgRaw);
+    if (bgCol === "#000000" || isTotalBox) {
+      textCol = PDF_WHITE_COLOR;
+      if (isTotalBox) bgCol = "#000000";
+    }
     const isFolio = box.semantic === "folio";
     const isSingleLine = box.singleLine === true || isFolio;
     const isDescripcionCorta = box.fieldKey === "descripcion_corta";
-    const isTotal = box.fieldKey === "total";
+    const isTotal = isTotalBox;
     const rawHeightPt = Math.round((box.height ?? 0.05) * PAGE_H_PT);
     const heightClampedPt = Math.min(rawHeightPt, PAGE_H_PT - topPt);
     const lineHeight = isSingleLine ? 1.1 : 1.35;
-    const paddingTopPx = isDescripcionCorta ? PADDING_TOP_DESCRIPCION_CORTA_PX : isFolio ? PADDING_TOP_FOLIO_PX : isSingleLine ? PADDING_TOP_SINGLE_PX : PADDING_TOP_MULTI_PX;
+    const paddingTopPx = isTotalBox ? PADDING_TOP_TOTAL_PX : isDescripcionCorta ? PADDING_TOP_DESCRIPCION_CORTA_PX : isFolio ? PADDING_TOP_FOLIO_PX : isSingleLine ? PADDING_TOP_SINGLE_PX : PADDING_TOP_MULTI_PX;
     const paddingLeftPx = isFolio ? PADDING_FOLIO_LEFT_PX : PADDING_SIDES_PX;
     const paddingRightPx = isTotal ? PADDING_TOTAL_RIGHT_PX : PADDING_SIDES_PX;
     const boxStyle = {
@@ -173,7 +199,7 @@ var DocumentPageForPdf = ({
       padding: `${paddingTopPx}px ${paddingRightPx}px ${PADDING_BOTTOM_PX}px ${paddingLeftPx}px`,
       lineHeight,
       boxSizing: "border-box",
-      overflow: "hidden",
+      overflow: isTotalBox ? "visible" : "hidden",
       display: "block",
       zIndex: 5,
       backgroundColor: bgCol,
@@ -181,12 +207,14 @@ var DocumentPageForPdf = ({
       printColorAdjust: "exact"
     };
     const innerStyle = {
-      display: "block",
+      display: isTotalBox ? "flex" : "block",
+      justifyContent: isTotalBox ? "flex-end" : void 0,
+      alignItems: isTotalBox ? "flex-start" : void 0,
       width: "100%",
       height: "100%",
       minWidth: 0,
       margin: 0,
-      overflow: "hidden",
+      overflow: isTotalBox ? "visible" : "hidden",
       fontFamily: `${ff}, sans-serif`,
       fontSize: `${size}pt`,
       fontWeight: bold ? "bold" : "normal",
@@ -202,14 +230,15 @@ var DocumentPageForPdf = ({
       fontVariant: "no-common-ligatures",
       textRendering: "geometricPrecision",
       WebkitPrintColorAdjust: "exact",
-      printColorAdjust: "exact"
+      printColorAdjust: "exact",
+      ...isTotalBox && { WebkitTextFillColor: PDF_WHITE_COLOR }
     };
-    return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: boxStyle, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: innerStyle, children: text || "\xA0" }) }, box.id);
+    return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: isTotalBox ? "doc-box-total" : void 0, style: boxStyle, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: innerStyle, children: isTotalBox ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { style: { display: "inline-block", textAlign: "right", width: "auto", flexShrink: 0, marginLeft: "auto", color: PDF_WHITE_COLOR, WebkitTextFillColor: PDF_WHITE_COLOR }, children: text || "\xA0" }) : text || "\xA0" }) }, box.id);
   });
   return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: pageStyle, children: boxes });
 };
 
-// ../frontend/src/renderDocumentToHtml.tsx
+// frontend/src/renderDocumentToHtml.tsx
 function renderDocumentHtml(props) {
   return (0, import_server.renderToStaticMarkup)(import_react.default.createElement(DocumentPageForPdf, props));
 }

@@ -1,13 +1,32 @@
 <!doctype html>
-<html lang="en">
+<html lang="es">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Sunday (Monday Clone)</title>
-    <script type="module" crossorigin src="/assets/index-D46NjP84.js"></script>
-    <link rel="stylesheet" crossorigin href="/assets/index-Zyesf_7n.css">
+    <title>Sunday – Work OS</title>
+    <meta name="description" content="Sunday – tu sistema operativo de trabajo. Gestiona proyectos, equipos y flujos de trabajo en un solo lugar." />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <meta id="theme-color-meta" name="theme-color" content="#f6f7fb" />
+    <script type="module" crossorigin src="/assets/index-Xr2sWih1.js"></script>
+    <link rel="stylesheet" crossorigin href="/assets/index-CXqFTU8y.css">
   </head>
   <body>
     <div id="root"></div>
+    <script>
+      (function() {
+        var colors = { light: '#f6f7fb', dark: '#111827', night: '#0a0a0a' };
+        try {
+          var s = localStorage.getItem('sunday-theme');
+          var theme = (s === 'dark' || s === 'night' || s === 'light') ? s : (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+          document.documentElement.setAttribute('data-theme', theme);
+          var meta = document.querySelector('meta[name="theme-color"]');
+          if (meta) meta.setAttribute('content', colors[theme]);
+        } catch (_) {}
+      })();
+    </script>
   </body>
 </html>

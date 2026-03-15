@@ -16,8 +16,10 @@ const PADDING_TOP_DESCRIPCION_CORTA_PX = 28;
 const PADDING_TOP_MULTI_PX = 8;
 const PADDING_BOTTOM_PX = 4;
 const PADDING_SIDES_PX = 6;
-const PADDING_FOLIO_LEFT_PX = 26;
-const PADDING_TOTAL_RIGHT_PX = 12;
+// Folio: 8px para que en el PDF coincida con el editor (evita que el número quede demasiado a la izquierda).
+const PADDING_FOLIO_LEFT_PX = 8;
+const PADDING_TOP_TOTAL_PX = 6;
+const PADDING_TOTAL_RIGHT_PX = 16;
 
 function escapeHtml(s: string): string {
   return s
@@ -25,6 +27,28 @@ function escapeHtml(s: string): string {
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;');
+}
+
+/**
+ * Color de texto "blanco" para el PDF. Usamos rgb(254,254,254) porque Chromium al exportar
+ * a PDF a veces no dibuja #ffffff (lo trata como "sin tinta"). Así el texto Total es visible y seleccionable.
+ */
+const PDF_WHITE_COLOR = 'rgb(254,254,254)';
+
+function normalizeTextColor(raw: string): string {
+  const s = raw.toLowerCase().trim();
+  if (s === '#ffffff' || s === '#fff' || s === 'white') return PDF_WHITE_COLOR;
+  if (/^rgb\s*\(\s*255\s*,\s*255\s*,\s*255\s*\)$/.test(s.replace(/\s/g, ''))) return PDF_WHITE_COLOR;
+  return '#000000';
+}
+
+/** Normaliza color de fondo (ej. #000000 para la barra del total). */
+function normalizeBackgroundColor(raw: string): string {
+  const s = raw.toLowerCase().trim();
+  if (!s) return 'transparent';
+  if (s === '#000000' || s === '#000' || s === 'black') return '#000000';
+  if (/^rgb\s*\(\s*0\s*,\s*0\s*,\s*0\s*\)$/.test(s.replace(/\s/g, ''))) return '#000000';
+  return s;
 }
 
 function formatDateForPdf(value: string): string {
@@ -115,15 +139,19 @@ export function buildDocumentHtml(options: BuildDocumentHtmlOptions): string {
   for (const box of customBoxes) {
     if (!box) continue;
 
-    const leftPt = Math.max(0, Math.min(
+    const isFolioBox = box.semantic === 'folio' || box.fieldKey === 'folio';
+    const rawLeftPt = Math.max(0, Math.min(
       Math.round((box.x ?? 0) * PAGE_W_PT),
       PAGE_W_PT - 1
     ));
+    const FOLIO_OFFSET_PT = 40;
+    const leftPt = isFolioBox ? Math.min(rawLeftPt + FOLIO_OFFSET_PT, PAGE_W_PT - 28) : rawLeftPt;
     const topPt = Math.max(0, Math.min(
       Math.round((box.y ?? 0) * PAGE_H_PT),
       PAGE_H_PT - 1
     ));
-    const widthPt = Math.round((box.width ?? 0.3) * PAGE_W_PT);
+    const rawWidthPt = Math.round((box.width ?? 0.3) * PAGE_W_PT);
+    const widthPt = isFolioBox ? Math.max(28, rawWidthPt - FOLIO_OFFSET_PT) : rawWidthPt;
 
     if (box.kind === 'image' && box.imageUrl) {
       const heightPt = Math.round((box.height ?? 0.15) * PAGE_H_PT);
@@ -185,33 +213,43 @@ export function buildDocumentHtml(options: BuildDocumentHtmlOptions): string {
     }
     const ff = (box.fontFamily ?? globalFontFamily).trim();
     let bold = typeof box.fontBold === 'boolean' ? box.fontBold : globalFontBold;
-    if (box.fieldKey === 'total') bold = true;
     const italic = typeof box.fontItalic === 'boolean' ? box.fontItalic : globalFontItalic;
     const colRaw = typeof box.fontColor === 'string' && box.fontColor ? box.fontColor : globalFontColor;
-    // Normalizar color como en el editor: solo #ffffff o #000000
-    const textCol = colRaw.toLowerCase().trim() === '#ffffff' ? '#ffffff' : '#000000';
-
-    // Respetar backgroundColor del cuadro (ej. total con barra negra y texto blanco) para que el PDF sea 1:1 con el preview
-    const bgCol =
+    let textCol = normalizeTextColor(colRaw);
+    let bgCol: string;
+    const bgRaw =
       typeof box.backgroundColor === 'string' && box.backgroundColor.trim()
         ? box.backgroundColor.trim()
         : 'transparent';
+    bgCol = bgRaw === 'transparent' ? 'transparent' : normalizeBackgroundColor(bgRaw);
+    const totalStr = content.total != null ? String(content.total).trim() : '';
+    const isTotalBox =
+      box.fieldKey === 'total' ||
+      (totalStr !== '' && text === totalStr) ||
+      (totalStr !== '' && text !== '' && text.replace(/\s/g, '') === totalStr.replace(/\s/g, ''));
+    if (bgCol === '#000000' || isTotalBox) {
+      textCol = PDF_WHITE_COLOR;
+      if (isTotalBox) bgCol = '#000000';
+    }
+    if (isTotalBox) bold = true;
 
-    const isFolio = box.semantic === 'folio';
+    const isFolio = box.semantic === 'folio' || box.fieldKey === 'folio';
     const isSingleLine = box.singleLine === true || isFolio;
     const isDescripcionCorta = box.fieldKey === 'descripcion_corta';
     const rawHeightPt = Math.round((box.height ?? 0.05) * PAGE_H_PT);
     const heightClampedPt = Math.min(rawHeightPt, PAGE_H_PT - topPt);
     const lineHeight = isSingleLine ? '1.1' : '1.35';
     // Padding alineado con el editor (Tailwind: folio pt-3, single pt-4, descripcion_corta pt-6, multi pt-2, pb-1, px-1.5)
-    const paddingTopPx = isDescripcionCorta
-      ? PADDING_TOP_DESCRIPCION_CORTA_PX
-      : isFolio
-        ? PADDING_TOP_FOLIO_PX
-        : isSingleLine
-          ? PADDING_TOP_SINGLE_PX
-          : PADDING_TOP_MULTI_PX;
-    const isTotal = box.fieldKey === 'total';
+    const paddingTopPx = isTotalBox
+      ? PADDING_TOP_TOTAL_PX
+      : isDescripcionCorta
+        ? PADDING_TOP_DESCRIPCION_CORTA_PX
+        : isFolio
+          ? PADDING_TOP_FOLIO_PX
+          : isSingleLine
+            ? PADDING_TOP_SINGLE_PX
+            : PADDING_TOP_MULTI_PX;
+    const isTotal = isTotalBox;
     const paddingLeftPx = isFolio ? PADDING_FOLIO_LEFT_PX : PADDING_SIDES_PX;
     const paddingRightPx = isTotal ? PADDING_TOTAL_RIGHT_PX : PADDING_SIDES_PX;
     const boxStyle = [
@@ -227,13 +265,13 @@ export function buildDocumentHtml(options: BuildDocumentHtmlOptions): string {
       `overflow: hidden`,
       `display: block`,
       `z-index: 5`,
-      `background-color: ${bgCol}`,
+      `background-color: ${bgCol} !important`,
       `-webkit-print-color-adjust: exact`,
       `print-color-adjust: exact`,
     ].join('; ');
 
-    const innerStyle = [
-      `display: block`,
+    const innerStyleParts = [
+      isTotalBox ? `display: flex` : `display: block`,
       `width: 100%`,
       `height: 100%`,
       `min-width: 0`,
@@ -243,7 +281,7 @@ export function buildDocumentHtml(options: BuildDocumentHtmlOptions): string {
       `font-size: ${size}pt`,
       `font-weight: ${bold ? 'bold' : 'normal'}`,
       `font-style: ${italic ? 'italic' : 'normal'}`,
-      `color: ${textCol}`,
+      `color: ${textCol} !important`,
       `background-color: transparent`,
       `white-space: pre-wrap`,
       `word-break: break-word`,
@@ -255,25 +293,24 @@ export function buildDocumentHtml(options: BuildDocumentHtmlOptions): string {
       `text-rendering: geometricPrecision`,
       `-webkit-print-color-adjust: exact !important`,
       `print-color-adjust: exact !important`,
-    ].join('; ');
+    ];
+    if (isTotalBox) {
+      innerStyleParts.push(`justify-content: flex-end`, `align-items: flex-start`);
+      innerStyleParts.push(`-webkit-text-fill-color: ${PDF_WHITE_COLOR} !important`);
+    }
+    const innerStyle = innerStyleParts.join('; ');
 
-    const boxHtml = `<div class="doc-box" style="${boxStyle}"><div class="doc-box-inner" style="${innerStyle}">${escapeHtml(text) || '&nbsp;'}</div></div>`;
+    const boxClass = isTotalBox ? 'doc-box doc-box-total' : 'doc-box';
+    // Para Total: envolver en span para que el contenedor flex (doc-box-inner) tenga un hijo explícito
+    // y justify-content: flex-end lo alinee a la derecha (igual que en el editor).
+    const innerContent = isTotalBox
+      ? `<span class="doc-box-total-text" style="display:inline-block;text-align:right;width:auto;margin-left:auto;color:rgb(254,254,254) !important;-webkit-text-fill-color:rgb(254,254,254) !important;">${escapeHtml(text) || '&nbsp;'}</span>`
+      : (escapeHtml(text) || '&nbsp;');
+    const boxHtml = `<div class="${boxClass}" style="${boxStyle}"><div class="doc-box-inner" style="${innerStyle}">${innerContent}</div></div>`;
     boxHtmlParts.push(boxHtml);
   }
 
   const boxesHtml = boxHtmlParts.join('\n');
-
-  console.log('[PDF BOXES DEBUG]', JSON.stringify(
-    (content.customBoxes ?? []).map((b: CustomBox) => ({
-      id: b.id,
-      fieldKey: b.fieldKey,
-      fontColor: b.fontColor,
-      customVal: (content.customFieldValues as Record<string, string> | undefined)?.[b.id],
-      contentVal: b.fieldKey ? (content as Record<string, unknown>)[b.fieldKey] : undefined,
-    })),
-    null,
-    2
-  ));
 
   const needsAverta =
     /averta\s*std/i.test(globalFontFamily) ||
@@ -313,6 +350,17 @@ export function buildDocumentWrapperHtml(
   <meta name="viewport" content="width=816, height=1056">
   <style>
     ${fontFaceCss ? fontFaceCss + '\n    ' : ''}@page { size: 612pt 792pt; margin: 0; }
+    .doc-box-total { background-color: #000000 !important; overflow: visible !important; }
+    .doc-box-total .doc-box-inner {
+      color: rgb(254,254,254) !important;
+      -webkit-text-fill-color: rgb(254,254,254) !important;
+      display: flex !important;
+      justify-content: flex-end !important;
+      align-items: flex-start !important;
+      text-align: right !important;
+      overflow: visible !important;
+    }
+    .doc-box-total .doc-box-total-text { width: auto !important; flex-shrink: 0 !important; margin-left: auto !important; color: rgb(254,254,254) !important; -webkit-text-fill-color: rgb(254,254,254) !important; }
     * {
       box-sizing: border-box;
       -webkit-print-color-adjust: exact !important;

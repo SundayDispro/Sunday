@@ -8,8 +8,17 @@ import {
 } from './pdfTemplateConfig';
 import { TextFormatBarForTemplate } from '../../docs/TextFormatBar';
 import { useUser } from '../../../store/UserContext';
+import { getDocument, GlobalWorkerOptions } from 'pdfjs-dist';
+import pdfjsWorker from 'pdfjs-dist/build/pdf.worker.mjs?url';
 
 const API_BASE = import.meta.env.DEV ? '' : 'http://localhost:3001';
+
+/** 96 DPI: 612pt = 816px, 792pt = 1056px. Misma escala que el PDF generado (Puppeteer). */
+export const PAGE_WIDTH_PX_96DPI = 816;
+export const PAGE_HEIGHT_PX_96DPI = 1056;
+const PDF_SCALE = 96 / 72;
+
+GlobalWorkerOptions.workerSrc = pdfjsWorker;
 
 interface Props {
   docType: PdfDocType;
@@ -19,13 +28,13 @@ interface Props {
   templateConfig?: TemplateConfigState | null;
   isAdmin?: boolean;
   onTemplateConfigChange?: (config: TemplateConfigState) => void;
-  onSaveTemplateConfig?: () => Promise<void>;
+  onSaveTemplateConfig?: (configOverride?: TemplateConfigState) => void | Promise<void>;
   savingTemplateConfig?: boolean;
   /** Solo visualización: sin barra de formato, sin menú admin y cuadros de solo lectura */
   viewerOnly?: boolean;
 }
 
-/** Relación de aspecto US Letter (612×792); usar en editor y preview para 1:1 con PDF. */
+/** Relación de aspecto US Letter (612×792). */
 export const PAGE_ASPECT = 612 / 792;
 
 /** Devuelve el texto de placeholder sugerido según el campo semántico del cuadro. */
@@ -132,8 +141,10 @@ export const PdfTemplateEditor: React.FC<Props> = ({
     };
   }, [docType]);
 
-  const PAGE_WIDTH_PX = 612;
-  const PAGE_HEIGHT_PX = 792;
+  const PAGE_WIDTH_PX = PAGE_WIDTH_PX_96DPI;
+  const PAGE_HEIGHT_PX = PAGE_HEIGHT_PX_96DPI;
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const [pdfRenderError, setPdfRenderError] = useState<string | null>(null);
 
   useEffect(() => {
     const el = wrapperRef.current;
@@ -149,6 +160,44 @@ export const PdfTemplateEditor: React.FC<Props> = ({
     ro.observe(el);
     return () => ro.disconnect();
   }, []);
+
+  useEffect(() => {
+    if (!templatePdfUrl || !canvasRef.current) {
+      setPdfRenderError(null);
+      return;
+    }
+    let cancelled = false;
+    setPdfRenderError(null);
+    const canvas = canvasRef.current;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    const load = async () => {
+      try {
+        const loadingTask = getDocument({ url: templatePdfUrl });
+        const pdf = await loadingTask.promise;
+        if (cancelled) return;
+        const page = await pdf.getPage(1);
+        if (cancelled) return;
+        const viewport = page.getViewport({ scale: PDF_SCALE });
+        canvas.width = viewport.width;
+        canvas.height = viewport.height;
+        await page.render({
+          canvasContext: ctx,
+          viewport,
+          intent: 'display',
+        }).promise;
+        if (cancelled) return;
+        setPdfRenderError(null);
+      } catch (e) {
+        if (!cancelled) setPdfRenderError(e instanceof Error ? e.message : 'Error al cargar PDF');
+      }
+    };
+    load();
+    return () => {
+      cancelled = true;
+    };
+  }, [templatePdfUrl]);
 
   const handleCustomBoxMouseDown = useCallback((e: React.MouseEvent, box: CustomBoxDef) => {
     e.preventDefault();
@@ -206,18 +255,20 @@ export const PdfTemplateEditor: React.FC<Props> = ({
         imageUrl: url,
         ownerId: currentUser.id,
       };
-      onTemplateConfigChange({
-        ...effectiveConfig,
-        customBoxes: [...customBoxes, newBox],
-      });
+      const nextBoxes = [...customBoxes, newBox];
+      const newConfig = { ...effectiveConfig, customBoxes: nextBoxes };
+      onTemplateConfigChange(newConfig);
+      if (onSaveTemplateConfig) onSaveTemplateConfig(newConfig);
     } else if (imageDialogMode === 'edit' && imageDialogBoxId) {
       const nextBoxes = customBoxes.map((b) =>
         b.id === imageDialogBoxId ? { ...b, imageUrl: url } : b
       );
-      onTemplateConfigChange({ ...effectiveConfig, customBoxes: nextBoxes });
+      const newConfig = { ...effectiveConfig, customBoxes: nextBoxes };
+      onTemplateConfigChange(newConfig);
+      if (onSaveTemplateConfig) onSaveTemplateConfig(newConfig);
     }
     setImageDialogOpen(false);
-  }, [imageDialogMode, imageDialogBoxId, imageDialogUrl, effectiveConfig, onTemplateConfigChange, customBoxes, currentUser?.id]);
+  }, [imageDialogMode, imageDialogBoxId, imageDialogUrl, effectiveConfig, onTemplateConfigChange, onSaveTemplateConfig, customBoxes, currentUser?.id]);
 
   const handleImageFileUpload = useCallback(
     async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -364,7 +415,7 @@ export const PdfTemplateEditor: React.FC<Props> = ({
       fontStyle: italic ? 'italic' : 'normal',
       color: col,
       fontSize: `${sizePx}px`,
-      textAlign: 'left',
+      textAlign: box.fieldKey === 'total' ? 'right' : 'left',
       direction: 'ltr',
       lineHeight: isSingleLineOrFolio ? 1.1 : 1.35,
       ...(box.backgroundColor ? { backgroundColor: box.backgroundColor } : {}),
@@ -508,6 +559,11 @@ export const PdfTemplateEditor: React.FC<Props> = ({
         />
       )}
       <div className={`flex-1 flex min-h-0 ${viewerOnly ? 'items-stretch justify-center overflow-auto p-0' : 'items-center justify-center p-2 sm:p-4 overflow-auto'}`}>
+        {!viewerOnly && scale === 1 && (
+          <div className="absolute top-14 left-4 z-20 text-[10px] text-monday-subtext bg-white/90 px-1.5 py-0.5 rounded border border-monday-border/60">
+            1:1 @ 96 DPI (816×1056 px)
+          </div>
+        )}
         <div
           ref={wrapperRef}
           style={{
@@ -533,17 +589,26 @@ export const PdfTemplateEditor: React.FC<Props> = ({
               transform: `scale(${scale})`,
             }}
           >
-          {/* Capa 1: Fondo (PDF o blanco). Sin recorte para mostrar documento completo. */}
+          {/* Capa 1: Fondo (PDF renderizado con PDF.js a 96 DPI o blanco). */}
           <div
             className={`absolute inset-0 z-0 bg-white ${viewerOnly ? 'overflow-visible' : 'overflow-hidden'}`}
           >
             {templatePdfUrl ? (
-              <iframe
-                src={`${templatePdfUrl}#toolbar=0&navpanes=0&scrollbar=0`}
-                title="Plantilla PDF"
-                className="w-full h-full border-0 pointer-events-none select-none bg-white"
-                tabIndex={-1}
-              />
+              <>
+                <canvas
+                  ref={canvasRef}
+                  className="w-full h-full block pointer-events-none select-none"
+                  style={{ width: PAGE_WIDTH_PX, height: PAGE_HEIGHT_PX }}
+                  width={PAGE_WIDTH_PX}
+                  height={PAGE_HEIGHT_PX}
+                  title="Plantilla PDF"
+                />
+                {pdfRenderError && (
+                  <div className="absolute inset-0 flex items-center justify-center bg-white/90 text-red-600 text-sm p-4 text-center">
+                    {pdfRenderError}
+                  </div>
+                )}
+              </>
             ) : (
               <div className="w-full h-full bg-white flex items-center justify-center text-monday-subtext text-sm">
                 Sin plantilla PDF. Coloca {docType}.pdf en backend/templates/

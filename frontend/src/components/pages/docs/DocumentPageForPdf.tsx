@@ -15,8 +15,10 @@ const PADDING_TOP_DESCRIPCION_CORTA_PX = 28;
 const PADDING_TOP_MULTI_PX = 8;
 const PADDING_BOTTOM_PX = 4;
 const PADDING_SIDES_PX = 6;
-const PADDING_FOLIO_LEFT_PX = 26;
-const PADDING_TOTAL_RIGHT_PX = 12;
+// Folio: 8px para que en el PDF coincida con el editor (evita que el número quede demasiado a la izquierda).
+const PADDING_FOLIO_LEFT_PX = 8;
+const PADDING_TOP_TOTAL_PX = 6;
+const PADDING_TOTAL_RIGHT_PX = 16;
 
 function formatDateForPdf(value: string): string {
   const s = String(value).trim();
@@ -106,6 +108,26 @@ function escapeHtml(s: string): string {
     .replace(/"/g, '&quot;');
 }
 
+/**
+ * Color de texto "blanco" para el PDF. rgb(254,254,254) para que Chromium lo dibuje y sea seleccionable.
+ */
+const PDF_WHITE_COLOR = 'rgb(254,254,254)';
+
+function normalizeTextColor(raw: string): string {
+  const s = raw.toLowerCase().trim();
+  if (s === '#ffffff' || s === '#fff' || s === 'white') return PDF_WHITE_COLOR;
+  if (/^rgb\s*\(\s*255\s*,\s*255\s*,\s*255\s*\)$/.test(s.replace(/\s/g, ''))) return PDF_WHITE_COLOR;
+  return '#000000';
+}
+
+function normalizeBackgroundColor(raw: string): string {
+  const s = raw.toLowerCase().trim();
+  if (!s) return 'transparent';
+  if (s === '#000000' || s === '#000' || s === 'black') return '#000000';
+  if (/^rgb\s*\(\s*0\s*,\s*0\s*,\s*0\s*\)$/.test(s.replace(/\s/g, ''))) return '#000000';
+  return s;
+}
+
 export const DocumentPageForPdf: React.FC<DocumentPageForPdfProps> = ({
   content,
   backgroundImageDataUrl,
@@ -148,9 +170,13 @@ export const DocumentPageForPdf: React.FC<DocumentPageForPdfProps> = ({
 
   const boxes = customBoxes.map((box) => {
     if (!box) return null;
-    const leftPt = Math.round((box.x ?? 0) * PAGE_W_PT);
+    const isFolioBox = box.semantic === 'folio' || box.fieldKey === 'folio';
+    const FOLIO_OFFSET_PT = 40;
+    const rawLeftPt = Math.round((box.x ?? 0) * PAGE_W_PT);
+    const leftPt = isFolioBox ? Math.min(rawLeftPt + FOLIO_OFFSET_PT, PAGE_W_PT - 28) : rawLeftPt;
     const topPt = Math.round((box.y ?? 0) * PAGE_H_PT);
-    const widthPt = Math.round((box.width ?? 0.3) * PAGE_W_PT);
+    const rawWidthPt = Math.round((box.width ?? 0.3) * PAGE_W_PT);
+    const widthPt = isFolioBox ? Math.max(28, rawWidthPt - FOLIO_OFFSET_PT) : rawWidthPt;
 
     if (box.kind === 'image' && box.imageUrl) {
       const heightPt = Math.round((box.height ?? 0.15) * PAGE_H_PT);
@@ -173,8 +199,13 @@ export const DocumentPageForPdf: React.FC<DocumentPageForPdfProps> = ({
     }
 
     const text = getBoxText(box, content, customFieldValues);
+    const totalStr = String(content?.total ?? '').trim();
+    const isTotalBox =
+      box.fieldKey === 'total' ||
+      (totalStr !== '' && text.trim() === totalStr);
+
     let size = typeof box.fontSize === 'number' ? box.fontSize : globalFontSize;
-    if (box.fieldKey === 'total') {
+    if (isTotalBox) {
       size = Math.max(size, 11);
     }
     // Fecha: respetar fontSize/fuente de la plantilla (1:1 con editor), sin tope
@@ -183,34 +214,41 @@ export const DocumentPageForPdf: React.FC<DocumentPageForPdfProps> = ({
     }
     const ff = (box.fontFamily ?? globalFontFamily).trim();
     let bold = typeof box.fontBold === 'boolean' ? box.fontBold : globalFontBold;
-    if (box.fieldKey === 'total') bold = true;
+    if (isTotalBox) bold = true;
     const italic =
       typeof box.fontItalic === 'boolean' ? box.fontItalic : globalFontItalic;
     const colRaw =
       typeof box.fontColor === 'string' && box.fontColor
         ? box.fontColor
         : globalFontColor;
-    const textCol = colRaw.toLowerCase().trim() === '#ffffff' ? '#ffffff' : '#000000';
+    let textCol = normalizeTextColor(colRaw);
 
-    const bgCol =
+    const bgRaw =
       typeof box.backgroundColor === 'string' && box.backgroundColor.trim()
         ? box.backgroundColor.trim()
         : 'transparent';
+    let bgCol = bgRaw === 'transparent' ? 'transparent' : normalizeBackgroundColor(bgRaw);
+    if (bgCol === '#000000' || isTotalBox) {
+      textCol = PDF_WHITE_COLOR;
+      if (isTotalBox) bgCol = '#000000';
+    }
 
     const isFolio = box.semantic === 'folio';
     const isSingleLine = box.singleLine === true || isFolio;
     const isDescripcionCorta = box.fieldKey === 'descripcion_corta';
-    const isTotal = box.fieldKey === 'total';
+    const isTotal = isTotalBox;
     const rawHeightPt = Math.round((box.height ?? 0.05) * PAGE_H_PT);
     const heightClampedPt = Math.min(rawHeightPt, PAGE_H_PT - topPt);
     const lineHeight = isSingleLine ? 1.1 : 1.35;
-    const paddingTopPx = isDescripcionCorta
-      ? PADDING_TOP_DESCRIPCION_CORTA_PX
-      : isFolio
-        ? PADDING_TOP_FOLIO_PX
-        : isSingleLine
-          ? PADDING_TOP_SINGLE_PX
-          : PADDING_TOP_MULTI_PX;
+    const paddingTopPx = isTotalBox
+      ? PADDING_TOP_TOTAL_PX
+      : isDescripcionCorta
+        ? PADDING_TOP_DESCRIPCION_CORTA_PX
+        : isFolio
+          ? PADDING_TOP_FOLIO_PX
+          : isSingleLine
+            ? PADDING_TOP_SINGLE_PX
+            : PADDING_TOP_MULTI_PX;
     const paddingLeftPx = isFolio ? PADDING_FOLIO_LEFT_PX : PADDING_SIDES_PX;
     const paddingRightPx = isTotal ? PADDING_TOTAL_RIGHT_PX : PADDING_SIDES_PX;
 
@@ -224,7 +262,7 @@ export const DocumentPageForPdf: React.FC<DocumentPageForPdfProps> = ({
       padding: `${paddingTopPx}px ${paddingRightPx}px ${PADDING_BOTTOM_PX}px ${paddingLeftPx}px`,
       lineHeight,
       boxSizing: 'border-box',
-      overflow: 'hidden',
+      overflow: isTotalBox ? 'visible' : 'hidden',
       display: 'block',
       zIndex: 5,
       backgroundColor: bgCol,
@@ -233,12 +271,14 @@ export const DocumentPageForPdf: React.FC<DocumentPageForPdfProps> = ({
     };
 
     const innerStyle: React.CSSProperties = {
-      display: 'block',
+      display: isTotalBox ? 'flex' : 'block',
+      justifyContent: isTotalBox ? 'flex-end' : undefined,
+      alignItems: isTotalBox ? 'flex-start' : undefined,
       width: '100%',
       height: '100%',
       minWidth: 0,
       margin: 0,
-      overflow: 'hidden',
+      overflow: isTotalBox ? 'visible' : 'hidden',
       fontFamily: `${ff}, sans-serif`,
       fontSize: `${size}pt`,
       fontWeight: bold ? 'bold' : 'normal',
@@ -255,11 +295,14 @@ export const DocumentPageForPdf: React.FC<DocumentPageForPdfProps> = ({
       textRendering: 'geometricPrecision',
       WebkitPrintColorAdjust: 'exact',
       printColorAdjust: 'exact',
+      ...(isTotalBox && { WebkitTextFillColor: PDF_WHITE_COLOR }),
     };
 
     return (
-      <div key={box.id} style={boxStyle}>
-        <div style={innerStyle}>{text || '\u00A0'}</div>
+      <div key={box.id} className={isTotalBox ? 'doc-box-total' : undefined} style={boxStyle}>
+        <div style={innerStyle}>
+          {isTotalBox ? <span style={{ display: 'inline-block', textAlign: 'right', width: 'auto', flexShrink: 0, marginLeft: 'auto', color: PDF_WHITE_COLOR, WebkitTextFillColor: PDF_WHITE_COLOR }}>{text || '\u00A0'}</span> : (text || '\u00A0')}
+        </div>
       </div>
     );
   });
