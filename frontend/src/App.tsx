@@ -2111,7 +2111,8 @@ if (ok && data && typeof data.id === 'string') {
           <Dialog.Overlay className="fixed inset-0 bg-black/40 z-[100]" />
           <Dialog.Content className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-[101] w-[90vw] max-w-md bg-white rounded-xl shadow-xl border border-monday-border p-5">
             <Dialog.Title className="text-[15px] font-semibold text-monday-text mb-1">Nuevo tablero</Dialog.Title>
-            <Dialog.Description className="text-[13px] text-monday-subtext mb-4">Asigna un nombre a tu tablero</Dialog.Description>
+            <Dialog.Description className="sr-only">Asigna un nombre a tu nuevo tablero</Dialog.Description>
+            <p className="text-[13px] text-monday-subtext mb-4">Asigna un nombre a tu tablero</p>
             <input
               type="text"
               value={newBoardName}

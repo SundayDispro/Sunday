@@ -9,6 +9,23 @@ export const API_BASE: string = import.meta.env.VITE_API_URL
   ? (import.meta.env.VITE_API_URL as string)
   : '';
 
+export function getAuthToken(): string | null {
+  try {
+    return localStorage.getItem('sunday_token');
+  } catch {
+    return null;
+  }
+}
+
+export function buildAuthHeaders(base: HeadersInit = {}): HeadersInit {
+  const token = getAuthToken();
+  if (!token) return base;
+  return {
+    ...base,
+    Authorization: `Bearer ${token}`,
+  };
+}
+
 /**
  * Parsea la respuesta de fetch de forma segura:
  * - No llama a .json() en respuestas vacías (p. ej. 204).
@@ -40,4 +57,35 @@ export async function parseResponse<T = unknown>(res: Response): Promise<T | nul
   }
 
   return parsed as T;
+}
+
+export function clearAuthStorage(): void {
+  try {
+    localStorage.removeItem('sunday_token');
+    localStorage.removeItem('sunday_user');
+  } catch {
+    // ignore
+  }
+}
+
+/**
+ * Wrapper de fetch que:
+ * - Añade automáticamente el header Authorization: Bearer <token> si existe.
+ * - Si recibe 401/403, limpia sesión local y redirige al login.
+ */
+export async function apiFetch(input: RequestInfo | URL, init: RequestInit = {}): Promise<Response> {
+  const headersWithAuth = buildAuthHeaders(init.headers ?? {});
+  const res = await fetch(input, { ...init, headers: headersWithAuth });
+
+  if (res.status === 401 || res.status === 403) {
+    clearAuthStorage();
+    try {
+      // Forzar re-login; ajusta la ruta si usas otra para login
+      window.location.href = '/';
+    } catch {
+      // ignore en entornos sin window
+    }
+  }
+
+  return res;
 }

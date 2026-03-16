@@ -1,6 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import puppeteer from 'puppeteer';
+import { enqueuePdfTask } from './pdfQueue';
 import { buildDocumentWrapperHtml } from './documentHtmlBuilder';
 
 export interface HtmlPdfOptions {
@@ -140,10 +141,10 @@ export async function generatePdfFromHtml(
 
   try {
     const page = await browser.newPage();
-    await page.setContent(html, { waitUntil: 'networkidle0' });
+    await page.setContent(html, { waitUntil: 'load', timeout: 60000 });
 
     const pdf = await page.pdf({
-      format: options.format ?? 'A4',
+      format: options.format ?? 'Letter',
       printBackground: true,
       margin: {
         top: '0mm',
@@ -190,17 +191,7 @@ export async function generatePdfFromDocument(
 ): Promise<Buffer> {
   const { content, format = 'A4', templatePdfPath } = options;
   const { buildDocumentHtml } = await import('./documentHtmlBuilder');
-
-  const browser = await puppeteer.launch({
-    headless: 'new',
-    args: [
-      '--no-sandbox',
-      '--disable-setuid-sandbox',
-      '--disable-pdf-viewer-hud',
-    ],
-  });
-
-  try {
+  return enqueuePdfTask<Buffer>(async (browser) => {
     let backgroundImageDataUrl: string | null = null;
     if (templatePdfPath) {
       backgroundImageDataUrl = await getTemplatePdfFirstPageAsDataUrlWithBrowser(
@@ -231,8 +222,9 @@ export async function generatePdfFromDocument(
     // Viewport en px para que 612pt×792pt se renderice 1:1 (96 DPI: 612pt=816px, 792pt=1056px)
     await page.setViewport({ width: 816, height: 1056, deviceScaleFactor: 1 });
     await page.setContent(html, {
-      waitUntil: 'networkidle0',
+      waitUntil: 'load',
       baseURL: process.env.API_BASE_URL || 'http://localhost:3001',
+      timeout: 60000,
     });
 
     // Esperar a que todas las <img> hayan terminado de cargar (data URLs son síncronas pero por robustez)
@@ -255,14 +247,12 @@ export async function generatePdfFromDocument(
     await page.emulateMediaType('screen');
     // US Letter exacto (612×792 pt). printBackground: true para que se vean fondos y texto blanco en el PDF.
     const pdf = await page.pdf({
-      format: 'Letter',
+      format: format === 'Letter' ? 'Letter' : 'A4',
       printBackground: true,
       margin: { top: '0mm', right: '0mm', bottom: '0mm', left: '0mm' },
     });
 
     return Buffer.from(pdf);
-  } finally {
-    await browser.close();
-  }
+  });
 }
 

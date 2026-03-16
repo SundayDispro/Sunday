@@ -9,17 +9,16 @@ import path from 'path';
 const PAGE_W_PT = 612;
 const PAGE_H_PT = 792;
 
-// Paddings en px (Tailwind); inyectar como px en CSS para no escalar mal en PDF
-const PADDING_TOP_FOLIO_PX = 12;
-const PADDING_TOP_SINGLE_PX = 16;
-const PADDING_TOP_DESCRIPCION_CORTA_PX = 28;
-const PADDING_TOP_MULTI_PX = 8;
-const PADDING_BOTTOM_PX = 4;
-const PADDING_SIDES_PX = 6;
-// Folio: 8px para que en el PDF coincida con el editor (evita que el número quede demasiado a la izquierda).
-const PADDING_FOLIO_LEFT_PX = 8;
-const PADDING_TOP_TOTAL_PX = 6;
-const PADDING_TOTAL_RIGHT_PX = 16;
+// Paddings en pt (convertidos de px: 1px = 0.75pt a 96 DPI)
+const PADDING_TOP_FOLIO_PT = 9;       // 12px -> 9pt
+const PADDING_TOP_SINGLE_PT = 12;      // 16px -> 12pt
+const PADDING_TOP_DESCRIPCION_CORTA_PT = 27; // 36px (12+24) -> 27pt
+const PADDING_TOP_MULTI_PT = 6;        // 8px -> 6pt
+const PADDING_BOTTOM_PT = 3;           // 4px -> 3pt
+const PADDING_SIDES_PT = 4.5;          // 6px -> 4.5pt
+const PADDING_FOLIO_LEFT_PT = 4.5;     // 6px -> 4.5pt
+const PADDING_TOP_TOTAL_PT = 0;
+const PADDING_TOTAL_RIGHT_PT = 4.5;    // 6px -> 4.5pt
 
 function escapeHtml(s: string): string {
   return s
@@ -139,22 +138,14 @@ export function buildDocumentHtml(options: BuildDocumentHtmlOptions): string {
   for (const box of customBoxes) {
     if (!box) continue;
 
-    const isFolioBox = box.semantic === 'folio' || box.fieldKey === 'folio';
-    const rawLeftPt = Math.max(0, Math.min(
-      Math.round((box.x ?? 0) * PAGE_W_PT),
-      PAGE_W_PT - 1
-    ));
-    const FOLIO_OFFSET_PT = 40;
-    const leftPt = isFolioBox ? Math.min(rawLeftPt + FOLIO_OFFSET_PT, PAGE_W_PT - 28) : rawLeftPt;
-    const topPt = Math.max(0, Math.min(
-      Math.round((box.y ?? 0) * PAGE_H_PT),
-      PAGE_H_PT - 1
-    ));
-    const rawWidthPt = Math.round((box.width ?? 0.3) * PAGE_W_PT);
-    const widthPt = isFolioBox ? Math.max(28, rawWidthPt - FOLIO_OFFSET_PT) : rawWidthPt;
+    // Coordenadas en pt exactos (sin redondeo agresivo para mantener precisión de % del editor)
+    const rawLeftPt = (box.x ?? 0) * PAGE_W_PT;
+    const leftPt = rawLeftPt;
+    const topPt = (box.y ?? 0) * PAGE_H_PT;
+    const widthPt = (box.width ?? 0.3) * PAGE_W_PT;
 
     if (box.kind === 'image' && box.imageUrl) {
-      const heightPt = Math.round((box.height ?? 0.15) * PAGE_H_PT);
+      const heightPt = (box.height ?? 0.15) * PAGE_H_PT;
       const style = [
         `position: absolute`,
         `left: ${leftPt}pt`,
@@ -170,20 +161,17 @@ export function buildDocumentHtml(options: BuildDocumentHtmlOptions): string {
       continue;
     }
 
-    // Caja de texto: content[fieldKey] -> customFieldValues[box.id] -> alias/fallback por fieldKey
+    // Caja de texto
     let text = '';
     const rawFromField = box.fieldKey ? content[box.fieldKey] : undefined;
     const strFromField = rawFromField !== undefined && rawFromField !== null ? String(rawFromField).trim() : '';
     const hasFieldValue = strFromField !== '';
-    // Elemento: permitir también descripcion_corta si elemento viene vacío
     const rawElemento = (content['elemento'] ?? content['descripcion_corta']);
     const strElemento = rawElemento !== undefined && rawElemento !== null ? String(rawElemento).trim() : '';
     const isElementBox = box.fieldKey === 'elemento' || box.semantic === 'element';
+    
     if (box.fieldKey && hasFieldValue) {
-      text =
-        box.fieldKey === 'fecha'
-          ? formatDateForPdf(String(rawFromField))
-          : strFromField;
+      text = box.fieldKey === 'fecha' ? formatDateForPdf(String(rawFromField)) : strFromField;
     } else if (isElementBox && strElemento) {
       text = strElemento;
     } else {
@@ -204,29 +192,21 @@ export function buildDocumentHtml(options: BuildDocumentHtmlOptions): string {
     }
 
     let size = typeof box.fontSize === 'number' ? box.fontSize : globalFontSize;
-    if (box.fieldKey === 'total') {
-      size = Math.max(size, 11);
-    }
-    // Fecha: respetar fontSize/fuente de la plantilla (1:1 con editor), sin tope
-    if (box.semantic === 'folio' || box.fieldKey === 'folio') {
-      size = typeof box.fontSize === 'number' ? box.fontSize : globalFontSize;
-    }
+    if (box.fieldKey === 'total') size = Math.max(size, 11);
+    if (box.semantic === 'folio' || box.fieldKey === 'folio') size = typeof box.fontSize === 'number' ? box.fontSize : globalFontSize;
+    
     const ff = (box.fontFamily ?? globalFontFamily).trim();
     let bold = typeof box.fontBold === 'boolean' ? box.fontBold : globalFontBold;
     const italic = typeof box.fontItalic === 'boolean' ? box.fontItalic : globalFontItalic;
     const colRaw = typeof box.fontColor === 'string' && box.fontColor ? box.fontColor : globalFontColor;
     let textCol = normalizeTextColor(colRaw);
     let bgCol: string;
-    const bgRaw =
-      typeof box.backgroundColor === 'string' && box.backgroundColor.trim()
-        ? box.backgroundColor.trim()
-        : 'transparent';
+    const bgRaw = typeof box.backgroundColor === 'string' && box.backgroundColor.trim() ? box.backgroundColor.trim() : 'transparent';
     bgCol = bgRaw === 'transparent' ? 'transparent' : normalizeBackgroundColor(bgRaw);
+    
     const totalStr = content.total != null ? String(content.total).trim() : '';
-    const isTotalBox =
-      box.fieldKey === 'total' ||
-      (totalStr !== '' && text === totalStr) ||
-      (totalStr !== '' && text !== '' && text.replace(/\s/g, '') === totalStr.replace(/\s/g, ''));
+    const isTotalBox = box.fieldKey === 'total' || (totalStr !== '' && text === totalStr) || (totalStr !== '' && text !== '' && text.replace(/\s/g, '') === totalStr.replace(/\s/g, ''));
+    
     if (bgCol === '#000000' || isTotalBox) {
       textCol = PDF_WHITE_COLOR;
       if (isTotalBox) bgCol = '#000000';
@@ -236,22 +216,24 @@ export function buildDocumentHtml(options: BuildDocumentHtmlOptions): string {
     const isFolio = box.semantic === 'folio' || box.fieldKey === 'folio';
     const isSingleLine = box.singleLine === true || isFolio;
     const isDescripcionCorta = box.fieldKey === 'descripcion_corta';
-    const rawHeightPt = Math.round((box.height ?? 0.05) * PAGE_H_PT);
-    const heightClampedPt = Math.min(rawHeightPt, PAGE_H_PT - topPt);
+    const heightPt = (box.height ?? 0.05) * PAGE_H_PT;
+    const heightClampedPt = Math.min(heightPt, PAGE_H_PT - topPt);
     const lineHeight = isSingleLine ? '1.1' : '1.35';
-    // Padding alineado con el editor (Tailwind: folio pt-3, single pt-4, descripcion_corta pt-6, multi pt-2, pb-1, px-1.5)
-    const paddingTopPx = isTotalBox
-      ? PADDING_TOP_TOTAL_PX
+
+    // Padding en pt para evitar problemas de DPI/escalado
+    const paddingTopPt = isTotalBox
+      ? PADDING_TOP_TOTAL_PT
       : isDescripcionCorta
-        ? PADDING_TOP_DESCRIPCION_CORTA_PX
+        ? PADDING_TOP_DESCRIPCION_CORTA_PT
         : isFolio
-          ? PADDING_TOP_FOLIO_PX
+          ? PADDING_TOP_FOLIO_PT
           : isSingleLine
-            ? PADDING_TOP_SINGLE_PX
-            : PADDING_TOP_MULTI_PX;
-    const isTotal = isTotalBox;
-    const paddingLeftPx = isFolio ? PADDING_FOLIO_LEFT_PX : PADDING_SIDES_PX;
-    const paddingRightPx = isTotal ? PADDING_TOTAL_RIGHT_PX : PADDING_SIDES_PX;
+            ? PADDING_TOP_SINGLE_PT
+            : PADDING_TOP_MULTI_PT;
+    const paddingBottomPt = isTotalBox ? 0 : PADDING_BOTTOM_PT;
+    const paddingLeftPt = isFolio ? PADDING_FOLIO_LEFT_PT : PADDING_SIDES_PT;
+    const paddingRightPt = isTotalBox ? PADDING_TOTAL_RIGHT_PT : PADDING_SIDES_PT;
+
     const boxStyle = [
       `position: absolute`,
       `left: ${leftPt}pt`,
@@ -259,7 +241,7 @@ export function buildDocumentHtml(options: BuildDocumentHtmlOptions): string {
       `width: ${widthPt}pt`,
       `height: ${heightClampedPt}pt`,
       `margin: 0`,
-      `padding: ${paddingTopPx}px ${paddingRightPx}px ${PADDING_BOTTOM_PX}px ${paddingLeftPx}px`,
+      `padding: ${paddingTopPt}pt ${paddingRightPt}pt ${paddingBottomPt}pt ${paddingLeftPt}pt`,
       `line-height: ${lineHeight}`,
       `box-sizing: border-box`,
       `overflow: hidden`,
@@ -295,7 +277,7 @@ export function buildDocumentHtml(options: BuildDocumentHtmlOptions): string {
       `print-color-adjust: exact !important`,
     ];
     if (isTotalBox) {
-      innerStyleParts.push(`justify-content: flex-end`, `align-items: flex-start`);
+      innerStyleParts.push(`justify-content: flex-end`, `align-items: center`, `line-height: 1`);
       innerStyleParts.push(`-webkit-text-fill-color: ${PDF_WHITE_COLOR} !important`);
     }
     const innerStyle = innerStyleParts.join('; ');
@@ -304,7 +286,7 @@ export function buildDocumentHtml(options: BuildDocumentHtmlOptions): string {
     // Para Total: envolver en span para que el contenedor flex (doc-box-inner) tenga un hijo explícito
     // y justify-content: flex-end lo alinee a la derecha (igual que en el editor).
     const innerContent = isTotalBox
-      ? `<span class="doc-box-total-text" style="display:inline-block;text-align:right;width:auto;margin-left:auto;color:rgb(254,254,254) !important;-webkit-text-fill-color:rgb(254,254,254) !important;">${escapeHtml(text) || '&nbsp;'}</span>`
+      ? `<span class="doc-box-total-text" style="display:inline-block;text-align:right;width:auto;margin-left:auto;line-height:1;transform:translateY(-0.08em);color:rgb(254,254,254) !important;-webkit-text-fill-color:rgb(254,254,254) !important;">${escapeHtml(text) || '&nbsp;'}</span>`
       : (escapeHtml(text) || '&nbsp;');
     const boxHtml = `<div class="${boxClass}" style="${boxStyle}"><div class="doc-box-inner" style="${innerStyle}">${innerContent}</div></div>`;
     boxHtmlParts.push(boxHtml);
@@ -356,11 +338,12 @@ export function buildDocumentWrapperHtml(
       -webkit-text-fill-color: rgb(254,254,254) !important;
       display: flex !important;
       justify-content: flex-end !important;
-      align-items: flex-start !important;
+      align-items: center !important;
       text-align: right !important;
       overflow: visible !important;
+      line-height: 1 !important;
     }
-    .doc-box-total .doc-box-total-text { width: auto !important; flex-shrink: 0 !important; margin-left: auto !important; color: rgb(254,254,254) !important; -webkit-text-fill-color: rgb(254,254,254) !important; }
+    .doc-box-total .doc-box-total-text { width: auto !important; flex-shrink: 0 !important; margin-left: auto !important; line-height: 1 !important; transform: translateY(-0.08em) !important; color: rgb(254,254,254) !important; -webkit-text-fill-color: rgb(254,254,254) !important; }
     * {
       box-sizing: border-box;
       -webkit-print-color-adjust: exact !important;

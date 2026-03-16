@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { User, UserStatus } from '../types';
-import { API_BASE, parseResponse } from '../api';
+import { API_BASE, apiFetch, buildAuthHeaders, clearAuthStorage, parseResponse } from '../api';
 
 interface UserContextType {
   currentUser: User | null;
@@ -19,14 +19,14 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [users, setUsers] = useState<User[]>([]);
 
   useEffect(() => {
-    const saved = localStorage.getItem('sunday_user');
-    if (saved) setCurrentUser(JSON.parse(saved));
+    const savedUser = localStorage.getItem('sunday_user');
+    if (savedUser) setCurrentUser(JSON.parse(savedUser));
     fetchUsers();
   }, []);
 
   const fetchUsers = async () => {
     try {
-      const res = await fetch(`${API_BASE}/api/users`);
+      const res = await apiFetch(`${API_BASE}/api/users`);
       const data = await parseResponse<User[]>(res);
       if (data != null) setUsers(Array.isArray(data) ? data : []);
     } catch (e) {
@@ -36,7 +36,7 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const getVapidPublicKey = async (): Promise<string | null> => {
     try {
-      const res = await fetch(`${API_BASE}/api/push/public-key`);
+      const res = await apiFetch(`${API_BASE}/api/push/public-key`);
       const data = await parseResponse<{ publicKey: string }>(res);
       if (data && data.publicKey) return data.publicKey;
     } catch (e) {
@@ -79,7 +79,7 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
 
       if (subscription) {
-        await fetch(`${API_BASE}/api/push/subscribe`, {
+        await apiFetch(`${API_BASE}/api/push/subscribe`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ userId: currentUser.id, subscription }),
@@ -97,10 +97,11 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ username, password })
       });
-      const data = await parseResponse<User>(res);
+      const data = await parseResponse<{ user: User; token: string }>(res);
       if (data != null) {
-        setCurrentUser(data);
-        localStorage.setItem('sunday_user', JSON.stringify(data));
+        setCurrentUser(data.user);
+        localStorage.setItem('sunday_user', JSON.stringify(data.user));
+        localStorage.setItem('sunday_token', data.token);
         await fetchUsers();
         await ensurePushSubscription();
       }
@@ -114,12 +115,12 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const logout = () => {
     const userId = currentUser?.id;
     setCurrentUser(null);
-    localStorage.removeItem('sunday_user');
+    clearAuthStorage();
     // Marcar como offline en el backend (fire-and-forget)
     if (userId) {
       fetch(`${API_BASE}/api/users/${userId}/status`, {
         method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
+        headers: buildAuthHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify({ status: 'offline' }),
       }).catch(() => {});
     }
@@ -134,7 +135,7 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
     try {
       const res = await fetch(`${API_BASE}/api/users/${userId}/status`, {
         method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
+        headers: buildAuthHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify({ status }),
       });
       const updated = await parseResponse<User>(res);

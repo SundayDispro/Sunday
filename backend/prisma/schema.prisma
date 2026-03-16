@@ -3,7 +3,7 @@ generator client {
 }
 
 datasource db {
-  provider = "sqlite"
+  provider = "postgresql"
   url      = env("DATABASE_URL")
 }
 
@@ -20,14 +20,17 @@ model User {
   notifications    Notification[]
   feedPosts        FeedPost[]
   pushSubscriptions PushSubscription[]
+  updates          Update[]
 }
 
 model Workspace {
   id          String   @id @default(uuid())
   name        String
   description String?
-  panelNotes  String?  // JSON array: [{ id, x, y, title, body }] para vista general de Docs
-  docGroups   String?  // JSON por usuario: { "userId": { groups: [{ id, name }], assignments: { docId: groupId } } }
+  panelNotes     String? // JSON array (legacy string): [{ id, x, y, title, body }] para vista general de Docs
+  panelNotesJson Json?   // Sombra JSONB para Postgres
+  docGroups      String? // JSON por usuario (legacy string): { "userId": { groups: [{ id, name }], assignments: { docId: groupId } } }
+  docGroupsJson  Json?   // Sombra JSONB para Postgres
   boards      Board[]
   docs        Doc[]
   createdAt   DateTime @default(now())
@@ -93,13 +96,15 @@ model BoardColumn {
   position Float
   boardId  String
   board    Board         @relation(fields: [boardId], references: [id], onDelete: Cascade)
-  settings String? // JSON string for specific settings
+  settings     String? // JSON string (legacy) for specific settings
+  settingsJson Json?   // Sombra JSONB para Postgres
   values   ColumnValue[]
 }
 
 model ColumnValue {
   id       String      @id @default(uuid())
-  value    String // JSON string (e.g., array of user IDs for 'person' column) or plain text
+  value    String // JSON string (legacy) o texto plano
+  valueJson Json? // Sombra JSONB para Postgres
   itemId   String
   item     Item        @relation(fields: [itemId], references: [id], onDelete: Cascade)
   columnId String
@@ -111,7 +116,8 @@ model ColumnValue {
 model Update {
   id        String   @id @default(uuid())
   content   String
-  authorId  String // Store userId instead of string author name
+  authorId  String?
+  author    User?    @relation(fields: [authorId], references: [id], onDelete: SetNull)
   itemId    String
   item      Item     @relation(fields: [itemId], references: [id], onDelete: Cascade)
   createdAt DateTime @default(now())
@@ -126,6 +132,9 @@ model Notification {
   type      String   // e.g. 'assigned', 'item_created'
   read      Boolean  @default(false)
   createdAt DateTime @default(now())
+
+  @@index([userId, read, createdAt(sort: Desc)])
+  @@index([itemId, createdAt])
 }
 
 // Feed de la Bandeja: publicaciones con @mentions (no ligadas a un item)
@@ -134,15 +143,20 @@ model FeedPost {
   content         String
   authorId        String
   author          User     @relation(fields: [authorId], references: [id], onDelete: Cascade)
-  mentionedUserIds String   @default("[]") // JSON array of user IDs
-  createdAt       DateTime @default(now())
+  mentionedUserIds     String   @default("[]") // JSON array of user IDs (legacy)
+  mentionedUserIdsJson Json?    // Sombra JSONB para Postgres
+  createdAt            DateTime @default(now())
+
+  @@index([createdAt(sort: Desc)])
+  @@index([authorId, createdAt(sort: Desc)])
 }
 
 model Doc {
   id          String   @id @default(uuid())
   title       String
   type        String   @default("text") // 'text' | 'sheet'
-  content     String   @default("{}")   // JSON string
+  content     String   @default("{}")   // JSON string legacy
+  contentJson Json?                 // Sombra JSONB para Postgres
   boardId     String?
   board       Board?   @relation(fields: [boardId], references: [id], onDelete: Cascade)
   workspaceId String
@@ -156,13 +170,15 @@ model Doc {
 model TemplateConfig {
   id              String   @id @default(uuid())
   docType         String   @unique // 'cotizacion' | 'levantamiento' | 'hoja_trabajo'
-  fieldPositions  String   @default("{}") // JSON: Record<fieldKey, { x, y }>
+  fieldPositions     String @default("{}") // JSON legacy: Record<fieldKey, { x, y }>
+  fieldPositionsJson Json?                 // Sombra JSONB para Postgres
   fontColor       String   @default("#000000")
   fontFamily      String   @default("Helvetica")
   fontSize        Int      @default(11)   // pt
   fontBold        Boolean  @default(false)
   fontItalic      Boolean  @default(false)
-  customBoxes     String   @default("[]") // JSON: [{ id, x, y, width, height, singleLine? }]
+  customBoxes     String   @default("[]") // JSON legacy: [{ id, x, y, width, height, singleLine? }]
+  customBoxesJson Json?                   // Sombra JSONB para Postgres
   updatedAt       DateTime @updatedAt
 }
 

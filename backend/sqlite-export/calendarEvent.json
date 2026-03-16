@@ -1,0 +1,20 @@
+[
+  {
+    "id": "b2505b94-7bf3-452b-b47b-e451ebd73f39",
+    "boardId": "3dc83d63-0651-4fa9-86ff-787771d8f52d",
+    "eventDate": 1774537200000,
+    "name": "junta de",
+    "eventType": "colocacion",
+    "createdAt": 1773348209456,
+    "updatedAt": 1773348209456
+  },
+  {
+    "id": "53d9ae5e-824f-4495-adb6-5a8a8a778ae6",
+    "boardId": "0f44ec16-d309-4089-8357-52865e3d493e",
+    "eventDate": 1773068400000,
+    "name": "Sksksk",
+    "eventType": "colocacion",
+    "createdAt": 1773612726048,
+    "updatedAt": 1773612726048
+  }
+]

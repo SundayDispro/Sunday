@@ -1,0 +1,82 @@
+[
+  {
+    "id": "bc32d942-2a1a-43a8-876f-d7bea15d7bfa",
+    "name": "Pendientes",
+    "color": "#1d60f5",
+    "position": 1,
+    "boardId": "0f44ec16-d309-4089-8357-52865e3d493e",
+    "parentGroupId": null,
+    "createdAt": 1773331976440,
+    "updatedAt": 1773331976440
+  },
+  {
+    "id": "ac202315-c64d-4ff1-a1fe-9dabe0bb4545",
+    "name": "Completado",
+    "color": "#00c875",
+    "position": 2,
+    "boardId": "0f44ec16-d309-4089-8357-52865e3d493e",
+    "parentGroupId": null,
+    "createdAt": 1773331976454,
+    "updatedAt": 1773331976454
+  },
+  {
+    "id": "ec402228-cc9d-4521-8af3-afafcc2131ff",
+    "name": "Marzo",
+    "color": "#ff5ac4",
+    "position": 1024,
+    "boardId": "3dc83d63-0651-4fa9-86ff-787771d8f52d",
+    "parentGroupId": null,
+    "createdAt": 1773332124164,
+    "updatedAt": 1773332132203
+  },
+  {
+    "id": "7bd28f83-6b06-48b0-811c-40d4c0d75c71",
+    "name": "asdasdas",
+    "color": "#ffcb00",
+    "position": 1024.5,
+    "boardId": "3dc83d63-0651-4fa9-86ff-787771d8f52d",
+    "parentGroupId": "ec402228-cc9d-4521-8af3-afafcc2131ff",
+    "createdAt": 1773332602088,
+    "updatedAt": 1773444659032
+  },
+  {
+    "id": "8e70738e-bd86-4d6d-b78a-79d9048d09aa",
+    "name": "Subgrupo",
+    "color": "#f5ca00",
+    "position": 1.5,
+    "boardId": "0f44ec16-d309-4089-8357-52865e3d493e",
+    "parentGroupId": "bc32d942-2a1a-43a8-876f-d7bea15d7bfa",
+    "createdAt": 1773341952421,
+    "updatedAt": 1773341964413
+  },
+  {
+    "id": "56403e7e-4eaa-4f5d-8151-6c2a397a46b5",
+    "name": "Abril",
+    "color": "#0073ea",
+    "position": 2048.5,
+    "boardId": "3dc83d63-0651-4fa9-86ff-787771d8f52d",
+    "parentGroupId": null,
+    "createdAt": 1773442875401,
+    "updatedAt": 1773444689847
+  },
+  {
+    "id": "bd5dd0aa-ea00-4316-b4cb-be8390ab84dc",
+    "name": "Enero",
+    "color": "#5559df",
+    "position": 1024,
+    "boardId": "ec31c720-867f-4995-a346-6635fc74a166",
+    "parentGroupId": null,
+    "createdAt": 1773531495886,
+    "updatedAt": 1773531501882
+  },
+  {
+    "id": "a531a1bd-1d99-497c-beaa-7b2e335174c0",
+    "name": "Febrero",
+    "color": "#7fba00",
+    "position": 2048,
+    "boardId": "ec31c720-867f-4995-a346-6635fc74a166",
+    "parentGroupId": null,
+    "createdAt": 1773531505607,
+    "updatedAt": 1773531510001
+  }
+]

@@ -221,6 +221,9 @@ const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode, mobile
   };
 
   useEffect(() => {
+    // Unirse a la sala del tablero en Socket.IO
+    socket.emit('join_board', { boardId });
+
     fetchBoard();
 
     socket.on('column_value_updated', (updatedValue) => {
@@ -334,6 +337,7 @@ const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode, mobile
     });
 
     return () => {
+      socket.emit('leave_board', { boardId });
       socket.off('column_value_updated');
       socket.off('group_added');
       socket.off('item_added');

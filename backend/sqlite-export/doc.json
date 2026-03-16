@@ -1,0 +1,145 @@
+[
+  {
+    "id": "287efd3f-bfbf-47c3-8dd4-b08f2fa6b049",
+    "title": "0001",
+    "type": "cotizacion",
+    "content": "{\"cliente\":\"\",\"fecha\":\"2026-03-13\",\"vigencia\":\"\",\"items\":[{\"descripcion\":\"\",\"cantidad\":\"\",\"precio\":\"\",\"total\":\"\"}],\"subtotal\":\"\",\"iva\":\"\",\"total\":\"\",\"notas\":\"\",\"customFieldValues\":{\"custom-1773367368158\":\"Nombre \",\"custom-1773419486604\":\"     0006\",\"custom-1773367186325\":\"texto\\nde \\npruebatexto\\nde \\npruebatexto\\nde \\npruebatexto\\nde \\npruebatexto\\nde \\nprueba\\n\",\"custom-1773419514501\":\"                  Total : $ 00, 000.00\",\"custom-1773419467996\":\"Descripción breve\",\"custom-1773419452764\":\"13/03/2026\"}}",
+    "boardId": null,
+    "workspaceId": "a121276e-e706-41e0-8cd9-c708f2ac9f4e",
+    "createdBy": null,
+    "createdAt": 1773434394698,
+    "updatedAt": 1773441753552
+  },
+  {
+    "id": "32727407-f1c8-4988-a9d3-cf4690bb40c2",
+    "title": "658",
+    "type": "cotizacion",
+    "content": "{\"cliente\":\"\",\"fecha\":\"2026-03-13\",\"vigencia\":\"\",\"items\":[{\"descripcion\":\"\",\"cantidad\":\"\",\"precio\":\"\",\"total\":\"\"}],\"subtotal\":\"\",\"iva\":\"\",\"total\":\"\",\"notas\":\"\",\"customFieldValues\":{\"custom-1773367368158\":\"Nombre\",\"custom-1773419486604\":\"       658\",\"custom-1773419452764\":\"13/03/2026\",\"custom-1773419467996\":\"asdasdas\",\"custom-1773367186325\":\"Ejemplo de texto\\nen una cotización.\",\"custom-1773419514501\":\"                           Total: $455.80\"}}",
+    "boardId": null,
+    "workspaceId": "a121276e-e706-41e0-8cd9-c708f2ac9f4e",
+    "createdBy": null,
+    "createdAt": 1773436389463,
+    "updatedAt": 1773436486593
+  },
+  {
+    "id": "601083de-02fd-4aa2-b2c3-bc45f089d4b7",
+    "title": "502",
+    "type": "cotizacion",
+    "content": "{\"cliente\":\"\",\"fecha\":\"2026-03-13\",\"vigencia\":\"\",\"items\":[{\"descripcion\":\"\",\"cantidad\":\"\",\"precio\":\"\",\"total\":\"\"}],\"subtotal\":\"\",\"iva\":\"\",\"total\":\"\",\"notas\":\"\",\"customFieldValues\":{\"custom-1773367368158\":\"Fasca asfaf\",\"custom-1773419486604\":\"502\",\"custom-1773367186325\":\"asdasdasas\",\"custom-1773419452764\":\"23/03/2026\",\"custom-1773419467996\":\"dasdasdas\",\"custom-1773419514501\":\"Total:\"}}",
+    "boardId": null,
+    "workspaceId": "a121276e-e706-41e0-8cd9-c708f2ac9f4e",
+    "createdBy": null,
+    "createdAt": 1773436925283,
+    "updatedAt": 1773437112527
+  },
+  {
+    "id": "12853afe-bc58-48e1-9b21-5762ba3dcf7f",
+    "title": "0000",
+    "type": "cotizacion",
+    "content": "{\"cliente\":\"\",\"fecha\":\"2026-03-13\",\"vigencia\":\"\",\"items\":[{\"descripcion\":\"\",\"cantidad\":\"\",\"precio\":\"\",\"total\":\"\"}],\"subtotal\":\"\",\"iva\":\"\",\"total\":\"\",\"notas\":\"\",\"customFieldValues\":{\"custom-1773367368158\":\"Nombre del cliente\",\"custom-1773419486604\":\"       0000\",\"custom-1773419467996\":\"asdadas\",\"custom-1773419452764\":\"asdasdas\",\"custom-1773367186325\":\"12 12\\n1\\n21\\n2\\n1\\n212 asdasdas\",\"custom-1773419514501\":\"                      Total: $00, 000.00\"}}",
+    "boardId": null,
+    "workspaceId": "a121276e-e706-41e0-8cd9-c708f2ac9f4e",
+    "createdBy": null,
+    "createdAt": 1773442028503,
+    "updatedAt": 1773472521419
+  },
+  {
+    "id": "5d0841de-6510-4dc7-a674-3ceb8cb0afe3",
+    "title": "6666",
+    "type": "cotizacion",
+    "content": "{\"cliente\":\"\",\"fecha\":\"2026-03-13\",\"vigencia\":\"\",\"items\":[{\"descripcion\":\"\",\"cantidad\":\"\",\"precio\":\"\",\"total\":\"\"}],\"subtotal\":\"\",\"iva\":\"\",\"total\":\"\",\"notas\":\"\",\"customFieldValues\":{\"custom-1773367368158\":\"asda\",\"custom-1773419486604\":\"        6666\",\"custom-1773419467996\":\"sadasdas\",\"custom-1773367186325\":\"asdasdasdadasdad\\nasdasdasda\",\"custom-1773419514501\":\"asdasda\"}}",
+    "boardId": null,
+    "workspaceId": "a121276e-e706-41e0-8cd9-c708f2ac9f4e",
+    "createdBy": null,
+    "createdAt": 1773446088851,
+    "updatedAt": 1773474545217
+  },
+  {
+    "id": "4288cb75-d6a8-4ee5-a2a2-7488bb887226",
+    "title": "8400",
+    "type": "cotizacion",
+    "content": "{\"cliente\":\"\",\"fecha\":\"2026-03-13\",\"vigencia\":\"\",\"items\":[{\"descripcion\":\"\",\"cantidad\":\"\",\"precio\":\"\",\"total\":\"\"}],\"subtotal\":\"\",\"iva\":\"\",\"total\":\"\",\"notas\":\"\",\"customFieldValues\":{\"custom-1773419486604\":\"     8400\",\"custom-1773419514501\":\"asdasdasas\",\"custom-1773419467996\":\"Letras 3D en \",\"custom-1773367368158\":\"Nombre del cliente\",\"custom-1773419452764\":\"25/03/2026\",\"custom-1773367186325\":\"sdasdas\\nasdasd\\nasdasd\\nasdasdas\"}}",
+    "boardId": null,
+    "workspaceId": "a121276e-e706-41e0-8cd9-c708f2ac9f4e",
+    "createdBy": null,
+    "createdAt": 1773446307584,
+    "updatedAt": 1773446307584
+  },
+  {
+    "id": "70877254-14e4-42e3-928a-0d69b4942eaf",
+    "title": "0080",
+    "type": "cotizacion",
+    "content": "{\"cliente\":\"\",\"fecha\":\"2026-03-14\",\"vigencia\":\"\",\"items\":[{\"descripcion\":\"\",\"cantidad\":\"\",\"precio\":\"\",\"total\":\"\"}],\"subtotal\":\"\",\"iva\":\"\",\"total\":\"\",\"notas\":\"\",\"customFieldValues\":{\"custom-1773367368158\":\"Asadas Jsfdas\",\"custom-1773419486604\":\"       0080\",\"custom-1773419452764\":\"13/03/2026\",\"custom-1773419467996\":\"Asdasd samkldas\",\"custom-1773367186325\":\"ASDa das asd as asfasfdasfdas asd2 44  das 23\\nasd as123  asdfasfd asfa\\nasdasdsadas\",\"custom-1773419514501\":\"                   Total: $ 45, 000.00\"}}",
+    "boardId": null,
+    "workspaceId": "a121276e-e706-41e0-8cd9-c708f2ac9f4e",
+    "createdBy": null,
+    "createdAt": 1773446842940,
+    "updatedAt": 1773472884888
+  },
+  {
+    "id": "7d380e4a-df28-4a2b-b7d9-b7812a4a9326",
+    "title": "Cotización",
+    "type": "cotizacion",
+    "content": "{\"cliente\":\"\",\"fecha\":\"2026-03-14\",\"vigencia\":\"\",\"items\":[{\"descripcion\":\"\",\"cantidad\":\"\",\"precio\":\"\",\"total\":\"\"}],\"subtotal\":\"\",\"iva\":\"\",\"total\":\"\",\"notas\":\"\"}",
+    "boardId": null,
+    "workspaceId": "a121276e-e706-41e0-8cd9-c708f2ac9f4e",
+    "createdBy": null,
+    "createdAt": 1773469441663,
+    "updatedAt": 1773469441663
+  },
+  {
+    "id": "2f7dc3a1-d9c9-49b1-b7e2-fcac5e631677",
+    "title": "8806",
+    "type": "cotizacion",
+    "content": "{\"cliente\":\"\",\"fecha\":\"2026-03-14\",\"vigencia\":\"\",\"items\":[{\"descripcion\":\"\",\"cantidad\":\"\",\"precio\":\"\",\"total\":\"\"}],\"subtotal\":\"\",\"iva\":\"\",\"total\":\"\",\"notas\":\"\",\"customFieldValues\":{\"custom-1773367368158\":\"            Nombre del clienteas\",\"custom-1773419486604\":\"   6035\",\"custom-1773419514501\":\"                 Total : $20, 000.00\",\"custom-1773367186325\":\"          Descripción detallada del proyecto\",\"custom-1773419467996\":\"  : Breve descripción \",\"custom-1773419452764\":\"             00/00/0000\"}}",
+    "boardId": null,
+    "workspaceId": "a121276e-e706-41e0-8cd9-c708f2ac9f4e",
+    "createdBy": null,
+    "createdAt": 1773508051814,
+    "updatedAt": 1773516879273
+  },
+  {
+    "id": "df7465b0-20a9-478e-b488-0d83c51b1fdc",
+    "title": "Plantilla 1",
+    "type": "sheet",
+    "content": "{\"table\":[[\"Cantidad\",\"Unidad de Medida\",\"Material\",\"Proveedor\",\"Precio Unitario\",\"Total\"],[\"1\",\"Placa\",\"asdasd\",\"12.50\",\"1350.00\",\"=a2*e2\"],[\"2\",\"100\",\"dasdas\",\"245\",\"\",\"\"],[\"4\",\"30\",\"qweqw\",\"100\",\"\",\"\"],[\"\",\"\",\"\",\"\",\"\",\"\"]]}",
+    "boardId": null,
+    "workspaceId": "a121276e-e706-41e0-8cd9-c708f2ac9f4e",
+    "createdBy": null,
+    "createdAt": 1773515930117,
+    "updatedAt": 1773515930117
+  },
+  {
+    "id": "df00c2d7-fb32-467d-86d2-8741b3c6e28d",
+    "title": "6585",
+    "type": "cotizacion",
+    "content": "{\"cliente\":\"\",\"fecha\":\"\",\"vigencia\":\"\",\"items\":[{\"descripcion\":\"\",\"cantidad\":\"\",\"precio\":\"\",\"total\":\"\"}],\"subtotal\":\"\",\"iva\":\"\",\"total\":\"\",\"notas\":\"\",\"customFieldValues\":{\"custom-1773367368158\":\"Jorge Jorgez\",\"custom-1773419452764\":\"25/03/2026\",\"custom-1773419467996\":\"Anuncio en acrílico\",\"custom-1773419486604\":\"              6585\",\"custom-1773367186325\":\"Cotización leada a\\nasdafaf\\nafafas\",\"custom-1773419514501\":\"                    Total: $ 00, 000.00\"},\"customBoxes\":[{\"id\":\"custom-1773367186325\",\"x\":0.1013632963225451,\"y\":0.24086946093875555,\"width\":0.8409789419713096,\"height\":0.40151643598989506,\"fontColor\":\"#000000\",\"fontSize\":12,\"fontFamily\":\"Averta Std\"},{\"id\":\"custom-1773367368158\",\"x\":0.10200803212851409,\"y\":0.11353163172762314,\"width\":0.4,\"height\":0.04,\"singleLine\":true,\"fontFamily\":\"Averta Std\",\"fontSize\":12,\"semantic\":\"element\"},{\"id\":\"custom-1773419452764\",\"x\":0.10289396179189833,\"y\":0.151929146571509,\"width\":0.4,\"height\":0.04,\"kind\":\"text\",\"ownerId\":\"6aad5d03-399e-4cd9-be1c-bda4121788fc\",\"singleLine\":true,\"fontFamily\":\"Averta Std\",\"fontSize\":12},{\"id\":\"custom-1773419467996\",\"x\":0.35562731607455983,\"y\":0.19038693855017338,\"width\":0.5965483249047385,\"height\":0.04,\"kind\":\"text\",\"ownerId\":\"6aad5d03-399e-4cd9-be1c-bda4121788fc\",\"singleLine\":true,\"fontFamily\":\"Averta Std\",\"fontSize\":12,\"fontBold\":false},{\"id\":\"custom-1773419486604\",\"x\":0.714783970801313,\"y\":0.07157416889367747,\"width\":0.22587511473156846,\"height\":0.06431453368187277,\"kind\":\"text\",\"ownerId\":\"6aad5d03-399e-4cd9-be1c-bda4121788fc\",\"singleLine\":true,\"semantic\":\"folio\",\"fontFamily\":\"Averta Std\",\"fontBold\":true,\"fontSize\":18},{\"id\":\"custom-1773419514501\",\"x\":0.5116168420132189,\"y\":0.6853014395630002,\"width\":0.38836492738342765,\"height\":0.041262626262626265,\"kind\":\"text\",\"ownerId\":\"6aad5d03-399e-4cd9-be1c-bda4121788fc\",\"singleLine\":true,\"fontFamily\":\"Averta Std\",\"fontSize\":16,\"fontColor\":\"#ffffff\",\"fontBold\":true}],\"globalFontColor\":\"#000000\",\"globalFontFamily\":\"Helvetica\",\"globalFontSize\":11,\"globalFontBold\":false,\"globalFontItalic\":false,\"fieldPositions\":{}}",
+    "boardId": null,
+    "workspaceId": "7c4d04f5-470a-447f-ba9b-cdffe76ebfda",
+    "createdBy": null,
+    "createdAt": 1773535650145,
+    "updatedAt": 1773555636831
+  },
+  {
+    "id": "a6d09e07-6f56-4ed1-a960-beadeb09a64e",
+    "title": "4823",
+    "type": "cotizacion",
+    "content": "{\"cliente\":\"\",\"fecha\":\"\",\"vigencia\":\"\",\"items\":[{\"descripcion\":\"\",\"cantidad\":\"\",\"precio\":\"\",\"total\":\"\"}],\"subtotal\":\"\",\"iva\":\"\",\"total\":\"\",\"notas\":\"\",\"customFieldValues\":{\"custom-1773367368158\":\"Pedro Pedrez\",\"custom-1773419486604\":\"              9090\",\"custom-1773419452764\":\"15/03/2026\",\"custom-1773419467996\":\"Letras 3d en aluminio\",\"custom-1773367186325\":\"S afda fdda  asdfa dafgsdfsdf sfsdf sfs fsd\\nfsdfsfs 445  1sd5 sdfs1215   \\nS afda fdda  asdfa dafgsdfsdf sfsdf sfs fsd\\nfsdfsfs 445  1sd5 sdfs1215   \\nS afda fdda  asdfa dafgsdfsdf sfsdf sfs fsd\\nfsdfsfs 445  1sd5 sdfsdf sfs fsd\\nfsdfsfs 445  1sd5 sdfs1215   \",\"custom-1773419514501\":\"                      Total: $ 20, 250.00\"},\"customBoxes\":[{\"id\":\"custom-1773367186325\",\"x\":0.1013632963225451,\"y\":0.24086946093875555,\"width\":0.8409789419713096,\"height\":0.40151643598989506,\"fontColor\":\"#000000\",\"fontSize\":12,\"fontFamily\":\"Averta Std\"},{\"id\":\"custom-1773367368158\",\"x\":0.09710607134420035,\"y\":0.11353163172762314,\"width\":0.4,\"height\":0.04,\"singleLine\":true,\"fontFamily\":\"Averta Std\",\"fontSize\":12,\"semantic\":\"element\"},{\"id\":\"custom-1773419452764\",\"x\":0.10044298139974146,\"y\":0.151929146571509,\"width\":0.4,\"height\":0.04,\"kind\":\"text\",\"ownerId\":\"6aad5d03-399e-4cd9-be1c-bda4121788fc\",\"singleLine\":true,\"fontFamily\":\"Averta Std\",\"fontSize\":12},{\"id\":\"custom-1773419467996\",\"x\":0.35562731607455983,\"y\":0.1894399688532037,\"width\":0.5965483249047385,\"height\":0.04,\"kind\":\"text\",\"ownerId\":\"6aad5d03-399e-4cd9-be1c-bda4121788fc\",\"singleLine\":true,\"fontFamily\":\"Averta Std\",\"fontSize\":12,\"fontBold\":false},{\"id\":\"custom-1773419486604\",\"x\":0.714783970801313,\"y\":0.07157416889367747,\"width\":0.22587511473156846,\"height\":0.06431453368187277,\"kind\":\"text\",\"ownerId\":\"6aad5d03-399e-4cd9-be1c-bda4121788fc\",\"singleLine\":true,\"semantic\":\"folio\",\"fontFamily\":\"Averta Std\",\"fontBold\":true,\"fontSize\":18},{\"id\":\"custom-1773419514501\",\"x\":0.5116168420132189,\"y\":0.6853014395630002,\"width\":0.38836492738342765,\"height\":0.041262626262626265,\"kind\":\"text\",\"ownerId\":\"6aad5d03-399e-4cd9-be1c-bda4121788fc\",\"singleLine\":true,\"fontFamily\":\"Averta Std\",\"fontSize\":16,\"fontColor\":\"#ffffff\",\"fontBold\":true}],\"globalFontColor\":\"#000000\",\"globalFontFamily\":\"Helvetica\",\"globalFontSize\":11,\"globalFontBold\":false,\"globalFontItalic\":false,\"fieldPositions\":{}}",
+    "boardId": null,
+    "workspaceId": "4f5efb62-b2e2-47cf-a549-736044cb0ffa",
+    "createdBy": null,
+    "createdAt": 1773539047580,
+    "updatedAt": 1773643053432
+  },
+  {
+    "id": "204c50cd-6869-4069-abae-8a38749c6147",
+    "title": "6523",
+    "type": "cotizacion",
+    "content": "{\"cliente\":\"\",\"fecha\":\"\",\"vigencia\":\"\",\"items\":[{\"descripcion\":\"\",\"cantidad\":\"\",\"precio\":\"\",\"total\":\"\"}],\"subtotal\":\"\",\"iva\":\"\",\"total\":\"\",\"notas\":\"\",\"customFieldValues\":{\"custom-1773367368158\":\"Juanito Perez\",\"custom-1773419486604\":\"     0000\",\"custom-1773419514501\":\"                      Total: $ 40, 320.00\",\"custom-1773419452764\":\"25/02/2026\",\"custom-1773419467996\":\"Letras 3D\",\"custom-1773367186325\":\"Suministro \"},\"customBoxes\":[{\"id\":\"custom-1773367186325\",\"x\":0.1013632963225451,\"y\":0.24086946093875555,\"width\":0.8409789419713096,\"height\":0.40151643598989506,\"fontColor\":\"#000000\",\"fontSize\":12,\"fontFamily\":\"Averta Std\"},{\"id\":\"custom-1773367368158\",\"x\":0.09710607134420035,\"y\":0.11353163172762314,\"width\":0.4,\"height\":0.04,\"singleLine\":true,\"fontFamily\":\"Averta Std\",\"fontSize\":12,\"semantic\":\"element\"},{\"id\":\"custom-1773419452764\",\"x\":0.10044298139974146,\"y\":0.151929146571509,\"width\":0.4,\"height\":0.04,\"kind\":\"text\",\"ownerId\":\"6aad5d03-399e-4cd9-be1c-bda4121788fc\",\"singleLine\":true,\"fontFamily\":\"Averta Std\",\"fontSize\":12},{\"id\":\"custom-1773419467996\",\"x\":0.35562731607455983,\"y\":0.1894399688532037,\"width\":0.5965483249047385,\"height\":0.04,\"kind\":\"text\",\"ownerId\":\"6aad5d03-399e-4cd9-be1c-bda4121788fc\",\"singleLine\":true,\"fontFamily\":\"Averta Std\",\"fontSize\":12,\"fontBold\":false},{\"id\":\"custom-1773419486604\",\"x\":0.714783970801313,\"y\":0.07157416889367747,\"width\":0.22587511473156846,\"height\":0.06431453368187277,\"kind\":\"text\",\"ownerId\":\"6aad5d03-399e-4cd9-be1c-bda4121788fc\",\"singleLine\":true,\"semantic\":\"folio\",\"fontFamily\":\"Averta Std\",\"fontBold\":true,\"fontSize\":18},{\"id\":\"custom-1773419514501\",\"x\":0.5116168420132189,\"y\":0.6853014395630002,\"width\":0.38836492738342765,\"height\":0.041262626262626265,\"kind\":\"text\",\"ownerId\":\"6aad5d03-399e-4cd9-be1c-bda4121788fc\",\"singleLine\":true,\"fontFamily\":\"Averta Std\",\"fontSize\":16,\"fontColor\":\"#ffffff\",\"fontBold\":true}],\"globalFontColor\":\"#000000\",\"globalFontFamily\":\"Helvetica\",\"globalFontSize\":11,\"globalFontBold\":false,\"globalFontItalic\":false,\"fieldPositions\":{}}",
+    "boardId": null,
+    "workspaceId": "4f5efb62-b2e2-47cf-a549-736044cb0ffa",
+    "createdBy": null,
+    "createdAt": 1773548609530,
+    "updatedAt": 1773639664469
+  }
+]

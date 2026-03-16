@@ -1,0 +1,26 @@
+[
+  {
+    "id": "c73a8e89-1a3a-4109-9155-99f93e1fe0c9",
+    "userId": "cfef27b7-dbaa-4997-8516-7fc1c1c03f57",
+    "itemId": "5860375b-7847-45f7-8c06-1e61ae0d5931",
+    "type": "assigned",
+    "read": 0,
+    "createdAt": 1773548731038
+  },
+  {
+    "id": "94ad85f0-98c9-413e-9248-c321158f3e1d",
+    "userId": "cfef27b7-dbaa-4997-8516-7fc1c1c03f57",
+    "itemId": "7f65d94f-94d8-45f8-8fb1-20ac8a84bf37",
+    "type": "assigned",
+    "read": 0,
+    "createdAt": 1773548743584
+  },
+  {
+    "id": "4e0f5a85-1e7e-4b5d-8d73-11cef76e105f",
+    "userId": "6aad5d03-399e-4cd9-be1c-bda4121788fc",
+    "itemId": "5860375b-7847-45f7-8c06-1e61ae0d5931",
+    "type": "assigned",
+    "read": 0,
+    "createdAt": 1773602229190
+  }
+]

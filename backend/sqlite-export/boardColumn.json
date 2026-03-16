@@ -1,0 +1,338 @@
+[
+  {
+    "id": "b890c48b-7128-4507-a1ba-9fdf85140f84",
+    "title": "Responsable",
+    "type": "person",
+    "position": 1,
+    "boardId": "0f44ec16-d309-4089-8357-52865e3d493e",
+    "settings": null
+  },
+  {
+    "id": "e8bc1a9f-8cfb-44d1-964b-24a9284a09ad",
+    "title": "Estado",
+    "type": "status",
+    "position": 2,
+    "boardId": "0f44ec16-d309-4089-8357-52865e3d493e",
+    "settings": "{\"options\":[{\"id\":\"listo\",\"label\":\"Listo\",\"color\":\"#00c875\"},{\"id\":\"curso\",\"label\":\"En curso\",\"color\":\"#fdab3d\"},{\"id\":\"detenido\",\"label\":\"Detenido\",\"color\":\"#e2445c\"},{\"id\":\"default\",\"label\":\"\",\"color\":\"#c4c4c4\"}]}"
+  },
+  {
+    "id": "8cafa145-5ed9-4c85-a3c1-1e75aef33a03",
+    "title": "Vencimiento",
+    "type": "date",
+    "position": 3,
+    "boardId": "0f44ec16-d309-4089-8357-52865e3d493e",
+    "settings": null
+  },
+  {
+    "id": "b2d70db4-0f0b-4fee-b4bf-507a3a3780c4",
+    "title": "Prioridad",
+    "type": "status",
+    "position": 4,
+    "boardId": "0f44ec16-d309-4089-8357-52865e3d493e",
+    "settings": "{\"options\":[{\"id\":\"alta\",\"label\":\"Alta\",\"color\":\"#401694\"},{\"id\":\"media\",\"label\":\"Media\",\"color\":\"#5559df\"},{\"id\":\"baja\",\"label\":\"Baja\",\"color\":\"#579bfc\"},{\"id\":\"default\",\"label\":\"\",\"color\":\"#c4c4c4\"}]}"
+  },
+  {
+    "id": "eda569b6-5f42-447e-9354-96983c83c4d7",
+    "title": "Archivos",
+    "type": "file",
+    "position": 5,
+    "boardId": "0f44ec16-d309-4089-8357-52865e3d493e",
+    "settings": null
+  },
+  {
+    "id": "c5d833b9-6147-4372-92d0-3b2e2821f98a",
+    "title": "Cronograma",
+    "type": "timeline",
+    "position": 6,
+    "boardId": "0f44ec16-d309-4089-8357-52865e3d493e",
+    "settings": null
+  },
+  {
+    "id": "0cf91665-384a-4ed5-9f05-a3eb3fad8f4a",
+    "title": "Estado Taller",
+    "type": "status",
+    "position": 9216,
+    "boardId": "3dc83d63-0651-4fa9-86ff-787771d8f52d",
+    "settings": "{\"options\":[{\"id\":\"en_proceso\",\"label\":\"En proceso\",\"color\":\"#fdab3d\"},{\"id\":\"fabricado\",\"label\":\"Fabricado\",\"color\":\"#579bfc\"},{\"id\":\"colocado\",\"label\":\"Colocado\",\"color\":\"#00c875\"},{\"id\":\"default\",\"label\":\"\",\"color\":\"#c4c4c4\"}]}"
+  },
+  {
+    "id": "0d3b1ce6-0961-4a1c-b99f-f6f877b2250a",
+    "title": "Fecha",
+    "type": "date",
+    "position": 1024,
+    "boardId": "3dc83d63-0651-4fa9-86ff-787771d8f52d",
+    "settings": null
+  },
+  {
+    "id": "802f18b7-ff28-42c5-ad78-14183758eb71",
+    "title": "Archivos",
+    "type": "file",
+    "position": 6144,
+    "boardId": "3dc83d63-0651-4fa9-86ff-787771d8f52d",
+    "settings": null
+  },
+  {
+    "id": "dee9133d-11e2-410d-9cd4-03180e138762",
+    "title": "Seguimiento",
+    "type": "priority",
+    "position": 11264,
+    "boardId": "3dc83d63-0651-4fa9-86ff-787771d8f52d",
+    "settings": "{\"options\":[{\"id\":\"sin-respuesta\",\"label\":\"Sin respuesta\",\"color\":\"#fdab3d\"},{\"id\":\"aprobado\",\"label\":\"Aprobado\",\"color\":\"#00c875\"},{\"id\":\"default\",\"label\":\"\",\"color\":\"#c4c4c4\"}]}"
+  },
+  {
+    "id": "fa2e3545-032e-4171-bec2-c873f3c4c564",
+    "title": "Docs",
+    "type": "docs",
+    "position": 4096,
+    "boardId": "3dc83d63-0651-4fa9-86ff-787771d8f52d",
+    "settings": null
+  },
+  {
+    "id": "45d23392-0148-41b8-9469-f7a652b0493c",
+    "title": "Documentos Facturación",
+    "type": "billing_docs",
+    "position": 1030,
+    "boardId": "0f44ec16-d309-4089-8357-52865e3d493e",
+    "settings": null
+  },
+  {
+    "id": "2b3404c7-0c59-4b86-b542-db3e1cd9cfeb",
+    "title": "Estado Facturación",
+    "type": "status",
+    "position": 2054,
+    "boardId": "0f44ec16-d309-4089-8357-52865e3d493e",
+    "settings": "{\"options\":[{\"id\":\"pendiente_factura\",\"label\":\"Pendiente de facturar\",\"color\":\"#fdab3d\"},{\"id\":\"facturado\",\"label\":\"Facturado\",\"color\":\"#579bfc\"},{\"id\":\"cobrado\",\"label\":\"Cobrado\",\"color\":\"#00c875\"},{\"id\":\"default\",\"label\":\"\",\"color\":\"#c4c4c4\"}]}"
+  },
+  {
+    "id": "3ad7c2a4-b540-4b77-9d20-a72dc6f9a23d",
+    "title": "Estado Facturación",
+    "type": "status",
+    "position": 2054,
+    "boardId": "0f44ec16-d309-4089-8357-52865e3d493e",
+    "settings": "{\"options\":[{\"id\":\"pendiente_factura\",\"label\":\"Pendiente de facturar\",\"color\":\"#fdab3d\"},{\"id\":\"facturado\",\"label\":\"Facturado\",\"color\":\"#579bfc\"},{\"id\":\"cobrado\",\"label\":\"Cobrado\",\"color\":\"#00c875\"},{\"id\":\"default\",\"label\":\"\",\"color\":\"#c4c4c4\"}]}"
+  },
+  {
+    "id": "717dc2dd-9f1e-4df8-af0d-60a774b6f72e",
+    "title": "Documentos Facturación",
+    "type": "billing_docs",
+    "position": 2054,
+    "boardId": "0f44ec16-d309-4089-8357-52865e3d493e",
+    "settings": null
+  },
+  {
+    "id": "8553900c-9497-4482-b58e-655e3849daab",
+    "title": "Documentos Facturación",
+    "type": "billing_docs",
+    "position": 1030,
+    "boardId": "0f44ec16-d309-4089-8357-52865e3d493e",
+    "settings": null
+  },
+  {
+    "id": "3bd08c60-d717-4425-8d37-d4ccd1eb48a1",
+    "title": "Estado Facturación",
+    "type": "status",
+    "position": 1030,
+    "boardId": "0f44ec16-d309-4089-8357-52865e3d493e",
+    "settings": "{\"options\":[{\"id\":\"pendiente_factura\",\"label\":\"Pendiente de facturar\",\"color\":\"#fdab3d\"},{\"id\":\"facturado\",\"label\":\"Facturado\",\"color\":\"#579bfc\"},{\"id\":\"cobrado\",\"label\":\"Cobrado\",\"color\":\"#00c875\"},{\"id\":\"default\",\"label\":\"\",\"color\":\"#c4c4c4\"}]}"
+  },
+  {
+    "id": "08b9b847-07cd-48ea-b8ed-f6fa84d1c6d2",
+    "title": "Estado Facturación",
+    "type": "status",
+    "position": 1030,
+    "boardId": "0f44ec16-d309-4089-8357-52865e3d493e",
+    "settings": "{\"options\":[{\"id\":\"pendiente_factura\",\"label\":\"Pendiente de facturar\",\"color\":\"#fdab3d\"},{\"id\":\"facturado\",\"label\":\"Facturado\",\"color\":\"#579bfc\"},{\"id\":\"cobrado\",\"label\":\"Cobrado\",\"color\":\"#00c875\"},{\"id\":\"default\",\"label\":\"\",\"color\":\"#c4c4c4\"}]}"
+  },
+  {
+    "id": "3b35593f-7ac1-410b-a038-816c4a253c3c",
+    "title": "Estado Facturación",
+    "type": "status",
+    "position": 10240,
+    "boardId": "3dc83d63-0651-4fa9-86ff-787771d8f52d",
+    "settings": "{\"options\":[{\"id\":\"pendiente_factura\",\"label\":\"Pendiente de facturar\",\"color\":\"#fdab3d\"},{\"id\":\"facturado\",\"label\":\"Facturado\",\"color\":\"#579bfc\"},{\"id\":\"cobrado\",\"label\":\"Cobrado\",\"color\":\"#00c875\"},{\"id\":\"default\",\"label\":\"\",\"color\":\"#c4c4c4\"}]}"
+  },
+  {
+    "id": "8158ab50-3116-4a3d-85de-1159309890da",
+    "title": "Documentos Facturación",
+    "type": "billing_docs",
+    "position": 13312,
+    "boardId": "3dc83d63-0651-4fa9-86ff-787771d8f52d",
+    "settings": null
+  },
+  {
+    "id": "54468f28-c276-4abf-881b-5e31f890ec87",
+    "title": "Folio",
+    "type": "folio",
+    "position": 2048,
+    "boardId": "3dc83d63-0651-4fa9-86ff-787771d8f52d",
+    "settings": null
+  },
+  {
+    "id": "0424ea5b-4d33-4a5e-8f50-98257c5ae16c",
+    "title": "Contacto",
+    "type": "contact",
+    "position": 3072,
+    "boardId": "3dc83d63-0651-4fa9-86ff-787771d8f52d",
+    "settings": null
+  },
+  {
+    "id": "5066308b-f551-4fac-a67c-28594515d0a1",
+    "title": "Estado",
+    "type": "status",
+    "position": 7168,
+    "boardId": "3dc83d63-0651-4fa9-86ff-787771d8f52d",
+    "settings": "{\"options\":[{\"id\":\"done\",\"label\":\"Hecho\",\"color\":\"#00c875\"},{\"id\":\"working\",\"label\":\"Trabajando en ello\",\"color\":\"#fdab3d\"},{\"id\":\"stuck\",\"label\":\"Pendiente\",\"color\":\"#e2445c\"},{\"id\":\"aprobado\",\"label\":\"Aprobado\",\"color\":\"#00c875\"},{\"id\":\"default\",\"label\":\"\",\"color\":\"#c4c4c4\"}]}"
+  },
+  {
+    "id": "7269cad6-034c-4574-b52e-ee8215aa41dc",
+    "title": "Excel",
+    "type": "excel",
+    "position": 5120,
+    "boardId": "3dc83d63-0651-4fa9-86ff-787771d8f52d",
+    "settings": null
+  },
+  {
+    "id": "9e66a6b8-5217-4989-95e6-96a06e4b8a3f",
+    "title": "Producción",
+    "type": "timeline",
+    "position": 8192,
+    "boardId": "3dc83d63-0651-4fa9-86ff-787771d8f52d",
+    "settings": null
+  },
+  {
+    "id": "3864d42e-042c-45e8-a26f-ac4d93425c79",
+    "title": "Personas",
+    "type": "person",
+    "position": 12288,
+    "boardId": "3dc83d63-0651-4fa9-86ff-787771d8f52d",
+    "settings": null
+  },
+  {
+    "id": "3cd8c69c-590b-434b-b1ef-f2d8af87e1ba",
+    "title": "Estado Taller",
+    "type": "status",
+    "position": 3078,
+    "boardId": "0f44ec16-d309-4089-8357-52865e3d493e",
+    "settings": "{\"options\":[{\"id\":\"en_proceso\",\"label\":\"En proceso\",\"color\":\"#fdab3d\"},{\"id\":\"fabricado\",\"label\":\"Fabricado\",\"color\":\"#579bfc\"},{\"id\":\"colocado\",\"label\":\"Colocado\",\"color\":\"#00c875\"},{\"id\":\"default\",\"label\":\"\",\"color\":\"#c4c4c4\"}]}"
+  },
+  {
+    "id": "1569ab1c-e477-4392-ac05-d71e15d97edf",
+    "title": "Estado Taller",
+    "type": "status",
+    "position": 10240,
+    "boardId": "ec31c720-867f-4995-a346-6635fc74a166",
+    "settings": "{\"options\":[{\"id\":\"en_proceso\",\"label\":\"En proceso\",\"color\":\"#fdab3d\"},{\"id\":\"fabricado\",\"label\":\"Fabricado\",\"color\":\"#579bfc\"},{\"id\":\"colocado\",\"label\":\"Colocado\",\"color\":\"#00c875\"},{\"id\":\"default\",\"label\":\"\",\"color\":\"#c4c4c4\"}]}"
+  },
+  {
+    "id": "1ed455e3-abd1-431b-bf79-9b1537cc75c9",
+    "title": "Folio",
+    "type": "folio",
+    "position": 2048,
+    "boardId": "ec31c720-867f-4995-a346-6635fc74a166",
+    "settings": null
+  },
+  {
+    "id": "43317eea-5d0e-48e7-b55a-6e2564c97ed0",
+    "title": "Contacto",
+    "type": "contact",
+    "position": 3072,
+    "boardId": "ec31c720-867f-4995-a346-6635fc74a166",
+    "settings": null
+  },
+  {
+    "id": "49f0748f-01c5-4de9-b888-1524f1897d49",
+    "title": "Docs",
+    "type": "docs",
+    "position": 5120,
+    "boardId": "ec31c720-867f-4995-a346-6635fc74a166",
+    "settings": null
+  },
+  {
+    "id": "c160f63b-27af-4fa9-b7d7-402d616ffac7",
+    "title": "Excel",
+    "type": "excel",
+    "position": 7168,
+    "boardId": "ec31c720-867f-4995-a346-6635fc74a166",
+    "settings": null
+  },
+  {
+    "id": "1c0c13e7-ecf1-408d-8de6-088e0ae884c3",
+    "title": "Fecha",
+    "type": "date",
+    "position": 1024,
+    "boardId": "ec31c720-867f-4995-a346-6635fc74a166",
+    "settings": null
+  },
+  {
+    "id": "8ecb9cea-d457-4e83-8354-3caad924158f",
+    "title": "Archivos",
+    "type": "file",
+    "position": 8192,
+    "boardId": "ec31c720-867f-4995-a346-6635fc74a166",
+    "settings": null
+  },
+  {
+    "id": "2b563b45-306c-43a6-a020-d5fe279c20af",
+    "title": "Colocación",
+    "type": "date",
+    "position": 11264,
+    "boardId": "ec31c720-867f-4995-a346-6635fc74a166",
+    "settings": null
+  },
+  {
+    "id": "c1d573eb-a8c0-431a-81eb-8e3b54247a90",
+    "title": "Seguimiento",
+    "type": "priority",
+    "position": 9216,
+    "boardId": "ec31c720-867f-4995-a346-6635fc74a166",
+    "settings": "{\"options\":[{\"id\":\"sin-respuesta\",\"label\":\"Sin respuesta\",\"color\":\"#fdab3d\"},{\"id\":\"aprobado\",\"label\":\"Aprobado\",\"color\":\"#00c875\"},{\"id\":\"default\",\"label\":\"\",\"color\":\"#c4c4c4\"}]}"
+  },
+  {
+    "id": "d6ac79a3-b049-4d60-91ed-7ea451e9dee4",
+    "title": "Estado",
+    "type": "status",
+    "position": 6144,
+    "boardId": "ec31c720-867f-4995-a346-6635fc74a166",
+    "settings": "{\"options\":[{\"id\":\"done\",\"label\":\"Hecho\",\"color\":\"#00c875\"},{\"id\":\"working\",\"label\":\"Trabajando en ello\",\"color\":\"#fdab3d\"},{\"id\":\"stuck\",\"label\":\"Pendiente\",\"color\":\"#e2445c\"},{\"id\":\"aprobado\",\"label\":\"Aprobado\",\"color\":\"#00c875\"},{\"id\":\"default\",\"label\":\"\",\"color\":\"#c4c4c4\"}]}"
+  },
+  {
+    "id": "af3bb15c-15a6-4ff8-956d-c8b4067b9f7a",
+    "title": "Estado Facturación",
+    "type": "status",
+    "position": 12288,
+    "boardId": "ec31c720-867f-4995-a346-6635fc74a166",
+    "settings": "{\"options\":[{\"id\":\"pendiente_factura\",\"label\":\"Pendiente de facturar\",\"color\":\"#fdab3d\"},{\"id\":\"facturado\",\"label\":\"Facturado\",\"color\":\"#579bfc\"},{\"id\":\"cobrado\",\"label\":\"Cobrado\",\"color\":\"#00c875\"},{\"id\":\"default\",\"label\":\"\",\"color\":\"#c4c4c4\"}]}"
+  },
+  {
+    "id": "d59607ff-a3b2-45e0-b052-350693abd901",
+    "title": "Documentos Facturación",
+    "type": "billing_docs",
+    "position": 13312,
+    "boardId": "ec31c720-867f-4995-a346-6635fc74a166",
+    "settings": null
+  },
+  {
+    "id": "2fdd7a91-c609-444b-bde7-bc4809035ca9",
+    "title": "Documentos Facturación",
+    "type": "billing_docs",
+    "position": 14336,
+    "boardId": "ec31c720-867f-4995-a346-6635fc74a166",
+    "settings": null
+  },
+  {
+    "id": "5855f466-7b38-435e-ad45-7c56938d64c5",
+    "title": "Estado Facturación",
+    "type": "status",
+    "position": 15360,
+    "boardId": "ec31c720-867f-4995-a346-6635fc74a166",
+    "settings": "{\"options\":[{\"id\":\"pendiente_factura\",\"label\":\"Pendiente de facturar\",\"color\":\"#fdab3d\"},{\"id\":\"facturado\",\"label\":\"Facturado\",\"color\":\"#579bfc\"},{\"id\":\"cobrado\",\"label\":\"Cobrado\",\"color\":\"#00c875\"},{\"id\":\"default\",\"label\":\"\",\"color\":\"#c4c4c4\"}]}"
+  },
+  {
+    "id": "28a3cb2c-e0e8-48f7-b80a-3e03bd268164",
+    "title": "Personas",
+    "type": "person",
+    "position": 4096,
+    "boardId": "ec31c720-867f-4995-a346-6635fc74a166",
+    "settings": null
+  }
+]

@@ -1,0 +1,14 @@
+[
+  {
+    "id": "4230babd-668d-4632-ad11-009a3a93337a",
+    "docType": "cotizacion",
+    "fieldPositions": "{}",
+    "fontColor": "#000000",
+    "fontFamily": "Helvetica",
+    "fontSize": 11,
+    "fontBold": 0,
+    "fontItalic": 0,
+    "customBoxes": "[{\"id\":\"custom-1773367186325\",\"x\":0.1013632963225451,\"y\":0.24086946093875555,\"width\":0.8409789419713096,\"height\":0.40151643598989506,\"fontColor\":\"#000000\",\"fontSize\":12,\"fontFamily\":\"Averta Std\"},{\"id\":\"custom-1773367368158\",\"x\":0.09710607134420035,\"y\":0.11353163172762314,\"width\":0.4,\"height\":0.04,\"singleLine\":true,\"fontFamily\":\"Averta Std\",\"fontSize\":12,\"semantic\":\"element\"},{\"id\":\"custom-1773419452764\",\"x\":0.10044298139974146,\"y\":0.151929146571509,\"width\":0.4,\"height\":0.04,\"kind\":\"text\",\"ownerId\":\"6aad5d03-399e-4cd9-be1c-bda4121788fc\",\"singleLine\":true,\"fontFamily\":\"Averta Std\",\"fontSize\":12},{\"id\":\"custom-1773419467996\",\"x\":0.35562731607455983,\"y\":0.1894399688532037,\"width\":0.5965483249047385,\"height\":0.04,\"kind\":\"text\",\"ownerId\":\"6aad5d03-399e-4cd9-be1c-bda4121788fc\",\"singleLine\":true,\"fontFamily\":\"Averta Std\",\"fontSize\":12,\"fontBold\":false},{\"id\":\"custom-1773419486604\",\"x\":0.714783970801313,\"y\":0.07157416889367747,\"width\":0.22587511473156846,\"height\":0.06431453368187277,\"kind\":\"text\",\"ownerId\":\"6aad5d03-399e-4cd9-be1c-bda4121788fc\",\"singleLine\":true,\"semantic\":\"folio\",\"fontFamily\":\"Averta Std\",\"fontBold\":true,\"fontSize\":18},{\"id\":\"custom-1773419514501\",\"x\":0.5116168420132189,\"y\":0.6853014395630002,\"width\":0.38836492738342765,\"height\":0.041262626262626265,\"kind\":\"text\",\"ownerId\":\"6aad5d03-399e-4cd9-be1c-bda4121788fc\",\"singleLine\":true,\"fontFamily\":\"Averta Std\",\"fontSize\":16,\"fontColor\":\"#ffffff\",\"fontBold\":true}]",
+    "updatedAt": 1773608258513
+  }
+]

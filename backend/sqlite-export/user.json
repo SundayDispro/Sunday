@@ -1,0 +1,57 @@
+[
+  {
+    "id": "6aad5d03-399e-4cd9-be1c-bda4121788fc",
+    "username": "ADMIN",
+    "name": "Administrador Principal",
+    "initials": "AD",
+    "color": "#00c875",
+    "password": "root",
+    "role": "ADMIN",
+    "status": "available",
+    "createdAt": 1773331976341
+  },
+  {
+    "id": "e44ce0ba-7ee8-40e7-b5f5-fb02fd2d6639",
+    "username": "juan",
+    "name": "juan",
+    "initials": "J",
+    "color": "#e2445c",
+    "password": "0",
+    "role": "TALLER",
+    "status": "offline",
+    "createdAt": 1773367299782
+  },
+  {
+    "id": "3b199b33-1290-49ec-b277-f74ee2cad0c3",
+    "username": "vee",
+    "name": "jose",
+    "initials": "J",
+    "color": "#fdab3d",
+    "password": "v",
+    "role": "VENTAS",
+    "status": "offline",
+    "createdAt": 1773424226740
+  },
+  {
+    "id": "cfef27b7-dbaa-4997-8516-7fc1c1c03f57",
+    "username": "d",
+    "name": "diseño",
+    "initials": "D",
+    "color": "#6e3cbb",
+    "password": "1",
+    "role": "DISENO",
+    "status": "available",
+    "createdAt": 1773432268602
+  },
+  {
+    "id": "fd903185-4df3-4e39-8fec-c988ebb0084f",
+    "username": "v",
+    "name": "v",
+    "initials": "V",
+    "color": "#5559df",
+    "password": "0",
+    "role": "VENTAS",
+    "status": "busy",
+    "createdAt": 1773543595900
+  }
+]

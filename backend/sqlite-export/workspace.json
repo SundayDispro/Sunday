@@ -1,0 +1,29 @@
+[
+  {
+    "id": "7c4d04f5-470a-447f-ba9b-cdffe76ebfda",
+    "name": "Main Workspace",
+    "createdAt": 1773331976425,
+    "updatedAt": 1773648768203,
+    "description": null,
+    "panelNotes": "[{\"id\":\"329cca7e-e774-4a17-87a3-79399917cadd\",\"title\":\"Mis tareas\",\"kind\":\"tasks\",\"ownerId\":\"de363f7f-3ece-41e3-9bf6-ec3301168647\",\"color\":\"#fef08a\",\"tasks\":[{\"id\":\"bdbdae0d-3438-49c7-86b9-f0773d2e55ff\",\"text\":\"\",\"done\":true,\"important\":false},{\"id\":\"25b28795-175f-41cd-a2df-6fc06d31f5f8\",\"text\":\"\",\"done\":false,\"important\":false},{\"id\":\"eaf15abc-730e-4785-a447-cc6e524e230c\",\"text\":\"\",\"done\":false,\"important\":false}]},{\"id\":\"61825418-bff8-4fec-8195-b626a9824137\",\"title\":\"Mis tareas\",\"kind\":\"tasks\",\"ownerId\":\"de363f7f-3ece-41e3-9bf6-ec3301168647\",\"color\":\"#60a5fa\",\"tasks\":[]},{\"id\":\"59a6f3d6-cad1-4074-8326-09c392404066\",\"title\":\"Mis tareas\",\"kind\":\"tasks\",\"ownerId\":\"de363f7f-3ece-41e3-9bf6-ec3301168647\",\"color\":\"#fbcfe8\",\"tasks\":[]},{\"id\":\"9c56d266-7875-4628-9b4d-4ec1ee0d1078\",\"title\":\"Calculadora\",\"kind\":\"calculator\",\"ownerId\":\"de363f7f-3ece-41e3-9bf6-ec3301168647\",\"color\":\"#ffffff\",\"tasks\":[]},{\"id\":\"cbe938ef-d000-4515-8354-d37965541bb3\",\"title\":\"Mis tareas\",\"kind\":\"tasks\",\"ownerId\":\"de363f7f-3ece-41e3-9bf6-ec3301168647\",\"color\":\"#fef08a\",\"tasks\":[]}]",
+    "docGroups": "{\"de363f7f-3ece-41e3-9bf6-ec3301168647\":{\"groups\":[{\"id\":\"752be641-37f5-4c6a-926e-d01606e99336\",\"name\":\"Plantillas\"}],\"assignments\":{\"c8b9ce4f-3ada-4f4b-920d-d37f521ee7e0\":\"752be641-37f5-4c6a-926e-d01606e99336\"}}}"
+  },
+  {
+    "id": "a121276e-e706-41e0-8cd9-c708f2ac9f4e",
+    "name": "asdasd",
+    "createdAt": 1773332086709,
+    "updatedAt": 1773549599350,
+    "description": null,
+    "panelNotes": "[{\"id\":\"dd72a4b9-41e1-478f-b34a-92874dfc39ae\",\"title\":\"Mis tareas\",\"kind\":\"tasks\",\"ownerId\":\"052c1fa4-987f-4bfb-be05-0d3eb13b2b5b\",\"color\":\"#fef08a\",\"tasks\":[{\"id\":\"c426bb04-616d-4151-ba8b-6c60c0258270\",\"text\":\"asdasdasdasas\",\"done\":false},{\"id\":\"fa66c296-b79a-4e2c-9cdf-10f5d67b0a67\",\"text\":\"asdas\\nasda\\nasdas\",\"done\":false},{\"id\":\"c5d982ef-a5f3-49cd-bfb4-1176f7124341\",\"text\":\"asdasdasdas\",\"done\":false}]},{\"id\":\"f0e3677b-d1bf-4d56-8989-87454aa7b0b7\",\"title\":\"Calculadora\",\"kind\":\"calculator\",\"ownerId\":\"052c1fa4-987f-4bfb-be05-0d3eb13b2b5b\",\"color\":\"#ffffff\",\"tasks\":[]},{\"id\":\"a9f6e753-15b4-4cf7-8838-37a1d8b41cfc\",\"title\":\"Calculadora\",\"kind\":\"calculator\",\"ownerId\":\"c97ef45d-24be-4c08-9d4c-af02ff1d3b93\",\"color\":\"#ffffff\",\"tasks\":[]},{\"id\":\"3c58c5a9-affa-450f-9b65-9993c11b2bf2\",\"title\":\"Mis tareas\",\"kind\":\"tasks\",\"ownerId\":\"e44ce0ba-7ee8-40e7-b5f5-fb02fd2d6639\",\"color\":\"#fef08a\",\"tasks\":[]},{\"id\":\"108a6fd9-a92b-46a8-8ccf-557016e6c38c\",\"title\":\"Calculadora\",\"kind\":\"calculator\",\"ownerId\":\"de363f7f-3ece-41e3-9bf6-ec3301168647\",\"color\":\"#ffffff\",\"tasks\":[]},{\"id\":\"7eace66b-8e38-4805-93a1-5ec2390ef962\",\"title\":\"Mis tareas\",\"kind\":\"tasks\",\"ownerId\":\"de363f7f-3ece-41e3-9bf6-ec3301168647\",\"color\":\"#fbcfe8\",\"tasks\":[]},{\"id\":\"ebb8e3dd-a8af-4956-8786-0545e0ca4b41\",\"title\":\"Calculadora\",\"kind\":\"calculator\",\"ownerId\":\"6aad5d03-399e-4cd9-be1c-bda4121788fc\",\"color\":\"#ffffff\",\"tasks\":[]},{\"id\":\"224ad74a-41e7-4e5d-921e-16ecbc52482f\",\"title\":\"Mis tareas\",\"kind\":\"tasks\",\"ownerId\":\"6aad5d03-399e-4cd9-be1c-bda4121788fc\",\"color\":\"#fef08a\",\"tasks\":[{\"id\":\"841e5150-65fc-470d-b82a-e52ead167321\",\"text\":\"asdasdasdas\\nasdada\\nasdasdas\",\"done\":false,\"important\":false},{\"id\":\"deba43c7-3ceb-4f0a-a424-ed40f63c8bbb\",\"text\":\"asdadas\",\"done\":false,\"important\":false}]},{\"id\":\"3b9c81a7-4189-44f1-93c0-68bfdb12ffeb\",\"title\":\"Mis tareas\",\"kind\":\"tasks\",\"ownerId\":\"cfef27b7-dbaa-4997-8516-7fc1c1c03f57\",\"color\":\"#fbcfe8\",\"tasks\":[]},{\"id\":\"15399cb7-732d-49cd-b599-5d7f9284b860\",\"title\":\"Calculadora\",\"kind\":\"calculator\",\"ownerId\":\"cfef27b7-dbaa-4997-8516-7fc1c1c03f57\",\"color\":\"#ffffff\",\"tasks\":[]},{\"id\":\"808c6596-353b-4311-a9d5-e6af9119a254\",\"title\":\"Mis tareas\",\"kind\":\"tasks\",\"ownerId\":\"cfef27b7-dbaa-4997-8516-7fc1c1c03f57\",\"color\":\"#fef08a\",\"tasks\":[]}]",
+    "docGroups": "{\"cfef27b7-dbaa-4997-8516-7fc1c1c03f57\":{\"groups\":[{\"id\":\"8d4b8f7c-3f37-4fe2-b0f2-a28bdbcba44a\",\"name\":\"Plantillas\"}],\"assignments\":{},\"subgroupsByType\":{},\"subgroupAssignments\":{}}}"
+  },
+  {
+    "id": "4f5efb62-b2e2-47cf-a549-736044cb0ffa",
+    "name": "Forvia",
+    "createdAt": 1773531439946,
+    "updatedAt": 1773646275305,
+    "description": null,
+    "panelNotes": "[{\"id\":\"518e6db6-7b6f-43fe-a33c-9ccf84d5e416\",\"title\":\"Mis tareas\",\"kind\":\"tasks\",\"ownerId\":\"6aad5d03-399e-4cd9-be1c-bda4121788fc\",\"color\":\"#fef08a\",\"tasks\":[{\"id\":\"cf37fa53-d83e-42bd-94c6-a565d23a312d\",\"text\":\"dfgdfgdf\\n\",\"done\":true,\"important\":false}]},{\"id\":\"c6c0b566-8457-4991-b738-8e2ca97e9cef\",\"title\":\"Mis tareas\",\"kind\":\"tasks\",\"ownerId\":\"6aad5d03-399e-4cd9-be1c-bda4121788fc\",\"color\":\"#fef08a\",\"tasks\":[]},{\"id\":\"736690af-33ae-45a9-b46e-9a9ec69f6c41\",\"title\":\"Mis tareas\",\"kind\":\"tasks\",\"ownerId\":\"6aad5d03-399e-4cd9-be1c-bda4121788fc\",\"color\":\"#fef08a\",\"tasks\":[]},{\"id\":\"125e10d4-1228-41b8-bfd4-da398ece1827\",\"title\":\"Calculadora\",\"kind\":\"calculator\",\"ownerId\":\"6aad5d03-399e-4cd9-be1c-bda4121788fc\",\"color\":\"#ffffff\",\"tasks\":[]}]",
+    "docGroups": null
+  }
+]

@@ -1,0 +1,23 @@
+[
+  {
+    "id": "0f44ec16-d309-4089-8357-52865e3d493e",
+    "name": "Ejemplo",
+    "workspaceId": "7c4d04f5-470a-447f-ba9b-cdffe76ebfda",
+    "createdAt": 1773331976429,
+    "updatedAt": 1773331976429
+  },
+  {
+    "id": "3dc83d63-0651-4fa9-86ff-787771d8f52d",
+    "name": "2026",
+    "workspaceId": "a121276e-e706-41e0-8cd9-c708f2ac9f4e",
+    "createdAt": 1773332109753,
+    "updatedAt": 1773332109753
+  },
+  {
+    "id": "ec31c720-867f-4995-a346-6635fc74a166",
+    "name": "2026",
+    "workspaceId": "4f5efb62-b2e2-47cf-a549-736044cb0ffa",
+    "createdAt": 1773531448975,
+    "updatedAt": 1773531492810
+  }
+]

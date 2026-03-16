@@ -1,0 +1,242 @@
+[
+  {
+    "id": "8d831fee-2719-4a5f-96f4-9138d3eb71e3",
+    "value": "{\"optionId\":\"curso\"}",
+    "itemId": "ff170df5-1af6-4ef6-8b23-52d3d95b6b35",
+    "columnId": "e8bc1a9f-8cfb-44d1-964b-24a9284a09ad"
+  },
+  {
+    "id": "575b3874-3b37-49fb-93a4-26d87de2428e",
+    "value": "{\"optionId\":\"baja\"}",
+    "itemId": "ff170df5-1af6-4ef6-8b23-52d3d95b6b35",
+    "columnId": "b2d70db4-0f0b-4fee-b4bf-507a3a3780c4"
+  },
+  {
+    "id": "da35795b-6db1-4d29-9469-13197a82ad7e",
+    "value": "{\"optionId\":\"listo\"}",
+    "itemId": "ebd9854e-f1a4-4084-ac86-790302c00d71",
+    "columnId": "e8bc1a9f-8cfb-44d1-964b-24a9284a09ad"
+  },
+  {
+    "id": "7c13230c-3f2c-4ae6-b05a-bcb5be02eafb",
+    "value": "{\"optionId\":\"alta\"}",
+    "itemId": "ebd9854e-f1a4-4084-ac86-790302c00d71",
+    "columnId": "b2d70db4-0f0b-4fee-b4bf-507a3a3780c4"
+  },
+  {
+    "id": "a017093a-e744-4867-bcbe-46907991eb98",
+    "value": "{\"optionId\":\"detenido\"}",
+    "itemId": "20866acf-7fa3-43bc-b1ad-19e545c2225f",
+    "columnId": "e8bc1a9f-8cfb-44d1-964b-24a9284a09ad"
+  },
+  {
+    "id": "78b3a8d9-5972-4f6f-b995-761be63e6748",
+    "value": "{\"optionId\":\"media\"}",
+    "itemId": "20866acf-7fa3-43bc-b1ad-19e545c2225f",
+    "columnId": "b2d70db4-0f0b-4fee-b4bf-507a3a3780c4"
+  },
+  {
+    "id": "a57300cf-757f-43b8-9138-e1e93ed24eb8",
+    "value": "{\"optionId\":\"colocado\"}",
+    "itemId": "ef7d7944-0f39-4a73-b907-a93df84f6889",
+    "columnId": "0cf91665-384a-4ed5-9f05-a3eb3fad8f4a"
+  },
+  {
+    "id": "6710f0a4-e008-4b43-9583-5535ba632dff",
+    "value": "502",
+    "itemId": "ef7d7944-0f39-4a73-b907-a93df84f6889",
+    "columnId": "54468f28-c276-4abf-881b-5e31f890ec87"
+  },
+  {
+    "id": "03ec0ffc-a225-4c44-8cab-b1005523c4ae",
+    "value": "2026-03-12",
+    "itemId": "ef7d7944-0f39-4a73-b907-a93df84f6889",
+    "columnId": "0d3b1ce6-0961-4a1c-b99f-f6f877b2250a"
+  },
+  {
+    "id": "bd3b680c-e787-4856-bf43-7f730a490163",
+    "value": "{\"start\":\"2026-03-13T00:00:00.000Z\",\"end\":\"2026-03-16T00:00:00.000Z\"}",
+    "itemId": "ef7d7944-0f39-4a73-b907-a93df84f6889",
+    "columnId": "9e66a6b8-5217-4989-95e6-96a06e4b8a3f"
+  },
+  {
+    "id": "20f4438c-cf2c-4867-8740-a5bef8934b7f",
+    "value": "2026-03-16",
+    "itemId": "749cd087-abb9-4975-a121-4b990068eeef",
+    "columnId": "0d3b1ce6-0961-4a1c-b99f-f6f877b2250a"
+  },
+  {
+    "id": "fb6a974c-d80b-4404-ab5e-b64f07478c76",
+    "value": "21452",
+    "itemId": "749cd087-abb9-4975-a121-4b990068eeef",
+    "columnId": "54468f28-c276-4abf-881b-5e31f890ec87"
+  },
+  {
+    "id": "f0cac7ff-1f9a-4ca2-adca-d4be2750647d",
+    "value": "{\"optionId\":\"colocado\"}",
+    "itemId": "749cd087-abb9-4975-a121-4b990068eeef",
+    "columnId": "0cf91665-384a-4ed5-9f05-a3eb3fad8f4a"
+  },
+  {
+    "id": "cd001b45-ec0a-4f71-ac08-9806fce405b4",
+    "value": "{\"optionId\":\"pendiente_factura\"}",
+    "itemId": "749cd087-abb9-4975-a121-4b990068eeef",
+    "columnId": "3b35593f-7ac1-410b-a038-816c4a253c3c"
+  },
+  {
+    "id": "dbcc41fe-49d6-4b97-9d42-7e06d23a1361",
+    "value": "{\"optionId\":\"cobrado\"}",
+    "itemId": "ef7d7944-0f39-4a73-b907-a93df84f6889",
+    "columnId": "3b35593f-7ac1-410b-a038-816c4a253c3c"
+  },
+  {
+    "id": "ddd5332f-b7e1-44c2-a0d7-7b2018a70a2c",
+    "value": "{\"url\":\"/uploads/1773367938261-z5mddwb.jpg\",\"label\":\"Documento de facturación\"}",
+    "itemId": "749cd087-abb9-4975-a121-4b990068eeef",
+    "columnId": "8158ab50-3116-4a3d-85de-1159309890da"
+  },
+  {
+    "id": "b1b03de8-392b-4a62-a5ad-bc0dfca341db",
+    "value": "{\"optionId\":\"working\"}",
+    "itemId": "749cd087-abb9-4975-a121-4b990068eeef",
+    "columnId": "5066308b-f551-4fac-a67c-28594515d0a1"
+  },
+  {
+    "id": "334927b1-132c-4db7-9c2e-181a28864e38",
+    "value": "{\"text\":\"\"}",
+    "itemId": "749cd087-abb9-4975-a121-4b990068eeef",
+    "columnId": "0424ea5b-4d33-4a5e-8f50-98257c5ae16c"
+  },
+  {
+    "id": "0579fd7e-4d2d-4651-8bc0-00a712ad3bcc",
+    "value": "2026-03-15",
+    "itemId": "20e82044-e8c9-4571-aabd-e836df9d850e",
+    "columnId": "0d3b1ce6-0961-4a1c-b99f-f6f877b2250a"
+  },
+  {
+    "id": "79b8cb59-18e7-4b01-b909-d123acba6c67",
+    "value": "{\"cotizacionDocId\":\"601083de-02fd-4aa2-b2c3-bc45f089d4b7\"}",
+    "itemId": "ef7d7944-0f39-4a73-b907-a93df84f6889",
+    "columnId": "fa2e3545-032e-4171-bec2-c873f3c4c564"
+  },
+  {
+    "id": "3fcbb3fe-1160-4ac3-ba83-0d9379be514e",
+    "value": "",
+    "itemId": "749cd087-abb9-4975-a121-4b990068eeef",
+    "columnId": "fa2e3545-032e-4171-bec2-c873f3c4c564"
+  },
+  {
+    "id": "53e185bd-6f78-4c28-9055-f9859a833668",
+    "value": "{\"cotizacionDocId\":\"12853afe-bc58-48e1-9b21-5762ba3dcf7f\"}",
+    "itemId": "20e82044-e8c9-4571-aabd-e836df9d850e",
+    "columnId": "fa2e3545-032e-4171-bec2-c873f3c4c564"
+  },
+  {
+    "id": "c29a4e68-f01f-4887-b17e-ac60e263d7df",
+    "value": "{\"cotizacionDocId\":\"287efd3f-bfbf-47c3-8dd4-b08f2fa6b049\"}",
+    "itemId": "df8d6a6f-4255-4ede-b805-f6c80466b1f1",
+    "columnId": "fa2e3545-032e-4171-bec2-c873f3c4c564"
+  },
+  {
+    "id": "5c833fdb-f8db-48e5-afc8-2a1d767106a5",
+    "value": "658",
+    "itemId": "99ce86b6-333b-406e-ba77-b477a6ce9ef9",
+    "columnId": "54468f28-c276-4abf-881b-5e31f890ec87"
+  },
+  {
+    "id": "2b50cfac-3318-4022-97a5-cee5e18aca2a",
+    "value": "{\"cotizacionDocId\":\"32727407-f1c8-4988-a9d3-cf4690bb40c2\"}",
+    "itemId": "99ce86b6-333b-406e-ba77-b477a6ce9ef9",
+    "columnId": "fa2e3545-032e-4171-bec2-c873f3c4c564"
+  },
+  {
+    "id": "0b274c20-8ca3-4b52-b528-bab16feb9d62",
+    "value": "{}",
+    "itemId": "749cd087-abb9-4975-a121-4b990068eeef",
+    "columnId": "9e66a6b8-5217-4989-95e6-96a06e4b8a3f"
+  },
+  {
+    "id": "72e0d071-e509-492e-a9c7-093958544f26",
+    "value": "de363f7f-3ece-41e3-9bf6-ec3301168647",
+    "itemId": "749cd087-abb9-4975-a121-4b990068eeef",
+    "columnId": "3864d42e-042c-45e8-a26f-ac4d93425c79"
+  },
+  {
+    "id": "a2451fde-e653-4fd7-8fef-74c0847ec22f",
+    "value": "0000",
+    "itemId": "20e82044-e8c9-4571-aabd-e836df9d850e",
+    "columnId": "54468f28-c276-4abf-881b-5e31f890ec87"
+  },
+  {
+    "id": "fa659e52-287a-4f38-ae46-bf50a2ca30f6",
+    "value": "0006",
+    "itemId": "df8d6a6f-4255-4ede-b805-f6c80466b1f1",
+    "columnId": "54468f28-c276-4abf-881b-5e31f890ec87"
+  },
+  {
+    "id": "7eb57d48-2a76-4436-86e4-b8dff780ecfa",
+    "value": "6666",
+    "itemId": "63245adc-a04c-491a-a2d7-2b55bee60c71",
+    "columnId": "54468f28-c276-4abf-881b-5e31f890ec87"
+  },
+  {
+    "id": "2cdb0d06-5b6e-4e7c-8652-14fd3dabe844",
+    "value": "{\"cotizacionDocId\":\"5d0841de-6510-4dc7-a674-3ceb8cb0afe3\"}",
+    "itemId": "63245adc-a04c-491a-a2d7-2b55bee60c71",
+    "columnId": "fa2e3545-032e-4171-bec2-c873f3c4c564"
+  },
+  {
+    "id": "71adb90b-1b9f-44d6-965c-dd9cd9b53733",
+    "value": "0080",
+    "itemId": "b2e41703-2933-457f-9925-75e528187e20",
+    "columnId": "54468f28-c276-4abf-881b-5e31f890ec87"
+  },
+  {
+    "id": "74ec3e7e-e65a-4635-aca0-95ef9bcb484e",
+    "value": "{\"cotizacionDocId\":\"70877254-14e4-42e3-928a-0d69b4942eaf\"}",
+    "itemId": "b2e41703-2933-457f-9925-75e528187e20",
+    "columnId": "fa2e3545-032e-4171-bec2-c873f3c4c564"
+  },
+  {
+    "id": "6b956a6b-dd45-455d-aac9-f5358f0aaedf",
+    "value": "8806",
+    "itemId": "6a9cd238-3acd-43ab-a1aa-b6c8c11b3e00",
+    "columnId": "54468f28-c276-4abf-881b-5e31f890ec87"
+  },
+  {
+    "id": "8567feaf-0219-41aa-b00a-545a44dc0014",
+    "value": "{\"cotizacionDocId\":\"2f7dc3a1-d9c9-49b1-b7e2-fcac5e631677\"}",
+    "itemId": "6a9cd238-3acd-43ab-a1aa-b6c8c11b3e00",
+    "columnId": "fa2e3545-032e-4171-bec2-c873f3c4c564"
+  },
+  {
+    "id": "d1c51270-a6f6-408e-a335-eefb7ef75e32",
+    "value": "{\"optionId\":\"aprobado\"}",
+    "itemId": "5860375b-7847-45f7-8c06-1e61ae0d5931",
+    "columnId": "d6ac79a3-b049-4d60-91ed-7ea451e9dee4"
+  },
+  {
+    "id": "df24bc0d-6502-48b1-bbf9-65c345c4dd22",
+    "value": "{\"cotizacionDocId\":\"a6d09e07-6f56-4ed1-a960-beadeb09a64e\"}",
+    "itemId": "5860375b-7847-45f7-8c06-1e61ae0d5931",
+    "columnId": "49f0748f-01c5-4de9-b888-1524f1897d49"
+  },
+  {
+    "id": "85966dfa-112e-428e-a7ad-8a9d1be5bff2",
+    "value": "{\"cotizacionDocId\":\"204c50cd-6869-4069-abae-8a38749c6147\"}",
+    "itemId": "7f65d94f-94d8-45f8-8fb1-20ac8a84bf37",
+    "columnId": "49f0748f-01c5-4de9-b888-1524f1897d49"
+  },
+  {
+    "id": "eab3d901-1563-4d66-a607-32edb7110a88",
+    "value": "6aad5d03-399e-4cd9-be1c-bda4121788fc",
+    "itemId": "5860375b-7847-45f7-8c06-1e61ae0d5931",
+    "columnId": "28a3cb2c-e0e8-48f7-b80a-3e03bd268164"
+  },
+  {
+    "id": "07769bba-2227-497c-be18-b884db656017",
+    "value": "cfef27b7-dbaa-4997-8516-7fc1c1c03f57",
+    "itemId": "7f65d94f-94d8-45f8-8fb1-20ac8a84bf37",
+    "columnId": "28a3cb2c-e0e8-48f7-b80a-3e03bd268164"
+  }
+]

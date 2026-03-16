@@ -27,7 +27,7 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
 ));
 var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: true }), mod);
 
-// frontend/src/renderDocumentToHtml.tsx
+// ../frontend/src/renderDocumentToHtml.tsx
 var renderDocumentToHtml_exports = {};
 __export(renderDocumentToHtml_exports, {
   renderDocumentHtml: () => renderDocumentHtml
@@ -36,18 +36,18 @@ module.exports = __toCommonJS(renderDocumentToHtml_exports);
 var import_react = __toESM(require("react"), 1);
 var import_server = require("react-dom/server");
 
-// frontend/src/components/pages/docs/DocumentPageForPdf.tsx
+// ../frontend/src/components/pages/docs/DocumentPageForPdf.tsx
 var import_jsx_runtime = require("react/jsx-runtime");
 var PAGE_W_PT = 612;
 var PAGE_H_PT = 792;
 var PADDING_TOP_FOLIO_PX = 12;
 var PADDING_TOP_SINGLE_PX = 16;
 var PADDING_TOP_DESCRIPCION_CORTA_PX = 28;
+var PADDING_TOP_TOTAL_PX = 0;
 var PADDING_TOP_MULTI_PX = 8;
 var PADDING_BOTTOM_PX = 4;
 var PADDING_SIDES_PX = 6;
 var PADDING_FOLIO_LEFT_PX = 8;
-var PADDING_TOP_TOTAL_PX = 6;
 var PADDING_TOTAL_RIGHT_PX = 16;
 function formatDateForPdf(value) {
   const s = String(value).trim();
@@ -187,6 +187,7 @@ var DocumentPageForPdf = ({
     const heightClampedPt = Math.min(rawHeightPt, PAGE_H_PT - topPt);
     const lineHeight = isSingleLine ? 1.1 : 1.35;
     const paddingTopPx = isTotalBox ? PADDING_TOP_TOTAL_PX : isDescripcionCorta ? PADDING_TOP_DESCRIPCION_CORTA_PX : isFolio ? PADDING_TOP_FOLIO_PX : isSingleLine ? PADDING_TOP_SINGLE_PX : PADDING_TOP_MULTI_PX;
+    const paddingBottomPx = isTotalBox ? 0 : PADDING_BOTTOM_PX;
     const paddingLeftPx = isFolio ? PADDING_FOLIO_LEFT_PX : PADDING_SIDES_PX;
     const paddingRightPx = isTotal ? PADDING_TOTAL_RIGHT_PX : PADDING_SIDES_PX;
     const boxStyle = {
@@ -196,7 +197,7 @@ var DocumentPageForPdf = ({
       width: `${widthPt}pt`,
       height: `${heightClampedPt}pt`,
       margin: 0,
-      padding: `${paddingTopPx}px ${paddingRightPx}px ${PADDING_BOTTOM_PX}px ${paddingLeftPx}px`,
+      padding: `${paddingTopPx}px ${paddingRightPx}px ${paddingBottomPx}px ${paddingLeftPx}px`,
       lineHeight,
       boxSizing: "border-box",
       overflow: isTotalBox ? "visible" : "hidden",
@@ -209,7 +210,7 @@ var DocumentPageForPdf = ({
     const innerStyle = {
       display: isTotalBox ? "flex" : "block",
       justifyContent: isTotalBox ? "flex-end" : void 0,
-      alignItems: isTotalBox ? "flex-start" : void 0,
+      alignItems: isTotalBox ? "center" : void 0,
       width: "100%",
       height: "100%",
       minWidth: 0,
@@ -231,14 +232,15 @@ var DocumentPageForPdf = ({
       textRendering: "geometricPrecision",
       WebkitPrintColorAdjust: "exact",
       printColorAdjust: "exact",
+      ...isTotalBox && { lineHeight: 1 },
       ...isTotalBox && { WebkitTextFillColor: PDF_WHITE_COLOR }
     };
-    return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: isTotalBox ? "doc-box-total" : void 0, style: boxStyle, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: innerStyle, children: isTotalBox ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { style: { display: "inline-block", textAlign: "right", width: "auto", flexShrink: 0, marginLeft: "auto", color: PDF_WHITE_COLOR, WebkitTextFillColor: PDF_WHITE_COLOR }, children: text || "\xA0" }) : text || "\xA0" }) }, box.id);
+    return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: isTotalBox ? "doc-box-total" : void 0, style: boxStyle, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: innerStyle, children: isTotalBox ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { style: { display: "inline-block", textAlign: "right", width: "auto", flexShrink: 0, marginLeft: "auto", lineHeight: 1, transform: "translateY(-0.08em)", color: PDF_WHITE_COLOR, WebkitTextFillColor: PDF_WHITE_COLOR }, children: text || "\xA0" }) : text || "\xA0" }) }, box.id);
   });
   return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: pageStyle, children: boxes });
 };
 
-// frontend/src/renderDocumentToHtml.tsx
+// ../frontend/src/renderDocumentToHtml.tsx
 function renderDocumentHtml(props) {
   return (0, import_server.renderToStaticMarkup)(import_react.default.createElement(DocumentPageForPdf, props));
 }

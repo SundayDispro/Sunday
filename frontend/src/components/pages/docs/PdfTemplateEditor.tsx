@@ -414,15 +414,16 @@ export const PdfTemplateEditor: React.FC<Props> = ({
     const bold = box.fontBold ?? fontBold;
     const italic = box.fontItalic ?? fontItalic;
     const isSingleLineOrFolio = box.singleLine === true || box.semantic === 'folio';
+    const isTotalBox = box.fieldKey === 'total';
     return {
       fontFamily: ff,
       fontWeight: bold ? 'bold' : 'normal',
       fontStyle: italic ? 'italic' : 'normal',
       color: col,
       fontSize: `${sizePx}px`,
-      textAlign: box.fieldKey === 'total' ? 'right' : 'left',
+      textAlign: isTotalBox ? 'right' : 'left',
       direction: 'ltr',
-      lineHeight: isSingleLineOrFolio ? 1.1 : 1.35,
+      lineHeight: isTotalBox ? 1 : (isSingleLineOrFolio ? 1.1 : 1.35),
       ...(box.backgroundColor ? { backgroundColor: box.backgroundColor } : {}),
     };
   };
@@ -441,6 +442,9 @@ export const PdfTemplateEditor: React.FC<Props> = ({
             <Dialog.Title className="text-[15px] font-semibold text-monday-text mb-3">
               {imageDialogMode === 'add' ? 'Añadir imagen a la plantilla' : 'Editar imagen'}
             </Dialog.Title>
+            <Dialog.Description className="sr-only">
+              Formulario para añadir o editar una imagen en la plantilla del documento
+            </Dialog.Description>
             <p className="text-[12px] text-monday-subtext mb-2">
               Escribe la URL de la imagen o sube un archivo (JPG, PNG, GIF, WebP).
             </p>
@@ -647,6 +651,7 @@ export const PdfTemplateEditor: React.FC<Props> = ({
                 const isSingleLineOrFolio = box.singleLine === true || box.semantic === 'folio';
                 const isFolio = box.semantic === 'folio';
                 const isDescripcionCorta = box.fieldKey === 'descripcion_corta';
+                const isTotalBox = box.fieldKey === 'total';
                 return (
                   <div
                     key={box.id}
@@ -688,58 +693,70 @@ export const PdfTemplateEditor: React.FC<Props> = ({
                           }}
                         />
                       ) : viewerOnly ? (
-                        <textarea
-                          readOnly
-                          value={boxVal}
+                        <div
                           style={boxTextStyle}
-                          className={`w-full h-full min-h-0 resize-none border-0 outline-none bg-transparent px-1.5 overflow-hidden block whitespace-pre-wrap break-words text-left box-border ${isDescripcionCorta ? 'pt-6 pb-1' : isFolio ? 'pt-3 pb-1' : isSingleLineOrFolio ? 'pt-4 pb-1' : 'pt-2 py-1'}`}
-                        />
-                      ) : box.singleLine ? (
-                        <input
-                          type="text"
-                          value={boxVal}
-                          onChange={(e) =>
-                            box.fieldKey
-                              ? update({ [box.fieldKey]: e.target.value })
-                              : update({
-                                  customFieldValues: { ...customValues, [box.id]: e.target.value },
-                                })
-                          }
-                          placeholder={getSemanticPlaceholder(box)}
-                          style={{
-                            ...boxTextStyle,
-                            backgroundColor: showFrame ? 'rgba(255,255,255,0.95)' : 'transparent',
-                          }}
-                          className={`w-full h-full min-h-0 border-0 outline-none focus:ring-0 px-1.5 placeholder:text-gray-500 block text-left box-border ${isDescripcionCorta ? 'pt-6 pb-1' : isFolio ? 'pt-3 pb-1' : isSingleLineOrFolio ? 'pt-4 pb-1' : 'pt-2 py-1'} ${
-                            showFrame ? 'rounded' : ''
+                          className={`w-full h-full min-h-0 border-0 outline-none bg-transparent px-1.5 overflow-hidden block whitespace-pre-wrap break-words text-left box-border ${
+                            isTotalBox
+                              ? 'pt-0 pb-0 flex items-center justify-end'
+                              : isDescripcionCorta
+                                ? 'pt-6 pb-1'
+                                : isFolio
+                                  ? 'pt-3 pb-1'
+                                  : isSingleLineOrFolio
+                                    ? 'pt-4 pb-1'
+                                    : 'pt-2 py-1'
                           }`}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            if (canFormatBox) setSelectedBoxId(box.id);
-                          }}
-                          onFocus={() => {
-                            if (canFormatBox) setSelectedBoxId(box.id);
-                          }}
-                          spellCheck
-                        />
+                        >
+                          {isTotalBox ? (
+                            <span
+                              style={{
+                                display: 'inline-block',
+                                textAlign: 'right',
+                                width: 'auto',
+                                flexShrink: 0,
+                                marginLeft: 'auto',
+                                lineHeight: 1,
+                                transform: 'translateY(-0.08em)',
+                                color: boxTextStyle.color ?? '#ffffff',
+                              }}
+                            >
+                              {boxVal || '\u00A0'}
+                            </span>
+                          ) : (
+                            boxVal || '\u00A0'
+                          )}
+                        </div>
                       ) : (
-                        <textarea
-                          value={boxVal}
-                          onChange={(e) =>
-                            box.fieldKey
-                              ? update({ [box.fieldKey]: e.target.value })
-                              : update({
-                                  customFieldValues: { ...customValues, [box.id]: e.target.value },
-                                })
-                          }
-                          placeholder={getSemanticPlaceholder(box)}
+                        <div
+                          contentEditable
+                          suppressContentEditableWarning
+                          onInput={(e) => {
+                            const target = e.currentTarget;
+                            const text = target.innerText.replace(/\r\n/g, '\n');
+                            if (box.fieldKey) {
+                              update({ [box.fieldKey]: text });
+                            } else {
+                              update({
+                                customFieldValues: { ...customValues, [box.id]: text },
+                              });
+                            }
+                          }}
+                          data-placeholder={getSemanticPlaceholder(box)}
                           style={{
                             ...boxTextStyle,
                             backgroundColor: showFrame ? 'rgba(255,255,255,0.95)' : 'transparent',
                           }}
-                          className={`w-full h-full min-h-0 resize-none border-0 outline-none focus:ring-0 ${isDescripcionCorta ? 'pt-6' : 'pt-2'} py-1 px-1.5 placeholder:text-gray-500 overflow-auto block text-left box-border ${
-                            showFrame ? 'rounded' : ''
-                          }`}
+                          className={`w-full h-full min-h-0 border-0 outline-none focus:ring-0 px-1.5 placeholder:text-gray-500 block whitespace-pre-wrap break-words text-left box-border ${
+                            isTotalBox
+                              ? 'pt-0 pb-0 flex items-center justify-end'
+                              : isDescripcionCorta
+                                ? 'pt-6 pb-1'
+                                : isFolio
+                                  ? 'pt-3 pb-1'
+                                  : isSingleLineOrFolio
+                                    ? 'pt-4 pb-1'
+                                    : 'pt-2 py-1'
+                          } ${showFrame ? 'rounded' : ''}`}
                           onClick={(e) => {
                             e.stopPropagation();
                             if (canFormatBox) setSelectedBoxId(box.id);
@@ -748,7 +765,9 @@ export const PdfTemplateEditor: React.FC<Props> = ({
                             if (canFormatBox) setSelectedBoxId(box.id);
                           }}
                           spellCheck
-                        />
+                        >
+                          {boxVal || ''}
+                        </div>
                       )}
                     </div>
                     {canMoveOrDelete && (

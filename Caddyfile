@@ -1,0 +1,15 @@
+{
+  # Opcional: nivel de logs y políticas globales
+  # email admin@example.com
+}
+
+# Reemplaza "sunday.example.com" por tu dominio real.
+# Para pruebas locales con Tailscale o LAN puedes usar :80 / :443.
+sunday.example.com {
+  encode gzip zstd
+
+  # Proxy inverso principal al backend Express (3001), que ya sirve API, Socket.IO,
+  # /uploads y el frontend compilado (dist).
+  reverse_proxy localhost:3001
+}
+

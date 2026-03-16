@@ -7,6 +7,7 @@ import path from 'path';
 import fs from 'fs';
 import multer from 'multer';
 import { PrismaClient } from '@prisma/client';
+import { attachUserFromJwt, authenticateToken, hashPassword, requireAdmin, requireAuth, verifyPassword, signJwt } from './auth';
 import webpush from 'web-push';
 import { getTemplatePathIfExists, getTemplateImagePathIfExists } from './templatePdfGenerator';
 
@@ -122,6 +123,7 @@ app.use(
   })
 );
 app.use(express.json());
+app.use(attachUserFromJwt);
 
 // Servir archivos subidos (URL pública: /uploads/nombre.jpg)
 app.use('/uploads', express.static(UPLOAD_DIR));
@@ -156,7 +158,7 @@ app.post('/api/upload', (req, res) => {
 });
 
 // Get all workspaces (for sidebar workspace selector)
-app.get('/api/workspaces', async (_req, res) => {
+app.get('/api/workspaces', authenticateToken, async (_req, res) => {
   try {
     const workspaces = await prisma.workspace.findMany({
       orderBy: { createdAt: 'asc' },
@@ -175,7 +177,7 @@ app.get('/api/workspaces', async (_req, res) => {
 });
 
 // Create a new workspace
-app.post('/api/workspaces', async (req, res) => {
+app.post('/api/workspaces', authenticateToken, async (req, res) => {
   try {
     const name = (req.body?.name && String(req.body.name).trim()) || 'Nuevo workspace';
     const workspace = await prisma.workspace.create({
@@ -192,7 +194,7 @@ app.post('/api/workspaces', async (req, res) => {
 });
 
 // Panel de Docs: listas de tareas por usuario (cada usuario solo ve las suyas)
-app.get('/api/workspaces/:workspaceId/panel-notes', async (req, res) => {
+app.get('/api/workspaces/:workspaceId/panel-notes', authenticateToken, async (req, res) => {
   try {
     const { workspaceId } = req.params;
     const userId = typeof req.query.userId === 'string' ? req.query.userId : null;
@@ -219,7 +221,7 @@ app.get('/api/workspaces/:workspaceId/panel-notes', async (req, res) => {
   }
 });
 
-app.patch('/api/workspaces/:workspaceId/panel-notes', async (req, res) => {
+app.patch('/api/workspaces/:workspaceId/panel-notes', authenticateToken, async (req, res) => {
   try {
     const { workspaceId } = req.params;
     const body = req.body ?? {};
@@ -265,7 +267,7 @@ app.patch('/api/workspaces/:workspaceId/panel-notes', async (req, res) => {
 });
 
 // Grupos de documentos por usuario (custom groups + assignments), mismo patrón que panel-notes
-app.get('/api/workspaces/:workspaceId/doc-groups', async (req, res) => {
+app.get('/api/workspaces/:workspaceId/doc-groups', authenticateToken, async (req, res) => {
   const defaultPayload = {
     groups: [] as { id: string; name: string }[],
     assignments: {} as Record<string, string>,
@@ -305,7 +307,7 @@ app.get('/api/workspaces/:workspaceId/doc-groups', async (req, res) => {
   }
 });
 
-app.patch('/api/workspaces/:workspaceId/doc-groups', async (req, res) => {
+app.patch('/api/workspaces/:workspaceId/doc-groups', authenticateToken, async (req, res) => {
   try {
     const { workspaceId } = req.params;
     const body = req.body ?? {};
@@ -363,7 +365,7 @@ app.patch('/api/workspaces/:workspaceId/doc-groups', async (req, res) => {
 });
 
 // Update workspace (rename, description)
-app.patch('/api/workspaces/:id', async (req, res) => {
+app.patch('/api/workspaces/:id', authenticateToken, async (req, res) => {
   try {
     const { id } = req.params;
     const body = req.body ?? {};
@@ -393,7 +395,7 @@ app.patch('/api/workspaces/:id', async (req, res) => {
 });
 
 // Delete workspace (cascade deletes boards)
-app.delete('/api/workspaces/:id', async (req, res) => {
+app.delete('/api/workspaces/:id', authenticateToken, async (req, res) => {
   try {
     const { id } = req.params;
     await prisma.workspace.delete({ where: { id } });
@@ -441,7 +443,7 @@ app.get('/api/search', async (req, res) => {
 });
 
 // Get all boards (for sidebar list), optionally filtered by workspace
-app.get('/api/boards', async (req, res) => {
+app.get('/api/boards', authenticateToken, async (req, res) => {
   try {
     const { workspaceId } = req.query as { workspaceId?: string };
     const where = workspaceId ? { workspaceId } : undefined;
@@ -457,7 +459,7 @@ app.get('/api/boards', async (req, res) => {
 });
 
 // Reorder columns within a board
-app.post('/api/boards/:id/columns/reorder', async (req, res) => {
+app.post('/api/boards/:id/columns/reorder', authenticateToken, async (req, res) => {
   try {
     const boardId = req.params.id;
     const updates = (req.body?.updates ?? []) as { id: string; position: number }[];
@@ -496,7 +498,7 @@ app.post('/api/boards/:id/columns/reorder', async (req, res) => {
 });
 
 // Create a new board (REST – no dependency on socket)
-app.post('/api/boards', async (req, res) => {
+app.post('/api/boards', authenticateToken, async (req, res) => {
   try {
     const body = req.body ?? {};
     const requestedWorkspaceId = body.workspaceId ? String(body.workspaceId) : null;
@@ -531,7 +533,7 @@ app.post('/api/boards', async (req, res) => {
 });
 
 // Delete board (cascade via Prisma relations)
-app.delete('/api/boards/:id', async (req, res) => {
+app.delete('/api/boards/:id', authenticateToken, async (req, res) => {
   try {
     const { id } = req.params;
     await prisma.board.delete({ where: { id } });
@@ -546,7 +548,7 @@ app.delete('/api/boards/:id', async (req, res) => {
 });
 
 // Get the first Board dynamically
-app.get('/api/boards/first', async (req, res) => {
+app.get('/api/boards/first', authenticateToken, async (req, res) => {
   try {
     const board = await prisma.board.findFirst({
       include: {
@@ -571,7 +573,7 @@ app.get('/api/boards/first', async (req, res) => {
 });
 
 // Ligar un doc/sheet guardado al elemento del tablero (ruta literal antes de /:id)
-app.post('/api/boards/link-doc', async (req, res) => {
+app.post('/api/boards/link-doc', authenticateToken, async (req, res) => {
   try {
     const body = req.body ?? {};
     const itemId = typeof body.itemId === 'string' ? body.itemId.trim() : '';
@@ -657,24 +659,22 @@ app.get('/api/boards/:id', async (req, res) => {
 });
 
 // Get updates for an item
-app.get('/api/items/:itemId/updates', async (req, res) => {
+app.get('/api/items/:itemId/updates', authenticateToken, async (req, res) => {
   try {
     const updates = await prisma.update.findMany({
       where: { itemId: req.params.itemId },
       orderBy: { createdAt: 'desc' },
       include: {
-        // Since we didn't define a relation name, Prisma allows us to include the User if we had a relation.
-        // Wait, schema.prisma doesn't have a formal relation from Update to User!
-        // Let's just return what we have and we'll fix the schema in a bit if needed. For now, authorId is just a string.
+        author: true,
       }
     });
-    // Let's manually fetch users for now to avoid another schema migration just for a relation
-    const userIds = [...new Set(updates.map(u => u.authorId))];
-    const users = await prisma.user.findMany({ where: { id: { in: userIds } } });
-    const userMap = users.reduce((acc, u) => ({ ...acc, [u.id]: u }), {} as any);
-    
-    const enriched = updates.map(u => ({ ...u, authorUser: userMap[u.authorId] }));
-    res.json(enriched);
+    const safe = updates.map(u => {
+      const { author, ...rest } = u as any;
+      if (!author) return { ...rest, author: null };
+      const { password, ...safeAuthor } = author;
+      return { ...rest, author: safeAuthor };
+    });
+    res.json(safe);
   } catch (error) {
     res.status(500).json({ error: 'Failed to fetch updates' });
   }
@@ -768,19 +768,21 @@ app.post('/api/login', async (req, res) => {
     }
 
     const user = await prisma.user.findUnique({ where: { username } });
-    
-    // In a real app use bcrypt.compare, here we use simple text for demo since it's a clone test
-    if (!user || user.password !== password) {
+    if (!user) {
+      return res.status(401).json({ error: 'Credenciales inválidas' });
+    }
+    const ok = await verifyPassword(password, user.password);
+    if (!ok) {
       return res.status(401).json({ error: 'Credenciales inválidas' });
     }
 
-    // Al iniciar sesión el usuario pasa a Disponible
     const updated = await prisma.user.update({
       where: { id: user.id },
       data: { status: 'available' },
     });
     const { password: _p, ...userWithoutPassword } = updated;
-    res.json(userWithoutPassword);
+    const token = signJwt({ userId: updated.id, role: updated.role });
+    res.json({ user: userWithoutPassword, token });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Error en el login' });
@@ -788,15 +790,9 @@ app.post('/api/login', async (req, res) => {
 });
 
 // Admin endpoint to create a new user
-app.post('/api/users', async (req, res) => {
+app.post('/api/users', requireAuth, requireAdmin, async (req, res) => {
   try {
-    const { username, name, password, adminId, role: bodyRole } = req.body;
-    
-    // Simple admin check
-    const reqAdmin = await prisma.user.findUnique({ where: { id: adminId } });
-    if (!reqAdmin || reqAdmin.role !== 'ADMIN') {
-      return res.status(403).json({ error: 'Sólo los administradores pueden crear usuarios' });
-    }
+    const { username, name, password, role: bodyRole } = req.body;
 
     const existingUser = await prisma.user.findUnique({ where: { username } });
     if (existingUser) {
@@ -810,13 +806,15 @@ app.post('/api/users', async (req, res) => {
     const colors = ['#00c875', '#fdab3d', '#e2445c', '#5559df', '#6e3cbb', '#0073ea'];
     const color = colors[Math.floor(Math.random() * colors.length)];
 
+    const passwordHash = await hashPassword(password);
+
     const newUser = await prisma.user.create({
       data: {
         username,
         name,
         initials,
         color,
-        password, // Accept password from admin
+        password: passwordHash,
         role,
         status: 'offline',
       }
@@ -844,19 +842,10 @@ app.get('/api/users', async (req, res) => {
 });
 
 // Actualizar datos básicos de un usuario (solo ADMIN)
-app.patch('/api/users/:id', async (req, res) => {
+app.patch('/api/users/:id', requireAuth, requireAdmin, async (req, res) => {
   try {
     const { id } = req.params;
-    const { adminId, name, username, password, role: bodyRole } = req.body ?? {};
-
-    if (!adminId) {
-      return res.status(403).json({ error: 'Se requiere adminId' });
-    }
-
-    const admin = await prisma.user.findUnique({ where: { id: String(adminId) } });
-    if (!admin || admin.role !== 'ADMIN') {
-      return res.status(403).json({ error: 'Solo los administradores pueden editar usuarios' });
-    }
+    const { name, username, password, role: bodyRole } = req.body ?? {};
 
     const data: {
       name?: string;
@@ -878,7 +867,7 @@ app.patch('/api/users/:id', async (req, res) => {
     }
 
     if (typeof password === 'string' && password.trim()) {
-      data.password = password;
+      data.password = await hashPassword(password);
     }
 
     if (typeof bodyRole === 'string') {
@@ -911,7 +900,7 @@ app.patch('/api/users/:id', async (req, res) => {
 });
 
 // Actualizar estado del usuario (solo el propio usuario)
-app.patch('/api/users/:id/status', async (req, res) => {
+app.patch('/api/users/:id/status', requireAuth, async (req, res) => {
   try {
     const { id } = req.params;
     const { status } = req.body;
@@ -921,7 +910,10 @@ app.patch('/api/users/:id/status', async (req, res) => {
     }
     const user = await prisma.user.findUnique({ where: { id } });
     if (!user) return res.status(404).json({ error: 'Usuario no encontrado' });
-    // Cualquier usuario puede cambiar solo su propio estado (no hay auth header, asumimos mismo id desde front)
+    // Cualquier usuario puede cambiar solo su propio estado
+    if (req.authUser?.id !== id) {
+      return res.status(403).json({ error: 'Solo puedes cambiar tu propio estado' });
+    }
     const updated = await prisma.user.update({
       where: { id },
       data: { status },
@@ -935,18 +927,12 @@ app.patch('/api/users/:id/status', async (req, res) => {
 });
 
 // Eliminar usuario (solo ADMIN)
-app.delete('/api/users/:id', async (req, res) => {
+app.delete('/api/users/:id', requireAuth, requireAdmin, async (req, res) => {
   try {
     const { id } = req.params;
-    const adminId = req.query.adminId as string | undefined;
-    if (!adminId) return res.status(403).json({ error: 'Se requiere adminId' });
-    const admin = await prisma.user.findUnique({ where: { id: adminId } });
-    if (!admin || admin.role !== 'ADMIN') {
-      return res.status(403).json({ error: 'Solo los administradores pueden eliminar usuarios' });
-    }
     const target = await prisma.user.findUnique({ where: { id } });
     if (!target) return res.status(404).json({ error: 'Usuario no encontrado' });
-    if (target.id === adminId) {
+    if (req.authUser && target.id === req.authUser.id) {
       return res.status(400).json({ error: 'No puedes eliminarte a ti mismo' });
     }
     await prisma.user.delete({ where: { id } });
@@ -1155,6 +1141,8 @@ app.post('/api/export/folders', async (req, res) => {
     const getChildren = (parentId: string) => allGroups.filter(g => g.parentGroupId === parentId);
     const rootGroups = allGroups.filter(g => !g.parentGroupId);
 
+    const fsPromises = fs.promises;
+
     for (const rootGroup of rootGroups) {
       const yearMonth = sanitizeFolderName(rootGroup.name);
       const clientGroups = getChildren(rootGroup.id);
@@ -1179,17 +1167,24 @@ app.post('/api/export/folders', async (req, res) => {
             const srcPath = path.join(UPLOADS_DIR, filename);
             const destPath = path.join(itemDir, filename);
 
-            if (!fs.existsSync(srcPath)) {
+            try {
+              await fsPromises.access(srcPath, fs.constants.F_OK);
+            } catch {
               errors.push(`Origen no encontrado: ${value}`);
               continue;
             }
-            if (fs.existsSync(destPath)) {
+
+            try {
+              await fsPromises.access(destPath, fs.constants.F_OK);
               skipped++;
               continue;
+            } catch {
+              // dest no existe, continuamos
             }
+
             try {
-              fs.mkdirSync(itemDir, { recursive: true });
-              fs.copyFileSync(srcPath, destPath);
+              await fsPromises.mkdir(itemDir, { recursive: true });
+              await fsPromises.copyFile(srcPath, destPath);
               copied++;
             } catch (err) {
               const msg = err instanceof Error ? err.message : String(err);
@@ -1225,7 +1220,7 @@ app.get('/api/docs/check', (_req, res) => {
   res.json({ ok: true, docs: true });
 });
 
-app.get('/api/docs', async (req, res) => {
+app.get('/api/docs', authenticateToken, async (req, res) => {
   try {
     const { workspaceId, boardId } = req.query as { workspaceId?: string; boardId?: string };
     if (!workspaceId) {
@@ -1245,7 +1240,7 @@ app.get('/api/docs', async (req, res) => {
   }
 });
 
-app.post('/api/docs', async (req, res) => {
+app.post('/api/docs', authenticateToken, async (req, res) => {
   try {
     const body = req.body ?? {};
     const workspaceId = String(body.workspaceId || '').trim();
@@ -1280,7 +1275,7 @@ app.post('/api/docs', async (req, res) => {
 // la plantilla PDF base y las posiciones definidas en templatePdfGenerator.ts.
 
 // HEAD para comprobar existencia del doc (usado por DocsCellRenderer sin cuerpo)
-app.head('/api/docs/:id', async (req, res) => {
+app.head('/api/docs/:id', authenticateToken, async (req, res) => {
   try {
     const { id } = req.params;
     const doc = await prisma.doc.findUnique({ where: { id }, select: { id: true } });
@@ -1292,7 +1287,7 @@ app.head('/api/docs/:id', async (req, res) => {
   }
 });
 
-app.get('/api/docs/:id', async (req, res) => {
+app.get('/api/docs/:id', authenticateToken, async (req, res) => {
   try {
     const { id } = req.params;
     const doc = await prisma.doc.findUnique({ where: { id } });
@@ -1304,7 +1299,7 @@ app.get('/api/docs/:id', async (req, res) => {
   }
 });
 
-app.patch('/api/docs/:id', async (req, res) => {
+app.patch('/api/docs/:id', authenticateToken, async (req, res) => {
   try {
     const { id } = req.params;
     const body = req.body ?? {};
@@ -1328,7 +1323,7 @@ app.patch('/api/docs/:id', async (req, res) => {
   }
 });
 
-app.delete('/api/docs/:id', async (req, res) => {
+app.delete('/api/docs/:id', authenticateToken, async (req, res) => {
   try {
     const { id } = req.params;
     // 1) Eliminar el doc
@@ -1460,6 +1455,7 @@ app.get('/api/templates/:kind', (req, res) => {
 
 // Generación PDF WYSIWYG: mismo HTML/CSS que el editor (Puppeteer) para que el PDF sea idéntico a la previsualización.
 app.post('/api/templates/:kind/generate', async (req, res) => {
+  console.log(`[PDF] Generating ${req.params.kind}...`);
   try {
     const kind = req.params.kind as string;
     if (!TEMPLATE_KINDS.includes(kind as (typeof TEMPLATE_KINDS)[number])) {
@@ -1485,6 +1481,24 @@ app.post('/api/templates/:kind/generate', async (req, res) => {
     res.status(500).json({ error: e instanceof Error ? e.message : 'Error al generar PDF' });
   }
 });
+
+// En producción, servir el frontend compilado (Vite build) desde Express.
+// Asume que el build vive en ../frontend/dist relativo al backend.
+if (process.env.NODE_ENV === 'production') {
+  const frontendDist = path.join(process.cwd(), '..', 'frontend', 'dist');
+  app.use(express.static(frontendDist));
+
+  app.get('*', (req, res, next) => {
+    if (req.path.startsWith('/api') || req.path.startsWith('/uploads') || req.path.startsWith('/socket.io')) {
+      return next();
+    }
+    const indexHtml = path.join(frontendDist, 'index.html');
+    fs.access(indexHtml, fs.constants.F_OK, (err) => {
+      if (err) return next();
+      res.sendFile(indexHtml);
+    });
+  });
+}
 
 // Configuración global de plantilla (posiciones, fuente). GET: todos; PUT: guardar por usuario.
 function getDefaultTemplateConfig() {
@@ -1600,7 +1614,7 @@ app.put('/api/templates/:kind/config', async (req, res) => {
 });
 
 // ── Calendar-only events (no se crean en tablero ni grupo) ─────────────────
-app.get('/api/boards/:boardId/calendar-events', async (req, res) => {
+app.get('/api/boards/:boardId/calendar-events', authenticateToken, async (req, res) => {
   try {
     const boardId = req.params.boardId;
     const events = await prisma.calendarEvent.findMany({
@@ -1614,7 +1628,7 @@ app.get('/api/boards/:boardId/calendar-events', async (req, res) => {
   }
 });
 
-app.post('/api/boards/:boardId/calendar-events', async (req, res) => {
+app.post('/api/boards/:boardId/calendar-events', authenticateToken, async (req, res) => {
   try {
     const boardId = req.params.boardId;
     const { name, eventType, date, time } = req.body as { name?: string; eventType?: string; date?: string; time?: string };
@@ -1646,7 +1660,7 @@ app.post('/api/boards/:boardId/calendar-events', async (req, res) => {
   }
 });
 
-app.patch('/api/boards/:boardId/calendar-events/:eventId', async (req, res) => {
+app.patch('/api/boards/:boardId/calendar-events/:eventId', authenticateToken, async (req, res) => {
   try {
     const { boardId, eventId } = req.params;
     const { name, eventType, date, time } = req.body as { name?: string; eventType?: string; date?: string; time?: string };
@@ -1673,7 +1687,7 @@ app.patch('/api/boards/:boardId/calendar-events/:eventId', async (req, res) => {
   }
 });
 
-app.delete('/api/boards/:boardId/calendar-events/:eventId', async (req, res) => {
+app.delete('/api/boards/:boardId/calendar-events/:eventId', authenticateToken, async (req, res) => {
   try {
     const { boardId, eventId } = req.params;
     await prisma.calendarEvent.deleteMany({ where: { id: eventId, boardId } });
@@ -1686,7 +1700,7 @@ app.delete('/api/boards/:boardId/calendar-events/:eventId', async (req, res) => 
 });
 
 // DELETE item (misma lógica que socket delete_item: persistencia en BD)
-app.delete('/api/items/:id', async (req, res) => {
+app.delete('/api/items/:id', authenticateToken, async (req, res) => {
   try {
     const itemId = req.params.id;
     if (!itemId) {
@@ -1712,6 +1726,20 @@ app.delete('/api/items/:id', async (req, res) => {
 io.on('connection', (socket) => {
   console.log('User connected:', socket.id);
 
+  const boardRoom = (boardId: string) => `board:${boardId}`;
+
+  socket.on('join_board', (data: { boardId?: string }) => {
+    const boardId = typeof data?.boardId === 'string' ? data.boardId : null;
+    if (!boardId) return;
+    socket.join(boardRoom(boardId));
+  });
+
+  socket.on('leave_board', (data: { boardId?: string }) => {
+    const boardId = typeof data?.boardId === 'string' ? data.boardId : null;
+    if (!boardId) return;
+    socket.leave(boardRoom(boardId));
+  });
+
   // ── ITEM EVENTS ──────────────────────────────────────────────────────────
 
   socket.on('update_item_name', async (data) => {
@@ -1720,8 +1748,12 @@ io.on('connection', (socket) => {
         where: { id: data.itemId },
         data: { name: data.name },
         include: { columnValues: true },
+        include: {
+          group: { select: { boardId: true } },
+        },
       });
-      io.emit('item_updated', updated);
+      const room = boardRoom(updated.group.boardId);
+      io.to(room).emit('item_updated', updated);
     } catch (e) {
       console.error('Error updating item name:', e);
     }
@@ -1735,9 +1767,14 @@ io.on('connection', (socket) => {
         position: number;
         initialColumnValues?: { columnId: string; value: string }[];
       };
+      const group = await prisma.group.findUnique({
+        where: { id: groupId },
+        select: { boardId: true },
+      });
+      if (!group) return;
       const newItem = await prisma.item.create({
         data: { groupId, name, position },
-        include: { columnValues: true }
+        include: { columnValues: true },
       });
       if (Array.isArray(initialColumnValues) && initialColumnValues.length > 0) {
         for (const cv of initialColumnValues) {
@@ -1753,9 +1790,9 @@ io.on('connection', (socket) => {
           where: { id: newItem.id },
           include: { columnValues: true }
         });
-        io.emit('item_added', withValues ?? newItem);
+        io.to(boardRoom(group.boardId)).emit('item_added', withValues ?? newItem);
       } else {
-        io.emit('item_added', newItem);
+        io.to(boardRoom(group.boardId)).emit('item_added', newItem);
       }
     } catch (e) {
       console.error('Error adding item:', e);
@@ -1767,9 +1804,13 @@ io.on('connection', (socket) => {
       const { itemId, newGroupId, newPosition } = data;
       const updated = await prisma.item.update({
         where: { id: itemId },
-        data: { groupId: newGroupId, position: newPosition }
+        data: { groupId: newGroupId, position: newPosition },
+        include: {
+          group: { select: { boardId: true } },
+        },
       });
-      socket.broadcast.emit('item_moved', updated);
+      const room = boardRoom(updated.group.boardId);
+      socket.to(room).emit('item_moved', updated);
     } catch (err) {
       console.error('Error moving item:', err);
     }
@@ -1782,13 +1823,21 @@ io.on('connection', (socket) => {
         console.error('delete_item: itemId inválido', data);
         return;
       }
+      const item = await prisma.item.findUnique({
+        where: { id: itemId },
+        select: { group: { select: { boardId: true } } },
+      });
       await prisma.$transaction([
         prisma.columnValue.deleteMany({ where: { itemId } }),
         prisma.update.deleteMany({ where: { itemId } }),
         prisma.notification.deleteMany({ where: { itemId } }),
         prisma.item.delete({ where: { id: itemId } }),
       ]);
-      io.emit('item_deleted', { itemId });
+      if (item?.group?.boardId) {
+        io.to(boardRoom(item.group.boardId)).emit('item_deleted', { itemId });
+      } else {
+        io.emit('item_deleted', { itemId });
+      }
     } catch (e) {
       console.error('Error deleting item:', e);
     }
@@ -1805,7 +1854,11 @@ io.on('connection', (socket) => {
         update: { value },
         create: { itemId, columnId, value }
       });
-      io.emit('column_value_updated', updated);
+      if (column) {
+        io.to(boardRoom(column.boardId)).emit('column_value_updated', updated);
+      } else {
+        io.emit('column_value_updated', updated);
+      }
 
       // Si se actualiza "Estado Taller" a "colocado", crear (si no existe) el valor de "Estado Facturación"
       if (
@@ -1851,7 +1904,7 @@ io.on('connection', (socket) => {
                   settings,
                 },
               });
-              io.emit('column_added', billingColumn);
+              io.to(boardRoom(column.boardId)).emit('column_added', billingColumn);
             }
 
             if (billingColumn) {
@@ -1872,7 +1925,7 @@ io.on('connection', (socket) => {
                     value: JSON.stringify({ optionId: 'pendiente_factura' }),
                   },
                 });
-                io.emit('column_value_updated', billingValue);
+                io.to(boardRoom(column.boardId)).emit('column_value_updated', billingValue);
               }
             }
           }
@@ -1907,7 +1960,7 @@ io.on('connection', (socket) => {
     try {
       const { boardId, name } = data;
       const updated = await prisma.board.update({ where: { id: boardId }, data: { name: name.trim() } });
-      io.emit('board_renamed', updated);
+      io.to(boardRoom(boardId)).emit('board_renamed', updated);
     } catch (e) {
       console.error('Error renaming board:', e);
     }
@@ -1936,8 +1989,16 @@ io.on('connection', (socket) => {
   socket.on('delete_group', async (data) => {
     try {
       const { groupId } = data;
+      const group = await prisma.group.findUnique({
+        where: { id: groupId },
+        select: { boardId: true },
+      });
       await prisma.group.delete({ where: { id: groupId } });
-      io.emit('group_deleted', { groupId });
+      if (group?.boardId) {
+        io.to(boardRoom(group.boardId)).emit('group_deleted', { groupId });
+      } else {
+        io.emit('group_deleted', { groupId });
+      }
     } catch (e) {
       console.error('Error deleting group:', e);
     }
@@ -1950,7 +2011,7 @@ io.on('connection', (socket) => {
         data: { boardId, name, color, position, parentGroupId: parentGroupId || null },
         include: { items: { include: { columnValues: true } } }
       });
-      io.emit('group_added', newGroup);
+      io.to(boardRoom(boardId)).emit('group_added', newGroup);
     } catch (e) {
       console.error('Error adding group:', e);
     }
@@ -1963,7 +2024,15 @@ io.on('connection', (socket) => {
       if (name !== undefined) updateData.name = name;
       if (color !== undefined) updateData.color = color;
       const updated = await prisma.group.update({ where: { id: groupId }, data: updateData });
-      io.emit('group_renamed', { id: updated.id, name: updated.name, color: updated.color });
+      const group = await prisma.group.findUnique({
+        where: { id: updated.id },
+        select: { boardId: true },
+      });
+      if (group?.boardId) {
+        io.to(boardRoom(group.boardId)).emit('group_renamed', { id: updated.id, name: updated.name, color: updated.color });
+      } else {
+        io.emit('group_renamed', { id: updated.id, name: updated.name, color: updated.color });
+      }
     } catch (e) {
       console.error('Error renaming group:', e);
     }
@@ -1973,7 +2042,15 @@ io.on('connection', (socket) => {
     try {
       const { groupId, newPosition } = data;
       const updated = await prisma.group.update({ where: { id: groupId }, data: { position: newPosition } });
-      socket.broadcast.emit('group_moved', updated);
+      const group = await prisma.group.findUnique({
+        where: { id: updated.id },
+        select: { boardId: true },
+      });
+      if (group?.boardId) {
+        socket.to(boardRoom(group.boardId)).emit('group_moved', updated);
+      } else {
+        socket.broadcast.emit('group_moved', updated);
+      }
     } catch (e) {
       console.error('Error moving group:', e);
     }
@@ -1987,7 +2064,7 @@ io.on('connection', (socket) => {
       const newColumn = await prisma.boardColumn.create({
         data: { boardId, title, type, position, settings: settings || null }
       });
-      io.emit('column_added', newColumn);
+      io.to(boardRoom(boardId)).emit('column_added', newColumn);
     } catch (e) {
       console.error('Error adding column:', e);
     }
@@ -1997,7 +2074,15 @@ io.on('connection', (socket) => {
     try {
       const { columnId, title } = data;
       const updated = await prisma.boardColumn.update({ where: { id: columnId }, data: { title } });
-      io.emit('column_renamed', updated);
+      const column = await prisma.boardColumn.findUnique({
+        where: { id: updated.id },
+        select: { boardId: true },
+      });
+      if (column?.boardId) {
+        io.to(boardRoom(column.boardId)).emit('column_renamed', updated);
+      } else {
+        io.emit('column_renamed', updated);
+      }
     } catch (e) {
       console.error('Error renaming column:', e);
     }
@@ -2007,7 +2092,15 @@ io.on('connection', (socket) => {
     try {
       const { columnId, settings } = data;
       const updated = await prisma.boardColumn.update({ where: { id: columnId }, data: { settings: settings ?? null } });
-      io.emit('column_settings_updated', updated);
+      const column = await prisma.boardColumn.findUnique({
+        where: { id: updated.id },
+        select: { boardId: true },
+      });
+      if (column?.boardId) {
+        io.to(boardRoom(column.boardId)).emit('column_settings_updated', updated);
+      } else {
+        io.emit('column_settings_updated', updated);
+      }
     } catch (e) {
       console.error('Error updating column settings:', e);
     }
@@ -2016,9 +2109,17 @@ io.on('connection', (socket) => {
   socket.on('delete_column', async (data) => {
     try {
       const { columnId } = data;
+      const column = await prisma.boardColumn.findUnique({
+        where: { id: columnId },
+        select: { boardId: true },
+      });
       await prisma.columnValue.deleteMany({ where: { columnId } });
       await prisma.boardColumn.delete({ where: { id: columnId } });
-      io.emit('column_deleted', { columnId });
+      if (column?.boardId) {
+        io.to(boardRoom(column.boardId)).emit('column_deleted', { columnId });
+      } else {
+        io.emit('column_deleted', { columnId });
+      }
     } catch (e) {
       console.error('Error deleting column:', e);
     }
@@ -2033,8 +2134,11 @@ io.on('connection', (socket) => {
         data: { itemId, content, authorId: authorId }
       });
 
-      const [user, item] = await Promise.all([
-        prisma.user.findUnique({ where: { id: authorId } }),
+      const [fullUpdate, item] = await Promise.all([
+        prisma.update.findUnique({
+          where: { id: newUpdate.id },
+          include: { author: true },
+        }),
         prisma.item.findUnique({
           where: { id: itemId },
           select: {
@@ -2047,11 +2151,19 @@ io.on('connection', (socket) => {
           },
         }),
       ]);
-      const enrichedUpdate = { ...newUpdate, authorUser: user };
-      io.emit('update_added', enrichedUpdate);
+
+      const safeUpdate = (() => {
+        if (!fullUpdate) return newUpdate;
+        const { author, ...rest } = fullUpdate as any;
+        if (!author) return { ...rest, author: null };
+        const { password, ...safeAuthor } = author;
+        return { ...rest, author: safeAuthor };
+      })();
+
+      io.emit('update_added', safeUpdate);
 
       // Notificaciones Web Push a los usuarios asignados al item (excepto el propio autor)
-      if (item && user) {
+      if (item && authorId) {
         const assignedUserIds = item.columnValues
           .map((cv) => cv.value?.trim())
           .filter((v): v is string => !!v && v !== authorId);
