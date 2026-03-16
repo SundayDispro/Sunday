@@ -70,7 +70,7 @@ export const ArchivosBoardView: React.FC<Props> = ({ board, onRowClick }) => {
   }, [board]);
 
   return (
-    <div className="flex-1 overflow-auto p-6">
+    <div className="flex-1 overflow-auto scroll-touch custom-scrollbar p-4 sm:p-6 min-h-0">
       <div className="border border-monday-border rounded-xl overflow-hidden shadow-monday-sm">
         <table className="w-full text-left border-collapse">
           <thead>

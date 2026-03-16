@@ -1,13 +1,12 @@
 /**
  * Base URL del backend.
- * - Desarrollo: usa VITE_API_URL si está definido, o cae a localhost:3001.
- * - Producción: si VITE_API_URL no está seteado se usa cadena vacía (mismo origen),
- *   ya que el backend sirve el frontend estático directamente.
+ * - Desarrollo: vacío = mismo origen (Vite hace proxy de /api y /uploads a 3001).
+ *   Así funciona desde PC (localhost:5173) y desde móvil (192.168.x.x:5173).
+ * - Si VITE_API_URL está definido, se usa (útil para producción o backend en otra máquina).
+ * - Producción sin VITE_API_URL: cadena vacía (mismo origen).
  */
 export const API_BASE: string = import.meta.env.VITE_API_URL
   ? (import.meta.env.VITE_API_URL as string)
-  : import.meta.env.DEV
-  ? 'http://localhost:3001'
   : '';
 
 /**

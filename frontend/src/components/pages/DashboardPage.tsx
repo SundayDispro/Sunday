@@ -2,11 +2,13 @@ import React, { useEffect, useState } from 'react';
 import { BarChart2, LayoutList, Layers, CheckSquare } from 'lucide-react';
 import { Board } from '../../types';
 
+const API_BASE = import.meta.env.DEV ? '' : (import.meta.env.VITE_API_URL || 'http://localhost:3001');
+
 export const DashboardPage: React.FC = () => {
   const [board, setBoard] = useState<Board | null>(null);
 
   useEffect(() => {
-    fetch('http://localhost:3001/api/boards/first')
+    fetch(`${API_BASE}/api/boards/first`)
       .then(r => r.json())
       .then((data: Board | null) => {
         if (data?.id) setBoard(data);
@@ -54,8 +56,8 @@ export const DashboardPage: React.FC = () => {
   }
 
   return (
-    <div className="flex-1 flex flex-col overflow-hidden">
-      <div className="p-6 border-b border-monday-border">
+    <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
+      <div className="p-6 border-b border-monday-border shrink-0">
         <h1 className="text-[20px] font-semibold text-monday-text flex items-center gap-2">
           <BarChart2 size={22} className="text-monday-blue" />
           Panel
@@ -64,7 +66,7 @@ export const DashboardPage: React.FC = () => {
           Resumen de {board.name}
         </p>
       </div>
-      <div className="flex-1 overflow-y-auto custom-scrollbar p-6">
+      <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar scroll-touch p-6">
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-8">
           <div className="bg-white border border-monday-border rounded-xl p-5 shadow-monday-sm">
             <div className="flex items-center gap-3">

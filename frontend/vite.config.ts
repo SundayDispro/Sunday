@@ -6,6 +6,7 @@ import fs from 'fs'
 export default defineConfig({
   plugins: [react()],
   server: {
+    host: true,
     proxy: {
       '/api': {
         target: 'http://localhost:3001',
@@ -14,6 +15,11 @@ export default defineConfig({
       '/uploads': {
         target: 'http://localhost:3001',
         changeOrigin: true,
+      },
+      '/socket.io': {
+        target: 'http://localhost:3001',
+        changeOrigin: true,
+        ws: true,
       },
     },
     // Resolver /favicon.ico con el SVG para evitar 404

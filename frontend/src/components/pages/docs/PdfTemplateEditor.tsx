@@ -11,7 +11,7 @@ import { useUser } from '../../../store/UserContext';
 import { getDocument, GlobalWorkerOptions } from 'pdfjs-dist';
 import pdfjsWorker from 'pdfjs-dist/build/pdf.worker.mjs?url';
 
-const API_BASE = import.meta.env.DEV ? '' : 'http://localhost:3001';
+const API_BASE = import.meta.env.DEV ? '' : (import.meta.env.VITE_API_URL || 'http://localhost:3001');
 
 /** 96 DPI: 612pt = 816px, 792pt = 1056px. Misma escala que el PDF generado (Puppeteer). */
 export const PAGE_WIDTH_PX_96DPI = 816;
@@ -137,7 +137,12 @@ export const PdfTemplateEditor: React.FC<Props> = ({
       .catch(() => setTemplatePdfUrl(null));
     return () => {
       revoked = true;
-      if (objectUrl) URL.revokeObjectURL(objectUrl);
+      if (objectUrl) {
+        const url = objectUrl;
+        objectUrl = null;
+        // WebKit puede seguir usando la URL un momento; revocar al instante causa WebKitBlobResource 1
+        setTimeout(() => URL.revokeObjectURL(url), 500);
+      }
     };
   }, [docType]);
 

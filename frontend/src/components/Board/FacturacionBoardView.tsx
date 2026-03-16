@@ -77,7 +77,7 @@ export const FacturacionBoardView: React.FC<Props> = ({ board, onRowClick }) => 
   }, [facturacionRows, searchQuery, filterEstadoFacturacion, estadoFacturacionColumn]);
 
   return (
-    <div className="flex-1 overflow-auto p-6 flex flex-col">
+    <div className="flex-1 overflow-auto scroll-touch custom-scrollbar p-4 sm:p-6 min-h-0 flex flex-col">
       {/* Filtros siempre visibles */}
       <div className="flex items-center justify-between mb-3 gap-3 shrink-0 flex-wrap">
         <div className="flex items-center gap-2">

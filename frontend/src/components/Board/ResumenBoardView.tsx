@@ -90,7 +90,7 @@ export const ResumenBoardView: React.FC<Props> = ({ board, onRowClick }) => {
   }, [board]);
 
   return (
-    <div className="flex-1 overflow-auto p-6">
+    <div className="flex-1 overflow-auto scroll-touch custom-scrollbar p-4 sm:p-6 min-h-0">
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
         <div className="bg-white border border-monday-border rounded-xl p-4 shadow-monday-sm">
           <p className="text-[12px] font-semibold text-monday-subtext uppercase tracking-wider">Total elementos</p>

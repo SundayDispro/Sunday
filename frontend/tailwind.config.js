@@ -41,7 +41,29 @@ export default {
       },
       borderRadius: {
         'monday': '6px',
-      }
+      },
+      transitionDuration: {
+        150: '150ms',
+        200: '200ms',
+        250: '250ms',
+      },
+      transitionTimingFunction: {
+        'monday': 'cubic-bezier(0.22, 1, 0.36, 1)',
+      },
+      keyframes: {
+        'fade-in-up': {
+          from: { opacity: '0', transform: 'translateY(6px)' },
+          to: { opacity: '1', transform: 'translateY(0)' },
+        },
+        'scale-in': {
+          from: { opacity: '0', transform: 'scale(0.92)' },
+          to: { opacity: '1', transform: 'scale(1)' },
+        },
+      },
+      animation: {
+        'fade-in-up': 'fade-in-up 0.2s cubic-bezier(0.22, 1, 0.36, 1) both',
+        'scale-in': 'scale-in 0.2s cubic-bezier(0.22, 1, 0.36, 1) both',
+      },
     },
   },
   plugins: [],

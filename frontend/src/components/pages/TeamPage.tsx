@@ -15,7 +15,7 @@ export const TeamPage: React.FC<Props> = ({ onOpenInboxForUser }) => {
   }, [fetchUsers]);
 
   return (
-    <div className="flex-1 flex flex-col overflow-hidden">
+    <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
       <div className="p-6 border-b border-monday-border">
         <h1 className="text-[20px] font-semibold text-monday-text flex items-center gap-2">
           <Users size={22} className="text-monday-blue" />
@@ -25,7 +25,7 @@ export const TeamPage: React.FC<Props> = ({ onOpenInboxForUser }) => {
           Miembros del workspace ({users.length})
         </p>
       </div>
-      <div className="flex-1 overflow-y-auto custom-scrollbar p-6">
+      <div className="flex-1 overflow-y-auto custom-scrollbar scroll-touch p-4 sm:p-6 min-h-0">
         {users.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-16 text-monday-subtext">
             <div className="w-16 h-16 rounded-full bg-monday-hover flex items-center justify-center mb-4">

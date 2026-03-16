@@ -46,16 +46,16 @@ export const KanbanView: React.FC<Props> = ({ board, onRowClick }) => {
   });
 
   return (
-    <div className="flex h-full w-full bg-monday-bg p-6 overflow-x-auto gap-4 custom-scrollbar">
+    <div className="flex h-full w-full bg-monday-bg p-4 sm:p-6 overflow-x-auto overflow-y-hidden gap-4 custom-scrollbar scroll-touch">
       {itemsByStatus.map(statusCol => (
-        <div key={statusCol.label} className="flex-shrink-0 w-[280px] flex flex-col">
+        <div key={statusCol.label} className="flex-shrink-0 w-[260px] sm:w-[280px] flex flex-col min-h-0">
           {/* Column Header */}
-          <div style={{ backgroundColor: statusCol.color }} className="text-white text-sm font-medium px-4 py-2 rounded-t-md">
+          <div style={{ backgroundColor: statusCol.color }} className="text-white text-sm font-medium px-3 sm:px-4 py-2 rounded-t-md shrink-0">
             {statusCol.label} / {statusCol.items.length}
           </div>
           
           {/* Card List Container */}
-          <div className="bg-monday-bg flex-1 p-2 rounded-b-md border border-monday-border flex flex-col gap-2 overflow-y-auto custom-scrollbar">
+          <div className="bg-monday-bg flex-1 min-h-0 p-2 rounded-b-md border border-monday-border flex flex-col gap-2 overflow-y-auto overflow-x-hidden custom-scrollbar scroll-touch">
             {statusCol.items.map(item => (
               <div 
                 key={item.id} 

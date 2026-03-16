@@ -152,6 +152,8 @@ interface Props {
   onOpenAddToProject?: () => void;
   /** Registra una función para abrir el modal de evento de calendario con fecha y tipo (desde la barra superior) */
   onRegisterOpenCalendarEvent?: (open: (opts: { date: Date; eventType: CalendarEventKind }) => void) => void;
+  /** Vista inicial (p. ej. 'week' para modo horizontal en pestaña exclusiva) */
+  defaultViewType?: CalendarViewType;
 }
 
 function formatDateForModal(d: Date): string {
@@ -161,9 +163,9 @@ function formatDateForModal(d: Date): string {
   return `${day} ${month} ${year}`;
 }
 
-export const CalendarView: React.FC<Props> = ({ board, onRowClick, isTallerView, onOpenAddToProject, onRegisterOpenCalendarEvent }) => {
+export const CalendarView: React.FC<Props> = ({ board, onRowClick, isTallerView, onOpenAddToProject, onRegisterOpenCalendarEvent, defaultViewType }) => {
   const [viewDate, setViewDate] = useState(() => new Date());
-  const [viewType, setViewType] = useState<CalendarViewType>('month');
+  const [viewType, setViewType] = useState<CalendarViewType>(defaultViewType ?? 'month');
   const [viewDropdownOpen, setViewDropdownOpen] = useState(false);
   const [addModalOpen, setAddModalOpen] = useState(false);
   const [addModalDate, setAddModalDate] = useState<Date | null>(null);
@@ -841,7 +843,7 @@ export const CalendarView: React.FC<Props> = ({ board, onRowClick, isTallerView,
       </div>
 
       {/* Cuerpo del calendario — vista Mes / Semana / Día (estilo Monday: amplio, celdas cuadradas, líneas finas) */}
-      <div className="flex-1 overflow-auto p-4 min-h-0 flex flex-col bg-monday-bg/30">
+      <div className="flex-1 overflow-auto scroll-touch custom-scrollbar p-4 min-h-0 flex flex-col bg-monday-bg/30">
         {viewType === 'day' && (
           <div className="rounded-xl border border-monday-border shadow-monday-sm bg-white overflow-hidden min-h-[280px]">
             <button
@@ -914,15 +916,31 @@ export const CalendarView: React.FC<Props> = ({ board, onRowClick, isTallerView,
         )}
 
         {viewType === 'week' && (
-          <div className="rounded-lg overflow-hidden border border-monday-hover shadow-monday-sm bg-white flex-1 min-h-[320px] flex flex-col">
-            <div className="grid grid-cols-7 border-b border-monday-hover">
-              {WEEKDAYS.map(day => (
-                <div key={day} className="bg-monday-hover/50 px-2 py-2.5 text-[11px] font-semibold text-monday-subtext uppercase border-r border-monday-hover last:border-r-0">
-                  {day}
+          <div className="rounded-xl overflow-hidden border border-monday-border shadow-monday-sm bg-white flex-1 min-h-0 flex flex-col">
+            {/* Vista semanal horizontal: 7 columnas (lun–dom), cabecera fija */}
+            <div className="grid grid-cols-7 border-b border-monday-border shrink-0 bg-monday-pill/30">
+              {weekDays.map((cell) => (
+                <div
+                  key={cell.key}
+                  className={`px-2 py-3 text-center border-r border-monday-border last:border-r-0 ${
+                    cell.month !== viewDate.getMonth() ? 'text-monday-subtext/70' : 'text-monday-text'
+                  }`}
+                >
+                  <div className="text-[11px] font-semibold text-monday-subtext uppercase">
+                    {WEEKDAYS[cell.date.getDay() === 0 ? 6 : cell.date.getDay() - 1]}
+                  </div>
+                  <span
+                    className={`inline-flex items-center justify-center mt-0.5 text-[15px] font-semibold w-8 h-8 rounded-full ${
+                      isToday(cell.date) ? 'bg-monday-blue text-white' : 'text-monday-text'
+                    }`}
+                  >
+                    {cell.dayOfMonth}
+                  </span>
+                  <div className="text-[11px] text-monday-subtext mt-0.5">{MONTHS[cell.month]}</div>
                 </div>
               ))}
             </div>
-            <div className="grid grid-cols-7 flex-1 border-t-0" style={{ minHeight: 200 }}>
+            <div className="grid grid-cols-7 flex-1 min-h-[240px] overflow-auto custom-scrollbar">
               {weekDays.map(cell => {
                 const dayStart = new Date(cell.year, cell.month, cell.date.getDate()).getTime();
                 const dayEnd = dayStart + 24 * 60 * 60 * 1000;
@@ -940,25 +958,16 @@ export const CalendarView: React.FC<Props> = ({ board, onRowClick, isTallerView,
                     tabIndex={0}
                     onClick={() => openAddModal(cell.date)}
                     onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openAddModal(cell.date); } }}
-                    className={`p-2 flex flex-col gap-1 min-h-[140px] border-r border-monday-hover last:border-r-0 cursor-pointer hover:bg-monday-hover/50 transition-colors ${
-                      cell.month !== viewDate.getMonth() ? 'bg-monday-bg/40' : 'bg-white'
+                    className={`p-2 flex flex-col gap-1.5 min-h-[160px] border-r border-monday-border last:border-r-0 cursor-pointer hover:bg-monday-hover/40 transition-colors ${
+                      cell.month !== viewDate.getMonth() ? 'bg-monday-bg/50' : 'bg-white'
                     }`}
                   >
-                    <span
-                      className={`text-[13px] font-medium self-end ${
-                        isToday(cell.date)
-                          ? 'bg-monday-blue text-white rounded-full w-7 h-7 flex items-center justify-center text-[11px]'
-                          : 'text-monday-subtext'
-                      }`}
-                    >
-                      {cell.dayOfMonth}
-                    </span>
                     {visible.map((bar) => (
                       <button
                         key={bar.id}
                         type="button"
                         onClick={(e) => handleBarClick(bar, e)}
-                        className={`text-left px-1.5 py-1 rounded text-white text-[11px] font-medium truncate w-full transition-opacity hover:opacity-95 ${bar.isCalendarOnly ? 'cursor-pointer' : bar.item ? '' : 'cursor-default'}`}
+                        className={`text-left px-2 py-1.5 rounded-md text-white text-[12px] font-medium truncate w-full transition-opacity hover:opacity-95 shadow-sm ${bar.isCalendarOnly ? 'cursor-pointer' : bar.item ? '' : 'cursor-default'}`}
                         style={{ backgroundColor: bar.color }}
                         title={bar.name}
                       >
@@ -971,19 +980,19 @@ export const CalendarView: React.FC<Props> = ({ board, onRowClick, isTallerView,
                           <button
                             type="button"
                             onClick={(e) => { e.stopPropagation(); setMorePopoverKey(cell.key); }}
-                            className="text-[10px] text-monday-blue font-medium hover:underline"
+                            className="text-[11px] text-monday-blue font-medium hover:underline mt-auto pt-1"
                           >
-                            +{rest}
+                            +{rest} más
                           </button>
                         </Popover.Trigger>
                         <Popover.Portal>
                           <Popover.Content
-                            className="bg-white rounded-lg border border-monday-border shadow-monday-lg p-3 z-[200] max-h-[240px] overflow-auto min-w-[180px]"
+                            className="bg-white rounded-lg border border-monday-border shadow-monday-lg p-3 z-[200] max-h-[280px] overflow-auto min-w-[200px]"
                             sideOffset={4}
                             onClick={(e) => e.stopPropagation()}
                           >
-                            <p className="text-[11px] font-semibold text-monday-subtext uppercase mb-2">
-                              {cell.dayOfMonth} {MONTHS[cell.month]}
+                            <p className="text-[12px] font-semibold text-monday-text mb-2">
+                              {cell.dayOfMonth} {MONTHS[cell.month]} {cell.year}
                             </p>
                             <ul className="flex flex-col gap-1">
                               {dayItems.map((bar) => (
@@ -991,7 +1000,7 @@ export const CalendarView: React.FC<Props> = ({ board, onRowClick, isTallerView,
                                   <button
                                     type="button"
                                     onClick={(e) => handleBarClick(bar, e)}
-                                    className={`w-full text-left px-2 py-1 rounded text-white text-[11px] font-medium truncate ${bar.isCalendarOnly ? 'cursor-pointer hover:opacity-90' : bar.item ? 'hover:opacity-90' : 'cursor-default'}`}
+                                    className={`w-full text-left px-2.5 py-1.5 rounded-md text-white text-[12px] font-medium truncate ${bar.isCalendarOnly ? 'cursor-pointer hover:opacity-90' : bar.item ? 'hover:opacity-90' : 'cursor-default'}`}
                                     style={{ backgroundColor: bar.color }}
                                     title={bar.name}
                                   >

@@ -5,6 +5,7 @@ import { BoardGroup } from './BoardGroup';
 import {
   Plus, Search, Filter, ArrowUpDown, EyeOff, ChevronDown, X, Folder,
   Copy, Download, Archive, Trash2, ArrowRightLeft, Circle, ListOrdered, FileText,
+  MoreHorizontal,
 } from 'lucide-react';
 import {
   DndContext,
@@ -31,8 +32,11 @@ import { ArchivosBoardView } from './ArchivosBoardView';
 import { TimelineBoardView } from './TimelineBoardView';
 import { useUser } from '../../store/UserContext';
 import { useToast } from '../Toast';
+import { AnimatedDialog } from '../AnimatedDialog';
 import * as Popover from '@radix-ui/react-popover';
 import * as Dialog from '@radix-ui/react-dialog';
+import { motion } from 'framer-motion';
+import { useHideOnScroll } from '../../hooks/useHideOnScroll';
 
 const API_BASE = import.meta.env.DEV ? '' : (import.meta.env.VITE_API_URL || 'http://localhost:3001');
 
@@ -40,6 +44,16 @@ interface Props {
   boardId: string;
   onRowClick: (item: Item) => void;
   viewMode: 'table' | 'kanban' | 'calendar' | 'facturacion' | 'resumen' | 'archivos' | 'miTrabajo' | 'timeline';
+  /** En móvil: solo calendario a pantalla completa, sin toolbar completo ni tabs */
+  mobileCalendarOnly?: boolean;
+  /** Vista de tablero optimizada para móvil: toolbar de una fila (Nuevo elemento, Buscar, Más) */
+  mobileOptimized?: boolean;
+  /** Pestaña Calendario exclusiva (web): solo barra compacta + calendario, sin header de tablero de 2 filas */
+  calendarStandalone?: boolean;
+  /** Solo móvil: notifica a App para ocultar MobileBoardHeader al hacer scroll hacia abajo */
+  onHeaderVisibilityChange?: (isHidden: boolean) => void;
+  /** Si true, se aplica hide-on-scroll a la toolbar y se llama onHeaderVisibilityChange */
+  isMobile?: boolean;
 }
 
 function GroupDragOverlay({ groups }: { groups: Group[] }) {
@@ -59,7 +73,7 @@ function GroupDragOverlay({ groups }: { groups: Group[] }) {
   );
 }
 
-const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode }) => {
+const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode, mobileCalendarOnly = false, mobileOptimized = false, calendarStandalone = false, onHeaderVisibilityChange, isMobile = false }) => {
   const { currentUser } = useUser();
   const { toast } = useToast();
   const [board, setBoard] = useState<Board | null>(null);
@@ -81,11 +95,53 @@ const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode }) => {
   });
   const [showMovePopover, setShowMovePopover] = useState(false);
   const [showDeleteItemsConfirm, setShowDeleteItemsConfirm] = useState(false);
+  const [showMoreMenu, setShowMoreMenu] = useState(false);
   const [addToProjectOpen, setAddToProjectOpen] = useState(false);
   const [addToProjectGroupId, setAddToProjectGroupId] = useState<string>('');
   const [addToProjectAfterItemId, setAddToProjectAfterItemId] = useState<string>('');
   const [addToProjectName, setAddToProjectName] = useState('');
   const [addToProjectSubmitting, setAddToProjectSubmitting] = useState(false);
+
+  /** Vista de tarjetas: móvil estrecho o landscape con poca altura (mejor UX que tabla con scroll horizontal) */
+  const [useCardView, setUseCardView] = useState(() => {
+    if (typeof window === 'undefined') return false;
+    const narrow = window.matchMedia('(max-width: 639px)').matches;
+    const landscapeNarrow = window.matchMedia('(orientation: landscape) and (max-width: 479px)').matches;
+    const landscapeShort = window.matchMedia('(orientation: landscape) and (max-height: 500px)').matches;
+    return narrow || landscapeNarrow || landscapeShort;
+  });
+  useEffect(() => {
+    const mqNarrow = window.matchMedia('(max-width: 639px)');
+    const mqLandscapeNarrow = window.matchMedia('(orientation: landscape) and (max-width: 479px)');
+    const mqLandscapeShort = window.matchMedia('(orientation: landscape) and (max-height: 500px)');
+    const update = () => setUseCardView(mqNarrow.matches || mqLandscapeNarrow.matches || mqLandscapeShort.matches);
+    mqNarrow.addEventListener('change', update);
+    mqLandscapeNarrow.addEventListener('change', update);
+    mqLandscapeShort.addEventListener('change', update);
+    return () => {
+      mqNarrow.removeEventListener('change', update);
+      mqLandscapeNarrow.removeEventListener('change', update);
+      mqLandscapeShort.removeEventListener('change', update);
+    };
+  }, []);
+
+  /** Orientación portrait/landscape para ajustes de layout y alturas (dvh) */
+  const [isPortrait, setIsPortrait] = useState(() =>
+    typeof window !== 'undefined' && window.matchMedia('(orientation: portrait)').matches
+  );
+  useEffect(() => {
+    const m = window.matchMedia('(orientation: portrait)');
+    const handler = () => setIsPortrait(m.matches);
+    m.addEventListener('change', handler);
+    return () => m.removeEventListener('change', handler);
+  }, []);
+
+  /** FAB móvil: abrir menú "Nuevo elemento" desde fuera */
+  useEffect(() => {
+    const handler = () => setNewMenuOpen(true);
+    window.addEventListener('sunday-fab-add-item', handler);
+    return () => window.removeEventListener('sunday-fab-add-item', handler);
+  }, []);
 
   /** Ref para abrir el modal de evento de calendario con tipo (desde la barra en vista calendario). */
   const openCalendarEventRef = useRef<((opts: { date: Date; eventType: CalendarEventKind }) => void) | null>(null);
@@ -94,6 +150,32 @@ const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode }) => {
   }, []);
 
   const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const toolbarRef = useRef<HTMLDivElement>(null);
+  const { isHidden: scrollHidden } = useHideOnScroll(scrollContainerRef, 10);
+  const headerHidden = isMobile ? scrollHidden : false;
+  const [toolbarHeight, setToolbarHeight] = useState(56);
+
+  useEffect(() => {
+    scrollContainerRef.current?.scrollTo(0, 0);
+  }, []);
+
+  useEffect(() => {
+    if (isMobile && onHeaderVisibilityChange) onHeaderVisibilityChange(headerHidden);
+  }, [isMobile, headerHidden, onHeaderVisibilityChange]);
+
+  useEffect(() => {
+    if (!isMobile) return;
+    const el = toolbarRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        const h = entry.contentRect.height;
+        if (h > 0) setToolbarHeight(h);
+      }
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [isMobile]);
 
   const fetchBoard = async () => {
     try {
@@ -780,10 +862,70 @@ const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode }) => {
     </div>
   );
 
+  const isCalendarOnlyLayout = (mobileCalendarOnly || calendarStandalone) && viewMode === 'calendar' && boardForView;
+  if (isCalendarOnlyLayout) {
+    return (
+      <div className="h-full flex flex-col min-h-0">
+        <div className="shrink-0 px-3 sm:px-6 py-2.5 border-b border-monday-border bg-white flex items-center gap-2">
+          {!isTaller && (
+            <div className="flex items-center bg-monday-blue rounded-monday shadow-monday-sm">
+              <button
+                onClick={openAddToProject}
+                className="text-white text-[13px] font-semibold px-3.5 py-1.5 hover:bg-monday-blue/90 rounded-l-monday transition-colors"
+              >
+                Crear Tarea
+              </button>
+              <Popover.Root open={newMenuOpen} onOpenChange={setNewMenuOpen}>
+                <Popover.Trigger asChild>
+                  <button className="text-white px-2 py-1.5 hover:bg-monday-blue/90 rounded-r-monday transition-colors">
+                    <ChevronDown size={14} />
+                  </button>
+                </Popover.Trigger>
+                <Popover.Portal>
+                  <Popover.Content
+                    className="z-50 bg-white rounded-xl shadow-monday-lg border border-monday-border w-44 p-1 mt-1"
+                    sideOffset={4}
+                    align="start"
+                  >
+                    <button type="button" onClick={() => { setNewMenuOpen(false); openCalendarEventRef.current?.({ date: new Date(), eventType: 'levantamiento' }); }} className="w-full text-left px-3 py-2 text-[13px] hover:bg-monday-hover rounded-md flex items-center gap-2" style={{ borderLeft: '3px solid #6e3cbb' }}>Levantamiento</button>
+                    <button type="button" onClick={() => { setNewMenuOpen(false); openCalendarEventRef.current?.({ date: new Date(), eventType: 'pendiente' }); }} className="w-full text-left px-3 py-2 text-[13px] hover:bg-monday-hover rounded-md flex items-center gap-2" style={{ borderLeft: '3px solid #ec4899' }}>Pendiente</button>
+                    <button type="button" onClick={() => { setNewMenuOpen(false); openCalendarEventRef.current?.({ date: new Date(), eventType: 'colocacion' }); }} className="w-full text-left px-3 py-2 text-[13px] hover:bg-monday-hover rounded-md flex items-center gap-2" style={{ borderLeft: '3px solid #0f766e' }}>Entrega</button>
+                    <button type="button" onClick={openAddToProject} className="w-full text-left px-3 py-2 text-[13px] hover:bg-monday-hover rounded-md flex items-center gap-2">Crear Tarea</button>
+                  </Popover.Content>
+                </Popover.Portal>
+              </Popover.Root>
+            </div>
+          )}
+        </div>
+        <div className="flex-1 min-h-0 overflow-auto overflow-x-auto custom-scrollbar scroll-touch" style={{ WebkitOverflowScrolling: 'touch' }}>
+          <CalendarView
+            board={boardForView}
+            onRowClick={onRowClick}
+            isTallerView={isTaller}
+            onOpenAddToProject={() => setAddToProjectOpen(true)}
+            onRegisterOpenCalendarEvent={registerOpenCalendarEvent}
+            defaultViewType={calendarStandalone ? 'week' : undefined}
+          />
+        </div>
+      </div>
+    );
+  }
+
+  const toolbarClass = `min-w-0 px-4 sm:px-6 py-2.5 border-b border-monday-border flex items-center gap-x-2 gap-y-2 shrink-0 bg-white ${mobileOptimized ? 'flex-nowrap' : 'flex-wrap'}`;
+  const ToolbarWrapper = isMobile ? motion.div : 'div';
+  const toolbarWrapperProps = isMobile
+    ? {
+        className: 'min-h-0 overflow-hidden shrink-0',
+        animate: { height: headerHidden ? 0 : toolbarHeight } as const,
+        transition: { duration: 0.25, ease: 'easeInOut' as const },
+      }
+    : { className: toolbarClass };
+
   return (
-    <div className="h-full flex flex-col">
-      {/* ── Action Toolbar: adaptada por vista (tabla = todo; kanban = filtrar y ordenar; calendario = Crear Tarea + eventos; facturación = Crear Tarea) ─────────────────────────────────────── */}
-      <div className="px-6 py-2.5 border-b border-monday-border flex items-center gap-2 shrink-0 bg-white flex-wrap">
+    <div className="h-full min-h-0 flex flex-col">
+      {/* ── Action Toolbar: hide-on-scroll en móvil (altura animada para reclamar espacio) ─────────────────────────────────────── */}
+      <ToolbarWrapper {...toolbarWrapperProps}>
+        <div ref={isMobile ? toolbarRef : undefined} className={toolbarClass}>
         {/* Primary CTA: en tabla "+ Nuevo elemento", en calendario "Crear Tarea"; oculto en Kanban y Facturación. */}
         {!isTaller && viewMode !== 'kanban' && viewMode !== 'facturacion' && viewMode !== 'resumen' && viewMode !== 'archivos' && viewMode !== 'timeline' && (
         <div className="flex items-center bg-monday-blue rounded-monday shadow-monday-sm mr-2">
@@ -904,14 +1046,56 @@ const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode }) => {
             </button>
           </div>
         ) : (
-          <button onClick={() => setShowSearch(true)} className="toolbar-btn">
-            <Search size={15} />
-            <span>Buscar</span>
+          <button onClick={() => setShowSearch(true)} className={`toolbar-btn ${mobileOptimized ? 'min-h-[44px] min-w-[44px] px-2' : ''}`} title="Buscar en el tablero">
+            <Search size={mobileOptimized ? 18 : 15} />
+            {!mobileOptimized && <span>Buscar</span>}
           </button>
         ))}
 
-        {/* Filtrar: tabla, kanban y Mi trabajo (por estado) */}
+        {/* En móvil / mobileOptimized: menú "Más" que agrupa Filtrar, Ordenar, Ocultar */}
         {(viewMode === 'table' || viewMode === 'kanban' || viewMode === 'miTrabajo') && (
+        <Popover.Root open={showMoreMenu} onOpenChange={setShowMoreMenu}>
+          <Popover.Trigger asChild>
+            <button className={`toolbar-btn min-h-[44px] min-w-[44px] ${mobileOptimized ? '' : 'sm:hidden'}`} aria-label="Más opciones">
+              <MoreHorizontal size={18} />
+              <span>Más</span>
+            </button>
+          </Popover.Trigger>
+          <Popover.Portal>
+            <Popover.Content className="z-50 bg-white rounded-xl shadow-monday-lg border border-monday-border w-[min(280px,90vw)] max-h-[70vh] overflow-y-auto custom-scrollbar scroll-touch p-2 fade-in mt-1" sideOffset={5}>
+              <div className="text-[12px] font-semibold text-monday-subtext px-2 py-1.5 uppercase tracking-tight border-b border-monday-border/60 mb-2">Filtrar por estado</div>
+              <button type="button" onClick={() => { setFilterByStatusOptionId(null); }} className={`w-full text-left px-2 py-2 text-[13px] rounded-md transition-colors ${!filterByStatusOptionId ? 'bg-monday-pill text-monday-blue font-medium' : 'hover:bg-monday-hover text-monday-text'}`}>Todos los estados</button>
+              {filterStatusOptions.map((opt) => (
+                <button key={opt.id} type="button" onClick={() => setFilterByStatusOptionId(opt.id)} className={`w-full text-left px-2 py-2 text-[13px] rounded-md transition-colors flex items-center gap-2 ${filterByStatusOptionId === opt.id ? 'bg-monday-pill text-monday-blue font-medium' : 'hover:bg-monday-hover text-monday-text'}`}>
+                  <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: opt.color ?? '#c4c4c4' }} />{opt.label}
+                </button>
+              ))}
+              <div className="text-[12px] font-semibold text-monday-subtext px-2 py-1.5 uppercase tracking-tight border-b border-monday-border/60 mt-3 mb-2">Ordenar por</div>
+              {sortConfig && <button onClick={() => setSortConfig(null)} className="w-full text-left px-2 py-2 text-[13px] text-monday-red hover:bg-red-500/15 rounded-md font-medium">Limpiar orden</button>}
+              <button onClick={() => setSortConfig({ columnId: 'name', direction: 'asc' })} className={`w-full text-left px-2 py-2 text-[13px] rounded-md ${sortConfig?.columnId === 'name' && sortConfig.direction === 'asc' ? 'bg-monday-pill text-monday-blue font-medium' : 'hover:bg-monday-hover text-monday-text'}`}>Nombre (A-Z)</button>
+              <button onClick={() => setSortConfig({ columnId: 'name', direction: 'desc' })} className={`w-full text-left px-2 py-2 text-[13px] rounded-md ${sortConfig?.columnId === 'name' && sortConfig.direction === 'desc' ? 'bg-monday-pill text-monday-blue font-medium' : 'hover:bg-monday-hover text-monday-text'}`}>Nombre (Z-A)</button>
+              {board?.columns.map(col => (
+                <React.Fragment key={col.id}>
+                  <button onClick={() => setSortConfig({ columnId: col.id, direction: 'asc' })} className={`w-full text-left px-2 py-2 text-[13px] rounded-md truncate ${sortConfig?.columnId === col.id && sortConfig.direction === 'asc' ? 'bg-monday-pill text-monday-blue font-medium' : 'hover:bg-monday-hover text-monday-text'}`}>{col.title} ↑</button>
+                  <button onClick={() => setSortConfig({ columnId: col.id, direction: 'desc' })} className={`w-full text-left px-2 py-2 text-[13px] rounded-md truncate ${sortConfig?.columnId === col.id && sortConfig.direction === 'desc' ? 'bg-monday-pill text-monday-blue font-medium' : 'hover:bg-monday-hover text-monday-text'}`}>{col.title} ↓</button>
+                </React.Fragment>
+              ))}
+              <div className="text-[12px] font-semibold text-monday-subtext px-2 py-1.5 uppercase tracking-tight border-b border-monday-border/60 mt-3 mb-2">Ocultar columnas</div>
+              {hiddenColumns.length > 0 && <button onClick={() => setHiddenColumns([])} className="text-[11px] text-monday-blue hover:underline px-2 pb-1">Mostrar todas</button>}
+              {board?.columns.map(col => (
+                <label key={col.id} className="flex items-center gap-2.5 px-2 py-2 hover:bg-monday-hover rounded-md cursor-pointer transition-colors group">
+                  <input type="checkbox" className="w-3.5 h-3.5 accent-monday-blue cursor-pointer" checked={!hiddenColumns.includes(col.id)} onChange={() => toggleHideColumn(col.id)} />
+                  <span className={`text-[13px] ${hiddenColumns.includes(col.id) ? 'text-monday-subtext line-through' : 'text-monday-text'}`}>{col.title}</span>
+                </label>
+              ))}
+            </Popover.Content>
+          </Popover.Portal>
+        </Popover.Root>
+        )}
+
+        {/* Filtrar, Ordenar, Ocultar: visibles desde sm (640px); ocultos cuando mobileOptimized */}
+        {(viewMode === 'table' || viewMode === 'kanban' || viewMode === 'miTrabajo') && !mobileOptimized && (
+        <div className="hidden sm:flex items-center gap-2 flex-wrap">
         <Popover.Root open={showFilter} onOpenChange={setShowFilter}>
           <Popover.Trigger asChild>
             <button className={`toolbar-btn ${filterByStatusOptionId ? 'bg-monday-pill text-monday-blue border-monday-blue/40' : ''}`}>
@@ -943,7 +1127,6 @@ const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode }) => {
             </Popover.Content>
           </Popover.Portal>
         </Popover.Root>
-        )}
 
         {/* Sort Popover: tabla, kanban y Mi trabajo */}
         {(viewMode === 'table' || viewMode === 'kanban' || viewMode === 'miTrabajo') && (
@@ -958,7 +1141,7 @@ const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode }) => {
           <Popover.Portal>
             <Popover.Content className="z-50 bg-white rounded-xl shadow-monday-lg border border-monday-border w-56 p-2 fade-in mt-1" sideOffset={5}>
               <div className="text-[12px] font-semibold text-monday-subtext mb-2 px-2 uppercase tracking-tight">Ordenar por</div>
-              <div className="flex flex-col gap-1 max-h-60 overflow-y-auto custom-scrollbar">
+              <div className="flex flex-col gap-1 max-h-60 overflow-y-auto custom-scrollbar scroll-touch">
                 
                 {/* Clear sort */}
                 {sortConfig && (
@@ -1026,7 +1209,7 @@ const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode }) => {
                   </button>
                 )}
               </div>
-              <div className="flex flex-col gap-0.5 max-h-60 overflow-y-auto custom-scrollbar">
+              <div className="flex flex-col gap-0.5 max-h-60 overflow-y-auto custom-scrollbar scroll-touch">
                 {board.columns.map(col => (
                   <label key={col.id} className="flex items-center gap-2.5 px-2 py-1.5 hover:bg-monday-hover rounded-md cursor-pointer transition-colors group">
                     <input 
@@ -1047,11 +1230,18 @@ const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode }) => {
         )}
         </>
         )}
+        </div>
+        )}
 
       </div>
+      </ToolbarWrapper>
 
-      {/* ── Board Content ───────────────────────────────────────── */}
-      <div ref={scrollContainerRef} className="flex-1 overflow-auto custom-scrollbar px-6 py-5">
+      {/* ── Board Content: min-h-0 para que el flex permita scroll; touch para desplazamiento en móvil/horizontal ───────────────────────────────────────── */}
+      <div
+        ref={scrollContainerRef}
+        className={`flex-1 min-h-0 overflow-y-auto overflow-x-hidden custom-scrollbar scroll-touch overscroll-y-contain ${isPortrait ? 'px-4 sm:px-6 py-5' : 'px-2 sm:px-4 py-3'}`}
+        style={{ WebkitOverflowScrolling: 'touch', overscrollBehaviorY: 'contain' }}
+      >
         {viewMode === 'kanban' && boardForView ? (
           <KanbanView board={boardForView} onRowClick={onRowClick} />
         ) : viewMode === 'calendar' && boardForView ? (
@@ -1089,10 +1279,9 @@ const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode }) => {
 
                   return (
                     <React.Fragment key={group.id}>
-                      {/* Vista tabla / Mi trabajo: una sección por grupo raíz */}
+                      {/* Vista tabla / Mi trabajo: una sección por grupo raíz. Scroll único en el panel (sin scroll por grupo). */}
                       <section
-                        className="min-h-0 flex flex-col max-h-[calc(100vh-180px)] overflow-y-auto custom-scrollbar mb-6 rounded-lg border border-monday-border"
-                        style={{ contain: 'layout' }}
+                        className="min-h-0 min-w-0 flex flex-col mb-6 rounded-lg border border-monday-border"
                       >
                         <BoardGroup
                           group={group}
@@ -1109,6 +1298,7 @@ const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode }) => {
                           onToggleItem={toggleItemSelection}
                           onToggleGroupAll={toggleGroupAll}
                           stackIndex={idx}
+                          useCardView={useCardView}
                         />
                         {childGroups.map(sub => (
                           <div
@@ -1133,6 +1323,7 @@ const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode }) => {
                               onToggleItem={toggleItemSelection}
                               onToggleGroupAll={toggleGroupAll}
                               stackIndex={idx}
+                              useCardView={useCardView}
                             />
                           </div>
                         ))}
@@ -1270,39 +1461,37 @@ const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode }) => {
         )}
 
         {/* Diálogo de confirmación eliminar elementos (interno, estilo app) */}
-        <Dialog.Root open={showDeleteItemsConfirm} onOpenChange={setShowDeleteItemsConfirm}>
-          <Dialog.Portal>
-            <Dialog.Overlay className="fixed inset-0 bg-black/40 z-[150] fade-in" />
-            <Dialog.Content
-              className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 bg-white rounded-xl shadow-monday-xl border border-monday-border p-6 w-[400px] max-w-[90vw] z-[151] zoom-in"
-              onCloseAutoFocus={(e) => e.preventDefault()}
-            >
-              <Dialog.Title className="text-lg font-bold text-monday-text mb-1">
-                Eliminar elementos
-              </Dialog.Title>
-              <Dialog.Description className="text-[14px] text-monday-subtext mb-6">
-                ¿Eliminar {selectedItemIds.size} elemento{selectedItemIds.size !== 1 ? 's' : ''} seleccionado{selectedItemIds.size !== 1 ? 's' : ''}? Esta acción no se puede deshacer.
-              </Dialog.Description>
-              <div className="flex justify-end gap-2">
-                <Dialog.Close asChild>
-                  <button
-                    type="button"
-                    className="px-4 py-2 text-[13px] font-medium text-monday-text bg-monday-hover hover:bg-monday-border rounded-lg transition-colors"
-                  >
-                    Cancelar
-                  </button>
-                </Dialog.Close>
+        <AnimatedDialog open={showDeleteItemsConfirm} onOpenChange={setShowDeleteItemsConfirm}>
+          <Dialog.Overlay className="fixed inset-0 bg-black/40 z-[150]" />
+          <Dialog.Content
+            className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 bg-white rounded-xl shadow-monday-xl border border-monday-border p-6 w-[400px] max-w-[90vw] z-[151]"
+            onCloseAutoFocus={(e) => e.preventDefault()}
+          >
+            <Dialog.Title className="text-lg font-bold text-monday-text mb-1">
+              Eliminar elementos
+            </Dialog.Title>
+            <Dialog.Description className="text-[14px] text-monday-subtext mb-6">
+              ¿Eliminar {selectedItemIds.size} elemento{selectedItemIds.size !== 1 ? 's' : ''} seleccionado{selectedItemIds.size !== 1 ? 's' : ''}? Esta acción no se puede deshacer.
+            </Dialog.Description>
+            <div className="flex justify-end gap-2">
+              <Dialog.Close asChild>
                 <button
                   type="button"
-                  onClick={confirmDeleteSelected}
-                  className="px-4 py-2 text-[13px] font-medium text-white bg-monday-red hover:bg-red-600 rounded-lg transition-colors"
+                  className="px-4 py-2 text-[13px] font-medium text-monday-text bg-monday-hover hover:bg-monday-border rounded-lg transition-colors"
                 >
-                  Eliminar
+                  Cancelar
                 </button>
-              </div>
-            </Dialog.Content>
-          </Dialog.Portal>
-        </Dialog.Root>
+              </Dialog.Close>
+              <button
+                type="button"
+                onClick={confirmDeleteSelected}
+                className="px-4 py-2 text-[13px] font-medium text-white bg-monday-red hover:bg-red-600 rounded-lg transition-colors"
+              >
+                Eliminar
+              </button>
+            </div>
+          </Dialog.Content>
+        </AnimatedDialog>
 
         {/* Modal Añadir a proyecto / Crear Tarea: unificado en todas las vistas; adaptativo por viewMode */}
         <Dialog.Root open={addToProjectOpen} onOpenChange={(open) => { setAddToProjectOpen(open); if (!open) setAddToProjectName(''); }}>

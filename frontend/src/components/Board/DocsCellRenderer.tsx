@@ -7,7 +7,7 @@ import * as Dialog from '@radix-ui/react-dialog';
 import { FileText, ChevronDown, ExternalLink, Upload, Loader2, Trash2, FilePenLine } from 'lucide-react';
 
 // En desarrollo Vite hace proxy de /api y /uploads al backend (3001); usar '' para mismo origen
-const API_BASE = import.meta.env.DEV ? '' : 'http://localhost:3001';
+const API_BASE = import.meta.env.DEV ? '' : (import.meta.env.VITE_API_URL || 'http://localhost:3001');
 
 interface DocsValue {
   cotizacion?: string;

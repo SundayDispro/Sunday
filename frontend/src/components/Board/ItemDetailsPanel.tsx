@@ -1,8 +1,10 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
 import { Item, Update } from '../../types';
 import { X, Image, Smile, AtSign, Paperclip, Send, Clock, FileText, Activity, Info } from 'lucide-react';
 import { socket } from '../../store/socket';
 import { useUser } from '../../store/UserContext';
+import { API_BASE } from '../../api';
 
 interface Props {
   item: Item;
@@ -36,7 +38,7 @@ export const ItemDetailsPanel: React.FC<Props> = ({ item, onClose }) => {
   useEffect(() => {
     setLoading(true);
     setUpdates([]);
-    fetch(`http://localhost:3001/api/items/${item.id}/updates`)
+    fetch(`${API_BASE}/api/items/${item.id}/updates`)
       .then(r => r.ok ? r.json() : [])
       .then(data => { setUpdates(data); setLoading(false); })
       .catch(() => setLoading(false));
@@ -73,28 +75,29 @@ export const ItemDetailsPanel: React.FC<Props> = ({ item, onClose }) => {
   };
 
   return (
-    <div className="w-[520px] h-full bg-white border-l border-monday-border shadow-monday-panel flex flex-col">
+    <div className="w-full max-w-full md:w-[520px] h-full min-h-0 bg-white border-l border-monday-border shadow-monday-panel flex flex-col safe-area-padding">
       {/* Header */}
-      <div className="flex items-start justify-between px-5 py-4 border-b border-monday-border shrink-0">
-        <div className="flex-1 min-w-0 pr-4">
-          <h2 className="text-[17px] font-semibold text-monday-text leading-tight truncate">{item.name}</h2>
+      <div className="flex items-start justify-between px-4 sm:px-5 py-4 border-b border-monday-border shrink-0">
+        <div className="flex-1 min-w-0 pr-3">
+          <h2 className="text-[16px] sm:text-[17px] font-semibold text-monday-text leading-tight truncate">{item.name}</h2>
           <p className="text-[12px] text-monday-subtext mt-0.5">Elemento · ID #{item.id.slice(0, 8)}</p>
         </div>
         <button
           onClick={onClose}
-          className="p-1.5 hover:bg-monday-hover rounded-monday text-monday-subtext hover:text-monday-text transition-colors shrink-0"
+          className="p-1.5 hover:bg-monday-hover rounded-monday text-monday-subtext hover:text-monday-text transition-colors shrink-0 min-h-[44px] min-w-[44px] flex items-center justify-center"
         >
           <X size={18} />
         </button>
       </div>
 
-      {/* Tabs */}
-      <div className="flex px-5 border-b border-monday-border gap-1 shrink-0">
+      {/* Tabs: scroll horizontal en móvil */}
+      <div className="flex px-3 sm:px-5 border-b border-monday-border gap-1 shrink-0 overflow-x-auto scroll-touch overflow-y-hidden">
+        <div className="flex gap-1 flex-nowrap min-w-0">
         {TABS.map(tab => (
           <button
             key={tab}
             onClick={() => setActiveTab(tab)}
-            className={`flex items-center gap-1.5 py-2.5 px-2 text-[12px] font-medium border-b-2 transition-colors ${
+            className={`flex items-center gap-1.5 py-2.5 px-2 text-[12px] font-medium border-b-2 transition-colors shrink-0 ${
               activeTab === tab
                 ? 'border-monday-blue text-monday-blue'
                 : 'border-transparent text-monday-subtext hover:text-monday-text'
@@ -104,10 +107,11 @@ export const ItemDetailsPanel: React.FC<Props> = ({ item, onClose }) => {
             {tab}
           </button>
         ))}
+        </div>
       </div>
 
       {/* Content */}
-      <div className="flex-1 overflow-y-auto custom-scrollbar bg-[#f9fafb]" ref={feedRef}>
+      <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden custom-scrollbar scroll-touch bg-[#f9fafb]" ref={feedRef}>
         {activeTab === 'Actualizaciones' && (
           <div className="p-4 flex flex-col gap-4">
             {/* Write update box */}
@@ -157,25 +161,35 @@ export const ItemDetailsPanel: React.FC<Props> = ({ item, onClose }) => {
               </div>
             ) : (
               <div className="flex flex-col gap-3">
-                {updates.map(u => (
-                  <div key={u.id} className="flex gap-3 fade-in">
-                    <div 
-                      className="w-8 h-8 rounded-full flex items-center justify-center text-white text-[12px] font-semibold shrink-0 mt-0.5 shadow-monday-sm"
-                      style={{ backgroundColor: u.authorUser?.color || '#ccc' }}
+                <AnimatePresence initial={false}>
+                  {updates.map(u => (
+                    <motion.div
+                      key={u.id}
+                      layout
+                      initial={{ opacity: 0, y: 8 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0 }}
+                      transition={{ duration: 0.2, ease: [0.22, 1, 0.36, 1] }}
+                      className="flex gap-3"
                     >
-                      {u.authorUser?.initials || '?'}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="bg-white rounded-xl border border-monday-border p-3 shadow-monday-sm">
-                        <div className="flex items-baseline justify-between mb-1.5">
-                          <span className="text-[13px] font-semibold text-monday-text">{u.authorUser?.name || 'Desconocido'}</span>
-                          <span className="text-[11px] text-monday-subtext">{relativeTime(u.createdAt)}</span>
-                        </div>
-                        <p className="text-[13px] text-monday-text whitespace-pre-wrap">{u.content}</p>
+                      <div 
+                        className="w-8 h-8 rounded-full flex items-center justify-center text-white text-[12px] font-semibold shrink-0 mt-0.5 shadow-monday-sm"
+                        style={{ backgroundColor: u.authorUser?.color || '#ccc' }}
+                      >
+                        {u.authorUser?.initials || '?'}
                       </div>
-                    </div>
-                  </div>
-                ))}
+                      <div className="flex-1 min-w-0">
+                        <div className="bg-white rounded-xl border border-monday-border p-3 shadow-monday-sm">
+                          <div className="flex items-baseline justify-between mb-1.5">
+                            <span className="text-[13px] font-semibold text-monday-text">{u.authorUser?.name || 'Desconocido'}</span>
+                            <span className="text-[11px] text-monday-subtext">{relativeTime(u.createdAt)}</span>
+                          </div>
+                          <p className="text-[13px] text-monday-text whitespace-pre-wrap">{u.content}</p>
+                        </div>
+                      </div>
+                    </motion.div>
+                  ))}
+                </AnimatePresence>
               </div>
             )}
           </div>

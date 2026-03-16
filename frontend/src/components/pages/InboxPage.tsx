@@ -3,6 +3,8 @@ import { Inbox, Send, AtSign, CheckSquare } from 'lucide-react';
 import { Item, User } from '../../types';
 import { useUser } from '../../store/UserContext';
 
+const API_BASE = import.meta.env.DEV ? '' : (import.meta.env.VITE_API_URL || 'http://localhost:3001');
+
 type FeedPost = {
   id: string;
   content: string;
@@ -39,8 +41,8 @@ export const InboxPage: React.FC<Props> = ({ onItemClick, initialUser, onClearIn
   const fetchFeed = () => {
     setLoading(true);
     const url = tab === 'mentions' && currentUser?.id
-      ? `http://localhost:3001/api/feed?filter=mentions&userId=${encodeURIComponent(currentUser.id)}`
-      : 'http://localhost:3001/api/feed';
+      ? `${API_BASE}/api/feed?filter=mentions&userId=${encodeURIComponent(currentUser.id)}`
+      : `${API_BASE}/api/feed`;
     fetch(url)
       .then(r => r.json())
       .then((data: FeedPost[]) => {
@@ -67,7 +69,7 @@ export const InboxPage: React.FC<Props> = ({ onItemClick, initialUser, onClearIn
   }, [initialUser, onClearInitialUser]);
 
   useEffect(() => {
-    fetch('http://localhost:3001/api/users')
+    fetch(`${API_BASE}/api/users`)
       .then(r => r.json())
       .then((data: User[]) => setUsers(Array.isArray(data) ? data : []))
       .catch(() => setUsers([]));
@@ -133,7 +135,7 @@ export const InboxPage: React.FC<Props> = ({ onItemClick, initialUser, onClearIn
     setPostError(null);
     setPosting(true);
     const mentionedUserIds = extractMentionedIds(content);
-    fetch('http://localhost:3001/api/feed', {
+    fetch(`${API_BASE}/api/feed`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ content, authorId: currentUser.id, mentionedUserIds }),
@@ -182,30 +184,31 @@ export const InboxPage: React.FC<Props> = ({ onItemClick, initialUser, onClearIn
   const visiblePosts = (onlyUnread ? posts.filter(p => !readPostIds.includes(p.id)) : posts);
 
   return (
-    <div className="flex-1 flex flex-col overflow-hidden">
-      <div className="p-6 border-b border-monday-border">
-        <h1 className="text-[20px] font-semibold text-monday-text flex items-center gap-2">
-          <Inbox size={22} className="text-monday-blue" />
+    <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
+      <div className="p-4 sm:p-6 border-b border-monday-border shrink-0">
+        <h1 className="text-[18px] sm:text-[20px] font-semibold text-monday-text flex items-center gap-2">
+          <Inbox size={22} className="text-monday-blue shrink-0" />
           Bandeja de entrada
         </h1>
         <p className="text-[13px] text-monday-subtext mt-1">
           Actualizaciones del equipo y menciones con @
         </p>
 
-        <div className="flex gap-1 mt-4 border-b border-monday-border">
+        <div className="flex gap-1 mt-4 border-b border-monday-border overflow-x-auto scroll-touch -mx-1 px-1 flex-nowrap">
           {[
-            { id: 'all' as TabId, label: 'Todas las actualizaciones' },
-            { id: 'mentions' as TabId, label: 'Me mencionaron', icon: AtSign },
+            { id: 'all' as TabId, label: 'Todas las actualizaciones', labelShort: 'Todas' },
+            { id: 'mentions' as TabId, label: 'Me mencionaron', labelShort: 'Menciones', icon: AtSign },
           ].map(t => (
             <button
               key={t.id}
               onClick={() => setTab(t.id)}
-              className={`flex items-center gap-1.5 py-2.5 px-3 text-[13px] font-medium border-b-2 -mb-px transition-colors ${
+              className={`flex items-center gap-1.5 py-2.5 px-3 min-h-[44px] shrink-0 text-[13px] font-medium border-b-2 -mb-px transition-colors touch-manipulation ${
                 tab === t.id ? 'border-monday-blue text-monday-blue' : 'border-transparent text-monday-subtext hover:text-monday-text'
               }`}
             >
-              {t.icon && <t.icon size={14} />}
-              {t.label}
+              {t.icon && <t.icon size={14} className="shrink-0" />}
+              <span className="sm:hidden">{(t as { labelShort?: string }).labelShort ?? t.label}</span>
+              <span className="hidden sm:inline">{t.label}</span>
             </button>
           ))}
         </div>
@@ -228,7 +231,7 @@ export const InboxPage: React.FC<Props> = ({ onItemClick, initialUser, onClearIn
               rows={3}
             />
             {showUserList && (
-              <div className="absolute left-0 right-0 top-full mt-1 bg-white border border-monday-border rounded-monday shadow-monday-lg overflow-hidden z-10 max-h-48 overflow-y-auto">
+              <div className="absolute left-0 right-0 top-full mt-1 bg-white border border-monday-border rounded-monday shadow-monday-lg overflow-hidden z-10 max-h-48 overflow-y-auto scroll-touch">
                 {filteredUsers.length === 0 ? (
                   <div className="px-3 py-2 text-[13px] text-monday-subtext">Sin coincidencias</div>
                 ) : (
@@ -256,7 +259,7 @@ export const InboxPage: React.FC<Props> = ({ onItemClick, initialUser, onClearIn
             type="button"
             onClick={handlePost}
             disabled={!newContent.trim() || posting}
-            className="self-end flex items-center gap-2 px-4 py-2.5 rounded-monday bg-monday-blue text-white text-[13px] font-medium hover:bg-monday-blue/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            className="self-end flex items-center gap-2 px-4 py-2.5 min-h-[44px] rounded-monday bg-monday-blue text-white text-[13px] font-medium hover:bg-monday-blue/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors touch-manipulation"
           >
             <Send size={16} />
             Publicar
@@ -284,7 +287,7 @@ export const InboxPage: React.FC<Props> = ({ onItemClick, initialUser, onClearIn
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto custom-scrollbar p-6">
+      <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden custom-scrollbar scroll-touch p-4 sm:p-6">
         {loading ? (
           <div className="flex justify-center py-12">
             <div className="w-8 h-8 border-2 border-monday-blue border-t-transparent rounded-full animate-spin" />

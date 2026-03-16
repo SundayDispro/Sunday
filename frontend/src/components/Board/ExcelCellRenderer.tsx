@@ -6,7 +6,7 @@ import * as XLSX from 'xlsx';
 import * as Dialog from '@radix-ui/react-dialog';
 import { useToast } from '../Toast';
 
-const API_BASE = import.meta.env.DEV ? '' : 'http://localhost:3001';
+const API_BASE = import.meta.env.DEV ? '' : (import.meta.env.VITE_API_URL || 'http://localhost:3001');
 
 function buildFullUrl(path: string): string {
   if (path.startsWith('http')) return path;

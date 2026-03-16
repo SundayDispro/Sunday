@@ -3,7 +3,7 @@ import { Bell, Check, CheckCheck, ExternalLink, AtSign, UserPlus } from 'lucide-
 import { useUser } from '../../store/UserContext';
 import { Notification as NotificationType, Item } from '../../types';
 
-const API_BASE = 'http://localhost:3001';
+const API_BASE = import.meta.env.DEV ? '' : (import.meta.env.VITE_API_URL || 'http://localhost:3001');
 
 type TabId = 'all' | 'mentions' | 'assignments';
 
@@ -142,18 +142,18 @@ export const NotificationsPage: React.FC<NotificationsPageProps> = ({
   const showMentions = tab === 'all' || tab === 'mentions';
 
   return (
-    <div className="flex-1 flex flex-col overflow-hidden">
-      <div className="p-6 border-b border-monday-border">
-        <div className="flex items-center justify-between mb-4">
-          <h1 className="text-[20px] font-semibold text-monday-text flex items-center gap-2">
-            <Bell size={22} className="text-monday-blue" />
+    <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
+      <div className="p-4 sm:p-6 border-b border-monday-border shrink-0">
+        <div className="flex items-center justify-between mb-4 gap-2 flex-wrap">
+          <h1 className="text-[18px] sm:text-[20px] font-semibold text-monday-text flex items-center gap-2">
+            <Bell size={22} className="text-monday-blue shrink-0" />
             Notificaciones
           </h1>
           {unreadCount > 0 && (
             <button
               type="button"
               onClick={markAllAsRead}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-[13px] text-monday-blue hover:bg-monday-hover rounded-lg transition-colors"
+              className="flex items-center gap-1.5 px-3 py-2 min-h-[44px] text-[13px] text-monday-blue hover:bg-monday-hover rounded-lg transition-colors touch-manipulation"
             >
               <CheckCheck size={16} />
               Marcar todas como leídas
@@ -161,56 +161,57 @@ export const NotificationsPage: React.FC<NotificationsPageProps> = ({
           )}
         </div>
 
-        <div className="flex gap-1 border-b border-monday-border mb-4">
+        <div className="flex gap-1 border-b border-monday-border mb-4 overflow-x-auto scroll-touch -mx-1 px-1 flex-nowrap">
           {[
-            { id: 'all' as TabId, label: 'Todas' },
-            { id: 'mentions' as TabId, label: 'Menciones', icon: AtSign },
-            { id: 'assignments' as TabId, label: 'Asignaciones', icon: UserPlus },
+            { id: 'all' as TabId, label: 'Todas', labelShort: 'Todas' },
+            { id: 'mentions' as TabId, label: 'Menciones', labelShort: 'Menc.', icon: AtSign },
+            { id: 'assignments' as TabId, label: 'Asignaciones', labelShort: 'Asig.', icon: UserPlus },
           ].map(t => (
             <button
               key={t.id}
               type="button"
               onClick={() => setTab(t.id)}
-              className={`flex items-center gap-1.5 py-2.5 px-3 text-[13px] font-medium border-b-2 -mb-px transition-colors ${
+              className={`flex items-center gap-1.5 py-2.5 px-3 min-h-[44px] shrink-0 text-[13px] font-medium border-b-2 -mb-px transition-colors touch-manipulation ${
                 tab === t.id ? 'border-monday-blue text-monday-blue' : 'border-transparent text-monday-subtext hover:text-monday-text'
               }`}
             >
-              {t.icon && <t.icon size={14} />}
-              {t.label}
+              {t.icon && <t.icon size={14} className="shrink-0" />}
+              <span className="sm:hidden">{(t as { labelShort?: string }).labelShort ?? t.label}</span>
+              <span className="hidden sm:inline">{t.label}</span>
             </button>
           ))}
         </div>
 
-        <div className="flex gap-2 mb-2">
+        <div className="flex flex-wrap gap-2 mb-2">
           <input
             type="text"
             value={searchQuery}
             onChange={e => setSearchQuery(e.target.value)}
-            placeholder="Busca notificaciones por personas, tableros y más..."
-            className="flex-1 px-3 py-2 rounded-monday border border-monday-border bg-white text-monday-text text-[13px] placeholder:text-monday-subtext focus:outline-none focus:ring-2 focus:ring-monday-blue"
+            placeholder="Busca notificaciones..."
+            className="flex-1 min-w-[140px] px-3 py-2 min-h-[44px] rounded-monday border border-monday-border bg-white text-monday-text text-[13px] placeholder:text-monday-subtext focus:outline-none focus:ring-2 focus:ring-monday-blue"
           />
-          <label className="flex items-center gap-2 text-[13px] text-monday-subtext whitespace-nowrap">
+          <label className="flex items-center gap-2 text-[13px] text-monday-subtext whitespace-nowrap min-h-[44px] py-2 cursor-pointer">
             <input
               type="checkbox"
               checked={onlyUnread}
               onChange={e => setOnlyUnread(e.target.checked)}
-              className="rounded border-monday-border text-monday-blue focus:ring-monday-blue"
+              className="rounded border-monday-border text-monday-blue focus:ring-monday-blue w-4 h-4"
             />
             Solo no leídas
           </label>
-          <label className="flex items-center gap-2 text-[13px] text-monday-subtext whitespace-nowrap">
+          <label className="flex items-center gap-2 text-[13px] text-monday-subtext whitespace-nowrap min-h-[44px] py-2 cursor-pointer">
             <input
               type="checkbox"
               checked={showRead}
               onChange={e => setShowRead(e.target.checked)}
-              className="rounded border-monday-border text-monday-blue focus:ring-monday-blue"
+              className="rounded border-monday-border text-monday-blue focus:ring-monday-blue w-4 h-4"
             />
             Mostrar leídas
           </label>
         </div>
       </div>
 
-      <div className="flex-1 overflow-auto p-6">
+      <div className="flex-1 min-h-0 overflow-auto custom-scrollbar scroll-touch p-4 sm:p-6">
         {loading ? (
           <div className="flex justify-center py-16">
             <div className="w-8 h-8 border-2 border-monday-blue border-t-transparent rounded-full animate-spin" />
@@ -268,7 +269,7 @@ export const NotificationsPage: React.FC<NotificationsPageProps> = ({
                                 e.stopPropagation();
                                 markAsRead(n.id);
                               }}
-                              className="p-1.5 rounded-lg text-monday-subtext hover:bg-monday-hover hover:text-monday-blue transition-colors"
+                              className="p-2 min-h-[44px] min-w-[44px] flex items-center justify-center rounded-lg text-monday-subtext hover:bg-monday-hover hover:text-monday-blue transition-colors touch-manipulation"
                               title="Marcar como leída"
                             >
                               <Check size={16} />
@@ -340,7 +341,7 @@ export const NotificationsPage: React.FC<NotificationsPageProps> = ({
                                 n.item.group?.board?.id &&
                                 onOpenItem(n.item as Item, n.item.group.board.id)
                               }
-                              className="p-1.5 rounded-lg text-monday-subtext hover:bg-monday-hover hover:text-monday-blue transition-colors"
+                              className="p-2 min-h-[44px] min-w-[44px] flex items-center justify-center rounded-lg text-monday-subtext hover:bg-monday-hover hover:text-monday-blue transition-colors touch-manipulation"
                               title="Ir al tablero"
                             >
                               <ExternalLink size={16} />
@@ -401,7 +402,7 @@ export const NotificationsPage: React.FC<NotificationsPageProps> = ({
                         <button
                           type="button"
                           onClick={handleMentionClick}
-                          className="p-1.5 rounded-lg text-monday-subtext hover:bg-monday-hover hover:text-monday-blue transition-colors shrink-0"
+                          className="p-2 min-h-[44px] min-w-[44px] flex items-center justify-center rounded-lg text-monday-subtext hover:bg-monday-hover hover:text-monday-blue transition-colors shrink-0 touch-manipulation"
                           title="Ir a la bandeja"
                         >
                           <ExternalLink size={16} />

@@ -102,13 +102,15 @@ export function HorizontalScrollArea({
   }, [dragging]);
 
   return (
-    <div className={className}>
+    <div className={`min-w-0 ${className}`.trim()}>
       <div
         ref={scrollRef}
-        className="horizontal-scroll-area-hide-native w-full overflow-x-auto overflow-y-hidden"
+        className="horizontal-scroll-area-hide-native min-w-0 w-full overflow-x-auto overflow-y-hidden scroll-touch"
         style={{
           scrollbarWidth: 'none',
           msOverflowStyle: 'none',
+          WebkitOverflowScrolling: 'touch',
+          touchAction: 'pan-x',
         }}
       >
         {children}
@@ -121,7 +123,7 @@ export function HorizontalScrollArea({
           aria-valuenow={scrollPercent}
           aria-valuemin={0}
           aria-valuemax={100}
-          className="h-2.5 w-full mt-0.5 rounded-full cursor-pointer flex items-center"
+          className="h-2.5 min-h-[44px] sm:min-h-0 w-full mt-0.5 rounded-full cursor-pointer flex items-center"
           style={{ background: 'var(--scrollbar-track, rgba(0,0,0,0.06))' }}
           onClick={onTrackClick}
         >

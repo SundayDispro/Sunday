@@ -1,4 +1,5 @@
 import React from 'react';
+import { motion } from 'framer-motion';
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { Row, flexRender } from '@tanstack/react-table';
@@ -41,8 +42,11 @@ export const DraggableRow: React.FC<DraggableRowProps> = ({ row, groupColor, isS
       : { transition }),
   };
 
+  const Tr = motion.tr;
   return (
-    <tr
+    <Tr
+      layout={!isDragging}
+      transition={{ type: 'spring', stiffness: 350, damping: 30 }}
       ref={setNodeRef}
       style={style}
       className={`h-[42px] transition group/row ${
@@ -75,6 +79,6 @@ export const DraggableRow: React.FC<DraggableRowProps> = ({ row, groupColor, isS
           </td>
         );
       })}
-    </tr>
+    </Tr>
   );
 };

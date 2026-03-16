@@ -16,6 +16,12 @@
 
 /* --- Variables por tema: light (por defecto), dark, night ---
    Referencia: Monday.com — dark con capas de gris; night con tonos azulados. */
+/* Animaciones: duración y easing unificados */
+:root {
+  --monday-duration: 0.2s;
+  --monday-ease: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
 :root,
 [data-theme="light"] {
   --monday-bg: #f6f7fb;
@@ -144,6 +150,16 @@
     background: var(--scrollbar-track, rgba(0, 0, 0, 0.04));
   }
 
+  /* Mejor inercia de scroll en iOS cuando el contenedor tiene overflow-auto */
+  .scroll-touch {
+    -webkit-overflow-scrolling: touch;
+  }
+
+  /* Evitar que el overscroll/bounce del navegador interfiera con el scroll interno (p. ej. board) */
+  .overscroll-y-contain {
+    overscroll-behavior-y: contain;
+  }
+
   /* SimpleBar: tema unificado (track y thumb con variables del proyecto) */
   .simplebar-track {
     background: var(--scrollbar-track, rgba(0, 0, 0, 0.06));
@@ -191,34 +207,64 @@
     @apply transition-colors duration-100;
   }
 
-  /* Subtle animated entrance for floating panels */
-  @keyframes slide-in-right {
-    from { transform: translateX(100%); opacity: 0; }
-    to   { transform: translateX(0);    opacity: 1; }
+  /* Animaciones respetan prefers-reduced-motion */
+  @media (prefers-reduced-motion: no-preference) {
+    @keyframes slide-in-right {
+      from { transform: translateX(100%); opacity: 0; }
+      to   { transform: translateX(0);    opacity: 1; }
+    }
+    .panel-slide-in {
+      animation: slide-in-right 0.22s var(--monday-ease) both;
+    }
+
+    @keyframes fade-in {
+      from { opacity: 0; transform: translateY(4px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+    .fade-in {
+      animation: fade-in var(--monday-duration) var(--monday-ease) both;
+    }
   }
-  .panel-slide-in {
-    animation: slide-in-right 0.22s cubic-bezier(0.22, 1, 0.36, 1) both;
+  @media (prefers-reduced-motion: reduce) {
+    .panel-slide-in,
+    .fade-in {
+      animation: none;
+    }
   }
 
-  /* Fade in */
-  @keyframes fade-in {
-    from { opacity: 0; transform: translateY(4px); }
-    to   { opacity: 1; transform: translateY(0); }
-  }
-  .fade-in {
-    animation: fade-in 0.18s ease both;
-  }
-
-  /* Toolbar button shared style */
+  /* Toolbar button shared style – touch target mínimo 44px */
   .toolbar-btn {
     @apply flex items-center gap-1.5 text-[13px] font-medium text-monday-subtext
            hover:bg-monday-pill hover:text-monday-text
-           px-2.5 py-1.5 rounded-monday transition-colors duration-100 cursor-pointer;
+           min-h-[44px] min-w-[44px] px-2.5 py-1.5 rounded-monday transition-colors duration-100 cursor-pointer;
   }
 }
 
 @media (max-width: 768px) {
   .btn-export-folders {
     display: none;
+  }
+}
+
+/* Safe area: modales y paneles full-screen respetan muesca e indicador de inicio (iPhone, etc.) */
+.safe-area-padding {
+  padding-top: env(safe-area-inset-top);
+  padding-right: env(safe-area-inset-right);
+  padding-bottom: env(safe-area-inset-bottom);
+  padding-left: env(safe-area-inset-left);
+}
+
+/* Landscape con poca altura: barra inferior más compacta y menos padding en main para ganar espacio */
+@media (orientation: landscape) and (max-height: 500px) {
+  .bottom-nav-touch {
+    min-height: 48px;
+  }
+  .bottom-nav-touch button {
+    min-height: 48px;
+    padding-top: 0.25rem;
+    padding-bottom: 0.25rem;
+  }
+  .main-mobile {
+    padding-bottom: 52px;
   }
 }

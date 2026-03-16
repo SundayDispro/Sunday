@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
 import {
   BookOpen,
   FileText,
@@ -23,6 +24,7 @@ import {
   Pencil,
   MessageCircle,
   Mail,
+  MoreVertical,
 } from 'lucide-react';
 import { GROUP_PALETTE } from '../Board/GroupColorPicker';
 import * as Popover from '@radix-ui/react-popover';
@@ -289,7 +291,7 @@ function WordLikeEditor({
   );
 
   return (
-    <div className="flex-1 flex flex-col overflow-hidden bg-monday-bg/50">
+    <div className="flex-1 flex flex-col min-h-0 overflow-hidden bg-monday-bg/50">
       <div className="border-b border-monday-border bg-white">
         <div className="flex items-center justify-between gap-3 px-3 py-2">
           <TextFormatBarForEditor editorRef={editorRef} reportContent={reportContent} />
@@ -368,7 +370,7 @@ function WordLikeEditor({
           </div>
         </div>
       </div>
-      <div className="flex-1 overflow-auto p-6 flex justify-center">
+      <div className="flex-1 min-h-0 overflow-auto scroll-touch custom-scrollbar p-4 sm:p-6 flex justify-center">
         <div className="w-full max-w-[21cm] min-h-[29.7cm] bg-white rounded-lg border border-monday-border shadow-monday-lg px-12 py-10 font-averta">
           {headerImageUrl && (
             <div className="mb-4 flex justify-center">
@@ -462,20 +464,29 @@ function TaskWindowCard({
     const isDone = !!task.done;
     const isImportant = !!task.important;
     return (
-      <div key={task.id} className="flex items-start gap-2 py-1 group">
-        <button
+      <motion.div
+        key={task.id}
+        layout
+        initial={{ opacity: 0, height: 0 }}
+        animate={{ opacity: 1, height: 'auto' }}
+        exit={{ opacity: 0, height: 0 }}
+        transition={{ duration: 0.2, ease: [0.22, 1, 0.36, 1] }}
+        className="flex items-start gap-2 py-1 group overflow-hidden"
+      >
+        <motion.button
           type="button"
           onClick={() => toggleDone(task.id)}
+          whileTap={{ scale: 0.9 }}
           className="mt-0.5 w-5 h-5 rounded-full flex items-center justify-center text-monday-blue bg-transparent hover:bg-monday-hover/60 border border-monday-border"
         >
           {isDone ? <CheckCircle size={14} /> : <Circle size={14} className="text-monday-subtext" />}
-        </button>
+        </motion.button>
         <textarea
           value={task.text}
           onChange={handleTextChange(task.id)}
           rows={1}
           style={{ minHeight: '24px', overflow: 'hidden' }}
-          className={`flex-1 resize-none border-0 bg-transparent text-[12px] outline-none px-1 py-0.5 rounded hover:bg-monday-hover/40 ${
+          className={`flex-1 resize-none border-0 bg-transparent text-[12px] outline-none px-1 py-0.5 rounded hover:bg-monday-hover/40 transition-opacity duration-200 ${
             isDone ? 'text-monday-subtext line-through' : 'text-monday-text'
           }`}
           placeholder="Nueva tarea..."
@@ -496,7 +507,7 @@ function TaskWindowCard({
         >
           <Trash2 size={11} />
         </button>
-      </div>
+      </motion.div>
     );
   };
 
@@ -572,7 +583,9 @@ function TaskWindowCard({
             No hay tareas. Añade la primera abajo.
           </p>
         )}
-        {activeTasks.map((task) => renderTaskRow(task, false))}
+        <AnimatePresence initial={false}>
+          {activeTasks.map((task) => renderTaskRow(task, false))}
+        </AnimatePresence>
         {completedTasks.length > 0 && (
           <div className="pt-1">
             <button
@@ -582,7 +595,7 @@ function TaskWindowCard({
             >
               <ChevronDown
                 size={12}
-                className={`transition-transform ${
+                className={`transition-transform duration-200 ${
                   showCompleted ? 'rotate-0' : '-rotate-90'
                 }`}
               />
@@ -592,7 +605,9 @@ function TaskWindowCard({
             </button>
             {showCompleted && (
               <div className="mt-1 space-y-1">
-                {completedTasks.map((task) => renderTaskRow(task, true))}
+                <AnimatePresence initial={false}>
+                  {completedTasks.map((task) => renderTaskRow(task, true))}
+                </AnimatePresence>
               </div>
             )}
           </div>
@@ -1144,7 +1159,7 @@ function DocsOverviewPanel({
   }
 
   return (
-    <div className="flex-1 relative overflow-auto bg-monday-bg p-6">
+    <div className="flex-1 relative overflow-auto scroll-touch custom-scrollbar bg-monday-bg p-4 sm:p-6 min-h-0">
       {/* Menús grandes para crear documentos */}
       <div className="flex flex-wrap gap-4 mb-6">
         {DOC_TYPE_OPTIONS.map(opt => (
@@ -1857,7 +1872,7 @@ function ExcelLikeSheet({
   const sheetBtn = 'px-2.5 py-1.5 rounded-monday border border-monday-border bg-white text-[12px] text-monday-text hover:bg-monday-hover transition-colors';
 
   return (
-    <div className="flex-1 flex flex-col overflow-hidden bg-monday-bg/50">
+    <div className="flex-1 flex flex-col min-h-0 overflow-hidden bg-monday-bg/50">
       {!readOnly && (
         <div className="shrink-0 flex items-center gap-2 px-3 py-2 bg-white border-b border-monday-border shadow-sm flex-wrap">
           <span className="text-[11px] text-monday-subtext font-mono w-8">fx</span>
@@ -2037,7 +2052,7 @@ function ExcelLikeSheet({
           <span className="text-[11px] text-monday-subtext px-2">Hoja</span>
         </div>
       )}
-      <div className="flex-1 overflow-auto p-4" ref={gridContainerRef} onPaste={e => { if (!readOnly && focusedCell != null) { e.preventDefault(); handlePaste(e, focusedCell.r, focusedCell.c); } }}>
+      <div className="flex-1 min-h-0 overflow-auto scroll-touch custom-scrollbar p-4" ref={gridContainerRef} onPaste={e => { if (!readOnly && focusedCell != null) { e.preventDefault(); handlePaste(e, focusedCell.r, focusedCell.c); } }}>
         <div className="inline-block bg-white rounded-lg border border-monday-border shadow-monday-lg overflow-hidden">
           <table className="border-collapse">
             <thead>
@@ -2132,6 +2147,7 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [viewerActionsOpen, setViewerActionsOpen] = useState(false);
 
   const selectedDoc = useMemo(
     () => docs.find(d => d.id === selectedId) ?? null,
@@ -3106,11 +3122,13 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
         throw new Error((err as { error?: string }).error || 'Error al generar PDF');
       }
       const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
-      a.href = URL.createObjectURL(blob);
+      a.href = url;
       a.download = `${docType}.pdf`;
       a.click();
-      URL.revokeObjectURL(a.href);
+      // WebKit necesita que la URL siga activa un momento para iniciar la descarga; revocar al instante causa WebKitBlobResource 1
+      setTimeout(() => URL.revokeObjectURL(url), 2000);
     } catch (e) {
       console.error('PDF download error', e);
       setError(e instanceof Error ? e.message : 'No se pudo descargar el PDF.');
@@ -3337,7 +3355,7 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
   };
 
   return (
-    <div className="flex-1 flex flex-col overflow-hidden">
+    <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
       <Dialog.Root open={!!deleteConfirm} onOpenChange={open => !open && setDeleteConfirm(null)}>
         <Dialog.Portal>
           <Dialog.Overlay className="fixed inset-0 bg-black/40 z-[150]" />
@@ -3513,42 +3531,42 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
         </Dialog.Portal>
       </Dialog.Root>
 
-      <div className="p-4 border-b border-monday-border flex items-center justify-between gap-4">
-        <div className="flex items-center gap-4">
-          <h1 className="text-[20px] font-semibold text-monday-text flex items-center gap-2">
-            <BookOpen size={22} className="text-monday-blue" />
-            Documentos
-          </h1>
-          <div className="flex rounded-lg border border-monday-border overflow-hidden bg-white">
-            <button
-              type="button"
-              onClick={() => setViewMode('overview')}
-              className={`flex items-center gap-1.5 px-3 py-1.5 text-[13px] transition-colors ${
-                viewMode === 'overview' ? 'bg-monday-blue text-white' : 'text-monday-subtext hover:bg-monday-hover'
-              }`}
-            >
-              <LayoutDashboard size={14} />
-              Vista general
-            </button>
-            <button
-              type="button"
-              onClick={() => setViewMode('docs')}
-              className={`flex items-center gap-1.5 px-3 py-1.5 text-[13px] transition-colors ${
-                viewMode === 'docs' ? 'bg-monday-blue text-white' : 'text-monday-subtext hover:bg-monday-hover'
-              }`}
-            >
-              <List size={14} />
-              Documentos
-            </button>
-          </div>
+      <div className="p-3 sm:p-4 border-b border-monday-border flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+        <h1 className="text-[18px] sm:text-[20px] font-semibold text-monday-text flex items-center gap-2 shrink-0">
+          <BookOpen size={20} className="text-monday-blue sm:w-[22px] sm:h-[22px]" />
+          Documentos
+        </h1>
+        <div className="flex rounded-lg border border-monday-border overflow-x-auto scroll-touch overflow-y-hidden bg-white shrink-0 flex-nowrap">
+          <button
+            type="button"
+            onClick={() => setViewMode('overview')}
+            className={`flex items-center gap-1.5 px-3 py-2.5 sm:py-1.5 min-h-[44px] sm:min-h-0 shrink-0 text-[13px] transition-colors touch-manipulation ${
+              viewMode === 'overview' ? 'bg-monday-blue text-white' : 'text-monday-subtext hover:bg-monday-hover'
+            }`}
+          >
+            <LayoutDashboard size={14} />
+            <span className="sm:hidden">General</span>
+            <span className="hidden sm:inline">Vista general</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setViewMode('docs')}
+            className={`flex items-center gap-1.5 px-3 py-2.5 sm:py-1.5 min-h-[44px] sm:min-h-0 shrink-0 text-[13px] transition-colors touch-manipulation ${
+              viewMode === 'docs' ? 'bg-monday-blue text-white' : 'text-monday-subtext hover:bg-monday-hover'
+            }`}
+          >
+            <List size={14} />
+            <span className="sm:hidden">Lista</span>
+            <span className="hidden sm:inline">Documentos</span>
+          </button>
         </div>
       </div>
 
       {viewMode === 'overview' ? (
-        <div className="flex-1 flex flex-col overflow-hidden bg-monday-bg">
-          {/* Menús superiores */}
-          <div className="p-6 pb-2">
-            <div className="flex flex-wrap gap-4">
+        <div className="flex-1 flex flex-col min-h-0 overflow-hidden bg-monday-bg">
+          {/* Menús superiores: en móvil grid más compacto */}
+          <div className="p-4 sm:p-6 pb-2 shrink-0">
+            <div className="flex flex-wrap gap-3 sm:gap-4 justify-center sm:justify-start">
               {DOC_TYPE_OPTIONS.map(opt => (
                 <button
                   key={opt.id}
@@ -3557,7 +3575,7 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
                   onClick={() => {
                     setNewDocDraft({ type: opt.id, title: getDocTypeTitle(opt.id) });
                   }}
-                  className="flex flex-col items-start justify-between w-64 p-4 rounded-2xl bg-white border border-monday-border shadow-md hover:shadow-lg hover:border-monday-blue/50 transition-all text-left disabled:opacity-60"
+                  className="flex flex-col items-start justify-between w-full min-[400px]:w-64 p-3 sm:p-4 rounded-xl sm:rounded-2xl bg-white border border-monday-border shadow-md hover:shadow-lg hover:border-monday-blue/50 transition-all text-left disabled:opacity-60"
                 >
                   <div className="flex items-center gap-3 mb-2">
                     {opt.id === 'sheet' ? (
@@ -3638,8 +3656,8 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
           </div>
 
           {/* Editor debajo de los menús */}
-          <div className="flex-1 flex overflow-hidden px-6 pb-6">
-            <section className="flex-1 flex flex-col bg-monday-bg/40 rounded-2xl border border-monday-border">
+          <div className="flex-1 flex min-h-0 overflow-hidden px-4 sm:px-6 pb-4 sm:pb-6">
+            <section className="flex-1 flex flex-col min-h-0 bg-monday-bg/40 rounded-xl sm:rounded-2xl border border-monday-border overflow-hidden">
               {error && (
                 <div className="px-4 py-2 bg-red-50 text-red-700 text-[13px] border-b border-red-200 rounded-t-2xl">
                   {error}
@@ -3710,7 +3728,7 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
                   </div>
 
                   {(selectedDoc && isPdfDocType(selectedDoc.type as DocType)) || (newDocDraft && isPdfDocType(newDocDraft.type)) ? (
-                    <div className="flex-1 overflow-auto custom-scrollbar p-2">
+                    <div className="flex-1 min-h-0 overflow-auto custom-scrollbar scroll-touch p-2">
                       {templateConfigLoading && !(effectiveTemplateConfigForPdf?.customBoxes?.length) ? (
                         <div className="flex items-center justify-center h-full">
                           <span className="text-sm text-gray-400">
@@ -3762,9 +3780,9 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
           </div>
         </div>
       ) : (
-      <div className="flex-1 flex overflow-hidden bg-monday-bg min-h-0">
+      <div className="flex-1 flex flex-col md:flex-row overflow-hidden bg-monday-bg min-h-0">
         {/* Tabla agrupada tipo ventana principal (grupos con color, cabeceras, tabla) */}
-        <div className="flex-1 overflow-auto custom-scrollbar px-6 py-5 min-w-0 min-h-0">
+        <div className="flex-1 min-h-0 overflow-auto custom-scrollbar scroll-touch px-4 sm:px-6 py-4 sm:py-5 min-w-0">
           {!workspaceId && (
             <div className="p-4 text-[13px] text-amber-700 bg-amber-50 border border-amber-200 rounded-lg max-w-md">
               Selecciona un workspace en la barra lateral para ver y crear documentos.
@@ -3845,8 +3863,8 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
           )}
         </div>
 
-        {/* Panel derecho: visualizador (solo lectura); fondo blanco, scroll si hace falta */}
-        <section className="flex-1 flex flex-col min-w-0 min-h-0 max-w-[60%] border-l border-monday-border overflow-hidden bg-white">
+        {/* Panel derecho: visualizador (solo lectura); en móvil ocupa todo el ancho debajo de la lista */}
+        <section className="flex-1 flex flex-col min-w-0 min-h-0 w-full md:max-w-[60%] border-t md:border-t-0 md:border-l border-monday-border overflow-hidden bg-white">
           {error && (
             <div className="px-4 py-2 bg-red-50 text-red-700 text-[13px] border-b border-red-200">
               {error}
@@ -3865,17 +3883,17 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
             </div>
           ) : (
             <>
-              <div className="flex items-center justify-between px-5 py-3 border-b border-monday-border bg-monday-hover/30 flex-wrap gap-2">
-                <h2 className="text-[16px] font-semibold text-monday-text truncate min-w-0">
+              <div className="flex items-center justify-between px-3 sm:px-5 py-3 border-b border-monday-border bg-monday-hover/30 flex-wrap gap-2 min-h-0 shrink-0">
+                <h2 className="text-[14px] sm:text-[16px] font-semibold text-monday-text truncate min-w-0 flex-1 sm:flex-none">
                   {selectedDoc.title || 'Sin título'}
                 </h2>
-                <div className="flex items-center gap-2 flex-shrink-0">
+                <div className="flex items-center gap-1.5 sm:gap-2 flex-shrink-0">
                   <button
                     type="button"
                     onClick={() => setSelectedId(null)}
-                    className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-monday border border-monday-border text-[12px] text-monday-subtext hover:bg-monday-hover"
+                    className="inline-flex items-center gap-1.5 px-2.5 py-1.5 min-h-[44px] sm:min-h-0 rounded-monday border border-monday-border text-[12px] text-monday-subtext hover:bg-monday-hover touch-manipulation"
                   >
-                    <X size={12} />
+                    <X size={14} className="sm:w-3 sm:h-3" />
                     <span>Cerrar</span>
                   </button>
                   {isPdfDocType(selectedDoc.type as DocType) ? (
@@ -3884,67 +3902,169 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
                         type="button"
                         onClick={handleDownloadPdf}
                         disabled={downloadingPdf}
-                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-monday border border-monday-border text-[13px] font-medium text-monday-text hover:bg-monday-hover disabled:opacity-60"
+                        className="hidden sm:inline-flex items-center gap-1.5 px-3 py-1.5 rounded-monday border border-monday-border text-[13px] font-medium text-monday-text hover:bg-monday-hover disabled:opacity-60"
                       >
                         <Download size={14} />
                         {downloadingPdf ? 'Descargando…' : 'Descargar PDF'}
                       </button>
-                      <a
-                        href={`https://wa.me/?text=${encodeURIComponent((selectedDoc.title || 'Documento') + ' ' + window.location.href)}`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-monday border border-monday-border text-[13px] font-medium text-monday-text hover:bg-monday-hover"
-                      >
-                        <MessageCircle size={14} />
-                        <span>Enviar por WhatsApp</span>
-                      </a>
-                      <a
-                        href={`mailto:?subject=${encodeURIComponent(selectedDoc.title || 'Documento')}&body=${encodeURIComponent('Revisa este documento: ' + window.location.href)}`}
-                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-monday border border-monday-border text-[13px] font-medium text-monday-text hover:bg-monday-hover"
-                      >
-                        <Mail size={14} />
-                        <span>Enviar por correo</span>
-                      </a>
                       <button
                         type="button"
-                        onClick={() => setViewMode('overview')}
-                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-monday bg-monday-blue text-white text-[13px] font-medium hover:bg-monday-blue/90"
+                        onClick={handleDownloadPdf}
+                        disabled={downloadingPdf}
+                        title="Descargar PDF"
+                        className="sm:hidden inline-flex items-center justify-center w-10 h-10 min-h-[44px] min-w-[44px] rounded-monday border border-monday-border text-monday-text hover:bg-monday-hover disabled:opacity-60 touch-manipulation"
                       >
-                        <Pencil size={14} />
-                        <span>Editar plantilla</span>
+                        <Download size={18} />
                       </button>
+                      <div className="hidden sm:flex items-center gap-2">
+                        <a
+                          href={`https://wa.me/?text=${encodeURIComponent((selectedDoc.title || 'Documento') + ' ' + window.location.href)}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-monday border border-monday-border text-[13px] font-medium text-monday-text hover:bg-monday-hover"
+                        >
+                          <MessageCircle size={14} />
+                          <span>Enviar por WhatsApp</span>
+                        </a>
+                        <a
+                          href={`mailto:?subject=${encodeURIComponent(selectedDoc.title || 'Documento')}&body=${encodeURIComponent('Revisa este documento: ' + window.location.href)}`}
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-monday border border-monday-border text-[13px] font-medium text-monday-text hover:bg-monday-hover"
+                        >
+                          <Mail size={14} />
+                          <span>Enviar por correo</span>
+                        </a>
+                        <button
+                          type="button"
+                          onClick={() => setViewMode('overview')}
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-monday bg-monday-blue text-white text-[13px] font-medium hover:bg-monday-blue/90"
+                        >
+                          <Pencil size={14} />
+                          <span>Editar plantilla</span>
+                        </button>
+                      </div>
+                      <Popover.Root open={viewerActionsOpen} onOpenChange={setViewerActionsOpen}>
+                        <Popover.Trigger asChild>
+                          <button
+                            type="button"
+                            className="sm:hidden inline-flex items-center justify-center w-10 h-10 min-h-[44px] min-w-[44px] rounded-monday border border-monday-border text-monday-text hover:bg-monday-hover touch-manipulation"
+                            title="Más acciones"
+                          >
+                            <MoreVertical size={18} />
+                          </button>
+                        </Popover.Trigger>
+                        <Popover.Portal>
+                          <Popover.Content
+                            className="z-50 p-2 rounded-xl shadow-lg border border-monday-border bg-white w-56"
+                            sideOffset={6}
+                            align="end"
+                            onOpenAutoFocus={e => e.preventDefault()}
+                          >
+                            <a
+                              href={`https://wa.me/?text=${encodeURIComponent((selectedDoc.title || 'Documento') + ' ' + window.location.href)}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="flex items-center gap-2 w-full px-3 py-2.5 rounded-lg hover:bg-monday-hover text-[13px] text-monday-text"
+                              onClick={() => setViewerActionsOpen(false)}
+                            >
+                              <MessageCircle size={16} />
+                              Enviar por WhatsApp
+                            </a>
+                            <a
+                              href={`mailto:?subject=${encodeURIComponent(selectedDoc.title || 'Documento')}&body=${encodeURIComponent('Revisa este documento: ' + window.location.href)}`}
+                              className="flex items-center gap-2 w-full px-3 py-2.5 rounded-lg hover:bg-monday-hover text-[13px] text-monday-text"
+                              onClick={() => setViewerActionsOpen(false)}
+                            >
+                              <Mail size={16} />
+                              Enviar por correo
+                            </a>
+                            <button
+                              type="button"
+                              onClick={() => { setViewerActionsOpen(false); setViewMode('overview'); }}
+                              className="flex items-center gap-2 w-full px-3 py-2.5 rounded-lg hover:bg-monday-hover text-[13px] text-monday-text text-left"
+                            >
+                              <Pencil size={16} />
+                              Editar plantilla
+                            </button>
+                          </Popover.Content>
+                        </Popover.Portal>
+                      </Popover.Root>
                     </>
                   ) : (
                     <>
-                      {selectedDoc && (
+                      <div className="hidden sm:flex items-center gap-2">
+                        {selectedDoc && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setSaveModal({ mode: 'saveAs', doc: selectedDoc });
+                              setSaveModalTitle(selectedDoc.title);
+                              setSaveModalGroupId(assignments[selectedDoc.id] ?? '');
+                              setSaveModalSubgroupId(subgroupAssignments[selectedDoc.id] ?? '');
+                            }}
+                            className="px-3 py-1.5 rounded-monday border border-monday-border text-[13px] font-medium text-monday-text hover:bg-monday-hover"
+                          >
+                            Guardar como
+                          </button>
+                        )}
                         <button
                           type="button"
-                          onClick={() => {
-                            setSaveModal({ mode: 'saveAs', doc: selectedDoc });
-                            setSaveModalTitle(selectedDoc.title);
-                            setSaveModalGroupId(assignments[selectedDoc.id] ?? '');
-                            setSaveModalSubgroupId(subgroupAssignments[selectedDoc.id] ?? '');
-                          }}
-                          className="px-3 py-1.5 rounded-monday border border-monday-border text-[13px] font-medium text-monday-text hover:bg-monday-hover"
+                          onClick={handleSave}
+                          disabled={saving || (!selectedDoc && !newDocDraft)}
+                          className="px-3 py-1.5 rounded-monday bg-monday-blue text-white text-[13px] font-medium hover:bg-monday-blue/90 disabled:opacity-60"
                         >
-                          Guardar como
+                          {saving ? 'Guardando…' : 'Guardar'}
                         </button>
-                      )}
-                  <button
-                    type="button"
-                    onClick={handleSave}
-                    disabled={saving || (!selectedDoc && !newDocDraft)}
-                        className="px-3 py-1.5 rounded-monday bg-monday-blue text-white text-[13px] font-medium hover:bg-monday-blue/90 disabled:opacity-60"
-                      >
-                        {saving ? 'Guardando…' : 'Guardar'}
-                      </button>
+                      </div>
+                      <Popover.Root open={viewerActionsOpen} onOpenChange={setViewerActionsOpen}>
+                        <Popover.Trigger asChild>
+                          <button
+                            type="button"
+                            className="sm:hidden inline-flex items-center justify-center w-10 h-10 min-h-[44px] min-w-[44px] rounded-monday border border-monday-border text-monday-text hover:bg-monday-hover touch-manipulation"
+                            title="Más acciones"
+                          >
+                            <MoreVertical size={18} />
+                          </button>
+                        </Popover.Trigger>
+                        <Popover.Portal>
+                          <Popover.Content
+                            className="z-50 p-2 rounded-xl shadow-lg border border-monday-border bg-white w-56"
+                            sideOffset={6}
+                            align="end"
+                            onOpenAutoFocus={e => e.preventDefault()}
+                          >
+                            {selectedDoc && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setViewerActionsOpen(false);
+                                  setSaveModal({ mode: 'saveAs', doc: selectedDoc });
+                                  setSaveModalTitle(selectedDoc.title);
+                                  setSaveModalGroupId(assignments[selectedDoc.id] ?? '');
+                                  setSaveModalSubgroupId(subgroupAssignments[selectedDoc.id] ?? '');
+                                }}
+                                className="flex items-center gap-2 w-full px-3 py-2.5 rounded-lg hover:bg-monday-hover text-[13px] text-monday-text text-left"
+                              >
+                                Guardar como
+                              </button>
+                            )}
+                            <button
+                              type="button"
+                              onClick={() => { setViewerActionsOpen(false); handleSave(); }}
+                              disabled={saving || (!selectedDoc && !newDocDraft)}
+                              className="flex items-center gap-2 w-full px-3 py-2.5 rounded-lg hover:bg-monday-hover text-[13px] text-monday-text text-left disabled:opacity-60"
+                            >
+                              {saving ? 'Guardando…' : 'Guardar'}
+                            </button>
+                          </Popover.Content>
+                        </Popover.Portal>
+                      </Popover.Root>
                     </>
                   )}
                 </div>
               </div>
 
               {selectedDoc && isPdfDocType(selectedDoc.type as DocType) ? (
-                <div className="flex-1 min-h-0 min-w-0 overflow-auto bg-white flex justify-center">
+                <div className="flex-1 min-h-0 min-w-0 overflow-auto scroll-touch custom-scrollbar bg-white flex justify-center p-2 sm:p-0">
                   {templateConfigLoading && !(effectiveTemplateConfigForPdf?.customBoxes?.length) ? (
                     <div className="flex items-center justify-center h-full">
                       <span className="text-sm text-gray-400">
@@ -3971,7 +4091,7 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
                   )}
                 </div>
               ) : selectedDoc.type === 'sheet' ? (
-                <div className="flex-1 min-h-0 overflow-auto">
+                <div className="flex-1 min-h-0 overflow-auto scroll-touch custom-scrollbar">
                   <ExcelLikeSheet
                     tableDraft={tableDraft}
                     setTableDraft={setTableDraft}
@@ -3983,7 +4103,7 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
                 </div>
               ) : (
                 <div
-                  className="flex-1 min-h-0 overflow-auto p-6 bg-monday-bg/50 prose prose-sm max-w-none font-averta [&_h1]:text-xl [&_h2]:text-lg [&_h3]:text-base [&_ul]:list-disc [&_ol]:list-decimal [&_li]:ml-4"
+                  className="flex-1 min-h-0 overflow-auto scroll-touch custom-scrollbar p-4 sm:p-6 bg-monday-bg/50 prose prose-sm max-w-none font-averta [&_h1]:text-xl [&_h2]:text-lg [&_h3]:text-base [&_ul]:list-disc [&_ol]:list-decimal [&_li]:ml-4"
                   dangerouslySetInnerHTML={{ __html: getInitialHtml(parseContent(selectedDoc).text ?? '') }}
                 />
               )}

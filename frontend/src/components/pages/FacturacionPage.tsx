@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Receipt } from 'lucide-react';
 import { Board, Item, BoardColumn, Group, StatusSettings } from '../../types';
 
-const API_BASE = import.meta.env.DEV ? '' : 'http://localhost:3001';
+const API_BASE = import.meta.env.DEV ? '' : (import.meta.env.VITE_API_URL || 'http://localhost:3001');
 
 function getStatusLabel(item: Item, statusColumns: BoardColumn[]): string {
   for (const col of statusColumns) {
@@ -83,7 +83,7 @@ export const FacturacionPage: React.FC<FacturacionPageProps> = ({ boards, onOpen
   }
 
   return (
-    <div className="flex-1 flex flex-col overflow-hidden">
+    <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
       <div className="p-6 border-b border-monday-border">
         <h1 className="text-[20px] font-semibold text-monday-text flex items-center gap-2">
           <Receipt size={22} className="text-monday-blue" />
@@ -106,7 +106,7 @@ export const FacturacionPage: React.FC<FacturacionPageProps> = ({ boards, onOpen
           </select>
         </div>
       </div>
-      <div className="flex-1 overflow-auto p-6">
+      <div className="flex-1 overflow-auto custom-scrollbar scroll-touch p-4 sm:p-6 min-h-0">
         {loading ? (
           <div className="flex items-center justify-center py-16">
             <div className="w-8 h-8 border-2 border-monday-blue border-t-transparent rounded-full animate-spin" />

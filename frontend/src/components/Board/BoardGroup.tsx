@@ -13,6 +13,7 @@ import { GripVertical, MessageSquare, Plus, ChevronDown, MoreHorizontal, Pencil,
 import { StatusCellRenderer } from './StatusCellRenderer';
 import { ColumnTypePicker } from './ColumnTypePicker';
 import { socket } from '../../store/socket';
+import { AnimatedDialog } from '../AnimatedDialog';
 import * as Popover from '@radix-ui/react-popover';
 import * as Dialog from '@radix-ui/react-dialog';
 import { PersonCellRenderer } from './PersonCellRenderer';
@@ -50,6 +51,8 @@ interface Props {
   stackIndex?: number;
   /** Si true, el subgrupo ya está dentro de un contenedor indentado (v. tabla) y no se añade ml-6 al header. */
   indentFromParent?: boolean;
+  /** En viewport &lt; 640px: mostrar lista de tarjetas en lugar de tabla horizontal. */
+  useCardView?: boolean;
 }
 
 const columnHelper = createColumnHelper<Item>();
@@ -398,6 +401,7 @@ export const BoardGroup: React.FC<Props> = ({
   onToggleGroupAll,
   stackIndex = 0,
   indentFromParent = false,
+  useCardView = false,
 }) => {
   const [newTaskName, setNewTaskName] = useState('');
   const [isAddingTask, setIsAddingTask] = useState(false);
@@ -405,6 +409,7 @@ export const BoardGroup: React.FC<Props> = ({
   const [groupNameDraft, setGroupNameDraft] = useState(group.name);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [columnEditingLabels, setColumnEditingLabels] = useState<BoardColumn | null>(null);
+  const [cardColumnsExpanded, setCardColumnsExpanded] = useState(false);
   const addInputRef = useRef<HTMLInputElement>(null);
   const { currentUser } = useUser();
   const isAdminOrVentas = currentUser?.role === 'ADMIN' || currentUser?.role === 'VENTAS';
@@ -740,42 +745,40 @@ export const BoardGroup: React.FC<Props> = ({
       </div>
 
       {/* Diálogo de confirmación eliminar grupo */}
-      <Dialog.Root open={showDeleteConfirm} onOpenChange={setShowDeleteConfirm}>
-        <Dialog.Portal>
-          <Dialog.Overlay className="fixed inset-0 bg-black/40 z-[100] fade-in" />
-          <Dialog.Content
-            className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 bg-white rounded-xl shadow-monday-xl border border-monday-border p-6 w-[400px] max-w-[90vw] z-[101] zoom-in"
-            onCloseAutoFocus={(e) => e.preventDefault()}
-          >
-            <Dialog.Title className="text-lg font-bold text-monday-text mb-1">
-              Eliminar grupo
-            </Dialog.Title>
-            <Dialog.Description className="text-[14px] text-monday-subtext mb-6">
-              ¿Eliminar el grupo &quot;{group.name}&quot; y todas sus tareas? Esta acción no se puede deshacer.
-            </Dialog.Description>
-            <div className="flex justify-end gap-2">
-              <Dialog.Close asChild>
-                <button
-                  type="button"
-                  className="px-4 py-2 text-[13px] font-medium text-monday-text bg-monday-hover hover:bg-monday-border rounded-lg transition-colors"
-                >
-                  Cancelar
-                </button>
-              </Dialog.Close>
+      <AnimatedDialog open={showDeleteConfirm} onOpenChange={setShowDeleteConfirm}>
+        <Dialog.Overlay className="fixed inset-0 bg-black/40 z-[100]" />
+        <Dialog.Content
+          className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 bg-white rounded-xl shadow-monday-xl border border-monday-border p-6 w-[400px] max-w-[90vw] z-[101]"
+          onCloseAutoFocus={(e) => e.preventDefault()}
+        >
+          <Dialog.Title className="text-lg font-bold text-monday-text mb-1">
+            Eliminar grupo
+          </Dialog.Title>
+          <Dialog.Description className="text-[14px] text-monday-subtext mb-6">
+            ¿Eliminar el grupo &quot;{group.name}&quot; y todas sus tareas? Esta acción no se puede deshacer.
+          </Dialog.Description>
+          <div className="flex justify-end gap-2">
+            <Dialog.Close asChild>
               <button
                 type="button"
-                onClick={() => {
-                  socket.emit('delete_group', { groupId: group.id });
-                  setShowDeleteConfirm(false);
-                }}
-                className="px-4 py-2 text-[13px] font-medium text-white bg-monday-red hover:bg-red-600 rounded-lg transition-colors"
+                className="px-4 py-2 text-[13px] font-medium text-monday-text bg-monday-hover hover:bg-monday-border rounded-lg transition-colors"
               >
-                Eliminar
+                Cancelar
               </button>
-            </div>
-          </Dialog.Content>
-        </Dialog.Portal>
-      </Dialog.Root>
+            </Dialog.Close>
+            <button
+              type="button"
+              onClick={() => {
+                socket.emit('delete_group', { groupId: group.id });
+                setShowDeleteConfirm(false);
+              }}
+              className="px-4 py-2 text-[13px] font-medium text-white bg-monday-red hover:bg-red-600 rounded-lg transition-colors"
+            >
+              Eliminar
+            </button>
+          </div>
+        </Dialog.Content>
+      </AnimatedDialog>
 
       {columnEditingLabels && (
         <StatusLabelsEditor
@@ -785,8 +788,116 @@ export const BoardGroup: React.FC<Props> = ({
         />
       )}
 
-      {/* ── Table (barra horizontal dibujada por la app: visible en Arc y todos los navegadores) ──────── */}
-      {!isCollapsed && (
+      {/* ── Vista tarjetas (móvil): columnas limitadas por defecto para muchas columnas ───────────────────────────────────────────────────── */}
+      {!isCollapsed && useCardView && (() => {
+        const visibleCols = columns.filter(col => !hiddenColumns?.includes(col.id));
+        const maxColsDefault = 5;
+        const hasMoreCols = visibleCols.length > maxColsDefault;
+        const colsToShow = cardColumnsExpanded ? visibleCols : visibleCols.slice(0, maxColsDefault);
+        return (
+        <div className="space-y-2">
+          {group.items.map((item) => (
+              <div
+                key={item.id}
+                role="button"
+                tabIndex={0}
+                onClick={() => onRowClick(item)}
+                onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onRowClick(item); } }}
+                className="bg-white border border-monday-border rounded-lg shadow-monday-sm overflow-hidden text-left min-h-[44px]"
+              >
+                <div className="flex items-start gap-2 p-3">
+                  {onToggleItem && (
+                    <div className="shrink-0 pt-0.5" onClick={e => e.stopPropagation()}>
+                      <input
+                        type="checkbox"
+                        className="w-4 h-4 cursor-pointer accent-monday-blue rounded"
+                        checked={selectedItemIds.has(item.id)}
+                        onChange={e => onToggleItem(item.id, e.target.checked)}
+                      />
+                    </div>
+                  )}
+                  <div className="flex-1 min-w-0">
+                    <div className="font-medium text-monday-text text-[14px] mb-2 truncate">{item.name}</div>
+                    <div className="flex flex-col gap-1.5">
+                      {colsToShow.map((col) => {
+                        const cv = item.columnValues.find(v => v.columnId === col.id);
+                        return (
+                          <div key={col.id} className="flex flex-col gap-0.5 sm:flex-row sm:items-center sm:gap-2 text-[12px]">
+                            <span className="text-monday-subtext shrink-0 font-medium">{col.title}</span>
+                            <div className="min-w-0 [&_.min-h-\[38px\]]:min-h-0">
+                              {col.type === 'status' || col.type === 'priority' ? (
+                                <StatusCellRenderer item={item} column={col} value={cv} />
+                              ) : col.type === 'date' ? (
+                                <DateCellRenderer item={item} column={col} value={cv} />
+                              ) : col.type === 'person' ? (
+                                <PersonCellRenderer item={item} column={col} value={cv} />
+                              ) : col.type === 'timeline' ? (
+                                <TimelineCellRenderer item={item} column={col} value={cv} />
+                              ) : col.type === 'text' || col.type === 'folio' ? (
+                                <TextCell content={cv?.value ?? ''} item={item} column={col} />
+                              ) : col.type === 'contact' || col.type === 'number' ? (
+                                <ContactCellRenderer item={item} column={col} value={cv} />
+                              ) : col.type === 'excel' ? (
+                                <ExcelCellRenderer item={item} column={col} value={cv} />
+                              ) : col.type === 'docs' ? (
+                                <DocsCellRenderer item={item} column={col} value={cv} />
+                              ) : col.type === 'billing_docs' ? (
+                                <BillingDocsCellRenderer item={item} column={col} value={cv} />
+                              ) : col.type === 'file' ? (
+                                <FileCellRenderer item={item} column={col} value={cv} />
+                              ) : (
+                                <span className="text-monday-subtext">—</span>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </div>
+              </div>
+          ))}
+          {hasMoreCols && (
+            <button
+              type="button"
+              onClick={(e) => { e.stopPropagation(); setCardColumnsExpanded((v) => !v); }}
+              className="text-[13px] text-monday-blue hover:underline font-medium"
+            >
+              {cardColumnsExpanded ? 'Ver menos columnas' : `Ver más columnas (${visibleCols.length - maxColsDefault})`}
+            </button>
+          )}
+          {showAddRow && (
+            <div className="border border-dashed border-monday-border rounded-lg p-3 bg-monday-hover/20">
+              {isAddingTask ? (
+                <input
+                  ref={addInputRef}
+                  type="text"
+                  placeholder="Nombre del elemento..."
+                  value={newTaskName}
+                  onChange={e => setNewTaskName(e.target.value)}
+                  onKeyDown={handleAddTask}
+                  onBlur={() => emitAddItem(newTaskName)}
+                  onClick={e => e.stopPropagation()}
+                  className="w-full bg-white border border-monday-border rounded-monday outline-none text-[13px] text-monday-text px-2 py-1.5"
+                />
+              ) : (
+                <button
+                  type="button"
+                  onClick={startAdding}
+                  className="flex items-center gap-1.5 text-[13px] text-monday-subtext hover:text-monday-blue transition-colors"
+                >
+                  <Plus size={14} />
+                  Agregar elemento
+                </button>
+              )}
+            </div>
+          )}
+        </div>
+        );
+      })()}
+
+      {/* ── Table (barra horizontal: desktop) ───────────────────────────────────────────────── */}
+      {!isCollapsed && !useCardView && (
         <HorizontalScrollArea className="relative z-0 w-full rounded-l-md shadow-monday-sm border border-monday-border">
           <table className="w-max text-left border-collapse whitespace-nowrap table-fixed">
             {/* Header */}

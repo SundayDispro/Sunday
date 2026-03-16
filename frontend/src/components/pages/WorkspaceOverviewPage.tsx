@@ -1,11 +1,17 @@
-import React, { useState } from 'react';
-import { Clock, FileText, LayoutGrid, Trash2 } from 'lucide-react';
+import React, { useState, useMemo } from 'react';
+import { Clock, FileText, LayoutGrid, Trash2, X, RotateCcw } from 'lucide-react';
 import { Workspace as WorkspaceType, Board } from '../../types';
 import * as Popover from '@radix-ui/react-popover';
 import * as Dialog from '@radix-ui/react-dialog';
 import { useUser } from '../../store/UserContext';
 
-const API_BASE = import.meta.env.DEV ? '' : 'http://localhost:3001';
+const API_BASE = import.meta.env.DEV ? '' : (import.meta.env.VITE_API_URL || 'http://localhost:3001');
+
+const RECENT_STORAGE_KEY = 'sunday-recent-visits';
+const LAST_VISIT_KEY = 'sunday-last-board';
+const LAST_WORKSPACE_KEY = 'sunday-last-workspace';
+const RETOMA_DISMISSED_KEY = 'sunday-retoma-dismissed';
+const MAX_RECENT = 12;
 
 type TabId = 'recent' | 'content';
 
@@ -18,6 +24,21 @@ interface WorkspaceOverviewPageProps {
   onWorkspaceUpdated: (w: WorkspaceType) => void;
   onWorkspaceDeleted: () => void;
   onBoardDeleted: () => void;
+  showAsHome?: boolean;
+}
+
+function loadRecent(): { boardIds: string[]; workspaceIds: string[] } {
+  try {
+    const raw = localStorage.getItem(RECENT_STORAGE_KEY);
+    if (!raw) return { boardIds: [], workspaceIds: [] };
+    const p = JSON.parse(raw) as { boardIds?: string[]; workspaceIds?: string[] };
+    return {
+      boardIds: Array.isArray(p.boardIds) ? p.boardIds.slice(0, MAX_RECENT) : [],
+      workspaceIds: Array.isArray(p.workspaceIds) ? p.workspaceIds.slice(0, MAX_RECENT) : [],
+    };
+  } catch {
+    return { boardIds: [], workspaceIds: [] };
+  }
 }
 
 export const WorkspaceOverviewPage: React.FC<WorkspaceOverviewPageProps> = ({
@@ -29,6 +50,7 @@ export const WorkspaceOverviewPage: React.FC<WorkspaceOverviewPageProps> = ({
   onWorkspaceUpdated,
   onWorkspaceDeleted,
   onBoardDeleted,
+  showAsHome = false,
 }) => {
   const [tab, setTab] = useState<TabId>('recent');
   const [description, setDescription] = useState(workspace?.description ?? '');
@@ -48,6 +70,34 @@ export const WorkspaceOverviewPage: React.FC<WorkspaceOverviewPageProps> = ({
   const [boardDeleteOpen, setBoardDeleteOpen] = useState(false);
   const [boardDeleting, setBoardDeleting] = useState(false);
   const [boardDeleteError, setBoardDeleteError] = useState<string | null>(null);
+
+  const [retomaDismissed, setRetomaDismissed] = useState(() => {
+    try { return localStorage.getItem(RETOMA_DISMISSED_KEY) === '1'; } catch { return false; }
+  });
+  const [recentVisits, setRecentVisits] = useState(loadRecent);
+
+  React.useEffect(() => {
+    if (showAsHome) setRecentVisits(loadRecent());
+  }, [showAsHome]);
+
+  const retomaBoardId = useMemo(() => {
+    if (retomaDismissed) return null;
+    try { return localStorage.getItem(LAST_VISIT_KEY); } catch { return null; }
+  }, [retomaDismissed]);
+  const retomaWorkspaceId = useMemo(() => {
+    try { return localStorage.getItem(LAST_WORKSPACE_KEY); } catch { return null; }
+  }, []);
+
+  const recentBoards = useMemo(() => {
+    return recentVisits.boardIds
+      .map(id => boards.find(b => b.id === id))
+      .filter((b): b is Board => !!b);
+  }, [recentVisits.boardIds, boards]);
+  const recentWorkspaces = useMemo(() => {
+    return recentVisits.workspaceIds
+      .map(id => workspaces.find(w => w.id === id))
+      .filter((w): w is WorkspaceType => !!w);
+  }, [recentVisits.workspaceIds, workspaces]);
 
   const { currentUser } = useUser();
   const canEditWorkspaceOrBoard = currentUser?.role === 'ADMIN' || currentUser?.role === 'VENTAS';
@@ -181,7 +231,7 @@ export const WorkspaceOverviewPage: React.FC<WorkspaceOverviewPageProps> = ({
   const initial = workspace.name.charAt(0).toUpperCase();
 
   return (
-    <div className="flex-1 flex flex-col overflow-hidden bg-monday-bg">
+    <div className="flex-1 flex flex-col min-h-0 overflow-hidden bg-monday-bg">
       <div className="p-6 border-b border-monday-border bg-white">
         <div className="flex items-start gap-6">
           <div
@@ -295,7 +345,84 @@ export const WorkspaceOverviewPage: React.FC<WorkspaceOverviewPageProps> = ({
         </div>
       </div>
 
-      <div className="flex-1 overflow-auto p-6 min-h-0">
+      <div className="flex-1 overflow-auto custom-scrollbar scroll-touch p-4 sm:p-6 min-h-0">
+        {showAsHome && retomaBoardId && !retomaDismissed && boards.some(b => b.id === retomaBoardId) && (
+          <div className="mb-4 rounded-xl border border-monday-border bg-monday-blue/10 flex items-center gap-3 px-4 py-3">
+            <RotateCcw size={20} className="text-monday-blue shrink-0" />
+            <div className="flex-1 min-w-0">
+              <p className="text-[13px] font-medium text-monday-text">Retoma desde donde estabas</p>
+              <p className="text-[12px] text-monday-subtext truncate">
+                {boards.find(b => b.id === retomaBoardId)?.name ?? 'Tablero'}
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                onSelectBoard(retomaBoardId!);
+                setRetomaDismissed(true);
+                try { localStorage.setItem(RETOMA_DISMISSED_KEY, '1'); } catch {}
+              }}
+              className="shrink-0 px-3 py-1.5 text-[12px] font-medium bg-monday-blue text-white rounded-lg hover:bg-monday-blue/90"
+            >
+              Ir
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setRetomaDismissed(true);
+                try { localStorage.setItem(RETOMA_DISMISSED_KEY, '1'); } catch {}
+              }}
+              className="shrink-0 p-1.5 rounded-lg text-monday-subtext hover:bg-monday-hover hover:text-monday-text"
+              aria-label="No volver a mostrar"
+            >
+              <X size={18} />
+            </button>
+          </div>
+        )}
+
+        {showAsHome && (recentBoards.length > 0 || recentWorkspaces.length > 0) && (
+          <section className="mb-6">
+            <h2 className="text-[15px] font-semibold text-monday-subtext mb-3 uppercase tracking-tight">Visitado recientemente</h2>
+            <div className="flex gap-3 overflow-x-auto pb-2 scroll-touch custom-scrollbar -mx-1">
+              {recentWorkspaces.slice(0, 5).map(ws => {
+                const isActive = ws.id === workspace?.id;
+                const wsInitial = ws.name.charAt(0).toUpperCase();
+                return (
+                  <button
+                    key={ws.id}
+                    type="button"
+                    onClick={() => onSelectWorkspace?.(ws.id)}
+                    className={`shrink-0 flex flex-col items-center gap-1.5 w-20 p-3 rounded-xl transition-colors ${
+                      isActive ? 'bg-monday-blue/15 ring-1 ring-monday-blue/30' : 'bg-white border border-monday-border hover:bg-monday-hover'
+                    }`}
+                  >
+                    <div
+                      className="w-12 h-12 rounded-xl flex items-center justify-center text-white text-lg font-bold"
+                      style={{ backgroundColor: isActive ? '#5034ff' : '#00c875' }}
+                    >
+                      {wsInitial}
+                    </div>
+                    <span className="text-[11px] font-medium text-monday-text truncate w-full text-center">{ws.name}</span>
+                  </button>
+                );
+              })}
+              {recentBoards.slice(0, 8).map(b => (
+                <button
+                  key={b.id}
+                  type="button"
+                  onClick={() => onSelectBoard(b.id)}
+                  className="shrink-0 flex flex-col items-center gap-1.5 w-20 p-3 rounded-xl bg-white border border-monday-border hover:bg-monday-hover transition-colors"
+                >
+                  <div className="w-12 h-12 rounded-xl bg-monday-blue/15 flex items-center justify-center text-monday-blue">
+                    <LayoutGrid size={24} />
+                  </div>
+                  <span className="text-[11px] font-medium text-monday-text truncate w-full text-center">{b.name}</span>
+                </button>
+              ))}
+            </div>
+          </section>
+        )}
+
         {tab === 'recent' && (
           <div className="space-y-8">
             {workspaces.length > 0 && (
