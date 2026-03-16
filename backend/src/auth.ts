@@ -3,9 +3,18 @@ import bcrypt from 'bcrypt';
 import type { Request, Response, NextFunction } from 'express';
 import { PrismaClient } from '@prisma/client';
 
-const JWT_SECRET: string = process.env.JWT_SECRET || 'change-me-in-prod';
+const JWT_SECRET = process.env.JWT_SECRET;
+if (!JWT_SECRET) {
+  throw new Error('JWT_SECRET no está definido. Configúralo en .env');
+}
+
 const JWT_EXPIRES_IN: string | number = process.env.JWT_EXPIRES_IN || '7d';
-const BCRYPT_ROUNDS = 10;
+
+const BCRYPT_ROUNDS_ENV = process.env.BCRYPT_ROUNDS;
+const BCRYPT_ROUNDS =
+  BCRYPT_ROUNDS_ENV && !Number.isNaN(Number.parseInt(BCRYPT_ROUNDS_ENV, 10))
+    ? Number.parseInt(BCRYPT_ROUNDS_ENV, 10)
+    : 12;
 
 export type JwtPayload = {
   userId: string;

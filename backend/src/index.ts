@@ -6,7 +6,7 @@ import cors from 'cors';
 import path from 'path';
 import fs from 'fs';
 import multer from 'multer';
-import { PrismaClient } from '@prisma/client';
+import { PrismaClient, Prisma } from '@prisma/client';
 import { attachUserFromJwt, authenticateToken, hashPassword, requireAdmin, requireAuth, verifyPassword, signJwt } from './auth';
 import webpush from 'web-push';
 import { getTemplatePathIfExists, getTemplateImagePathIfExists } from './templatePdfGenerator';
@@ -24,6 +24,10 @@ const allowedOrigins: string[] | '*' =
     : rawOrigins.split(',').map((s) => s.trim()).filter(Boolean);
 
 const io = new Server(httpServer, {
+  pingTimeout: 60000, // 60s — default 20s
+  pingInterval: 25000, // 25s — default 25s
+  connectTimeout: 45000, // 45s para VPN lentas
+  transports: ['websocket', 'polling'], // polling como fallback VPN
   cors: {
     origin: allowedOrigins,
     methods: ['GET', 'POST', 'PUT', 'DELETE'],
@@ -254,7 +258,10 @@ app.patch('/api/workspaces/:workspaceId/panel-notes', authenticateToken, async (
 
     const workspace = await prisma.workspace.update({
       where: { id: workspaceId },
-      data: { panelNotes: JSON.stringify(merged) },
+      data: {
+        panelNotes: JSON.stringify(merged),
+        panelNotesJson: merged as unknown as Prisma.JsonValue,
+      },
     });
     const saved = JSON.parse(workspace.panelNotes || '[]');
     const toReturn = userId ? saved.filter((item: { ownerId?: string }) => String(item?.ownerId) === userId) : saved;
@@ -587,7 +594,10 @@ app.post('/api/boards/link-doc', authenticateToken, async (req, res) => {
     if (!validDocTypes.includes(docType)) {
       return res.status(400).json({ error: 'docType debe ser cotizacion, levantamiento, hoja_trabajo o sheet' });
     }
-    const column = await prisma.boardColumn.findUnique({ where: { id: columnId } });
+    const column = await prisma.boardColumn.findUnique({
+      where: { id: columnId },
+      select: { id: true, type: true, boardId: true },
+    });
     if (!column) {
       return res.status(404).json({ error: 'Columna no encontrada' });
     }
@@ -598,7 +608,11 @@ app.post('/api/boards/link-doc', authenticateToken, async (req, res) => {
         update: { value },
         create: { itemId, columnId, value },
       });
-      io.emit('column_value_updated', updated);
+      if (column.boardId) {
+        io.to(boardRoom(column.boardId)).emit('column_value_updated', updated);
+      } else {
+        io.emit('column_value_updated', updated);
+      }
       return res.json({ ok: true, updated });
     }
     if (column.type === 'docs') {
@@ -621,7 +635,11 @@ app.post('/api/boards/link-doc', authenticateToken, async (req, res) => {
         update: { value },
         create: { itemId, columnId, value },
       });
-      io.emit('column_value_updated', updated);
+      if (column.boardId) {
+        io.to(boardRoom(column.boardId)).emit('column_value_updated', updated);
+      } else {
+        io.emit('column_value_updated', updated);
+      }
       return res.json({ ok: true, updated });
     }
     return res.status(400).json({ error: 'Solo se puede ligar en columnas de tipo docs o excel' });
@@ -821,6 +839,7 @@ app.post('/api/users', requireAuth, requireAdmin, async (req, res) => {
     });
 
     const { password: _p, ...userWithoutPassword } = newUser;
+    // Broadcast global por ahora; en el futuro se puede segmentar por workspace o rol.
     io.emit('user_added', userWithoutPassword);
     res.json(userWithoutPassword);
   } catch (err) {
@@ -888,6 +907,7 @@ app.patch('/api/users/:id', requireAuth, requireAdmin, async (req, res) => {
     });
 
     const { password: _p, ...safe } = updated;
+    // Broadcast global por ahora; en el futuro se puede segmentar por workspace o rol.
     io.emit('user_updated', safe);
     res.json(safe);
   } catch (e) {
@@ -1249,12 +1269,19 @@ app.post('/api/docs', authenticateToken, async (req, res) => {
     }
     const title = (body.title && String(body.title).trim()) || 'Nuevo doc';
     const type = (body.type && String(body.type).trim()) || 'text';
-    const content = typeof body.content === 'string' ? body.content : JSON.stringify(body.content ?? {});
+    const rawContent = body.content ?? {};
+    const content =
+      typeof rawContent === 'string' ? rawContent : JSON.stringify(rawContent);
+    const contentJson =
+      typeof rawContent === 'string'
+        ? (JSON.parse(rawContent) as unknown as Prisma.JsonValue)
+        : (rawContent as unknown as Prisma.JsonValue);
     const doc = await prisma.doc.create({
       data: {
         title,
         type,
         content,
+        contentJson,
         workspaceId,
         boardId: body.boardId ? String(body.boardId) : null,
         createdBy: body.createdBy ? String(body.createdBy) : null,
@@ -1303,11 +1330,17 @@ app.patch('/api/docs/:id', authenticateToken, async (req, res) => {
   try {
     const { id } = req.params;
     const body = req.body ?? {};
-    const data: { title?: string; content?: string; type?: string } = {};
+    const data: { title?: string; content?: string; type?: string; contentJson?: Prisma.JsonValue } = {};
     if (body.title !== undefined) data.title = String(body.title).trim() || 'Sin título';
     if (body.type !== undefined) data.type = String(body.type).trim() || 'text';
     if (body.content !== undefined) {
-      data.content = typeof body.content === 'string' ? body.content : JSON.stringify(body.content ?? {});
+      const rawContent = body.content;
+      data.content =
+        typeof rawContent === 'string' ? rawContent : JSON.stringify(rawContent ?? {});
+      data.contentJson =
+        typeof rawContent === 'string'
+          ? (JSON.parse(rawContent) as unknown as Prisma.JsonValue)
+          : (rawContent as unknown as Prisma.JsonValue);
     }
     if (Object.keys(data).length === 0) {
       return res.status(400).json({ error: 'Nada que actualizar' });
@@ -1575,28 +1608,35 @@ app.put('/api/templates/:kind/config', async (req, res) => {
     const fontBold = body.fontBold === true || body.fontBold === 'true';
     const fontItalic = body.fontItalic === true || body.fontItalic === 'true';
     const customBoxes = Array.isArray(body.customBoxes) ? body.customBoxes : [];
-    const fieldPositionsStr = typeof fieldPositions === 'object' && fieldPositions !== null ? JSON.stringify(fieldPositions) : '{}';
+    const fieldPositionsStr =
+      typeof fieldPositions === 'object' && fieldPositions !== null
+        ? JSON.stringify(fieldPositions)
+        : '{}';
     const customBoxesStr = JSON.stringify(customBoxes);
     await prisma.templateConfig.upsert({
       where: { docType: kind },
       create: {
         docType: kind,
         fieldPositions: fieldPositionsStr,
+        fieldPositionsJson: fieldPositions as unknown as Prisma.JsonValue,
         fontColor,
         fontFamily,
         fontSize,
         fontBold,
         fontItalic,
         customBoxes: customBoxesStr,
+        customBoxesJson: customBoxes as unknown as Prisma.JsonValue,
       },
       update: {
         fieldPositions: fieldPositionsStr,
+        fieldPositionsJson: fieldPositions as unknown as Prisma.JsonValue,
         fontColor,
         fontFamily,
         fontSize,
         fontBold,
         fontItalic,
         customBoxes: customBoxesStr,
+        customBoxesJson: customBoxes as unknown as Prisma.JsonValue,
       },
     });
     return res.json({ ok: true });
@@ -1652,7 +1692,7 @@ app.post('/api/boards/:boardId/calendar-events', authenticateToken, async (req, 
         eventType: String(eventType),
       },
     });
-    io.emit('calendar_event_added', event);
+    io.to(boardRoom(boardId)).emit('calendar_event_added', event);
     res.status(201).json(event);
   } catch (e) {
     console.error('Error creating calendar event:', e);
@@ -1679,7 +1719,7 @@ app.patch('/api/boards/:boardId/calendar-events/:eventId', authenticateToken, as
       where: { id: eventId },
       data: updates,
     });
-    io.emit('calendar_event_updated', event);
+    io.to(boardRoom(boardId)).emit('calendar_event_updated', event);
     res.json(event);
   } catch (e) {
     console.error('Error updating calendar event:', e);
@@ -1691,7 +1731,7 @@ app.delete('/api/boards/:boardId/calendar-events/:eventId', authenticateToken, a
   try {
     const { boardId, eventId } = req.params;
     await prisma.calendarEvent.deleteMany({ where: { id: eventId, boardId } });
-    io.emit('calendar_event_deleted', { boardId, eventId });
+    io.to(boardRoom(boardId)).emit('calendar_event_deleted', { boardId, eventId });
     res.status(204).send();
   } catch (e) {
     console.error('Error deleting calendar event:', e);
@@ -1836,6 +1876,7 @@ io.on('connection', (socket) => {
       if (item?.group?.boardId) {
         io.to(boardRoom(item.group.boardId)).emit('item_deleted', { itemId });
       } else {
+        // Caso raro sin boardId: mantener global por compatibilidad.
         io.emit('item_deleted', { itemId });
       }
     } catch (e) {
@@ -1857,6 +1898,7 @@ io.on('connection', (socket) => {
       if (column) {
         io.to(boardRoom(column.boardId)).emit('column_value_updated', updated);
       } else {
+        // Fallback global si no hay board asociado.
         io.emit('column_value_updated', updated);
       }
 
@@ -1887,21 +1929,22 @@ io.on('connection', (socket) => {
                 orderBy: { position: 'desc' },
               });
               const newPosition = (lastCol?.position ?? 0) + 1024;
-              const settings = JSON.stringify({
+              const billingSettings = {
                 options: [
                   { id: 'pendiente_factura', label: 'Pendiente de facturar', color: '#fdab3d' },
                   { id: 'facturado', label: 'Facturado', color: '#579bfc' },
                   { id: 'cobrado', label: 'Cobrado', color: '#00c875' },
                   { id: 'default', label: '', color: '#c4c4c4' },
                 ],
-              });
+              };
               billingColumn = await prisma.boardColumn.create({
                 data: {
                   boardId: column.boardId,
                   title: 'Estado Facturación',
                   type: 'status',
                   position: newPosition,
-                  settings,
+                  settings: JSON.stringify(billingSettings),
+                  settingsJson: billingSettings as unknown as Prisma.JsonValue,
                 },
               });
               io.to(boardRoom(column.boardId)).emit('column_added', billingColumn);
@@ -1940,6 +1983,7 @@ io.on('connection', (socket) => {
         const notif = await prisma.notification.create({
           data: { userId: assignedUserId, itemId, type: 'assigned', read: false },
         });
+        // TODO: migrar a room específico del usuario: user:<userId>
         io.emit('notification_created', notif);
 
         await sendWebPushToUser(assignedUserId, {
@@ -1978,6 +2022,7 @@ io.on('connection', (socket) => {
       const newBoard = await prisma.board.create({
         data: { name, workspaceId: workspace.id },
       });
+      // TODO: considerar rooms por workspace en el futuro.
       io.emit('board_added', newBoard);
     } catch (e) {
       console.error('Error adding board:', e);
@@ -1997,6 +2042,7 @@ io.on('connection', (socket) => {
       if (group?.boardId) {
         io.to(boardRoom(group.boardId)).emit('group_deleted', { groupId });
       } else {
+        // Fallback global si no hay board asociado.
         io.emit('group_deleted', { groupId });
       }
     } catch (e) {
@@ -2031,6 +2077,7 @@ io.on('connection', (socket) => {
       if (group?.boardId) {
         io.to(boardRoom(group.boardId)).emit('group_renamed', { id: updated.id, name: updated.name, color: updated.color });
       } else {
+        // Fallback global si no hay board asociado.
         io.emit('group_renamed', { id: updated.id, name: updated.name, color: updated.color });
       }
     } catch (e) {
@@ -2061,8 +2108,19 @@ io.on('connection', (socket) => {
   socket.on('add_column', async (data) => {
     try {
       const { boardId, title, type, position, settings } = data;
+      const settingsJson =
+        settings && typeof settings === 'string'
+          ? (JSON.parse(settings) as unknown as Prisma.JsonValue)
+          : (settings as unknown as Prisma.JsonValue | null);
       const newColumn = await prisma.boardColumn.create({
-        data: { boardId, title, type, position, settings: settings || null }
+        data: {
+          boardId,
+          title,
+          type,
+          position,
+          settings: settings || null,
+          settingsJson: settingsJson ?? null,
+        }
       });
       io.to(boardRoom(boardId)).emit('column_added', newColumn);
     } catch (e) {
@@ -2081,6 +2139,7 @@ io.on('connection', (socket) => {
       if (column?.boardId) {
         io.to(boardRoom(column.boardId)).emit('column_renamed', updated);
       } else {
+        // Fallback global si no hay board asociado.
         io.emit('column_renamed', updated);
       }
     } catch (e) {
@@ -2091,7 +2150,17 @@ io.on('connection', (socket) => {
   socket.on('update_column_settings', async (data) => {
     try {
       const { columnId, settings } = data;
-      const updated = await prisma.boardColumn.update({ where: { id: columnId }, data: { settings: settings ?? null } });
+      const parsedSettings =
+        settings && typeof settings === 'string'
+          ? (JSON.parse(settings) as unknown as Prisma.JsonValue)
+          : (settings as unknown as Prisma.JsonValue | null);
+      const updated = await prisma.boardColumn.update({
+        where: { id: columnId },
+        data: {
+          settings: settings ?? null,
+          settingsJson: parsedSettings ?? null,
+        },
+      });
       const column = await prisma.boardColumn.findUnique({
         where: { id: updated.id },
         select: { boardId: true },
@@ -2099,6 +2168,7 @@ io.on('connection', (socket) => {
       if (column?.boardId) {
         io.to(boardRoom(column.boardId)).emit('column_settings_updated', updated);
       } else {
+        // Fallback global si no hay board asociado.
         io.emit('column_settings_updated', updated);
       }
     } catch (e) {
@@ -2118,6 +2188,7 @@ io.on('connection', (socket) => {
       if (column?.boardId) {
         io.to(boardRoom(column.boardId)).emit('column_deleted', { columnId });
       } else {
+        // Fallback global si no hay board asociado.
         io.emit('column_deleted', { columnId });
       }
     } catch (e) {
@@ -2160,6 +2231,7 @@ io.on('connection', (socket) => {
         return { ...rest, author: safeAuthor };
       })();
 
+      // TODO: migrar a room por boardId cuando se añadan más metadatos al update.
       io.emit('update_added', safeUpdate);
 
       // Notificaciones Web Push a los usuarios asignados al item (excepto el propio autor)

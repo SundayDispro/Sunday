@@ -1,7 +1,6 @@
 import fs from 'fs';
 import path from 'path';
-import puppeteer from 'puppeteer';
-import { enqueuePdfTask } from './pdfQueue';
+import { Worker } from 'worker_threads';
 import { buildDocumentWrapperHtml } from './documentHtmlBuilder';
 
 export interface HtmlPdfOptions {
@@ -130,10 +129,13 @@ async function getTemplatePdfFirstPageAsDataUrlWithBrowser(
   }
 }
 
+// generatePdfFromHtml se mantiene como helper legacy basado en Puppeteer en el proceso principal.
+// Para la generación WYSIWYG de documentos se recomienda usar generatePdfFromDocument (con worker).
 export async function generatePdfFromHtml(
   html: string,
   options: HtmlPdfOptions = {}
 ): Promise<Buffer> {
+  const { default: puppeteer } = await import('puppeteer');
   const browser = await puppeteer.launch({
     headless: 'new',
     args: ['--no-sandbox', '--disable-setuid-sandbox'],
@@ -189,70 +191,54 @@ function loadRenderDocumentHtml(): ((props: { content: Record<string, unknown>; 
 export async function generatePdfFromDocument(
   options: GeneratePdfFromDocumentOptions
 ): Promise<Buffer> {
-  const { content, format = 'A4', templatePdfPath } = options;
-  const { buildDocumentHtml } = await import('./documentHtmlBuilder');
-  return enqueuePdfTask<Buffer>(async (browser) => {
-    let backgroundImageDataUrl: string | null = null;
-    if (templatePdfPath) {
-      backgroundImageDataUrl = await getTemplatePdfFirstPageAsDataUrlWithBrowser(
-        browser,
-        templatePdfPath
-      );
-    }
+  const workerPath = path.join(__dirname, 'pdfWorker.js');
+  const apiBaseUrl = process.env.API_BASE_URL || 'http://localhost:3001';
 
-    // Resolver imageUrl de cajas imagen a data URLs para que Puppeteer no dependa de red
-    const resolvedContent = resolveImageUrlsToDataUrls(content);
-
-    const renderDocumentHtml = loadRenderDocumentHtml();
-    const html =
-      renderDocumentHtml
-        ? buildDocumentWrapperHtml(
-            renderDocumentHtml({
-              content: resolvedContent,
-              backgroundImageDataUrl,
-            }),
-            { content: resolvedContent }
-          )
-        : buildDocumentHtml({
-            content: resolvedContent,
-            backgroundImageDataUrl,
-          });
-
-    const page = await browser.newPage();
-    // Viewport en px para que 612pt×792pt se renderice 1:1 (96 DPI: 612pt=816px, 792pt=1056px)
-    await page.setViewport({ width: 816, height: 1056, deviceScaleFactor: 1 });
-    await page.setContent(html, {
-      waitUntil: 'load',
-      baseURL: process.env.API_BASE_URL || 'http://localhost:3001',
-      timeout: 60000,
+  return new Promise<Buffer>((resolve, reject) => {
+    const worker = new Worker(workerPath, {
+      workerData: {
+        options,
+        apiBaseUrl,
+      },
     });
 
-    // Esperar a que todas las <img> hayan terminado de cargar (data URLs son síncronas pero por robustez)
-    await Promise.race([
-      page.evaluate(() =>
-        Promise.all(
-          Array.from(document.images).map((img) =>
-            img.complete
-              ? Promise.resolve()
-              : new Promise<void>((resolve) => {
-                  img.onload = () => resolve();
-                  img.onerror = () => resolve(); // ignorar error: el PDF se genera igual
-                })
-          )
-        )
-      ),
-      new Promise<void>((resolve) => setTimeout(resolve, 5000)), // timeout de seguridad
-    ]);
+    let settled = false;
 
-    await page.emulateMediaType('screen');
-    // US Letter exacto (612×792 pt). printBackground: true para que se vean fondos y texto blanco en el PDF.
-    const pdf = await page.pdf({
-      format: format === 'Letter' ? 'Letter' : 'A4',
-      printBackground: true,
-      margin: { top: '0mm', right: '0mm', bottom: '0mm', left: '0mm' },
+    const timer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      worker.terminate().catch(() => {});
+      reject(new Error('PDF generation timeout'));
+    }, 90_000);
+
+    worker.on('message', (msg: { success: boolean; buffer?: Buffer; error?: string }) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      if (msg.success && msg.buffer) {
+        resolve(Buffer.from(msg.buffer));
+      } else {
+        reject(new Error(msg.error || 'PDF worker returned an error'));
+      }
     });
 
-    return Buffer.from(pdf);
+    worker.on('error', (err) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      reject(err);
+    });
+
+    worker.on('exit', (code) => {
+      if (settled) return;
+      if (code === 0) {
+        // exit 0 sin mensaje explícito: considerar que ya se resolvió por 'message'
+        return;
+      }
+      settled = true;
+      clearTimeout(timer);
+      reject(new Error(`PDF worker exited with code ${code}`));
+    });
   });
 }
 
