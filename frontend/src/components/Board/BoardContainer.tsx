@@ -150,10 +150,26 @@ const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode, mobile
   }, []);
 
   const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const [scrollContainerEl, setScrollContainerEl] = useState<HTMLDivElement | null>(null);
+  const setScrollContainerRef = useCallback((el: HTMLDivElement | null) => {
+    (scrollContainerRef as React.MutableRefObject<HTMLDivElement | null>).current = el;
+    setScrollContainerEl(el);
+  }, []);
   const toolbarRef = useRef<HTMLDivElement>(null);
-  const { isHidden: scrollHidden } = useHideOnScroll(scrollContainerRef, 10);
+  const { isHidden: scrollHidden } = useHideOnScroll(scrollContainerEl, 10, 40);
   const headerHidden = isMobile ? scrollHidden : false;
   const [toolbarHeight, setToolbarHeight] = useState(56);
+
+  const [calendarScrollEl, setCalendarScrollEl] = useState<HTMLDivElement | null>(null);
+  const setCalendarScrollRef = useCallback((el: HTMLDivElement | null) => setCalendarScrollEl(el), []);
+  const { isHidden: calendarBarHidden } = useHideOnScroll(calendarScrollEl, 10, 40);
+  const [calendarBarHeight, setCalendarBarHeight] = useState(48);
+  const calendarBarRef = useRef<HTMLDivElement>(null);
+  const [calendarBarEl, setCalendarBarRef] = useState<HTMLDivElement | null>(null);
+  const setCalendarBarRefCallback = useCallback((el: HTMLDivElement | null) => {
+    (calendarBarRef as React.MutableRefObject<HTMLDivElement | null>).current = el;
+    setCalendarBarRef(el);
+  }, []);
 
   useEffect(() => {
     scrollContainerRef.current?.scrollTo(0, 0);
@@ -176,6 +192,21 @@ const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode, mobile
     ro.observe(el);
     return () => ro.disconnect();
   }, [isMobile]);
+
+  useEffect(() => {
+    const el = calendarBarEl;
+    if (!el) return;
+    // No observar cuando es layout móvil solo calendario (no hay barra que medir)
+    if (isMobile && (mobileCalendarOnly || calendarStandalone) && viewMode === 'calendar') return;
+    const ro = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        const h = entry.contentRect.height;
+        if (h > 0) setCalendarBarHeight(h);
+      }
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [calendarBarEl, isMobile, mobileCalendarOnly, calendarStandalone, viewMode]);
 
   const fetchBoard = async () => {
     try {
@@ -864,40 +895,73 @@ const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode, mobile
 
   const isCalendarOnlyLayout = (mobileCalendarOnly || calendarStandalone) && viewMode === 'calendar' && boardForView;
   if (isCalendarOnlyLayout) {
+    // Móvil: sin barra "Crear Tarea" (el tap en el día abre el modal de opciones). Desktop: barra con hide-on-scroll.
+    if (isMobile) {
+      return (
+        <div className="h-full flex flex-col min-h-0">
+          <div
+            ref={setCalendarScrollRef}
+            className="flex-1 min-h-0 overflow-auto overflow-x-auto custom-scrollbar scroll-touch"
+            style={{ WebkitOverflowScrolling: 'touch' }}
+          >
+            <CalendarView
+              board={boardForView}
+              onRowClick={onRowClick}
+              isTallerView={isTaller}
+              onOpenAddToProject={() => setAddToProjectOpen(true)}
+              onRegisterOpenCalendarEvent={registerOpenCalendarEvent}
+              defaultViewType={calendarStandalone ? 'week' : undefined}
+            />
+          </div>
+        </div>
+      );
+    }
+    const calendarBarHeightVisible = calendarBarHidden ? 0 : Math.max(calendarBarHeight, 48);
     return (
       <div className="h-full flex flex-col min-h-0">
-        <div className="shrink-0 px-3 sm:px-6 py-2.5 border-b border-monday-border bg-white flex items-center gap-2">
-          {!isTaller && (
-            <div className="flex items-center bg-monday-blue rounded-monday shadow-monday-sm">
-              <button
-                onClick={openAddToProject}
-                className="text-white text-[13px] font-semibold px-3.5 py-1.5 hover:bg-monday-blue/90 rounded-l-monday transition-colors"
-              >
-                Crear Tarea
-              </button>
-              <Popover.Root open={newMenuOpen} onOpenChange={setNewMenuOpen}>
-                <Popover.Trigger asChild>
-                  <button className="text-white px-2 py-1.5 hover:bg-monday-blue/90 rounded-r-monday transition-colors">
-                    <ChevronDown size={14} />
-                  </button>
-                </Popover.Trigger>
-                <Popover.Portal>
-                  <Popover.Content
-                    className="z-50 bg-white rounded-xl shadow-monday-lg border border-monday-border w-44 p-1 mt-1"
-                    sideOffset={4}
-                    align="start"
-                  >
-                    <button type="button" onClick={() => { setNewMenuOpen(false); openCalendarEventRef.current?.({ date: new Date(), eventType: 'levantamiento' }); }} className="w-full text-left px-3 py-2 text-[13px] hover:bg-monday-hover rounded-md flex items-center gap-2" style={{ borderLeft: '3px solid #6e3cbb' }}>Levantamiento</button>
-                    <button type="button" onClick={() => { setNewMenuOpen(false); openCalendarEventRef.current?.({ date: new Date(), eventType: 'pendiente' }); }} className="w-full text-left px-3 py-2 text-[13px] hover:bg-monday-hover rounded-md flex items-center gap-2" style={{ borderLeft: '3px solid #ec4899' }}>Pendiente</button>
-                    <button type="button" onClick={() => { setNewMenuOpen(false); openCalendarEventRef.current?.({ date: new Date(), eventType: 'colocacion' }); }} className="w-full text-left px-3 py-2 text-[13px] hover:bg-monday-hover rounded-md flex items-center gap-2" style={{ borderLeft: '3px solid #0f766e' }}>Entrega</button>
-                    <button type="button" onClick={openAddToProject} className="w-full text-left px-3 py-2 text-[13px] hover:bg-monday-hover rounded-md flex items-center gap-2">Crear Tarea</button>
-                  </Popover.Content>
-                </Popover.Portal>
-              </Popover.Root>
-            </div>
-          )}
-        </div>
-        <div className="flex-1 min-h-0 overflow-auto overflow-x-auto custom-scrollbar scroll-touch" style={{ WebkitOverflowScrolling: 'touch' }}>
+        <motion.div
+          className="min-h-0 overflow-hidden shrink-0"
+          animate={{ height: calendarBarHeightVisible }}
+          initial={false}
+          transition={{ duration: 0.25, ease: 'easeInOut' }}
+        >
+          <div ref={setCalendarBarRefCallback} className="shrink-0 px-3 sm:px-6 py-2.5 border-b border-monday-border bg-white flex items-center gap-2">
+            {!isTaller && (
+              <div className="flex items-center bg-monday-blue rounded-monday shadow-monday-sm">
+                <button
+                  onClick={openAddToProject}
+                  className="text-white text-[13px] font-semibold px-3.5 py-1.5 hover:bg-monday-blue/90 rounded-l-monday transition-colors"
+                >
+                  Crear Tarea
+                </button>
+                <Popover.Root open={newMenuOpen} onOpenChange={setNewMenuOpen}>
+                  <Popover.Trigger asChild>
+                    <button className="text-white px-2 py-1.5 hover:bg-monday-blue/90 rounded-r-monday transition-colors">
+                      <ChevronDown size={14} />
+                    </button>
+                  </Popover.Trigger>
+                  <Popover.Portal>
+                    <Popover.Content
+                      className="z-50 bg-white rounded-xl shadow-monday-lg border border-monday-border w-44 p-1 mt-1"
+                      sideOffset={4}
+                      align="start"
+                    >
+                      <button type="button" onClick={() => { setNewMenuOpen(false); openCalendarEventRef.current?.({ date: new Date(), eventType: 'levantamiento' }); }} className="w-full text-left px-3 py-2 text-[13px] hover:bg-monday-hover rounded-md flex items-center gap-2" style={{ borderLeft: '3px solid #6e3cbb' }}>Levantamiento</button>
+                      <button type="button" onClick={() => { setNewMenuOpen(false); openCalendarEventRef.current?.({ date: new Date(), eventType: 'pendiente' }); }} className="w-full text-left px-3 py-2 text-[13px] hover:bg-monday-hover rounded-md flex items-center gap-2" style={{ borderLeft: '3px solid #ec4899' }}>Pendiente</button>
+                      <button type="button" onClick={() => { setNewMenuOpen(false); openCalendarEventRef.current?.({ date: new Date(), eventType: 'colocacion' }); }} className="w-full text-left px-3 py-2 text-[13px] hover:bg-monday-hover rounded-md flex items-center gap-2" style={{ borderLeft: '3px solid #0f766e' }}>Entrega</button>
+                      <button type="button" onClick={openAddToProject} className="w-full text-left px-3 py-2 text-[13px] hover:bg-monday-hover rounded-md flex items-center gap-2">Crear Tarea</button>
+                    </Popover.Content>
+                  </Popover.Portal>
+                </Popover.Root>
+              </div>
+            )}
+          </div>
+        </motion.div>
+        <div
+          ref={setCalendarScrollRef}
+          className="flex-1 min-h-0 overflow-auto overflow-x-auto custom-scrollbar scroll-touch"
+          style={{ WebkitOverflowScrolling: 'touch' }}
+        >
           <CalendarView
             board={boardForView}
             onRowClick={onRowClick}
@@ -913,10 +977,12 @@ const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode, mobile
 
   const toolbarClass = `min-w-0 px-4 sm:px-6 py-2.5 border-b border-monday-border flex items-center gap-x-2 gap-y-2 shrink-0 bg-white ${mobileOptimized ? 'flex-nowrap' : 'flex-wrap'}`;
   const ToolbarWrapper = isMobile ? motion.div : 'div';
+  const toolbarHeightVisible = headerHidden ? 0 : Math.max(toolbarHeight, 48);
   const toolbarWrapperProps = isMobile
     ? {
         className: 'min-h-0 overflow-hidden shrink-0',
-        animate: { height: headerHidden ? 0 : toolbarHeight } as const,
+        animate: { height: toolbarHeightVisible } as const,
+        initial: false,
         transition: { duration: 0.25, ease: 'easeInOut' as const },
       }
     : { className: toolbarClass };
@@ -925,320 +991,12 @@ const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode, mobile
     <div className="h-full min-h-0 flex flex-col">
       {/* ── Action Toolbar: hide-on-scroll en móvil (altura animada para reclamar espacio) ─────────────────────────────────────── */}
       <ToolbarWrapper {...toolbarWrapperProps}>
-        <div ref={isMobile ? toolbarRef : undefined} className={toolbarClass}>
-        {/* Primary CTA: en tabla "+ Nuevo elemento", en calendario "Crear Tarea"; oculto en Kanban y Facturación. */}
-        {!isTaller && viewMode !== 'kanban' && viewMode !== 'facturacion' && viewMode !== 'resumen' && viewMode !== 'archivos' && viewMode !== 'timeline' && (
-        <div className="flex items-center bg-monday-blue rounded-monday shadow-monday-sm mr-2">
-          <button
-            onClick={openAddToProject}
-            className="text-white text-[13px] font-semibold px-3.5 py-1.5 hover:bg-monday-blue/90 rounded-l-monday transition-colors"
-          >
-            {viewMode === 'calendar' ? 'Crear Tarea' : '+ Nuevo elemento'}
-          </button>
-          <div className="w-px h-5 bg-white/30" />
-          <Popover.Root open={newMenuOpen} onOpenChange={setNewMenuOpen}>
-            <Popover.Trigger asChild>
-              <button className="text-white px-2 py-1.5 hover:bg-monday-blue/90 rounded-r-monday transition-colors">
-                <ChevronDown size={14} />
-              </button>
-            </Popover.Trigger>
-            <Popover.Portal>
-              <Popover.Content
-                className="z-50 bg-white rounded-xl shadow-monday-lg border border-monday-border w-44 p-1 mt-1"
-                sideOffset={4}
-                align="start"
-              >
-                {viewMode === 'table' && (
-                  <>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setNewMenuOpen(false);
-                        handleAddItemFromToolbar();
-                      }}
-                      className="w-full text-left px-3 py-2 text-[13px] hover:bg-monday-hover rounded-md"
-                    >
-                      Nuevo elemento
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setNewMenuOpen(false);
-                        handleAddGroup();
-                      }}
-                      className="w-full text-left px-3 py-2 text-[13px] hover:bg-monday-hover rounded-md"
-                    >
-                      Nuevo grupo
-                    </button>
-                  </>
-                )}
-                {viewMode === 'calendar' && (
-                  <>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setNewMenuOpen(false);
-                        openCalendarEventRef.current?.({ date: new Date(), eventType: 'levantamiento' });
-                      }}
-                      className="w-full text-left px-3 py-2 text-[13px] hover:bg-monday-hover rounded-md flex items-center gap-2"
-                      style={{ borderLeft: '3px solid #6e3cbb' }}
-                    >
-                      Levantamiento
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setNewMenuOpen(false);
-                        openCalendarEventRef.current?.({ date: new Date(), eventType: 'pendiente' });
-                      }}
-                      className="w-full text-left px-3 py-2 text-[13px] hover:bg-monday-hover rounded-md flex items-center gap-2"
-                      style={{ borderLeft: '3px solid #ec4899' }}
-                    >
-                      Pendiente
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setNewMenuOpen(false);
-                        openCalendarEventRef.current?.({ date: new Date(), eventType: 'colocacion' });
-                      }}
-                      className="w-full text-left px-3 py-2 text-[13px] hover:bg-monday-hover rounded-md flex items-center gap-2"
-                      style={{ borderLeft: '3px solid #0f766e' }}
-                    >
-                      Entrega
-                    </button>
-                  </>
-                )}
-                <button
-                  type="button"
-                  onClick={openAddToProject}
-                  className="w-full text-left px-3 py-2 text-[13px] hover:bg-monday-hover rounded-md flex items-center gap-2"
-                >
-                  <Folder size={14} className="text-monday-subtext shrink-0" />
-                  Añadir a proyecto
-                </button>
-              </Popover.Content>
-            </Popover.Portal>
-          </Popover.Root>
-        </div>
-        )}
-
-        <div className="w-px h-5 bg-monday-border" />
-
-        {/* Búsqueda: vista tabla y Mi trabajo */}
-        {(viewMode === 'table' || viewMode === 'miTrabajo') && (showSearch ? (
-          <div className="flex items-center gap-1.5 bg-monday-hover border border-monday-border rounded-monday px-2.5 py-1 fade-in">
-            <Search size={14} className="text-monday-subtext shrink-0" />
-            <input
-              autoFocus
-              value={searchQuery}
-              onChange={e => setSearchQuery(e.target.value)}
-              placeholder="Buscar elemento..."
-              className="bg-transparent outline-none text-[13px] text-monday-text w-40 placeholder:text-monday-subtext"
-            />
-            {searchQuery && (
-              <button onClick={() => setSearchQuery('')} className="text-monday-subtext hover:text-monday-text">
-                <X size={13} />
-              </button>
-            )}
-            <button onClick={() => { setShowSearch(false); setSearchQuery(''); }} className="text-monday-subtext hover:text-monday-text ml-1">
-              <X size={14} />
-            </button>
-          </div>
-        ) : (
-          <button onClick={() => setShowSearch(true)} className={`toolbar-btn ${mobileOptimized ? 'min-h-[44px] min-w-[44px] px-2' : ''}`} title="Buscar en el tablero">
-            <Search size={mobileOptimized ? 18 : 15} />
-            {!mobileOptimized && <span>Buscar</span>}
-          </button>
-        ))}
-
-        {/* En móvil / mobileOptimized: menú "Más" que agrupa Filtrar, Ordenar, Ocultar */}
-        {(viewMode === 'table' || viewMode === 'kanban' || viewMode === 'miTrabajo') && (
-        <Popover.Root open={showMoreMenu} onOpenChange={setShowMoreMenu}>
-          <Popover.Trigger asChild>
-            <button className={`toolbar-btn min-h-[44px] min-w-[44px] ${mobileOptimized ? '' : 'sm:hidden'}`} aria-label="Más opciones">
-              <MoreHorizontal size={18} />
-              <span>Más</span>
-            </button>
-          </Popover.Trigger>
-          <Popover.Portal>
-            <Popover.Content className="z-50 bg-white rounded-xl shadow-monday-lg border border-monday-border w-[min(280px,90vw)] max-h-[70vh] overflow-y-auto custom-scrollbar scroll-touch p-2 fade-in mt-1" sideOffset={5}>
-              <div className="text-[12px] font-semibold text-monday-subtext px-2 py-1.5 uppercase tracking-tight border-b border-monday-border/60 mb-2">Filtrar por estado</div>
-              <button type="button" onClick={() => { setFilterByStatusOptionId(null); }} className={`w-full text-left px-2 py-2 text-[13px] rounded-md transition-colors ${!filterByStatusOptionId ? 'bg-monday-pill text-monday-blue font-medium' : 'hover:bg-monday-hover text-monday-text'}`}>Todos los estados</button>
-              {filterStatusOptions.map((opt) => (
-                <button key={opt.id} type="button" onClick={() => setFilterByStatusOptionId(opt.id)} className={`w-full text-left px-2 py-2 text-[13px] rounded-md transition-colors flex items-center gap-2 ${filterByStatusOptionId === opt.id ? 'bg-monday-pill text-monday-blue font-medium' : 'hover:bg-monday-hover text-monday-text'}`}>
-                  <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: opt.color ?? '#c4c4c4' }} />{opt.label}
-                </button>
-              ))}
-              <div className="text-[12px] font-semibold text-monday-subtext px-2 py-1.5 uppercase tracking-tight border-b border-monday-border/60 mt-3 mb-2">Ordenar por</div>
-              {sortConfig && <button onClick={() => setSortConfig(null)} className="w-full text-left px-2 py-2 text-[13px] text-monday-red hover:bg-red-500/15 rounded-md font-medium">Limpiar orden</button>}
-              <button onClick={() => setSortConfig({ columnId: 'name', direction: 'asc' })} className={`w-full text-left px-2 py-2 text-[13px] rounded-md ${sortConfig?.columnId === 'name' && sortConfig.direction === 'asc' ? 'bg-monday-pill text-monday-blue font-medium' : 'hover:bg-monday-hover text-monday-text'}`}>Nombre (A-Z)</button>
-              <button onClick={() => setSortConfig({ columnId: 'name', direction: 'desc' })} className={`w-full text-left px-2 py-2 text-[13px] rounded-md ${sortConfig?.columnId === 'name' && sortConfig.direction === 'desc' ? 'bg-monday-pill text-monday-blue font-medium' : 'hover:bg-monday-hover text-monday-text'}`}>Nombre (Z-A)</button>
-              {board?.columns.map(col => (
-                <React.Fragment key={col.id}>
-                  <button onClick={() => setSortConfig({ columnId: col.id, direction: 'asc' })} className={`w-full text-left px-2 py-2 text-[13px] rounded-md truncate ${sortConfig?.columnId === col.id && sortConfig.direction === 'asc' ? 'bg-monday-pill text-monday-blue font-medium' : 'hover:bg-monday-hover text-monday-text'}`}>{col.title} ↑</button>
-                  <button onClick={() => setSortConfig({ columnId: col.id, direction: 'desc' })} className={`w-full text-left px-2 py-2 text-[13px] rounded-md truncate ${sortConfig?.columnId === col.id && sortConfig.direction === 'desc' ? 'bg-monday-pill text-monday-blue font-medium' : 'hover:bg-monday-hover text-monday-text'}`}>{col.title} ↓</button>
-                </React.Fragment>
-              ))}
-              <div className="text-[12px] font-semibold text-monday-subtext px-2 py-1.5 uppercase tracking-tight border-b border-monday-border/60 mt-3 mb-2">Ocultar columnas</div>
-              {hiddenColumns.length > 0 && <button onClick={() => setHiddenColumns([])} className="text-[11px] text-monday-blue hover:underline px-2 pb-1">Mostrar todas</button>}
-              {board?.columns.map(col => (
-                <label key={col.id} className="flex items-center gap-2.5 px-2 py-2 hover:bg-monday-hover rounded-md cursor-pointer transition-colors group">
-                  <input type="checkbox" className="w-3.5 h-3.5 accent-monday-blue cursor-pointer" checked={!hiddenColumns.includes(col.id)} onChange={() => toggleHideColumn(col.id)} />
-                  <span className={`text-[13px] ${hiddenColumns.includes(col.id) ? 'text-monday-subtext line-through' : 'text-monday-text'}`}>{col.title}</span>
-                </label>
-              ))}
-            </Popover.Content>
-          </Popover.Portal>
-        </Popover.Root>
-        )}
-
-        {/* Filtrar, Ordenar, Ocultar: visibles desde sm (640px); ocultos cuando mobileOptimized */}
-        {(viewMode === 'table' || viewMode === 'kanban' || viewMode === 'miTrabajo') && !mobileOptimized && (
-        <div className="hidden sm:flex items-center gap-2 flex-wrap">
-        <Popover.Root open={showFilter} onOpenChange={setShowFilter}>
-          <Popover.Trigger asChild>
-            <button className={`toolbar-btn ${filterByStatusOptionId ? 'bg-monday-pill text-monday-blue border-monday-blue/40' : ''}`}>
-              <Filter size={15} />
-              <span>Filtrar {filterByStatusOptionId && <span className="w-1.5 h-1.5 rounded-full bg-monday-blue ml-1 inline-block" />}</span>
-            </button>
-          </Popover.Trigger>
-          <Popover.Portal>
-            <Popover.Content className="z-50 bg-white rounded-xl shadow-monday-lg border border-monday-border w-52 p-2 fade-in mt-1" sideOffset={5}>
-              <div className="text-[12px] font-semibold text-monday-subtext px-2 py-1 uppercase tracking-tight">Filtrar por estado</div>
-              <button
-                type="button"
-                onClick={() => { setFilterByStatusOptionId(null); setShowFilter(false); }}
-                className={`w-full text-left px-2 py-1.5 text-[13px] rounded-md transition-colors ${!filterByStatusOptionId ? 'bg-monday-pill text-monday-blue font-medium' : 'hover:bg-monday-hover text-monday-text'}`}
-              >
-                Todos los estados
-              </button>
-              {filterStatusOptions.map((opt) => (
-                <button
-                  key={opt.id}
-                  type="button"
-                  onClick={() => { setFilterByStatusOptionId(opt.id); setShowFilter(false); }}
-                  className={`w-full text-left px-2 py-1.5 text-[13px] rounded-md transition-colors flex items-center gap-2 ${filterByStatusOptionId === opt.id ? 'bg-monday-pill text-monday-blue font-medium' : 'hover:bg-monday-hover text-monday-text'}`}
-                >
-                  <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: opt.color ?? '#c4c4c4' }} />
-                  {opt.label}
-                </button>
-              ))}
-            </Popover.Content>
-          </Popover.Portal>
-        </Popover.Root>
-
-        {/* Sort Popover: tabla, kanban y Mi trabajo */}
-        {(viewMode === 'table' || viewMode === 'kanban' || viewMode === 'miTrabajo') && (
-        <>
-        <Popover.Root open={showSort} onOpenChange={setShowSort}>
-          <Popover.Trigger asChild>
-            <button className={`toolbar-btn ${sortConfig ? 'bg-monday-pill text-monday-blue border-monday-blue/40' : ''}`}>
-              <ArrowUpDown size={15} />
-              <span>Ordenar {sortConfig && <span className="w-1.5 h-1.5 rounded-full bg-monday-blue ml-1 inline-block" />}</span>
-            </button>
-          </Popover.Trigger>
-          <Popover.Portal>
-            <Popover.Content className="z-50 bg-white rounded-xl shadow-monday-lg border border-monday-border w-56 p-2 fade-in mt-1" sideOffset={5}>
-              <div className="text-[12px] font-semibold text-monday-subtext mb-2 px-2 uppercase tracking-tight">Ordenar por</div>
-              <div className="flex flex-col gap-1 max-h-60 overflow-y-auto custom-scrollbar scroll-touch">
-                
-                {/* Clear sort */}
-                {sortConfig && (
-                  <button onClick={() => setSortConfig(null)} className="w-full text-left px-2 py-1.5 text-[13px] text-monday-red hover:bg-red-500/15 rounded-md transition-colors font-medium">
-                    Limpiar orden
-                  </button>
-                )}
-
-                {/* Name Sort */}
-                <div className="flex items-center gap-1 px-1">
-                  <button 
-                    onClick={() => setSortConfig({ columnId: 'name', direction: 'asc' })}
-                    className={`flex-1 text-left px-2 py-1.5 text-[13px] hover:bg-monday-hover rounded-md transition-colors ${sortConfig?.columnId === 'name' && sortConfig.direction === 'asc' ? 'bg-monday-pill text-monday-blue font-medium' : 'text-monday-text'}`}
-                  >
-                    Nombre (A-Z)
-                  </button>
-                  <button 
-                    onClick={() => setSortConfig({ columnId: 'name', direction: 'desc' })}
-                    className={`px-2 py-1.5 text-[13px] hover:bg-monday-hover rounded-md transition-colors ${sortConfig?.columnId === 'name' && sortConfig.direction === 'desc' ? 'bg-monday-pill text-monday-blue font-medium' : 'text-monday-subtext'}`}
-                    title="Z-A"
-                  >
-                    ↓
-                  </button>
-                </div>
-
-                {/* Dynamic Columns Sort */}
-                {board.columns.map(col => (
-                  <div key={col.id} className="flex items-center gap-1 px-1">
-                    <button 
-                      onClick={() => setSortConfig({ columnId: col.id, direction: 'asc' })}
-                      className={`flex-1 text-left px-2 py-1.5 text-[13px] hover:bg-monday-hover rounded-md transition-colors truncate ${sortConfig?.columnId === col.id && sortConfig.direction === 'asc' ? 'bg-monday-pill text-monday-blue font-medium' : 'text-monday-text'}`}
-                    >
-                      {col.title}
-                    </button>
-                    <button 
-                      onClick={() => setSortConfig({ columnId: col.id, direction: 'desc' })}
-                      className={`px-2 py-1.5 text-[13px] hover:bg-monday-hover rounded-md transition-colors ${sortConfig?.columnId === col.id && sortConfig.direction === 'desc' ? 'bg-monday-pill text-monday-blue font-medium' : 'text-monday-subtext'}`}
-                      title="Descendente"
-                    >
-                      ↓
-                    </button>
-                  </div>
-                ))}
-              </div>
-            </Popover.Content>
-          </Popover.Portal>
-        </Popover.Root>
-
-        {/* Ocultar columnas: vista tabla y Mi trabajo */}
-        {(viewMode === 'table' || viewMode === 'miTrabajo') && (
-        <Popover.Root open={showHide} onOpenChange={setShowHide}>
-          <Popover.Trigger asChild>
-            <button className={`toolbar-btn ${hiddenColumns.length > 0 ? 'bg-monday-pill text-monday-blue border-monday-blue/40' : ''}`}>
-              <EyeOff size={15} />
-              <span>Ocultar {hiddenColumns.length > 0 && `(${hiddenColumns.length})`}</span>
-            </button>
-          </Popover.Trigger>
-          <Popover.Portal>
-            <Popover.Content className="z-50 bg-white rounded-xl shadow-monday-lg border border-monday-border w-56 p-2 fade-in mt-1" sideOffset={5}>
-              <div className="flex items-center justify-between mb-2 px-2">
-                <span className="text-[12px] font-semibold text-monday-subtext uppercase tracking-tight">Ocultar columnas</span>
-                {hiddenColumns.length > 0 && (
-                  <button onClick={() => setHiddenColumns([])} className="text-[11px] text-monday-blue hover:underline">
-                    Mostar todas
-                  </button>
-                )}
-              </div>
-              <div className="flex flex-col gap-0.5 max-h-60 overflow-y-auto custom-scrollbar scroll-touch">
-                {board.columns.map(col => (
-                  <label key={col.id} className="flex items-center gap-2.5 px-2 py-1.5 hover:bg-monday-hover rounded-md cursor-pointer transition-colors group">
-                    <input 
-                      type="checkbox" 
-                      className="w-3.5 h-3.5 accent-monday-blue cursor-pointer"
-                      checked={!hiddenColumns.includes(col.id)}
-                      onChange={() => toggleHideColumn(col.id)}
-                    />
-                    <span className={`text-[13px] group-hover:text-monday-text transition-colors ${hiddenColumns.includes(col.id) ? 'text-monday-subtext line-through' : 'text-monday-text'}`}>
-                      {col.title}
-                    </span>
-                  </label>
-                ))}
-              </div>
-            </Popover.Content>
-          </Popover.Portal>
-        </Popover.Root>
-        )}
-        </>
-        )}
-        </div>
-        )}
-
-      </div>
+        <div ref={isMobile ? toolbarRef : undefined} className={toolbarClass} />
       </ToolbarWrapper>
 
       {/* ── Board Content: min-h-0 para que el flex permita scroll; touch para desplazamiento en móvil/horizontal ───────────────────────────────────────── */}
       <div
-        ref={scrollContainerRef}
+        ref={setScrollContainerRef}
         className={`flex-1 min-h-0 overflow-y-auto overflow-x-hidden custom-scrollbar scroll-touch overscroll-y-contain ${isPortrait ? 'px-4 sm:px-6 py-5' : 'px-2 sm:px-4 py-3'}`}
         style={{ WebkitOverflowScrolling: 'touch', overscrollBehaviorY: 'contain' }}
       >

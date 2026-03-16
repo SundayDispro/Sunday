@@ -2149,6 +2149,16 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
   const [error, setError] = useState<string | null>(null);
   const [viewerActionsOpen, setViewerActionsOpen] = useState(false);
 
+  const [isMobile, setIsMobile] = useState(
+    () => typeof window !== 'undefined' && window.innerWidth < 768
+  );
+  useEffect(() => {
+    const mq = window.matchMedia('(max-width: 767px)');
+    const handler = () => setIsMobile(mq.matches);
+    mq.addEventListener('change', handler);
+    return () => mq.removeEventListener('change', handler);
+  }, []);
+
   const selectedDoc = useMemo(
     () => docs.find(d => d.id === selectedId) ?? null,
     [docs, selectedId]
@@ -2175,6 +2185,11 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
   /** Evita auto-guardar justo después de cargar la config desde la API. */
   const templateConfigJustLoadedRef = useRef(false);
   const [viewMode, setViewMode] = useState<'docs' | 'overview'>('overview');
+  /** En móvil vista Lista: true = se muestra el viewer (solo panel derecho); false = se muestra la lista (solo panel izquierdo). */
+  const [mobileDocOpen, setMobileDocOpen] = useState(false);
+  useEffect(() => {
+    if (isMobile && selectedId === null) setMobileDocOpen(false);
+  }, [isMobile, selectedId]);
   const [deleteConfirm, setDeleteConfirm] = useState<{ docId: string } | null>(null);
   type PromptDialog =
     | { type: 'renameSubgroup'; docType: string; subgroupId: string; initialValue: string }
@@ -3139,6 +3154,12 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
 
   const handleDeleteClick = (id: string) => setDeleteConfirm({ docId: id });
 
+  /** En vista Lista: al seleccionar un doc en móvil también abre el viewer (master-detail). */
+  const handleSelectDocInList = useCallback((id: string) => {
+    setSelectedId(id);
+    if (isMobile) setMobileDocOpen(true);
+  }, [isMobile]);
+
   const handleDeleteConfirm = async () => {
     const id = deleteConfirm?.docId;
     if (!id) return;
@@ -3781,7 +3802,8 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
         </div>
       ) : (
       <div className="flex-1 flex flex-col md:flex-row overflow-hidden bg-monday-bg min-h-0">
-        {/* Tabla agrupada tipo ventana principal (grupos con color, cabeceras, tabla) */}
+        {/* Panel izquierdo: lista de docs. En móvil solo visible cuando mobileDocOpen === false. */}
+        {(!isMobile || !mobileDocOpen) && (
         <div className="flex-1 min-h-0 overflow-auto custom-scrollbar scroll-touch px-4 sm:px-6 py-4 sm:py-5 min-w-0">
           {!workspaceId && (
             <div className="p-4 text-[13px] text-amber-700 bg-amber-50 border border-amber-200 rounded-lg max-w-md">
@@ -3808,7 +3830,7 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
                     onToggleCollapse={() => toggleDocGroupCollapse(groupKey)}
                     docs={groupDocs}
                     selectedId={selectedId}
-                    onSelectDoc={setSelectedId}
+                    onSelectDoc={isMobile ? handleSelectDocInList : setSelectedId}
                     onDeleteDoc={(id) => handleDeleteClick(id)}
                     customGroups={customGroups}
                     assignments={assignments}
@@ -3841,7 +3863,7 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
                     onRemove={() => removeCustomGroup(grp.id)}
                     docs={groupDocs}
                     selectedId={selectedId}
-                    onSelectDoc={setSelectedId}
+                    onSelectDoc={isMobile ? handleSelectDocInList : setSelectedId}
                     onDeleteDoc={(id) => handleDeleteClick(id)}
                     customGroups={customGroups}
                     assignments={assignments}
@@ -3862,8 +3884,10 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
             </>
           )}
         </div>
+        )}
 
-        {/* Panel derecho: visualizador (solo lectura); en móvil ocupa todo el ancho debajo de la lista */}
+        {/* Panel derecho: visualizador (solo lectura). En móvil solo visible cuando mobileDocOpen === true. */}
+        {(!isMobile || mobileDocOpen) && (
         <section className="flex-1 flex flex-col min-w-0 min-h-0 w-full md:max-w-[60%] border-t md:border-t-0 md:border-l border-monday-border overflow-hidden bg-white">
           {error && (
             <div className="px-4 py-2 bg-red-50 text-red-700 text-[13px] border-b border-red-200">
@@ -3890,7 +3914,7 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
                 <div className="flex items-center gap-1.5 sm:gap-2 flex-shrink-0">
                   <button
                     type="button"
-                    onClick={() => setSelectedId(null)}
+                    onClick={() => { setSelectedId(null); if (isMobile) setMobileDocOpen(false); }}
                     className="inline-flex items-center gap-1.5 px-2.5 py-1.5 min-h-[44px] sm:min-h-0 rounded-monday border border-monday-border text-[12px] text-monday-subtext hover:bg-monday-hover touch-manipulation"
                   >
                     <X size={14} className="sm:w-3 sm:h-3" />
@@ -4110,6 +4134,7 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
             </>
           )}
         </section>
+        )}
       </div>
       )}
     </div>

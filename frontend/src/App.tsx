@@ -208,7 +208,12 @@ function App() {
   const [mobileHeaderHeight, setMobileHeaderHeight] = useState(120);
   const mobileHeaderRef = useRef<HTMLDivElement>(null);
   const [exportingFolders, setExportingFolders] = useState(false);
-  const [isMobile, setIsMobile] = useState(() => typeof window !== 'undefined' && window.innerWidth < 768);
+  const [isMobile, setIsMobile] = useState(() => {
+    if (typeof window === 'undefined') return false;
+    const narrow = window.matchMedia('(max-width: 767px)').matches;
+    const landscapeShort = window.matchMedia('(orientation: landscape) and (max-height: 500px)').matches;
+    return narrow || landscapeShort;
+  });
   const [sidebarOpen, setSidebarOpen] = useState(() => typeof window !== 'undefined' && window.innerWidth >= 768);
   const [theme, setTheme] = useState<AppTheme>(() => {
     if (typeof window === 'undefined') return 'light';
@@ -223,15 +228,20 @@ function App() {
   const [themeSelectorOpen, setThemeSelectorOpen] = useState(false);
 
   useEffect(() => {
-    const mq = window.matchMedia('(max-width: 767px)');
+    const mqNarrow = window.matchMedia('(max-width: 767px)');
+    const mqLandscapeShort = window.matchMedia('(orientation: landscape) and (max-height: 500px)');
     const handler = () => {
-      const mobile = mq.matches;
+      const mobile = mqNarrow.matches || mqLandscapeShort.matches;
       setIsMobile(mobile);
       if (mobile) setSidebarOpen(false);
     };
     handler();
-    mq.addEventListener('change', handler);
-    return () => mq.removeEventListener('change', handler);
+    mqNarrow.addEventListener('change', handler);
+    mqLandscapeShort.addEventListener('change', handler);
+    return () => {
+      mqNarrow.removeEventListener('change', handler);
+      mqLandscapeShort.removeEventListener('change', handler);
+    };
   }, []);
 
   useEffect(() => {
@@ -1708,7 +1718,7 @@ if (ok && data && typeof data.id === 'string') {
           ) : activePage === 'calendar' && isMobile ? (
             activeBoardId ? (
               <div className="flex-1 flex flex-col min-h-0">
-                <BoardContainer boardId={activeBoardId} onRowClick={setSelectedItem} viewMode="calendar" mobileCalendarOnly />
+                <BoardContainer boardId={activeBoardId} onRowClick={setSelectedItem} viewMode="calendar" mobileCalendarOnly isMobile />
               </div>
             ) : boards.length === 0 ? (
               <div className="flex-1 flex flex-col items-center justify-center text-monday-subtext p-6">
@@ -1724,7 +1734,8 @@ if (ok && data && typeof data.id === 'string') {
             <>
               <motion.div
                 className="min-h-0 overflow-hidden shrink-0"
-                animate={{ height: mobileHeaderHidden ? 0 : mobileHeaderHeight }}
+                animate={{ height: mobileHeaderHidden ? 0 : Math.max(mobileHeaderHeight, 80) }}
+                initial={false}
                 transition={{ duration: 0.25, ease: 'easeInOut' }}
               >
                 <div ref={mobileHeaderRef}>
@@ -2136,7 +2147,7 @@ if (ok && data && typeof data.id === 'string') {
         </AnimatedDialog>
       )}
 
-      {isMobile && ((activePage === 'board' && activeBoardId) || (activePage === 'miTrabajo' && activeBoardId)) && (
+      {isMobile && ((activePage === 'board' && activeBoardId) || (activePage === 'miTrabajo' && activeBoardId)) && mobileHeaderHidden && (
         <button
           type="button"
           onClick={() => window.dispatchEvent(new CustomEvent('sunday-fab-add-item'))}
