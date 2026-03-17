@@ -27,7 +27,7 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
 ));
 var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: true }), mod);
 
-// ../frontend/src/renderDocumentToHtml.tsx
+// frontend/src/renderDocumentToHtml.tsx
 var renderDocumentToHtml_exports = {};
 __export(renderDocumentToHtml_exports, {
   renderDocumentHtml: () => renderDocumentHtml
@@ -36,7 +36,7 @@ module.exports = __toCommonJS(renderDocumentToHtml_exports);
 var import_react = __toESM(require("react"), 1);
 var import_server = require("react-dom/server");
 
-// ../frontend/src/components/pages/docs/DocumentPageForPdf.tsx
+// frontend/src/components/pages/docs/DocumentPageForPdf.tsx
 var import_jsx_runtime = require("react/jsx-runtime");
 var PAGE_W_PT = 612;
 var PAGE_H_PT = 792;
@@ -235,7 +235,7 @@ var DocumentPageForPdf = ({
   return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: pageStyle, children: boxes });
 };
 
-// ../frontend/src/renderDocumentToHtml.tsx
+// frontend/src/renderDocumentToHtml.tsx
 function renderDocumentHtml(props) {
   return (0, import_server.renderToStaticMarkup)(import_react.default.createElement(DocumentPageForPdf, props));
 }
