@@ -289,6 +289,13 @@ Cambios de hardening ya implementados en esta fase:
     - Ahora instancia un `Worker` (`pdfWorker.js`), pasa las opciones del documento y `API_BASE_URL`, y aplica un **timeout defensivo de 90 segundos**, tras el cual termina el worker y devuelve error controlado.  
   - `generatePdfFromHtml` se mantiene como helper legacy, usando Puppeteer directo, pero el flujo principal de impresiones usa el worker para minimizar bloqueos.
 
+- **Motor de PDF de cotizaciones vectoriales**  
+  - El botón **“Descargar PDF”** de `DocsPage` para `cotizacion` ya no depende del HTML/WYSIWYG como ruta principal:  
+    - `POST /api/templates/:kind/generate` prioriza `generatePdfFromTemplate(kind, content)` con `pdf-lib`.  
+    - Si el render vectorial falla o no existe la plantilla, el backend cae al flujo HTML (`generatePdfFromDocument` / worker) como fallback.  
+  - Las fuentes `Averta Std` del flujo vectorial se cargan desde `backend/assets/fonts/AvertaStd` y se incrustan directamente en el PDF; esto explica que el resultado visual pueda diferir ligeramente del preview HTML aunque la tipografía sea la misma.  
+  - El flujo HTML/WYSIWYG sigue siendo útil como respaldo y para documentos sin plantilla vectorial, pero **no** es el camino dominante para cotización.
+
 - **Despliegue frontend y Nginx**  
 
 - **CORS coherente entre Express y Socket.IO**  
@@ -682,9 +689,9 @@ PDF:
 
 Estado a marzo 2026 (actualizado tras integración de plantilla vectorial de cotización):
 
-- Para documentos de tipo **`cotizacion`**, el flujo principal de descarga usa ahora la plantilla PDF vectorial (`backend/templates/cotizacion.pdf`) y el motor `generatePdfFromTemplate`, alimentado por `buildPdfContent` y `customBoxes` compartidos con el preview (`DocumentPageForPdf`).  
-- Las fuentes **Averta Std** se empaquetan en el backend en `backend/assets/fonts/AvertaStd` y se embeben mediante `pdf-lib`; en la práctica, la mayoría de visores muestran ya texto nítido y vectorial, aunque persisten pequeñas diferencias de “hinting”/renderizado frente al navegador (especialmente en tamaños pequeños y en la línea bajo “Fecha de emisión”).  
-- El botón **“Descargar PDF”** de `DocsPage` está cableado exclusivamente al flujo vectorial (`/api/templates/:kind/generate`), mientras que los errores de captura HTML (worker de Puppeteer) quedan aislados del flujo principal; la descarga abre actualmente el PDF en el visor del navegador (misma pestaña) y puede ajustarse a descarga directa según preferencias de UX.
+- Para documentos de tipo **`cotizacion`**, el flujo principal de descarga usa la plantilla PDF vectorial (`backend/templates/cotizacion.pdf`) y el motor `generatePdfFromTemplate`, alimentado por `buildPdfContent` y `customBoxes` compartidos con el preview (`DocumentPageForPdf`).  
+- Las fuentes **Averta Std** se empaquetan en el backend en `backend/assets/fonts/AvertaStd` y se embeben mediante `pdf-lib`; en la práctica, la mayoría de visores muestran ya texto nítido y vectorial, aunque persisten pequeñas diferencias de “hinting”/renderizado frente al navegador (especialmente en tamaños pequeños, en el ajuste vertical de las cajas y en la lectura del total blanco sobre fondo oscuro).
+- El endpoint `POST /api/templates/:kind/generate` está configurado con una jerarquía clara: primero vectorial, luego fallback HTML worker si algo falla. La discrepancia visual entre preview y PDF final ya no debe interpretarse como falta de fuente, sino como una diferencia de métricas entre Chromium y pdf-lib.
 
 #### 4.4 Reglas de negocio clave (Taller → Facturación)
 
@@ -987,7 +994,8 @@ Este enfoque mantiene un flujo sencillo (desarrollo en cualquier PC → `git pus
   - Cualquier `io.emit` residual en eventos de alta frecuencia puede seguir saturando redes lentas.
 
 - **Box-model en PDF**:
-  - Hasta completar la migración a `contentEditable`, es posible que ciertos documentos impriman con pequeñas diferencias respecto a la vista del editor.
+  - Hasta completar el ajuste fino de métricas/paddings en el motor vectorial, ciertos documentos pueden imprimir con pequeñas diferencias respecto a la vista del editor.
+  - El total blanco y otros textos sobre fondos oscuros dependen de que la caja quede exactamente dentro de la franja de fondo del PDF base; cualquier desfase vertical deja el texto fuera del área visible.
 
 - **Configuraciones de CORS flexibles**:
   - El uso de `'*'` como origen permitido es aceptable en desarrollo, pero debe endurecerse en despliegue real a dominios concretos.
