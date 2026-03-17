@@ -952,7 +952,7 @@ function App() {
       {!isMobile && (
       <aside className="w-[56px] min-w-[56px] bg-black flex flex-col items-center py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] gap-1 z-30">
         {/* Logo */}
-        <div className="w-14 h-14 rounded-xl flex items-center justify-center shadow-monday-md mb-3 overflow-hidden">
+        <div className="w-14 h-14 rounded-xl flex items-center justify-center mb-3 overflow-hidden">
           <img src="/logo.png" alt="Sunday" className="w-full h-full object-contain" />
         </div>
 
