@@ -300,13 +300,14 @@ export async function generatePdfFromTemplate(
   const globalFontBold = content.globalFontBold === true || content.globalFontBold === 'true';
   const globalFontItalic = content.globalFontItalic === true || content.globalFontItalic === 'true';
 
-  const lineHeight = 1.2;
   /** Relación aproximada ascenso/tamaño (em). Valor conservador para que la parte superior del glifo no se corte en el cuadro (folio, etc.). */
   const ascentFactor = 0.82;
-  /** Margen superior en puntos; alineado con pt-4 del preview (Documentos) para coincidir con vista general. */
-  const TOP_MARGIN_PT = 14;
-  /** Padding lateral (izq/der) en puntos; debe coincidir con documentHtmlBuilder PADDING_SIDES_PX para que preview y PDF alineen igual. */
-  const PADDING_SIDES_PT = 6;
+  /** Paddings en pt sincronizados con DocumentPageForPdf (1px = 0.75pt a 96 DPI). */
+  const PADDING_TOP_FOLIO_PT = 9; // 12px
+  const PADDING_TOP_SINGLE_PT = 12; // 16px
+  const PADDING_TOP_DESCRIPCION_CORTA_PT = 27; // 36px (12+24)
+  const PADDING_TOP_MULTI_PT = 6; // 8px
+  const PADDING_SIDES_PT = 4.5; // 6px
 
   const pdfWhite = rgb(254 / 255, 254 / 255, 254 / 255);
 
@@ -319,12 +320,14 @@ export async function generatePdfFromTemplate(
     maxWidth: number | undefined,
     font: FontRef,
     color: RGB = defaultColor,
-    align: 'left' | 'right' | 'center' = 'left'
+    align: 'left' | 'right' | 'center' = 'left',
+    paddingTopPt: number,
+    lineHeight: number
   ): void {
     if (text == null || String(text).trim() === '') return;
     const safeText = String(text).slice(0, 2000);
     const size = fontSize;
-    const topMarginPt = Math.max(TOP_MARGIN_PT, size * 0.08);
+    const topMarginPt = Math.max(paddingTopPt, size * 0.08);
     const firstLineBaselineFromTop = y + topMarginPt + size * ascentFactor;
     let yy = height - firstLineBaselineFromTop;
 
@@ -437,6 +440,9 @@ export async function generatePdfFromTemplate(
           ? box.fontSize
           : defaultBoxFontSize;
       const isTotalBox = box.fieldKey === 'total';
+      const isFolioBox = box.fieldKey === 'folio' || (box as any).semantic === 'folio';
+      const isDescripcionCortaBox = box.fieldKey === 'descripcion_corta';
+      const isSingleLineBox = (box as any).singleLine === true || isFolioBox || isTotalBox;
       if (isTotalBox) size = Math.max(size, 11);
       const boxBg = typeof box.backgroundColor === 'string' && box.backgroundColor.trim() ? box.backgroundColor.trim().toLowerCase() : '';
       const hasBlackBg = boxBg === '#000000' || boxBg === '#000';
@@ -447,11 +453,23 @@ export async function generatePdfFromTemplate(
       const boxColor = useWhiteText ? pdfWhite : (typeof box.fontColor === 'string' && box.fontColor ? hexToRgb(box.fontColor) : defaultColor);
       const boxW = num(box.width, 0.3);
       const boxWidthPts = boxW > 0 ? boxW * width : 0;
-      const maxWidth = boxWidthPts > PADDING_SIDES_PT * 2 ? boxWidthPts - PADDING_SIDES_PT * 2 : undefined;
+      const paddingTopPt = isTotalBox
+        ? 0
+        : isDescripcionCortaBox
+          ? PADDING_TOP_DESCRIPCION_CORTA_PT
+          : isFolioBox
+            ? PADDING_TOP_FOLIO_PT
+            : isSingleLineBox
+              ? PADDING_TOP_SINGLE_PT
+              : PADDING_TOP_MULTI_PT;
+      const effectiveWidthPts =
+        boxWidthPts > PADDING_SIDES_PT * 2 ? boxWidthPts - PADDING_SIDES_PT * 2 : 0;
+      const maxWidth = effectiveWidthPts > 0 ? effectiveWidthPts : undefined;
       const xPts = num(box.x, 0) * width + PADDING_SIDES_PT;
       const yPts = num(box.y, 0) * height;
-      const textAlign = isTotalBox ? 'right' as const : 'left' as const;
-      drawText(text, xPts, yPts, size, maxWidth, boxFont, boxColor, textAlign);
+      const textAlign = isTotalBox ? ('right' as const) : ('left' as const);
+      const lineHeightForBox = isTotalBox ? 1 : isSingleLineBox ? 1.1 : 1.35;
+      drawText(text, xPts, yPts, size, maxWidth, boxFont, boxColor, textAlign, paddingTopPt, lineHeightForBox);
     }
   }
 
