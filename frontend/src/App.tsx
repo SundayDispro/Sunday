@@ -18,20 +18,35 @@ import { AdminUsersPanel } from './components/AdminUsersPanel';
 import { UserPanel } from './components/UserPanel';
 import { InboxPage } from './components/pages/InboxPage';
 import { NotificationsPage } from './components/pages/NotificationsPage';
+import { BandejaUnificadaPage } from './components/pages/BandejaUnificadaPage';
 import { SearchPage } from './components/pages/SearchPage';
 import DocsPage from './components/pages/DocsPage';
+import DocsExportPreviewPage from './components/pages/docs/DocsExportPreviewPage';
 import { TeamPage } from './components/pages/TeamPage';
 import { FacturacionPage } from './components/pages/FacturacionPage';
 import { WorkspaceOverviewPage } from './components/pages/WorkspaceOverviewPage';
 import { MiTrabajoPage } from './components/pages/MiTrabajoPage';
 import { BottomNav, type BottomNavPage } from './components/BottomNav';
-import { MobileBoardHeader } from './components/MobileBoardHeader';
+import { MobileBoardHeaderMinimal } from './components/MobileBoardHeaderMinimal';
+import { BoardViewBottomSheet } from './components/Board/BoardViewBottomSheet';
 import { MobileMoreDrawer } from './components/MobileMoreDrawer';
 import { AnimatedDialog } from './components/AnimatedDialog';
 import { useToast } from './components/Toast';
+import { useViewport } from './hooks/useViewport';
 import * as Popover from '@radix-ui/react-popover';
 import * as Dialog from '@radix-ui/react-dialog';
 type ViewMode = 'table' | 'kanban' | 'calendar' | 'facturacion' | 'resumen' | 'archivos' | 'miTrabajo' | 'timeline';
+
+const VIEW_LABELS: Record<ViewMode, string> = {
+  table: 'Tabla principal',
+  kanban: 'Kanban',
+  calendar: 'Calendario',
+  facturacion: 'Facturación',
+  resumen: 'Resumen',
+  archivos: 'Archivos',
+  miTrabajo: 'Mi trabajo',
+  timeline: 'Timeline',
+};
 
 function AddViewDropdown({
   enabledViews,
@@ -116,6 +131,7 @@ function AddViewDropdown({
 }
 
 const API_BASE = import.meta.env.DEV ? '' : (import.meta.env.VITE_API_URL || 'http://localhost:3001');
+import { apiFetch } from './api';
 
 function App() {
   const { currentUser, logout } = useUser();
@@ -204,17 +220,17 @@ function App() {
 
   const [showAddViewPopover, setShowAddViewPopover] = useState(false);
   const [calendarBoardPickerOpen, setCalendarBoardPickerOpen] = useState(false);
+  const [boardVistaSheetOpen, setBoardVistaSheetOpen] = useState(false);
+  const [lastMainTab, setLastMainTab] = useState<'home' | 'calendar' | 'docs'>('home');
   const [mobileHeaderHidden, setMobileHeaderHidden] = useState(false);
   const [mobileHeaderHeight, setMobileHeaderHeight] = useState(120);
   const mobileHeaderRef = useRef<HTMLDivElement>(null);
   const [exportingFolders, setExportingFolders] = useState(false);
-  const [isMobile, setIsMobile] = useState(() => {
-    if (typeof window === 'undefined') return false;
-    const narrow = window.matchMedia('(max-width: 767px)').matches;
-    const landscapeShort = window.matchMedia('(orientation: landscape) and (max-height: 500px)').matches;
-    return narrow || landscapeShort;
-  });
+  const { isMobile, isLandscapeShort } = useViewport();
   const [sidebarOpen, setSidebarOpen] = useState(() => typeof window !== 'undefined' && window.innerWidth >= 768);
+  useEffect(() => {
+    if (isMobile) setSidebarOpen(false);
+  }, [isMobile]);
   const [theme, setTheme] = useState<AppTheme>(() => {
     if (typeof window === 'undefined') return 'light';
     try {
@@ -226,23 +242,6 @@ function App() {
     }
   });
   const [themeSelectorOpen, setThemeSelectorOpen] = useState(false);
-
-  useEffect(() => {
-    const mqNarrow = window.matchMedia('(max-width: 767px)');
-    const mqLandscapeShort = window.matchMedia('(orientation: landscape) and (max-height: 500px)');
-    const handler = () => {
-      const mobile = mqNarrow.matches || mqLandscapeShort.matches;
-      setIsMobile(mobile);
-      if (mobile) setSidebarOpen(false);
-    };
-    handler();
-    mqNarrow.addEventListener('change', handler);
-    mqLandscapeShort.addEventListener('change', handler);
-    return () => {
-      mqNarrow.removeEventListener('change', handler);
-      mqLandscapeShort.removeEventListener('change', handler);
-    };
-  }, []);
 
   useEffect(() => {
     if (typeof document === 'undefined') return;
@@ -260,9 +259,11 @@ function App() {
   // Navigation state
   const [activePage, setActivePage] = useState<'home' | 'inbox' | 'notifications' | 'board' | 'calendar' | 'search' | 'docs' | 'team' | 'facturacion' | 'miTrabajo'>('board');
   const [boards, setBoards] = useState<Board[]>([]);
+  const [boardsLoaded, setBoardsLoaded] = useState(false);
   const [activeBoardId, setActiveBoardId] = useState<string | null>(null);
   const [boardSearch, setBoardSearch] = useState('');
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
+  const [workspacesLoaded, setWorkspacesLoaded] = useState(false);
   const [activeWorkspaceId, setActiveWorkspaceId] = useState<string | null>(null);
   const [workspaceSelectorOpen, setWorkspaceSelectorOpen] = useState(false);
   const [newWorkspaceName, setNewWorkspaceName] = useState('');
@@ -288,6 +289,7 @@ function App() {
     columnId: string;
   } | null>(null);
   const [openDocId, setOpenDocId] = useState<string | null>(null);
+  const [isBootstrapping, setIsBootstrapping] = useState(true);
 
   useEffect(() => {
     setMobileHeaderHidden(false);
@@ -346,7 +348,7 @@ function App() {
   const fetchUnreadNotifications = React.useCallback(async () => {
     if (!currentUser?.id) return;
     try {
-      const res = await fetch(`${API_BASE}/api/notifications?userId=${currentUser.id}`);
+      const res = await apiFetch(`${API_BASE}/api/notifications?userId=${currentUser.id}`);
       if (res.ok) {
         const data = await res.json();
         setUnreadNotifCount(data.filter((n: { read: boolean }) => !n.read).length);
@@ -386,7 +388,7 @@ function App() {
         important: t.important,
       })),
     }));
-    fetch(`${API_BASE}/api/workspaces/${wid}/panel-notes`, {
+    apiFetch(`${API_BASE}/api/workspaces/${wid}/panel-notes`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ panelNotes: toSave, userId: currentUser.id }),
@@ -414,7 +416,7 @@ function App() {
     }
     setTasksLoading(true);
     const url = `${API_BASE}/api/workspaces/${activeWorkspaceId}/panel-notes?userId=${encodeURIComponent(currentUser.id)}`;
-    fetch(url)
+    apiFetch(url)
       .then(r => r.json())
       .then(data => {
         const raw = Array.isArray(data?.panelNotes) ? data.panelNotes : [];
@@ -501,8 +503,11 @@ function App() {
 
   // Load workspaces once user is available (ruta relativa en DEV para usar proxy Vite → backend)
   useEffect(() => {
-    if (!currentUser) return;
-    fetch(`${API_BASE}/api/workspaces`)
+    if (!currentUser) {
+      setWorkspacesLoaded(false);
+      return;
+    }
+    apiFetch(`${API_BASE}/api/workspaces`)
       .then(r => (r.ok ? r.json() : Promise.resolve(null)))
       .then((data: Workspace[] | null) => {
         if (!data || !Array.isArray(data)) return;
@@ -515,6 +520,9 @@ function App() {
       .catch(err => {
         console.error('Error fetching workspaces:', err);
         setWorkspaces([]);
+      })
+      .finally(() => {
+        setWorkspacesLoaded(true);
       });
   }, [currentUser]);
 
@@ -548,12 +556,16 @@ function App() {
 
   // Load boards for active workspace (ruta relativa en DEV para usar proxy Vite → backend)
   useEffect(() => {
-    if (!currentUser) return;
+    if (!currentUser) {
+      setBoardsLoaded(false);
+      return;
+    }
     const url = activeWorkspaceId
       ? `${API_BASE}/api/boards?workspaceId=${encodeURIComponent(activeWorkspaceId)}`
       : `${API_BASE}/api/boards`;
 
-    fetch(url)
+    setBoardsLoaded(false);
+    apiFetch(url)
       .then(r => (r.ok ? r.json() : Promise.resolve(null)))
       .then((data: Board[] | null) => {
         if (!data || !Array.isArray(data)) return;
@@ -567,6 +579,9 @@ function App() {
       .catch(err => {
         console.error('Error fetching boards:', err);
         setBoards([]);
+      })
+      .finally(() => {
+        setBoardsLoaded(true);
       });
 
     socket.on('board_renamed', (updated: Board) => {
@@ -585,6 +600,16 @@ function App() {
     };
   }, [currentUser, activeWorkspaceId]);
 
+  useEffect(() => {
+    if (!currentUser) {
+      setIsBootstrapping(false);
+      return;
+    }
+    if (workspacesLoaded && boardsLoaded) {
+      setIsBootstrapping(false);
+    }
+  }, [currentUser, workspacesLoaded, boardsLoaded]);
+
   if (!currentUser) {
     return <Login />;
   }
@@ -598,7 +623,8 @@ function App() {
     (activePage === 'board' && activeBoardId !== null) ||
     (activePage === 'miTrabajo' && activeBoardId !== null) ||
     activePage === 'calendar' ||
-    ['search', 'docs', 'team', 'notifications', 'facturacion'].includes(activePage);
+    activePage === 'docs' ||
+    ['search', 'team', 'notifications', 'facturacion', 'inbox'].includes(activePage);
 
   const navIconsAll = [
     { id: 'board', icon: <Home size={22} strokeWidth={2.25} />, label: 'Inicio' },
@@ -617,7 +643,7 @@ function App() {
     setCreatingBoard(true);
     setCreateBoardError(null);
     try {
-      const res = await fetch(`${API_BASE}/api/boards`, {
+      const res = await apiFetch(`${API_BASE}/api/boards`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name, workspaceId: activeWorkspaceId }),
@@ -821,6 +847,31 @@ function App() {
     }
   };
 
+  const exportRouteParams = (() => {
+    if (typeof window === 'undefined') return null;
+    if (window.location.pathname !== '/docs/export') return null;
+    const p = new URLSearchParams(window.location.search);
+    const docId = p.get('docId');
+    const token = p.get('token');
+    const contentKey = p.get('contentKey') || null;
+    const scaleParam = p.get('scale');
+    const exportScale = scaleParam != null && !Number.isNaN(Number(scaleParam)) ? Number(scaleParam) : null;
+    return docId && token ? { docId, token, contentKey, exportScale } : null;
+  })();
+
+  if (exportRouteParams) {
+    return (
+      <div className="min-h-screen bg-white flex items-center justify-center" style={{ margin: 0, padding: 0 }}>
+        <DocsExportPreviewPage
+          docId={exportRouteParams.docId}
+          token={exportRouteParams.token}
+          contentKey={exportRouteParams.contentKey}
+          exportScale={exportRouteParams.exportScale}
+        />
+      </div>
+    );
+  }
+
   return (
     <div className="flex min-h-[100dvh] h-screen max-h-[100dvh] bg-monday-bg overflow-hidden font-sans pt-[env(safe-area-inset-top)] pr-[env(safe-area-inset-right)] pb-[env(safe-area-inset-bottom)] pl-[env(safe-area-inset-left)]">
       {/* Drawer "Más" en móvil (sustituye sidebar + rail) */}
@@ -844,8 +895,12 @@ function App() {
             setActivePage('board');
           }}
           onNavigate={(page) => {
-            if (page === 'inbox') setActivePage('inbox');
-            else setActivePage(page);
+            if (page === 'inbox' || page === 'notifications') {
+              if (activePage === 'board' || activePage === 'home' || activePage === 'miTrabajo') setLastMainTab('home');
+              else if (activePage === 'calendar') setLastMainTab('calendar');
+              else if (activePage === 'docs') setLastMainTab('docs');
+              setActivePage(page === 'inbox' ? 'inbox' : 'notifications');
+            } else setActivePage(page);
             setSidebarOpen(false);
           }}
           theme={theme}
@@ -1048,7 +1103,7 @@ function App() {
                       if (!name || creatingWorkspace) return;
                       setWorkspaceError(null);
                       setCreatingWorkspace(true);
-                      fetch(`${API_BASE}/api/workspaces`, {
+                      apiFetch(`${API_BASE}/api/workspaces`, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ name }),
@@ -1527,7 +1582,11 @@ if (ok && data && typeof data.id === 'string') {
       )}
 
       {/* Main Content Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ */}
-      <main className={`flex-1 flex flex-col min-w-0 p-2 sm:p-3 pl-0 bg-monday-bg overflow-hidden min-h-0 ${isMobile ? 'pb-[72px] main-mobile' : ''}`}>
+      <main
+        className={`flex-1 flex flex-col min-w-0 p-2 sm:p-3 pl-0 bg-monday-bg overflow-hidden min-h-0 ${
+          isMobile ? (isLandscapeShort ? 'pb-[52px] main-mobile main-mobile-landscape' : 'pb-[72px] main-mobile') : ''
+        }`}
+      >
         <div className="flex-1 flex flex-col min-h-0 bg-white rounded-xl sm:rounded-2xl shadow-monday-sm border border-monday-border overflow-hidden">
           {/* Barra común: ocultar/mostrar panel lateral en todas las vistas */}
           <header className="shrink-0 h-14 flex items-center gap-2 px-3 sm:px-4 border-b border-monday-border">
@@ -1539,7 +1598,9 @@ if (ok && data && typeof data.id === 'string') {
                     if (activePage === 'board' && activeBoardId !== null) setActiveBoardId(null);
                     else if (activePage === 'miTrabajo' && activeBoardId !== null) setActiveBoardId(null);
                     else if (activePage === 'calendar') setActivePage('board');
-                    else if (['search', 'docs', 'team', 'notifications', 'facturacion'].includes(activePage)) setActivePage('board');
+                    else if (activePage === 'docs') setActivePage('board');
+                    else if (['search', 'team', 'facturacion'].includes(activePage)) setActivePage('board');
+                    else if (activePage === 'inbox' || activePage === 'notifications') setActivePage(lastMainTab === 'home' ? 'board' : lastMainTab);
                   }}
                   className="min-h-[44px] min-w-[44px] flex items-center justify-center p-2 rounded-lg text-monday-subtext hover:bg-monday-hover hover:text-monday-text transition-colors"
                   aria-label="Volver"
@@ -1573,7 +1634,7 @@ if (ok && data && typeof data.id === 'string') {
                 : activePage === 'board' && activeBoardId
                   ? (boards.find(b => b?.id === activeBoardId)?.name ?? 'Tableros')
                   : activePage === 'board'
-                    ? 'Vista general'
+                    ? 'Tableros'
                     : activePage === 'inbox'
                     ? 'Bandeja'
                     : activePage === 'notifications'
@@ -1589,8 +1650,8 @@ if (ok && data && typeof data.id === 'string') {
                               : activePage === 'miTrabajo'
                                 ? 'Mi trabajo'
                                 : activePage === 'home'
-                                  ? 'Inicio'
-                                  : 'Inicio'}
+                                  ? 'Tableros'
+                                  : 'Tableros'}
             </span>
           </header>
 
@@ -1603,7 +1664,12 @@ if (ok && data && typeof data.id === 'string') {
               transition={{ duration: 0.2, ease: [0.22, 1, 0.36, 1] }}
               className="flex-1 flex flex-col min-h-0 overflow-hidden"
             >
-          {activePage === 'home' ? (
+          {isMobile && isBootstrapping ? (
+            <div className="flex-1 flex items-center justify-center text-monday-subtext text-[13px] gap-2">
+              <div className="w-5 h-5 border-2 border-monday-blue border-t-transparent rounded-full animate-spin" />
+              Cargando Sunday...
+            </div>
+          ) : activePage === 'home' ? (
             <WorkspaceOverviewPage
               workspace={workspaces.find(w => w.id === activeWorkspaceId) ?? null}
               workspaces={workspaces}
@@ -1617,7 +1683,7 @@ if (ok && data && typeof data.id === 'string') {
                 setWorkspaces(prev => prev.map(w => w.id === updated.id ? { ...w, ...updated } : w));
               }}
               onWorkspaceDeleted={() => {
-                fetch(`${API_BASE}/api/workspaces`)
+                apiFetch(`${API_BASE}/api/workspaces`)
                   .then(r => (r.ok ? r.json() : Promise.resolve(null)))
                   .then((data: Workspace[] | null) => {
                     if (!data || !Array.isArray(data)) return;
@@ -1635,7 +1701,7 @@ if (ok && data && typeof data.id === 'string') {
                 const url = activeWorkspaceId
                   ? `${API_BASE}/api/boards?workspaceId=${encodeURIComponent(activeWorkspaceId)}`
                   : `${API_BASE}/api/boards`;
-                fetch(url)
+                apiFetch(url)
                   .then(r => (r.ok ? r.json() : Promise.resolve(null)))
                   .then((data: Board[] | null) => {
                     if (!data || !Array.isArray(data)) return;
@@ -1730,7 +1796,7 @@ if (ok && data && typeof data.id === 'string') {
                 <p className="text-[13px]">Selecciona un tablero desde Inicio o el menú Más.</p>
               </div>
             )
-          ) : isMobile && (activePage === 'board' && activeBoardId || activePage === 'miTrabajo' && activeBoardId) ? (
+          ) : isMobile && !isBootstrapping && (activePage === 'board' && activeBoardId || activePage === 'miTrabajo' && activeBoardId) ? (
             <>
               <motion.div
                 className="min-h-0 overflow-hidden shrink-0"
@@ -1739,23 +1805,42 @@ if (ok && data && typeof data.id === 'string') {
                 transition={{ duration: 0.25, ease: 'easeInOut' }}
               >
                 <div ref={mobileHeaderRef}>
-                  <MobileBoardHeader
-                boardName={boards.find(b => b?.id === activeBoardId)?.name ?? ''}
-                boardId={activeBoardId ?? ''}
-                onRename={() => {
-                  const board = boards.find(b => b?.id === activeBoardId);
-                  if (board) { setBoardNameDraft(board.name); setEditingBoardName(true); }
-                }}
-                editingName={editingBoardName}
-                nameDraft={boardNameDraft}
-                onNameDraftChange={setBoardNameDraft}
-                onFinishEditName={() => {
-                  setEditingBoardName(false);
-                  if (boardNameDraft.trim() && activeBoardId) {
-                    socket.emit('rename_board', { boardId: activeBoardId, name: boardNameDraft.trim() });
-                    setBoards(prev => prev.map(b => b.id === activeBoardId ? { ...b, name: boardNameDraft.trim() } : b));
-                  }
-                }}
+                  <MobileBoardHeaderMinimal
+                    boardName={boards.find(b => b?.id === activeBoardId)?.name ?? ''}
+                    onRename={() => {
+                      const board = boards.find(b => b?.id === activeBoardId);
+                      if (board) { setBoardNameDraft(board.name); setEditingBoardName(true); }
+                    }}
+                    editingName={editingBoardName}
+                    nameDraft={boardNameDraft}
+                    onNameDraftChange={setBoardNameDraft}
+                    onFinishEditName={() => {
+                      setEditingBoardName(false);
+                      if (boardNameDraft.trim() && activeBoardId) {
+                        socket.emit('rename_board', { boardId: activeBoardId, name: boardNameDraft.trim() });
+                        setBoards(prev => prev.map(b => b.id === activeBoardId ? { ...b, name: boardNameDraft.trim() } : b));
+                      }
+                    }}
+                    onOpenVistaSheet={() => setBoardVistaSheetOpen(true)}
+                    currentViewLabel={VIEW_LABELS[activePage === 'miTrabajo' ? 'miTrabajo' : currentView]}
+                    compact={isLandscapeShort}
+                  />
+                </div>
+              </motion.div>
+              {/* IMPORTANTE (scroll móvil): Cualquier wrapper nuevo que envuelva este contenido debe llevar min-h-0 para no romper la cadena flex/overflow y el scroll vertical. */}
+              <div className="flex-1 min-h-0 overflow-hidden relative flex flex-col">
+                <BoardContainer
+                  boardId={activeBoardId!}
+                  onRowClick={setSelectedItem}
+                  viewMode={activePage === 'miTrabajo' ? 'miTrabajo' : currentView}
+                  mobileOptimized
+                  isMobile
+                  onHeaderVisibilityChange={setMobileHeaderHidden}
+                />
+              </div>
+              <BoardViewBottomSheet
+                open={boardVistaSheetOpen}
+                onOpenChange={setBoardVistaSheetOpen}
                 currentView={activePage === 'miTrabajo' ? 'miTrabajo' : currentView}
                 onChangeView={setCurrentView}
                 enabledViews={enabledViews}
@@ -1767,12 +1852,12 @@ if (ok && data && typeof data.id === 'string') {
                 }}
                 canSeeFacturacion={!!canSeeFacturacionView}
                 isTaller={!!isTaller}
-                onOpenSearch={() => { setActivePage('search'); setSidebarOpen(false); }}
+                onToggleStar={undefined}
                 onExportFolders={async () => {
                   if (!currentUser || !activeBoardId) return;
                   try {
                     setExportingFolders(true);
-                    const res = await fetch(`${API_BASE}/api/export/folders`, {
+                    const res = await apiFetch(`${API_BASE}/api/export/folders`, {
                       method: 'POST',
                       headers: { 'Content-Type': 'application/json' },
                       body: JSON.stringify({ userId: currentUser.id, boardId: activeBoardId }),
@@ -1795,21 +1880,8 @@ if (ok && data && typeof data.id === 'string') {
                   }
                 }}
                 exportingFolders={exportingFolders}
-                hideViewSelector={activePage === 'miTrabajo'}
-                  />
-                </div>
-              </motion.div>
-              {/* IMPORTANTE (scroll móvil): Cualquier wrapper nuevo que envuelva este contenido debe llevar min-h-0 para no romper la cadena flex/overflow y el scroll vertical. */}
-              <div className="flex-1 min-h-0 overflow-hidden relative flex flex-col">
-                <BoardContainer
-                  boardId={activeBoardId!}
-                  onRowClick={setSelectedItem}
-                  viewMode={activePage === 'miTrabajo' ? 'miTrabajo' : currentView}
-                  mobileOptimized
-                  isMobile
-                  onHeaderVisibilityChange={setMobileHeaderHidden}
-                />
-              </div>
+                onOpenSearch={() => { setActivePage('search'); setSidebarOpen(false); }}
+              />
             </>
           ) : activePage === 'miTrabajo' ? (
             <MiTrabajoPage
@@ -1834,7 +1906,7 @@ if (ok && data && typeof data.id === 'string') {
                 setWorkspaces(prev => prev.map(w => w.id === updated.id ? { ...w, ...updated } : w));
               }}
               onWorkspaceDeleted={() => {
-                fetch(`${API_BASE}/api/workspaces`)
+                apiFetch(`${API_BASE}/api/workspaces`)
                   .then(r => (r.ok ? r.json() : Promise.resolve(null)))
                   .then((data: Workspace[] | null) => {
                     if (!data || !Array.isArray(data)) return;
@@ -1855,7 +1927,7 @@ if (ok && data && typeof data.id === 'string') {
                     )}`
                   : `${API_BASE}/api/boards`;
 
-                fetch(url)
+                apiFetch(url)
                   .then(r => (r.ok ? r.json() : Promise.resolve(null)))
                   .then((data: Board[] | null) => {
                     if (!data || !Array.isArray(data)) return;
@@ -1930,7 +2002,7 @@ if (ok && data && typeof data.id === 'string') {
                         if (!currentUser || !activeBoardId) return;
                         try {
                           setExportingFolders(true);
-                          const res = await fetch(`${API_BASE}/api/export/folders`, {
+                          const res = await apiFetch(`${API_BASE}/api/export/folders`, {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },
                             body: JSON.stringify({ userId: currentUser.id, boardId: activeBoardId }),
@@ -2023,6 +2095,18 @@ if (ok && data && typeof data.id === 'string') {
                 <BoardContainer boardId={activeBoardId} onRowClick={setSelectedItem} viewMode={currentView} />
               </div>
             </>
+          ) : isMobile && (activePage === 'inbox' || activePage === 'notifications') ? (
+            <BandejaUnificadaPage
+              onItemClick={setSelectedItem}
+              initialTab={activePage === 'notifications' ? 'notificaciones' : 'actividad'}
+              onOpenItem={(item, boardId) => {
+                setSidebarOpen(false);
+                setActivePage('board');
+                setActiveBoardId(boardId);
+                setSelectedItem(item);
+              }}
+              onNotificationsChange={fetchUnreadNotifications}
+            />
           ) : activePage === 'inbox' ? (
             <InboxPage
               onItemClick={setSelectedItem}
@@ -2093,9 +2177,18 @@ if (ok && data && typeof data.id === 'string') {
 
       {/* Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ Item Details Panel Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ */}
       {selectedItem && (
-        <div className="absolute top-0 right-0 h-full z-50 panel-slide-in">
-          <ItemDetailsPanel item={selectedItem} onClose={() => setSelectedItem(null)} />
-        </div>
+        isMobile ? (
+          <div className="fixed inset-0 z-[60]">
+            <div className="absolute inset-0 bg-black/40" onClick={() => setSelectedItem(null)} aria-hidden />
+            <div className="absolute left-0 right-0 bottom-0 max-h-[90dvh] flex flex-col panel-slide-in" style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}>
+              <ItemDetailsPanel item={selectedItem} onClose={() => setSelectedItem(null)} variant="sheet" />
+            </div>
+          </div>
+        ) : (
+          <div className="absolute top-0 right-0 h-full z-50 panel-slide-in">
+            <ItemDetailsPanel item={selectedItem} onClose={() => setSelectedItem(null)} />
+          </div>
+        )
       )}
       
       <AdminUsersPanel open={showAdminPanel} onOpenChange={setShowAdminPanel} />
@@ -2148,25 +2241,36 @@ if (ok && data && typeof data.id === 'string') {
         </AnimatedDialog>
       )}
 
-      {isMobile && ((activePage === 'board' && activeBoardId) || (activePage === 'miTrabajo' && activeBoardId)) && mobileHeaderHidden && (
+      {isMobile && !isBootstrapping && ((activePage === 'board' && activeBoardId) || (activePage === 'miTrabajo' && activeBoardId)) && mobileHeaderHidden && (
         <button
           type="button"
           onClick={() => window.dispatchEvent(new CustomEvent('sunday-fab-add-item'))}
           className="fixed right-4 z-30 w-14 h-14 rounded-full bg-monday-blue text-white shadow-monday-lg flex items-center justify-center hover:bg-monday-blue/90 transition-colors safe-area-mr"
-          style={{ bottom: 'max(72px, calc(env(safe-area-inset-bottom) + 56px))' }}
+          style={{
+            bottom: isLandscapeShort
+              ? 'max(52px, calc(env(safe-area-inset-bottom) + 44px))'
+              : 'max(72px, calc(env(safe-area-inset-bottom) + 56px))',
+          }}
           aria-label="Añadir"
         >
           <Plus size={24} strokeWidth={2.5} />
         </button>
       )}
 
-      {isMobile && (
+      {isMobile && !isBootstrapping && (
         <BottomNav
           activePage={
-            activePage === 'calendar' || (activePage === 'board' && currentView === 'calendar')
-              ? 'calendar'
-              : (activePage === 'inbox' ? 'more' : activePage) as BottomNavPage
+            activePage === 'inbox' || activePage === 'notifications'
+              ? (lastMainTab === 'home' ? 'home' : lastMainTab)
+              : activePage === 'board' || activePage === 'home' || activePage === 'miTrabajo'
+                ? 'home'
+                : activePage === 'calendar'
+                  ? 'calendar'
+                  : activePage === 'docs'
+                    ? 'docs'
+                    : 'home'
           }
+          moreIsActive={sidebarOpen}
           onNavigate={(page: BottomNavPage) => {
             if (page === 'more') {
               setSidebarOpen(true);
@@ -2178,11 +2282,21 @@ if (ok && data && typeof data.id === 'string') {
               setSidebarOpen(false);
               return;
             }
-            setActivePage(page);
+            if (page === 'docs') {
+              setActivePage('docs');
+              setSidebarOpen(false);
+              return;
+            }
+            if (page === 'home') {
+              setActivePage('board');
+              setSidebarOpen(false);
+              return;
+            }
             setSidebarOpen(false);
           }}
           unreadNotifCount={unreadNotifCount}
-          items={isTaller ? ['home', 'calendar', 'notifications', 'more'] : undefined}
+          items={isTaller ? ['home', 'calendar', 'docs', 'more'] : undefined}
+          compact={isLandscapeShort}
         />
       )}
     </div>

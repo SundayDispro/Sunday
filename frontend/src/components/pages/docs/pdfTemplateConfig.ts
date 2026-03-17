@@ -21,7 +21,7 @@ export interface FieldDef {
 const LETTER_W = 612;
 const LETTER_H = 792;
 function pct(xPts: number, yPts: number) {
-  return { x: xPts / LETTER_W, y: 1 - yPts / LETTER_H };
+  return { defaultX: xPts / LETTER_W, defaultY: 1 - yPts / LETTER_H };
 }
 
 /** Posiciones alineadas con backend (estilo Corel: valor debajo del rótulo). */

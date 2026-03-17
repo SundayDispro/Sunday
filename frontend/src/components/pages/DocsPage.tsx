@@ -38,13 +38,15 @@ import {
   isPdfDocType,
 } from './docs/docTypes';
 import { FONT_OPTIONS, FONT_SIZES } from '../docs/TextFormatBar';
-import type { TemplateConfigState } from './docs/pdfTemplateConfig';
+import type { TemplateConfigState, CustomBoxDef } from './docs/pdfTemplateConfig';
 import { PdfTemplateEditor, PAGE_ASPECT } from './docs/PdfTemplateEditor';
 import { TextFormatBarForEditor } from '../docs/TextFormatBar';
 import { useUser } from '../../store/UserContext';
 import { useToast } from '../Toast';
 import { socket } from '../../store/socket';
 import * as XLSX from 'xlsx';
+import { apiFetch } from '../../api';
+import { useViewport } from '../../hooks/useViewport';
 
 const API_BASE = import.meta.env.DEV ? '' : (import.meta.env.VITE_API_URL || 'http://localhost:3001');
 
@@ -256,7 +258,7 @@ function WordLikeEditor({
       formData.append('file', file);
       setUploadingHeader(true);
       try {
-        const res = await fetch(`${API_BASE}/api/upload`, {
+        const res = await apiFetch(`${API_BASE}/api/upload`, {
           method: 'POST',
           body: formData,
         });
@@ -1092,7 +1094,7 @@ function DocGroupSection({
                     docs.map((doc) => (
                       <tr key={doc.id} className={`border-t border-monday-border/60 hover:bg-monday-hover transition-colors cursor-pointer ${selectedId === doc.id ? 'bg-monday-hover' : ''}`} onClick={() => onSelectDoc(doc.id)}>
                         <td className="px-3 py-2 border-r border-monday-border/60 align-middle" style={{ borderLeftColor: color, borderLeftWidth: 3 }}>
-                          <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2">
                             {doc.type === 'sheet' ? <Table2 size={16} className="text-monday-blue shrink-0" /> : isPdfDocType(doc.type as DocType) ? <FileCheck size={16} className="text-monday-blue shrink-0" /> : <FileText size={16} className="text-monday-blue shrink-0" />}
                             <span className="truncate text-[13px] text-monday-text">{doc.title}</span>
                           </div>
@@ -1142,12 +1144,15 @@ function DocsOverviewPanel({
   onOpenDoc,
   onCreateDoc,
   onAddTaskList,
+  mobileLayout = false,
 }: {
   docs: Doc[];
   workspaceId: string | null;
   onOpenDoc: (id: string) => void;
   onCreateDoc: (type: DocType) => void;
   onAddTaskList?: () => void;
+  /** En móvil: lista de cards por tipo en lugar de tabla */
+  mobileLayout?: boolean;
 }) {
 
   if (!workspaceId) {
@@ -1197,6 +1202,43 @@ function DocsOverviewPanel({
         {DOC_TYPE_OPTIONS.map((opt) => {
           const groupDocs = docs.filter((d) => d.type === opt.id);
           const typeGroupTitle = opt.id === 'text' ? 'Documentos de texto' : opt.id === 'sheet' ? 'Hojas' : getDocTypeLabel(opt.id as DocType);
+          if (mobileLayout) {
+            return (
+              <section key={opt.id} className="rounded-lg border border-monday-border bg-white shadow-[0_2px_6px_0_rgba(0,0,0,0.08)] overflow-hidden">
+                <div className="h-[40px] px-3 flex items-center bg-monday-hover/60 border-b border-monday-border text-[12px] font-medium text-monday-subtext">
+                  {typeGroupTitle}
+                </div>
+                {groupDocs.length === 0 ? (
+                  <p className="px-3 py-3 text-monday-subtext text-[13px]">Ninguno</p>
+                ) : (
+                  <div className="divide-y divide-monday-border/60">
+                    {groupDocs.map((doc) => (
+                      <div
+                        key={doc.id}
+                        role="button"
+                        tabIndex={0}
+                        onClick={() => onOpenDoc(doc.id)}
+                        onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onOpenDoc(doc.id); } }}
+                        className="flex items-center gap-3 px-3 py-3 min-h-[48px] touch-manipulation active:bg-monday-hover/50"
+                      >
+                        {doc.type === 'sheet' ? (
+                          <Table2 size={18} className="text-monday-blue shrink-0" />
+                        ) : isPdfDocType(doc.type as DocType) ? (
+                          <FileCheck size={18} className="text-monday-blue shrink-0" />
+                        ) : (
+                          <FileText size={18} className="text-monday-blue shrink-0" />
+                        )}
+                        <div className="flex-1 min-w-0">
+                          <div className="font-medium text-monday-text text-[14px] truncate">{doc.title}</div>
+                          <div className="text-[11px] text-monday-subtext">{getDocTypeLabel(doc.type as DocType)} · {new Date(doc.updatedAt).toLocaleDateString()}</div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </section>
+            );
+          }
           return (
             <section
               key={opt.id}
@@ -2149,15 +2191,7 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
   const [error, setError] = useState<string | null>(null);
   const [viewerActionsOpen, setViewerActionsOpen] = useState(false);
 
-  const [isMobile, setIsMobile] = useState(
-    () => typeof window !== 'undefined' && window.innerWidth < 768
-  );
-  useEffect(() => {
-    const mq = window.matchMedia('(max-width: 767px)');
-    const handler = () => setIsMobile(mq.matches);
-    mq.addEventListener('change', handler);
-    return () => mq.removeEventListener('change', handler);
-  }, []);
+  const { isMobile } = useViewport();
 
   const selectedDoc = useMemo(
     () => docs.find(d => d.id === selectedId) ?? null,
@@ -2227,7 +2261,7 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
       docId: string;
     }) => {
       try {
-        const boardRes = await fetch(`${API_BASE}/api/boards/${opts.boardId}`);
+        const boardRes = await apiFetch(`${API_BASE}/api/boards/${opts.boardId}`);
         if (!boardRes.ok) {
           console.error('No se pudo cargar el tablero para ligar el documento.');
           return;
@@ -2363,7 +2397,7 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
       };
       if (subgroups !== undefined) payload.subgroupsByType = subgroups;
       if (subgroupAssign !== undefined) payload.subgroupAssignments = subgroupAssign;
-      fetch(`${API_BASE}/api/workspaces/${workspaceId}/doc-groups`, {
+      apiFetch(`${API_BASE}/api/workspaces/${workspaceId}/doc-groups`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
@@ -2442,8 +2476,9 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
 
   const removeSubgroup = (docType: string, subgroupId: string) => {
     const list = (subgroupsByType[docType] ?? []).filter((s) => s.id !== subgroupId);
-    const next = { ...subgroupsByType, [docType]: list.length ? list : undefined };
-    if (!next[docType]) delete next[docType];
+    const next: Record<string, DocCustomGroup[]> = { ...subgroupsByType };
+    if (list.length > 0) next[docType] = list;
+    else delete next[docType];
     setSubgroupsByType(next);
     const nextAssign = { ...subgroupAssignments };
     Object.keys(nextAssign).forEach((docId) => {
@@ -2470,7 +2505,7 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
       setLoading(true);
       setError(null);
       try {
-        const res = await fetch(`${API_BASE}/api/docs?workspaceId=${encodeURIComponent(workspaceId)}`);
+        const res = await apiFetch(`${API_BASE}/api/docs?workspaceId=${encodeURIComponent(workspaceId)}`);
         const data = await res.json().catch(() => []);
         if (Array.isArray(data)) {
           setDocs(data);
@@ -2506,10 +2541,46 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
         setPdfFormDraft(merged);
         // Fallback para no-admin: si el documento tiene customBoxes guardados y aún no tenemos config de la API, usar la del doc
         const docType = selectedDoc.type as 'cotizacion' | 'levantamiento' | 'hoja_trabajo';
-        const docBoxes = Array.isArray((parsed as Record<string, unknown>).customBoxes)
-          ? (parsed as Record<string, unknown>).customBoxes
-          : [];
-        if (docBoxes.length > 0) {
+        const rawCustom = (parsed as Record<string, unknown>).customBoxes as unknown;
+        const rawDocBoxes: unknown[] = Array.isArray(rawCustom) ? rawCustom : [];
+        if (rawDocBoxes.length > 0) {
+          const docBoxes = rawDocBoxes.map((bUnknown) => {
+            const box = bUnknown as {
+              id?: string;
+              x?: number;
+              y?: number;
+              width?: number;
+              height?: number;
+              kind?: string;
+              fieldKey?: string;
+              semantic?: string;
+              backgroundColor?: string;
+              singleLine?: boolean;
+              fontSize?: number;
+              fontColor?: string;
+              fontFamily?: string;
+              fontBold?: boolean;
+              fontItalic?: boolean;
+            };
+            const mapped: CustomBoxDef = {
+              id: String(box.id ?? crypto.randomUUID()),
+              x: typeof box.x === 'number' ? box.x : 0,
+              y: typeof box.y === 'number' ? box.y : 0,
+              width: typeof box.width === 'number' ? box.width : 0.3,
+              height: typeof box.height === 'number' ? box.height : 0.05,
+              kind: box.kind === 'image' ? 'image' : 'text',
+              fieldKey: typeof box.fieldKey === 'string' ? box.fieldKey : undefined,
+              semantic: box.semantic === 'folio' || box.semantic === 'element' ? box.semantic : undefined,
+              backgroundColor: typeof box.backgroundColor === 'string' ? box.backgroundColor : undefined,
+              singleLine: box.singleLine === true,
+              fontSize: typeof box.fontSize === 'number' ? box.fontSize : undefined,
+              fontColor: typeof box.fontColor === 'string' ? box.fontColor : undefined,
+              fontFamily: typeof box.fontFamily === 'string' ? box.fontFamily : undefined,
+              fontBold: box.fontBold === true,
+              fontItalic: box.fontItalic === true,
+            };
+          return mapped;
+          });
           setTemplateConfigByType((prev) => {
             const current = prev[docType];
             if (current?.customBoxes?.length) return prev; // ya hay config (API); no sobrescribir
@@ -2524,7 +2595,7 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
                 fontSize: typeof (parsed as Record<string, unknown>).globalFontSize === 'number' ? (parsed as Record<string, unknown>).globalFontSize as number : 11,
                 fontBold: (parsed as Record<string, unknown>).globalFontBold === true || (parsed as Record<string, unknown>).globalFontBold === 'true',
                 fontItalic: (parsed as Record<string, unknown>).globalFontItalic === true || (parsed as Record<string, unknown>).globalFontItalic === 'true',
-                customBoxes: docBoxes as Array<{ id: string; x: number; y: number; width?: number; height?: number; [k: string]: unknown }>,
+                customBoxes: docBoxes,
               },
             };
           });
@@ -2581,17 +2652,39 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
     }
     let cancelled = false;
     setTemplateConfigLoading(true);
-    fetch(`${API_BASE}/api/templates/${pdfDocType}/config`)
+    apiFetch(`${API_BASE}/api/templates/${pdfDocType}/config`)
       .then((res) => (res.ok ? res.json() : null))
-      .then((data: { fieldPositions?: Record<string, { x: number; y: number }>; fontColor?: string; fontFamily?: string; customBoxes?: unknown[] } | null) => {
+      .then((data: { fieldPositions?: Record<string, { x: number; y: number }>; fontColor?: string; fontFamily?: string; fontSize?: number; fontBold?: boolean; fontItalic?: boolean; customBoxes?: unknown[] } | null) => {
         if (cancelled || !data) return;
         templateConfigJustLoadedRef.current = true;
         setTemplateConfigByType((prev) => {
           const current = prev[pdfDocType];
           const currentBoxes = current?.customBoxes ?? [];
-          const currentImageCount = currentBoxes.filter((b: { kind?: string }) => (b as { kind?: string })?.kind === 'image').length;
-          const apiBoxes = Array.isArray(data.customBoxes) ? data.customBoxes : [];
-          const apiImageCount = apiBoxes.filter((b: { kind?: string }) => (b as { kind?: string })?.kind === 'image').length;
+          const currentImageCount = currentBoxes.filter((b) => b.kind === 'image').length;
+          const rawApi = data.customBoxes as unknown;
+          const apiBoxes: CustomBoxDef[] = Array.isArray(rawApi)
+            ? (rawApi as unknown[]).map((b) => {
+                const box = b as Partial<CustomBoxDef>;
+                return {
+                  id: box.id ?? crypto.randomUUID(),
+                  x: typeof box.x === 'number' ? box.x : 0,
+                  y: typeof box.y === 'number' ? box.y : 0,
+                  width: typeof box.width === 'number' ? box.width : 0.3,
+                  height: typeof box.height === 'number' ? box.height : 0.05,
+                  kind: box.kind,
+                  fieldKey: box.fieldKey,
+                  semantic: box.semantic,
+                  backgroundColor: box.backgroundColor,
+                  singleLine: box.singleLine,
+                  fontSize: box.fontSize,
+                  fontColor: box.fontColor,
+                  fontFamily: box.fontFamily,
+                  fontBold: box.fontBold,
+                  fontItalic: box.fontItalic,
+                };
+              })
+            : [];
+          const apiImageCount = apiBoxes.filter((b) => b.kind === 'image').length;
           if (currentImageCount > apiImageCount && currentImageCount > 0) {
             return prev;
           }
@@ -2638,7 +2731,7 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
         fontItalic: config.fontItalic ?? false,
         customBoxes: config.customBoxes ?? [],
       };
-      fetch(`${API_BASE}/api/templates/${pdfDocType}/config?userId=${encodeURIComponent(currentUser.id)}`, {
+      apiFetch(`${API_BASE}/api/templates/${pdfDocType}/config?userId=${encodeURIComponent(currentUser.id)}`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
@@ -2666,7 +2759,7 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
     setSaving(true);
     setError(null);
     try {
-      const res = await fetch(`${API_BASE}/api/docs`, {
+      const res = await apiFetch(`${API_BASE}/api/docs`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -2734,7 +2827,7 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
         // Solo aplica auto-relleno cuando es un doc PDF basado en plantilla
         if (isPdfDocType(type)) {
           // 1) Obtener datos del elemento (nombre y folio) desde el tablero
-          const boardRes = await fetch(`${API_BASE}/api/boards/${boardId}`);
+          const boardRes = await apiFetch(`${API_BASE}/api/boards/${boardId}`);
           if (!boardRes.ok) throw new Error('No se pudo cargar el tablero');
           const board = (await boardRes.json()) as {
             groups: Array<{
@@ -2763,7 +2856,7 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
           const pdfType = type as 'cotizacion' | 'levantamiento' | 'hoja_trabajo';
           let tmpl = templateConfigByType[pdfType];
           if (!tmpl) {
-            const res = await fetch(`${API_BASE}/api/templates/${pdfType}/config`);
+            const res = await apiFetch(`${API_BASE}/api/templates/${pdfType}/config`);
             if (res.ok) {
               const data = await res.json();
               tmpl = {
@@ -2808,7 +2901,8 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
       setNewDocDraft({ type, title: type === 'sheet' ? 'Nueva hoja' : getDocTypeTitle(type) });
       setPdfFormDraft(initialContent as Record<string, unknown>);
       if (type === 'sheet') {
-        setTableDraft((initialContent as { table?: unknown })?.table ?? { rows: [], columns: [] });
+        const table = (initialContent as { table?: string[][] }).table;
+        setTableDraft(Array.isArray(table) ? table : [['']]);
       } else if (type === 'text') {
         setTextDraft((initialContent as { text?: string })?.text ?? '');
         setHeaderImageUrlDraft((initialContent as { headerImageUrl?: string })?.headerImageUrl ?? '');
@@ -2875,7 +2969,7 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
       } else {
         content = { text: textDraft, headerImageUrl: headerImageUrlDraft };
       }
-      const res = await fetch(`${API_BASE}/api/docs/${selectedDoc.id}`, {
+      const res = await apiFetch(`${API_BASE}/api/docs/${selectedDoc.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ content }),
@@ -2923,7 +3017,7 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
             fontItalic: config.fontItalic ?? false,
             customBoxes: config.customBoxes ?? [],
           };
-          await fetch(`${API_BASE}/api/templates/${docType}/config?userId=${encodeURIComponent(currentUser.id)}`, {
+          await apiFetch(`${API_BASE}/api/templates/${docType}/config?userId=${encodeURIComponent(currentUser.id)}`, {
             method: 'PUT',
             headers: {
               'Content-Type': 'application/json',
@@ -2973,10 +3067,7 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
           baseTitle = folioVal;
         }
       }
-      setSaveModal({
-        mode: 'new',
-        doc: null as any, // el tipo no se usa en modo 'new'
-      });
+      setSaveModal({ mode: 'new' });
       setSaveModalTitle(baseTitle);
       setSaveModalGroupId('');
       setSaveModalSubgroupId('');
@@ -3001,7 +3092,7 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
         fontItalic: config.fontItalic ?? false,
         customBoxes: config.customBoxes ?? [],
       };
-      const res = await fetch(`${API_BASE}/api/templates/${pdfDocType}/config?userId=${encodeURIComponent(currentUser.id)}`, {
+      const res = await apiFetch(`${API_BASE}/api/templates/${pdfDocType}/config?userId=${encodeURIComponent(currentUser.id)}`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
@@ -3042,22 +3133,23 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
       };
       const keysByIndex = (fieldKeysByType[docType] ?? []).filter((k) => k !== 'folio');
       let keyIndex = 0;
-      const customBoxes = rawCustomBoxes.map((b: { id?: string; x?: number; y?: number; width?: number; height?: number; semantic?: string; fieldKey?: string; [k: string]: unknown }) => {
+      const customBoxes: CustomBoxDef[] = rawCustomBoxes.map((b) => {
+        const box = b as Partial<CustomBoxDef> & { semantic?: string; fieldKey?: string };
         const fieldKey =
-          b.fieldKey
-            ? b.fieldKey
-            : b.semantic === 'folio'
+          box.fieldKey
+            ? box.fieldKey
+            : box.semantic === 'folio'
               ? 'folio'
-              : b.semantic === 'element'
+              : box.semantic === 'element'
                 ? 'elemento'
                 : keysByIndex[keyIndex++] ?? undefined;
         return {
-          ...b,
-          fieldKey: b.fieldKey ?? fieldKey,
-          x: Math.max(0, Math.min(1, Number(b.x) || 0)),
-          y: Math.max(0, Math.min(1, Number(b.y) || 0)),
-          width: Math.max(0.01, Math.min(1, Number(b.width) ?? 0.3)),
-          height: Math.max(0.01, Math.min(1, Number(b.height) ?? 0.05)),
+          ...(box as CustomBoxDef),
+          fieldKey: box.fieldKey ?? fieldKey,
+          x: Math.max(0, Math.min(1, Number(box.x) || 0)),
+          y: Math.max(0, Math.min(1, Number(box.y) || 0)),
+          width: Math.max(0.01, Math.min(1, Number(box.width) ?? 0.3)),
+          height: Math.max(0.01, Math.min(1, Number(box.height) ?? 0.05)),
         };
       });
       const contentFromDraft = { ...(parsed as Record<string, unknown>), ...pdfFormDraft } as Record<string, unknown>;
@@ -3088,7 +3180,7 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
       contentFromDraft.fecha = fechaStr;
 
       // Folio en el PDF = solo lo que muestra la caja de folio. No usar parsed.folio ni selectedDoc.id como valor visible.
-      const folioBox = customBoxes.find((b: { fieldKey?: string }) => b.fieldKey === 'folio' || b.semantic === 'folio');
+      const folioBox = customBoxes.find((b) => b.fieldKey === 'folio' || b.semantic === 'folio');
       const folioFromBox = folioBox
         ? (pdfFormDraft.folio ?? customFieldValues[folioBox.id] ?? '')
         : (contentFromDraft.folio ?? '');
@@ -3114,7 +3206,8 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
             customBoxes,
             globalFontSize: config.fontSize ?? 11,
             globalFontColor: config.fontColor ?? '#000000',
-            globalFontFamily: config.fontFamily ?? 'Helvetica',
+            // Fuente por defecto para PDF: Averta Std (si el admin no ha definido otra en la plantilla).
+            globalFontFamily: config.fontFamily ?? 'Averta Std',
             globalFontBold: config.fontBold ?? false,
             globalFontItalic: config.fontItalic ?? false,
           }
@@ -3123,18 +3216,33 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
             customBoxes: [],
             globalFontSize: 11,
             globalFontColor: '#000000',
-            globalFontFamily: 'Helvetica',
+            globalFontFamily: 'Averta Std',
             globalFontBold: false,
             globalFontItalic: false,
           };
-      const res = await fetch(`${API_BASE}/api/templates/${docType}/generate`, {
+      // Un solo flujo: con docId el backend puede generar por captura del preview (PDF idéntico); si no, pdf-lib o Puppeteer.
+      const res = await apiFetch(`${API_BASE}/api/templates/${docType}/generate`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ content: contentToSend }),
+        body: JSON.stringify({
+          content: contentToSend,
+          ...(selectedDoc?.id ? { docId: selectedDoc.id } : {}),
+        }),
       });
       if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        throw new Error((err as { error?: string }).error || 'Error al generar PDF');
+        const text = await res.text();
+        let errMsg = 'Error al generar PDF';
+        try {
+          const data = text ? JSON.parse(text) : {};
+          if (typeof (data as { error?: string }).error === 'string') errMsg = (data as { error: string }).error;
+        } catch {
+          if (res.status === 404) errMsg = 'Plantilla no encontrada. Revisa que exista el PDF en backend/templates.';
+        }
+        throw new Error(errMsg);
+      }
+      const methodHeader = res.headers.get('X-PDF-Method');
+      if (methodHeader && methodHeader !== 'capture') {
+        toast('PDF generado desde plantilla. Si no coincide con el preview, usa \"Descargar vista actual\".', 'info');
       }
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);
@@ -3165,7 +3273,7 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
     if (!id) return;
     setDeleteConfirm(null);
     try {
-      const res = await fetch(`${API_BASE}/api/docs/${id}`, { method: 'DELETE' });
+      const res = await apiFetch(`${API_BASE}/api/docs/${id}`, { method: 'DELETE' });
       if (!res.ok) throw new Error('Error al eliminar');
       setDocs(prev => prev.filter(d => d.id !== id));
       setSelectedId(prev => (prev === id ? null : prev));
@@ -3262,7 +3370,7 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
         : newDocDraft?.title ?? 'Nuevo doc';
       const title = saveModalTitle.trim() || titleBase;
 
-      const res = await fetch(`${API_BASE}/api/docs`, {
+      const res = await apiFetch(`${API_BASE}/api/docs`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -3686,14 +3794,20 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
               )}
 
               {!selectedDoc && !newDocDraft ? (
-                <div className="flex-1 flex flex-col items-center justify-center py-16 text-monday-subtext">
-                  <div className="w-16 h-16 rounded-full bg-monday-hover flex items-center justify-center mb-4">
-                    <BookOpen size={28} className="opacity-60" />
+                <div className="flex-1 flex items-center justify-center p-6">
+                  <div className="flex items-center gap-4 text-monday-subtext text-[13px] max-w-md text-left">
+                    <div className="flex items-center justify-center w-12 h-12 rounded-full bg-monday-blue/10 text-monday-blue shrink-0">
+                      <BookOpen size={28} />
+                    </div>
+                    <div>
+                      <p className="mb-1">
+                        Elige un tipo de documento arriba (texto, hoja, cotización, etc.) para comenzar.
+                      </p>
+                      <p>
+                        También puedes añadir un widget desde el bloque <span className="font-semibold">“Añadir widget”</span>.
+                      </p>
+                    </div>
                   </div>
-                  <p className="text-[15px] font-medium text-monday-text">Selecciona o crea un documento</p>
-                  <p className="text-[13px] mt-1 max-w-sm text-center">
-                    Usa los menús superiores para crear un documento o abre uno desde la pestaña Documentos.
-                  </p>
                 </div>
               ) : (
                 <>

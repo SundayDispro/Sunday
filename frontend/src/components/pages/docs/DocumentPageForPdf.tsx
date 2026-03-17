@@ -269,6 +269,7 @@ export const DocumentPageForPdf: React.FC<DocumentPageForPdfProps> = ({
       printColorAdjust: 'exact',
     };
 
+    const isWhiteText = textCol === PDF_WHITE_COLOR;
     const innerStyle: React.CSSProperties = {
       display: isTotalBox ? 'flex' : 'block',
       justifyContent: isTotalBox ? 'flex-end' : undefined,
@@ -295,7 +296,7 @@ export const DocumentPageForPdf: React.FC<DocumentPageForPdfProps> = ({
       WebkitPrintColorAdjust: 'exact',
       printColorAdjust: 'exact',
       ...(isTotalBox && { lineHeight: 1 }),
-      ...(isTotalBox && { WebkitTextFillColor: PDF_WHITE_COLOR }),
+      ...(isWhiteText && { WebkitTextFillColor: PDF_WHITE_COLOR }),
     };
 
     return (

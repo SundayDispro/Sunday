@@ -39,6 +39,8 @@ interface MobileBoardHeaderProps {
   /** Callback para abrir popover "Añadir vista" desde fuera (opcional) */
   showAddViewPopover?: boolean;
   onAddViewPopoverChange?: (open: boolean) => void;
+  /** Landscape con poca altura: fila más compacta para ganar espacio vertical */
+  compactLandscape?: boolean;
 }
 
 export function MobileBoardHeader({
@@ -61,6 +63,7 @@ export function MobileBoardHeader({
   hideViewSelector = false,
   showAddViewPopover = false,
   onAddViewPopoverChange,
+  compactLandscape = false,
 }: MobileBoardHeaderProps) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [viewSelectorOpen, setViewSelectorOpen] = useState(false);
@@ -83,9 +86,9 @@ export function MobileBoardHeader({
   const hasAnyToAdd = canAddCalendar || canAddFact || canAddResumen || canAddTimeline;
 
   return (
-    <div className="shrink-0 border-b border-monday-border bg-white">
+    <div className={`shrink-0 border-b border-monday-border bg-white ${compactLandscape ? 'mobile-header-landscape' : ''}`}>
       {/* Fila única: nombre + Buscar + menú (…) */}
-      <div className="min-h-[44px] flex items-center px-3 sm:px-4 gap-2">
+      <div className={`flex items-center gap-2 ${compactLandscape ? 'min-h-[40px] px-2 gap-1.5' : 'min-h-[44px] px-3 sm:px-4 gap-2'}`}>
         {editingName && onNameDraftChange && onFinishEditName ? (
           <input
             autoFocus
@@ -100,7 +103,7 @@ export function MobileBoardHeader({
           <button
             type="button"
             onClick={onRename}
-            className="flex-1 min-w-0 text-left text-[16px] font-semibold text-monday-text truncate py-2 active:bg-monday-hover rounded px-1 -mx-1"
+            className={`flex-1 min-w-0 text-left font-semibold text-monday-text truncate active:bg-monday-hover rounded px-1 -mx-1 ${compactLandscape ? 'text-[14px] py-1.5' : 'text-[16px] py-2'}`}
           >
             {boardName || 'Cargando...'}
           </button>
@@ -158,12 +161,14 @@ export function MobileBoardHeader({
 
       {/* Selector de vista: botón "Vista: [actual]" que abre lista */}
       {!hideViewSelector && (
-        <div className="px-3 sm:px-4 pb-2.5">
+        <div className={compactLandscape ? 'px-2 pb-1.5' : 'px-3 sm:px-4 pb-2.5'}>
           <Popover.Root open={viewSelectorOpen} onOpenChange={setViewSelectorOpen}>
             <Popover.Trigger asChild>
               <button
                 type="button"
-                className="w-full min-h-[44px] flex items-center justify-between gap-2 px-3 py-2.5 rounded-monday border border-monday-border bg-monday-pill/50 hover:bg-monday-hover text-[14px] font-medium text-monday-text"
+                className={`w-full flex items-center justify-between gap-2 rounded-monday border border-monday-border bg-monday-pill/50 hover:bg-monday-hover font-medium text-monday-text ${
+                  compactLandscape ? 'min-h-[40px] px-2 py-2 text-[13px]' : 'min-h-[44px] px-3 py-2.5 text-[14px]'
+                }`}
               >
                 <span className="truncate">Vista: {VIEW_LABELS[currentView]}</span>
                 <ChevronDown size={18} className="shrink-0 text-monday-subtext" />
@@ -174,6 +179,8 @@ export function MobileBoardHeader({
                 className="z-50 bg-white rounded-xl shadow-monday-lg border border-monday-border w-[min(280px,90vw)] max-h-[70vh] overflow-y-auto custom-scrollbar scroll-touch p-2 fade-in"
                 sideOffset={6}
                 align="start"
+                side="bottom"
+                collisionPadding={8}
               >
                 <div className="text-[12px] font-semibold text-monday-subtext px-2 py-1.5 uppercase tracking-tight border-b border-monday-border/60 mb-2">
                   Cambiar vista
@@ -183,7 +190,7 @@ export function MobileBoardHeader({
                     key={tab.id}
                     type="button"
                     onClick={() => { onChangeView(tab.id); setViewSelectorOpen(false); }}
-                    className={`w-full flex items-center gap-2.5 px-3 py-2.5 rounded-monday transition-colors text-left text-[13px] ${currentView === tab.id ? 'bg-monday-pill text-monday-blue font-medium' : 'hover:bg-monday-hover text-monday-text'}`}
+                    className={`w-full flex items-center gap-2.5 px-3 min-h-[44px] py-2.5 rounded-monday transition-colors text-left text-[13px] touch-manipulation ${currentView === tab.id ? 'bg-monday-pill text-monday-blue font-medium' : 'hover:bg-monday-hover text-monday-text'}`}
                   >
                     {currentView === tab.id && <span className="w-1.5 h-1.5 rounded-full bg-monday-blue shrink-0" />}
                     {tab.label}

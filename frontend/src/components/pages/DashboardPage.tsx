@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { BarChart2, LayoutList, Layers, CheckSquare } from 'lucide-react';
 import { Board } from '../../types';
+import { apiFetch } from '../../api';
 
 const API_BASE = import.meta.env.DEV ? '' : (import.meta.env.VITE_API_URL || 'http://localhost:3001');
 
@@ -8,7 +9,7 @@ export const DashboardPage: React.FC = () => {
   const [board, setBoard] = useState<Board | null>(null);
 
   useEffect(() => {
-    fetch(`${API_BASE}/api/boards/first`)
+    apiFetch(`${API_BASE}/api/boards/first`)
       .then(r => r.json())
       .then((data: Board | null) => {
         if (data?.id) setBoard(data);

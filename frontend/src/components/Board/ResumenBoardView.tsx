@@ -4,9 +4,11 @@ import { Board, Item, BoardColumn, Group } from '../../types';
 interface Props {
   board: Board;
   onRowClick: (item: Item) => void;
+  isMobile?: boolean;
+  isLandscapeShort?: boolean;
 }
 
-export const ResumenBoardView: React.FC<Props> = ({ board, onRowClick }) => {
+export const ResumenBoardView: React.FC<Props> = ({ board, onRowClick, isMobile = false }) => {
   const stats = useMemo(() => {
     const allItems: { item: Item; group: Group }[] = [];
     board.groups.forEach(g => g.items.forEach(item => allItems.push({ item, group: g })));
@@ -92,19 +94,19 @@ export const ResumenBoardView: React.FC<Props> = ({ board, onRowClick }) => {
   return (
     <div className="flex-1 overflow-auto scroll-touch custom-scrollbar p-4 sm:p-6 min-h-0">
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-        <div className="bg-white border border-monday-border rounded-xl p-4 shadow-monday-sm">
+        <div className="bg-white border border-monday-border rounded-xl p-4 shadow-monday-sm min-h-[52px]">
           <p className="text-[12px] font-semibold text-monday-subtext uppercase tracking-wider">Total elementos</p>
           <p className="text-2xl font-bold text-monday-text mt-1">{stats.totalItems}</p>
         </div>
-        <div className="bg-white border border-monday-border rounded-xl p-4 shadow-monday-sm">
+        <div className="bg-white border border-monday-border rounded-xl p-4 shadow-monday-sm min-h-[52px]">
           <p className="text-[12px] font-semibold text-monday-subtext uppercase tracking-wider">Grupos</p>
           <p className="text-2xl font-bold text-monday-text mt-1">{stats.totalGroups}</p>
         </div>
-        <div className="bg-white border border-monday-border rounded-xl p-4 shadow-monday-sm">
+        <div className="bg-white border border-monday-border rounded-xl p-4 shadow-monday-sm min-h-[52px]">
           <p className="text-[12px] font-semibold text-monday-subtext uppercase tracking-wider">Vencidos</p>
           <p className="text-2xl font-bold text-monday-text mt-1">{stats.vencidos}</p>
         </div>
-        <div className="bg-white border border-monday-border rounded-xl p-4 shadow-monday-sm">
+        <div className="bg-white border border-monday-border rounded-xl p-4 shadow-monday-sm min-h-[52px]">
           <p className="text-[12px] font-semibold text-monday-subtext uppercase tracking-wider">Pend. facturar</p>
           <p className="text-2xl font-bold text-monday-text mt-1">{stats.pendientesFacturar}</p>
         </div>

@@ -12,7 +12,7 @@ import { DraggableRow } from './DraggableRow';
 import { GripVertical, MessageSquare, Plus, ChevronDown, MoreHorizontal, Pencil, Trash2, Tag } from 'lucide-react';
 import { StatusCellRenderer } from './StatusCellRenderer';
 import { ColumnTypePicker } from './ColumnTypePicker';
-import { socket } from '../../store/socket';
+import { socket, emitMoveItem } from '../../store/socket';
 import { AnimatedDialog } from '../AnimatedDialog';
 import * as Popover from '@radix-ui/react-popover';
 import * as Dialog from '@radix-ui/react-dialog';
@@ -151,7 +151,7 @@ const InlineNameCell: React.FC<{
 
   const handleMoveToGroup = (targetGroupId: string) => {
     setMenuOpen(false);
-    socket.emit('move_item', { itemId: item.id, newGroupId: targetGroupId, newPosition: 999999 });
+    emitMoveItem({ itemId: item.id, newGroupId: targetGroupId, newPosition: 999999 });
   };
 
   // Para TALLER: el nombre es solo lectura, pero puede abrir el panel de detalles.
@@ -791,11 +791,11 @@ export const BoardGroup: React.FC<Props> = ({
       {/* ── Vista tarjetas (móvil): columnas limitadas por defecto para muchas columnas ───────────────────────────────────────────────────── */}
       {!isCollapsed && useCardView && (() => {
         const visibleCols = columns.filter(col => !hiddenColumns?.includes(col.id));
-        const maxColsDefault = 5;
+        const maxColsDefault = 4;
         const hasMoreCols = visibleCols.length > maxColsDefault;
         const colsToShow = cardColumnsExpanded ? visibleCols : visibleCols.slice(0, maxColsDefault);
         return (
-        <div className="space-y-2">
+        <div className="space-y-3">
           {group.items.map((item) => (
               <div
                 key={item.id}
@@ -803,7 +803,7 @@ export const BoardGroup: React.FC<Props> = ({
                 tabIndex={0}
                 onClick={() => onRowClick(item)}
                 onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onRowClick(item); } }}
-                className="bg-white border border-monday-border rounded-lg shadow-monday-sm overflow-hidden text-left min-h-[44px]"
+                className="bg-white border border-monday-border rounded-lg shadow-monday-sm overflow-hidden text-left min-h-[48px] touch-manipulation active:bg-monday-hover/30"
               >
                 <div className="flex items-start gap-2 p-3">
                   {onToggleItem && (

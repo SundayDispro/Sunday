@@ -5,6 +5,8 @@ import { FileText } from 'lucide-react';
 interface Props {
   board: Board;
   onRowClick: (item: Item) => void;
+  isMobile?: boolean;
+  isLandscapeShort?: boolean;
 }
 
 interface FileEntry {
@@ -15,7 +17,7 @@ interface FileEntry {
   value: string;
 }
 
-export const ArchivosBoardView: React.FC<Props> = ({ board, onRowClick }) => {
+export const ArchivosBoardView: React.FC<Props> = ({ board, onRowClick, isMobile = false }) => {
   const entries = useMemo(() => {
     const docsCol = board.columns.find(c => c.type === 'docs');
     const billingCol = board.columns.find(c => c.type === 'billing_docs' || c.title === 'Documentos Facturación');
@@ -69,6 +71,52 @@ export const ArchivosBoardView: React.FC<Props> = ({ board, onRowClick }) => {
     return list;
   }, [board]);
 
+  if (entries.length === 0) {
+    return (
+      <div className="flex-1 overflow-auto scroll-touch custom-scrollbar p-4 sm:p-6 min-h-0">
+        <p className="text-monday-subtext text-[13px]">No hay documentos ni archivos de facturación en este tablero.</p>
+      </div>
+    );
+  }
+
+  if (isMobile) {
+    return (
+      <div className="flex-1 overflow-auto scroll-touch custom-scrollbar p-4 sm:p-6 min-h-0">
+        <div className="flex flex-col gap-3">
+          {entries.map((e, idx) => (
+            <div
+              key={`${e.item.id}-${e.columnTitle}-${idx}`}
+              role="button"
+              tabIndex={0}
+              onClick={() => onRowClick(e.item)}
+              onKeyDown={ev => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); onRowClick(e.item); } }}
+              className="bg-white border border-monday-border rounded-xl p-4 shadow-monday-sm text-left min-h-[48px] touch-manipulation active:bg-monday-hover/30"
+            >
+              <div className="font-medium text-monday-text text-[14px] mb-1">{e.item.name}</div>
+              <div className="text-[12px] text-monday-subtext">{e.group.name} · {e.columnTitle}</div>
+              <div className="mt-2">
+                {e.value.startsWith('http') ? (
+                  <a
+                    href={e.value}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-monday-blue hover:underline inline-flex items-center gap-1 text-[13px] min-h-[44px]"
+                    onClick={ev => ev.stopPropagation()}
+                  >
+                    <FileText size={14} />
+                    Abrir
+                  </a>
+                ) : (
+                  <span className="text-monday-text truncate block text-[13px]">{e.value}</span>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="flex-1 overflow-auto scroll-touch custom-scrollbar p-4 sm:p-6 min-h-0">
       <div className="border border-monday-border rounded-xl overflow-hidden shadow-monday-sm">
@@ -118,9 +166,6 @@ export const ArchivosBoardView: React.FC<Props> = ({ board, onRowClick }) => {
           </tbody>
         </table>
       </div>
-      {entries.length === 0 && (
-        <p className="text-monday-subtext text-[13px] mt-4">No hay documentos ni archivos de facturación en este tablero.</p>
-      )}
     </div>
   );
 };

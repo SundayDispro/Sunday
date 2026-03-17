@@ -2,6 +2,7 @@ import React, { useEffect, useState, useRef, useMemo } from 'react';
 import { Inbox, Send, AtSign, CheckSquare } from 'lucide-react';
 import { Item, User } from '../../types';
 import { useUser } from '../../store/UserContext';
+import { apiFetch } from '../../api';
 
 const API_BASE = import.meta.env.DEV ? '' : (import.meta.env.VITE_API_URL || 'http://localhost:3001');
 
@@ -43,7 +44,7 @@ export const InboxPage: React.FC<Props> = ({ onItemClick, initialUser, onClearIn
     const url = tab === 'mentions' && currentUser?.id
       ? `${API_BASE}/api/feed?filter=mentions&userId=${encodeURIComponent(currentUser.id)}`
       : `${API_BASE}/api/feed`;
-    fetch(url)
+    apiFetch(url)
       .then(r => r.json())
       .then((data: FeedPost[]) => {
         setPosts(Array.isArray(data) ? data : []);
@@ -69,7 +70,7 @@ export const InboxPage: React.FC<Props> = ({ onItemClick, initialUser, onClearIn
   }, [initialUser, onClearInitialUser]);
 
   useEffect(() => {
-    fetch(`${API_BASE}/api/users`)
+    apiFetch(`${API_BASE}/api/users`)
       .then(r => r.json())
       .then((data: User[]) => setUsers(Array.isArray(data) ? data : []))
       .catch(() => setUsers([]));
@@ -135,7 +136,7 @@ export const InboxPage: React.FC<Props> = ({ onItemClick, initialUser, onClearIn
     setPostError(null);
     setPosting(true);
     const mentionedUserIds = extractMentionedIds(content);
-    fetch(`${API_BASE}/api/feed`, {
+    apiFetch(`${API_BASE}/api/feed`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ content, authorId: currentUser.id, mentionedUserIds }),

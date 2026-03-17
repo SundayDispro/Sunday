@@ -77,10 +77,12 @@ export async function apiFetch(input: RequestInfo | URL, init: RequestInit = {})
   const headersWithAuth = buildAuthHeaders(init.headers ?? {});
   const res = await fetch(input, { ...init, headers: headersWithAuth });
 
-  if (res.status === 401 || res.status === 403) {
+  // Solo forzar logout/redirección si había un token de sesión válido.
+  // Si no hay token (pantalla de login), dejamos que el caller maneje el 401.
+  const token = getAuthToken();
+  if (token && (res.status === 401 || res.status === 403)) {
     clearAuthStorage();
     try {
-      // Forzar re-login; ajusta la ruta si usas otra para login
       window.location.href = '/';
     } catch {
       // ignore en entornos sin window

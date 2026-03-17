@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { User, UserStatus } from '../types';
 import { API_BASE, apiFetch, buildAuthHeaders, clearAuthStorage, parseResponse } from '../api';
+import { reconnectSocketWithAuth } from './socket';
 
 interface UserContextType {
   currentUser: User | null;
@@ -20,7 +21,17 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   useEffect(() => {
     const savedUser = localStorage.getItem('sunday_user');
-    if (savedUser) setCurrentUser(JSON.parse(savedUser));
+    const savedToken = localStorage.getItem('sunday_token');
+    if (savedUser && savedToken) {
+      setCurrentUser(JSON.parse(savedUser));
+    } else {
+      // Estado inconsistente: limpiar sesión almacenada para evitar parpadeos de login/app
+      try {
+        localStorage.removeItem('sunday_user');
+        localStorage.removeItem('sunday_token');
+      } catch {/* ignore */}
+      setCurrentUser(null);
+    }
     fetchUsers();
   }, []);
 
@@ -74,7 +85,7 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
         if (!vapidKey) return;
         subscription = await reg.pushManager.subscribe({
           userVisibleOnly: true,
-          applicationServerKey: urlBase64ToUint8Array(vapidKey),
+          applicationServerKey: urlBase64ToUint8Array(vapidKey) as any,
         });
       }
 
@@ -102,6 +113,7 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setCurrentUser(data.user);
         localStorage.setItem('sunday_user', JSON.stringify(data.user));
         localStorage.setItem('sunday_token', data.token);
+        reconnectSocketWithAuth();
         await fetchUsers();
         await ensurePushSubscription();
       }
@@ -118,9 +130,9 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
     clearAuthStorage();
     // Marcar como offline en el backend (fire-and-forget)
     if (userId) {
-      fetch(`${API_BASE}/api/users/${userId}/status`, {
+      apiFetch(`${API_BASE}/api/users/${userId}/status`, {
         method: 'PATCH',
-        headers: buildAuthHeaders({ 'Content-Type': 'application/json' }),
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ status: 'offline' }),
       }).catch(() => {});
     }
@@ -133,9 +145,9 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setCurrentUser((u) => (u ? { ...u, status } : null));
     localStorage.setItem('sunday_user', JSON.stringify({ ...currentUser, status }));
     try {
-      const res = await fetch(`${API_BASE}/api/users/${userId}/status`, {
+      const res = await apiFetch(`${API_BASE}/api/users/${userId}/status`, {
         method: 'PATCH',
-        headers: buildAuthHeaders({ 'Content-Type': 'application/json' }),
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ status }),
       });
       const updated = await parseResponse<User>(res);

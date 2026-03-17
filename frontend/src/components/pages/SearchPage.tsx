@@ -1,6 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { Search as SearchIcon, FileText, X } from 'lucide-react';
 import { Item } from '../../types';
+import { apiFetch } from '../../api';
 
 const API_BASE = import.meta.env.DEV ? '' : (import.meta.env.VITE_API_URL || 'http://localhost:3001');
 
@@ -27,7 +28,7 @@ export const SearchPage: React.FC<{
       return;
     }
     setLoading(true);
-    fetch(`${API_BASE}/api/search?q=${encodeURIComponent(q)}`)
+    apiFetch(`${API_BASE}/api/search?q=${encodeURIComponent(q)}`)
       .then(r => r.json())
       .then((data: SearchResult[]) => {
         setResults(Array.isArray(data) ? data : []);

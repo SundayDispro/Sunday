@@ -5,6 +5,7 @@ import { useUser } from '../../store/UserContext';
 import * as Popover from '@radix-ui/react-popover';
 import * as Dialog from '@radix-ui/react-dialog';
 import { FileText, ChevronDown, ExternalLink, Upload, Loader2, Trash2, FilePenLine } from 'lucide-react';
+import { apiFetch } from '../../api';
 
 const API_BASE = import.meta.env.DEV ? '' : (import.meta.env.VITE_API_URL || 'http://localhost:3001');
 
@@ -90,7 +91,7 @@ export const BillingDocsCellRenderer: React.FC<Props> = ({ item, column, value }
     const formData = new FormData();
     formData.append('file', file);
     try {
-      const res = await fetch(`${API_BASE}/api/upload`, {
+      const res = await apiFetch(`${API_BASE}/api/upload`, {
         method: 'POST',
         body: formData,
       });

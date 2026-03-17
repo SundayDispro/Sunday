@@ -259,12 +259,32 @@
   .bottom-nav-touch {
     min-height: 48px;
   }
+  .bottom-nav-touch.bottom-nav-compact {
+    min-height: 44px;
+  }
+  .bottom-nav-touch.bottom-nav-compact button {
+    min-height: 44px;
+    padding-top: 0.2rem;
+    padding-bottom: 0.2rem;
+  }
   .bottom-nav-touch button {
     min-height: 48px;
     padding-top: 0.25rem;
     padding-bottom: 0.25rem;
   }
-  .main-mobile {
+  .main-mobile,
+  .main-mobile-landscape {
     padding-bottom: 52px;
+  }
+  .mobile-header-landscape {
+    min-height: 0;
+  }
+}
+
+/* Aprovechar altura en landscape: contenedor principal usa dvh y min-h-0 para flex */
+@media (orientation: landscape) {
+  .main-mobile,
+  .main-mobile-landscape {
+    min-height: 0;
   }
 }

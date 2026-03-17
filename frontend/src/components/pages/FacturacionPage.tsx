@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Receipt } from 'lucide-react';
 import { Board, Item, BoardColumn, Group, StatusSettings } from '../../types';
+import { apiFetch } from '../../api';
 
 const API_BASE = import.meta.env.DEV ? '' : (import.meta.env.VITE_API_URL || 'http://localhost:3001');
 
@@ -51,7 +52,7 @@ export const FacturacionPage: React.FC<FacturacionPageProps> = ({ boards, onOpen
       return;
     }
     setLoading(true);
-    fetch(`${API_BASE}/api/boards/${selectedBoardId}`)
+    apiFetch(`${API_BASE}/api/boards/${selectedBoardId}`)
       .then(r => r.json())
       .then((data: Board) => {
         setFullBoard(data);

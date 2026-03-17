@@ -4,6 +4,7 @@ import { Workspace as WorkspaceType, Board } from '../../types';
 import * as Popover from '@radix-ui/react-popover';
 import * as Dialog from '@radix-ui/react-dialog';
 import { useUser } from '../../store/UserContext';
+import { apiFetch } from '../../api';
 
 const API_BASE = import.meta.env.DEV ? '' : (import.meta.env.VITE_API_URL || 'http://localhost:3001');
 
@@ -107,7 +108,7 @@ export const WorkspaceOverviewPage: React.FC<WorkspaceOverviewPageProps> = ({
     setEditingDescription(false);
     setSavingDesc(true);
     try {
-      const res = await fetch(`${API_BASE}/api/workspaces/${workspace.id}`, {
+      const res = await apiFetch(`${API_BASE}/api/workspaces/${workspace.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ description: description || null }),
@@ -125,7 +126,7 @@ export const WorkspaceOverviewPage: React.FC<WorkspaceOverviewPageProps> = ({
     if (!workspace?.id || !renameValue.trim()) return;
     setSavingRename(true);
     try {
-      const res = await fetch(`${API_BASE}/api/workspaces/${workspace.id}`, {
+      const res = await apiFetch(`${API_BASE}/api/workspaces/${workspace.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name: renameValue.trim() }),
@@ -145,7 +146,7 @@ export const WorkspaceOverviewPage: React.FC<WorkspaceOverviewPageProps> = ({
     setDeleting(true);
     setDeleteError(null);
     try {
-      const res = await fetch(`${API_BASE}/api/workspaces/${workspace.id}`, { method: 'DELETE' });
+      const res = await apiFetch(`${API_BASE}/api/workspaces/${workspace.id}`, { method: 'DELETE' });
       if (res.ok) {
         setDeleteConfirmOpen(false);
         setDeleteError(null);
@@ -183,7 +184,7 @@ export const WorkspaceOverviewPage: React.FC<WorkspaceOverviewPageProps> = ({
     setBoardDeleting(true);
     setBoardDeleteError(null);
     try {
-      const res = await fetch(`${API_BASE}/api/boards/${boardToDelete.id}`, { method: 'DELETE' });
+      const res = await apiFetch(`${API_BASE}/api/boards/${boardToDelete.id}`, { method: 'DELETE' });
       if (res.ok) {
         setBoardDeleteOpen(false);
         setBoardToDelete(null);

@@ -136,7 +136,7 @@ export const ContactCellRenderer: React.FC<Props> = ({ item, column, value }) =>
         </button>
       )}
       {!emailCandidate && !phoneCandidate && !hasLink && (
-        <Mail size={14} className="text-monday-subtext shrink-0" title="Clic para editar" />
+        <Mail size={14} className="text-monday-subtext shrink-0" />
       )}
     </div>
   );

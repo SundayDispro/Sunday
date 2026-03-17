@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { User } from '../types';
 import { useUser } from '../store/UserContext';
-import { API_BASE, parseResponse } from '../api';
+import { API_BASE, apiFetch, parseResponse } from '../api';
 import { X, Plus, ShieldAlert, Trash2 } from 'lucide-react';
 import * as Dialog from '@radix-ui/react-dialog';
 
@@ -36,11 +36,9 @@ export const AdminUsersPanel: React.FC<Props> = ({ open, onOpenChange }) => {
     setDeleting(true);
     setError('');
     try {
-      const res = await fetch(
+      const res = await apiFetch(
         `${API_BASE}/api/users/${userPendingDelete.id}?adminId=${encodeURIComponent(currentUser.id)}`,
-        {
-        method: 'DELETE',
-        }
+        { method: 'DELETE' }
       );
       if (res.ok) {
         fetchUsers();
@@ -76,7 +74,7 @@ export const AdminUsersPanel: React.FC<Props> = ({ open, onOpenChange }) => {
     setError('');
     setSuccess(false);
     try {
-      const res = await fetch(`${API_BASE}/api/users/${editingUser.id}`, {
+      const res = await apiFetch(`${API_BASE}/api/users/${editingUser.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -111,7 +109,7 @@ export const AdminUsersPanel: React.FC<Props> = ({ open, onOpenChange }) => {
     setSuccess(false);
 
     try {
-      const res = await fetch(`${API_BASE}/api/users`, {
+      const res = await apiFetch(`${API_BASE}/api/users`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ username, name, password, adminId: currentUser.id, role })

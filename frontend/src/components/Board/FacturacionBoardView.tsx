@@ -7,9 +7,11 @@ import { BillingDocsCellRenderer } from './BillingDocsCellRenderer';
 interface Props {
   board: Board;
   onRowClick: (item: Item) => void;
+  isMobile?: boolean;
+  isLandscapeShort?: boolean;
 }
 
-export const FacturacionBoardView: React.FC<Props> = ({ board, onRowClick }) => {
+export const FacturacionBoardView: React.FC<Props> = ({ board, onRowClick, isMobile = false }) => {
   const estadoTallerColumn: BoardColumn | undefined = board.columns.find(
     c => (c.type === 'status' || c.type === 'priority') && c.title === 'Estado Taller'
   );
@@ -78,24 +80,24 @@ export const FacturacionBoardView: React.FC<Props> = ({ board, onRowClick }) => 
 
   return (
     <div className="flex-1 overflow-auto scroll-touch custom-scrollbar p-4 sm:p-6 min-h-0 flex flex-col">
-      {/* Filtros siempre visibles */}
-      <div className="flex items-center justify-between mb-3 gap-3 shrink-0 flex-wrap">
-        <div className="flex items-center gap-2">
+      {/* Filtros: en móvil en columna */}
+      <div className={`flex items-center justify-between mb-3 gap-3 shrink-0 ${isMobile ? 'flex-col items-stretch' : 'flex-wrap'}`}>
+        <div className="flex items-center gap-2 min-w-0">
           <input
             type="text"
             value={searchQuery}
             onChange={e => setSearchQuery(e.target.value)}
             placeholder="Buscar elemento..."
-            className="px-3 py-1.5 text-[13px] border border-monday-border rounded-lg bg-white text-monday-text placeholder:text-monday-subtext outline-none focus:ring-2 focus:ring-monday-blue/30 focus:border-monday-blue min-w-[220px]"
+            className="px-3 py-2 text-[13px] border border-monday-border rounded-lg bg-white text-monday-text placeholder:text-monday-subtext outline-none focus:ring-2 focus:ring-monday-blue/30 focus:border-monday-blue min-w-0 flex-1 min-h-[44px]"
           />
         </div>
         {estadoFacturacionColumn && estadoFacturacionOptions.length > 0 && (
-          <div className="flex items-center gap-2">
-            <span className="text-[12px] text-monday-subtext">Estado facturación:</span>
+          <div className="flex items-center gap-2 min-w-0">
+            <span className="text-[12px] text-monday-subtext shrink-0">Estado facturación:</span>
             <select
               value={filterEstadoFacturacion ?? ''}
               onChange={e => setFilterEstadoFacturacion(e.target.value || null)}
-              className="px-3 py-1.5 text-[13px] border border-monday-border rounded-lg bg-white text-monday-text outline-none focus:ring-2 focus:ring-monday-blue/30 focus:border-monday-blue min-w-[200px]"
+              className="px-3 py-2 text-[13px] border border-monday-border rounded-lg bg-white text-monday-text outline-none focus:ring-2 focus:ring-monday-blue/30 focus:border-monday-blue min-h-[44px] flex-1 min-w-0"
             >
               <option value="">Todos</option>
               {estadoFacturacionOptions.map(opt => (
@@ -112,6 +114,45 @@ export const FacturacionBoardView: React.FC<Props> = ({ board, onRowClick }) => 
         <div className="flex flex-col items-center justify-center py-16 text-monday-subtext flex-1">
           <p className="text-[15px] font-medium text-monday-text">Sin elementos para facturación</p>
           <p className="text-[13px] mt-1">No hay elementos con Estado Taller &quot;Colocado&quot; en este tablero.</p>
+        </div>
+      ) : isMobile ? (
+        <div className="flex flex-col gap-3 flex-1 min-h-0">
+          {filteredRows.map(({ item }) => {
+            const docsValue = docsColumn ? item.columnValues.find(v => v.columnId === docsColumn.id) : undefined;
+            const facturacionValue = estadoFacturacionColumn ? item.columnValues.find(v => v.columnId === estadoFacturacionColumn.id) : undefined;
+            return (
+              <div
+                key={item.id}
+                role="button"
+                tabIndex={0}
+                onClick={() => onRowClick(item)}
+                onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onRowClick(item); } }}
+                className="bg-white border border-monday-border rounded-xl p-4 shadow-monday-sm text-left min-h-[48px] touch-manipulation active:bg-monday-hover/30"
+              >
+                <div className="font-medium text-monday-text text-[14px] mb-2">{item.name}</div>
+                <div className="space-y-1.5 text-[12px]">
+                  {docsColumn && (
+                    <div className="flex flex-col gap-0.5">
+                      <span className="text-monday-subtext">Docs</span>
+                      {docsValue ? <DocsCellRenderer item={item} column={docsColumn} value={docsValue} /> : <span className="text-monday-subtext">Sin hoja de trabajo</span>}
+                    </div>
+                  )}
+                  {billingDocsColumn && (
+                    <div className="flex flex-col gap-0.5">
+                      <span className="text-monday-subtext">Documentos Facturación</span>
+                      <BillingDocsCellRenderer item={item} column={billingDocsColumn} value={item.columnValues.find(v => v.columnId === billingDocsColumn.id)} />
+                    </div>
+                  )}
+                  {estadoFacturacionColumn && (
+                    <div className="flex flex-col gap-0.5">
+                      <span className="text-monday-subtext">Estado Facturación</span>
+                      <StatusCellRenderer item={item} column={estadoFacturacionColumn} value={facturacionValue} />
+                    </div>
+                  )}
+                </div>
+              </div>
+            );
+          })}
         </div>
       ) : (
       <div className="border border-monday-border rounded-xl overflow-hidden shadow-monday-sm">

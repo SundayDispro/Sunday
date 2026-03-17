@@ -191,7 +191,12 @@ function loadRenderDocumentHtml(): ((props: { content: Record<string, unknown>; 
 export async function generatePdfFromDocument(
   options: GeneratePdfFromDocumentOptions
 ): Promise<Buffer> {
-  const workerPath = path.join(__dirname, 'pdfWorker.js');
+  // En desarrollo (ts-node) __dirname suele ser "backend/src" y el worker compilado vive en "backend/dist/src".
+  // En producción (__dirname ≈ "backend/dist/src") el worker está como "./pdfWorker.js".
+  const isDistBuild = __dirname.includes(path.join('dist', 'src'));
+  const workerPath = isDistBuild
+    ? path.join(__dirname, 'pdfWorker.js')
+    : path.join(__dirname, '..', 'dist', 'src', 'pdfWorker.js');
   const apiBaseUrl = process.env.API_BASE_URL || 'http://localhost:3001';
 
   return new Promise<Buffer>((resolve, reject) => {

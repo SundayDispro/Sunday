@@ -40,8 +40,7 @@ exports.generatePdfFromHtml = generatePdfFromHtml;
 exports.generatePdfFromDocument = generatePdfFromDocument;
 const fs_1 = __importDefault(require("fs"));
 const path_1 = __importDefault(require("path"));
-const puppeteer_1 = __importDefault(require("puppeteer"));
-const documentHtmlBuilder_1 = require("./documentHtmlBuilder");
+const worker_threads_1 = require("worker_threads");
 const UPLOAD_DIR = path_1.default.join(process.cwd(), 'uploads');
 /**
  * Convierte una imageUrl (relativa o absoluta apuntando al backend) en un data URL base64.
@@ -114,9 +113,12 @@ function resolveImageUrlsToDataUrls(content) {
     });
     return { ...content, customBoxes: resolvedBoxes };
 }
+/** US Letter en px a 96 DPI: 612pt = 816px, 792pt = 1056px. Misma escala que el HTML de export. */
+const TEMPLATE_VIEWPORT_WIDTH = 816;
+const TEMPLATE_VIEWPORT_HEIGHT = 1056;
 /**
  * Convierte la primera página del PDF de plantilla a imagen base64.
- * Mismo tamaño que la página HTML (612×792 US Letter) para alineación 1:1 con el editor.
+ * Viewport 816×1056 (96 DPI) para que la imagen no se reescale en el HTML (612pt×792pt = 816×1056 px).
  */
 async function getTemplatePdfFirstPageAsDataUrlWithBrowser(browser, templatePdfPath) {
     if (!fs_1.default.existsSync(templatePdfPath))
@@ -125,29 +127,20 @@ async function getTemplatePdfFirstPageAsDataUrlWithBrowser(browser, templatePdfP
     const fileUrl = `file:///${absolutePath.replace(/\\/g, '/')}#toolbar=0&navpanes=0&scrollbar=0`;
     try {
         const page = await browser.newPage();
-        // Plantilla en US Letter (612×792)
-        const width = 612;
-        const height = 792;
-        await page.setViewport({ width, height, deviceScaleFactor: 1 });
-        await page.goto(fileUrl, { waitUntil: 'networkidle0', timeout: 15000 });
-        // Dar más tiempo para que el visor renderice la página completa incluyendo la parte inferior
-        await page.evaluate(() => new Promise((r) => setTimeout(r, 1000)));
-        // Detectar si hay toolbar del visor PDF
-        const toolbarHeight = await page.evaluate(() => {
-            const embed = document.querySelector('embed');
-            if (embed) {
-                const rect = embed.getBoundingClientRect();
-                return rect.top; // altura de lo que hay encima del PDF
-            }
-            return 0;
+        await page.setViewport({
+            width: TEMPLATE_VIEWPORT_WIDTH,
+            height: TEMPLATE_VIEWPORT_HEIGHT,
+            deviceScaleFactor: 1,
         });
+        await page.goto(fileUrl, { waitUntil: 'networkidle0', timeout: 15000 });
+        await page.evaluate(() => new Promise((r) => setTimeout(r, 1000)));
         const screenshotBuffer = await page.screenshot({
             type: 'png',
             clip: {
                 x: 0,
-                y: toolbarHeight,
-                width: 612,
-                height: 792,
+                y: 0,
+                width: TEMPLATE_VIEWPORT_WIDTH,
+                height: TEMPLATE_VIEWPORT_HEIGHT,
             },
         });
         await page.close();
@@ -159,16 +152,19 @@ async function getTemplatePdfFirstPageAsDataUrlWithBrowser(browser, templatePdfP
         return null;
     }
 }
+// generatePdfFromHtml se mantiene como helper legacy basado en Puppeteer en el proceso principal.
+// Para la generación WYSIWYG de documentos se recomienda usar generatePdfFromDocument (con worker).
 async function generatePdfFromHtml(html, options = {}) {
-    const browser = await puppeteer_1.default.launch({
+    const { default: puppeteer } = await Promise.resolve().then(() => __importStar(require('puppeteer')));
+    const browser = await puppeteer.launch({
         headless: 'new',
         args: ['--no-sandbox', '--disable-setuid-sandbox'],
     });
     try {
         const page = await browser.newPage();
-        await page.setContent(html, { waitUntil: 'networkidle0' });
+        await page.setContent(html, { waitUntil: 'load', timeout: 60000 });
         const pdf = await page.pdf({
-            format: options.format ?? 'A4',
+            format: options.format ?? 'Letter',
             printBackground: true,
             margin: {
                 top: '0mm',
@@ -203,60 +199,57 @@ function loadRenderDocumentHtml() {
     }
 }
 async function generatePdfFromDocument(options) {
-    const { content, format = 'A4', templatePdfPath } = options;
-    const { buildDocumentHtml } = await Promise.resolve().then(() => __importStar(require('./documentHtmlBuilder')));
-    const browser = await puppeteer_1.default.launch({
-        headless: 'new',
-        args: [
-            '--no-sandbox',
-            '--disable-setuid-sandbox',
-            '--disable-pdf-viewer-hud',
-        ],
+    // En desarrollo (ts-node) __dirname suele ser "backend/src" y el worker compilado vive en "backend/dist/src".
+    // En producción (__dirname ≈ "backend/dist/src") el worker está como "./pdfWorker.js".
+    const isDistBuild = __dirname.includes(path_1.default.join('dist', 'src'));
+    const workerPath = isDistBuild
+        ? path_1.default.join(__dirname, 'pdfWorker.js')
+        : path_1.default.join(__dirname, '..', 'dist', 'src', 'pdfWorker.js');
+    const apiBaseUrl = process.env.API_BASE_URL || 'http://localhost:3001';
+    return new Promise((resolve, reject) => {
+        const worker = new worker_threads_1.Worker(workerPath, {
+            workerData: {
+                options,
+                apiBaseUrl,
+            },
+        });
+        let settled = false;
+        const timer = setTimeout(() => {
+            if (settled)
+                return;
+            settled = true;
+            worker.terminate().catch(() => { });
+            reject(new Error('PDF generation timeout'));
+        }, 90_000);
+        worker.on('message', (msg) => {
+            if (settled)
+                return;
+            settled = true;
+            clearTimeout(timer);
+            if (msg.success && msg.buffer) {
+                resolve(Buffer.from(msg.buffer));
+            }
+            else {
+                reject(new Error(msg.error || 'PDF worker returned an error'));
+            }
+        });
+        worker.on('error', (err) => {
+            if (settled)
+                return;
+            settled = true;
+            clearTimeout(timer);
+            reject(err);
+        });
+        worker.on('exit', (code) => {
+            if (settled)
+                return;
+            if (code === 0) {
+                // exit 0 sin mensaje explícito: considerar que ya se resolvió por 'message'
+                return;
+            }
+            settled = true;
+            clearTimeout(timer);
+            reject(new Error(`PDF worker exited with code ${code}`));
+        });
     });
-    try {
-        let backgroundImageDataUrl = null;
-        if (templatePdfPath) {
-            backgroundImageDataUrl = await getTemplatePdfFirstPageAsDataUrlWithBrowser(browser, templatePdfPath);
-        }
-        // Resolver imageUrl de cajas imagen a data URLs para que Puppeteer no dependa de red
-        const resolvedContent = resolveImageUrlsToDataUrls(content);
-        const renderDocumentHtml = loadRenderDocumentHtml();
-        const html = renderDocumentHtml
-            ? (0, documentHtmlBuilder_1.buildDocumentWrapperHtml)(renderDocumentHtml({
-                content: resolvedContent,
-                backgroundImageDataUrl,
-            }), { content: resolvedContent })
-            : buildDocumentHtml({
-                content: resolvedContent,
-                backgroundImageDataUrl,
-            });
-        const page = await browser.newPage();
-        // Viewport en px para que 612pt×792pt se renderice 1:1 (96 DPI: 612pt=816px, 792pt=1056px)
-        await page.setViewport({ width: 816, height: 1056, deviceScaleFactor: 1 });
-        await page.setContent(html, {
-            waitUntil: 'networkidle0',
-            baseURL: process.env.API_BASE_URL || 'http://localhost:3001',
-        });
-        // Esperar a que todas las <img> hayan terminado de cargar (data URLs son síncronas pero por robustez)
-        await Promise.race([
-            page.evaluate(() => Promise.all(Array.from(document.images).map((img) => img.complete
-                ? Promise.resolve()
-                : new Promise((resolve) => {
-                    img.onload = () => resolve();
-                    img.onerror = () => resolve(); // ignorar error: el PDF se genera igual
-                })))),
-            new Promise((resolve) => setTimeout(resolve, 5000)), // timeout de seguridad
-        ]);
-        await page.emulateMediaType('screen');
-        // US Letter exacto (612×792 pt): format 'Letter' evita que px se interprete distinto y la hoja quede mal
-        const pdf = await page.pdf({
-            format: 'Letter',
-            printBackground: true,
-            margin: { top: '0mm', right: '0mm', bottom: '0mm', left: '0mm' },
-        });
-        return Buffer.from(pdf);
-    }
-    finally {
-        await browser.close();
-    }
 }

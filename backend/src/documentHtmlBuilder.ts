@@ -81,29 +81,29 @@ interface CustomBox {
 
 /** Devuelve CSS @font-face para Averta Std (mismo nombre que en el editor) para que Puppeteer renderice igual. */
 function getAvertaStdFontFaceCss(): string {
-  const fontsDir = path.join(__dirname, '..', 'assets', 'fonts', 'AvertaStd');
-  const pairs: { file: string; weight: number; style: string }[] = [
-    { file: 'AvertaStd-Regular.ttf', weight: 400, style: 'normal' },
-    { file: 'AvertaStd-Bold.ttf', weight: 700, style: 'normal' },
-    { file: 'AvertaStd-RegularItalic.ttf', weight: 400, style: 'italic' },
-    { file: 'AvertaStd-BoldItalic.ttf', weight: 700, style: 'italic' },
+  // Usamos la fuente OTF que ya se incluye en el build del frontend,
+  // y la exponemos al PDF con el nombre "Averta Std" para que coincida con el editor.
+  const candidatePaths = [
+    // Frontend dist raíz
+    path.join(process.cwd(), '..', 'frontend', 'dist', 'AvertaDemoPECuttedDemo-Regular.otf'),
+    // Variante bajo assets del build
+    path.join(process.cwd(), '..', 'frontend', 'dist', 'assets', 'AvertaDemoPECuttedDemo-Regular-A7gaq-Ug.otf'),
   ];
-  const rules: string[] = [];
-  for (const { file, weight, style } of pairs) {
-    const filePath = path.join(fontsDir, file);
+
+  for (const filePath of candidatePaths) {
     try {
       if (fs.existsSync(filePath)) {
         const buf = fs.readFileSync(filePath);
         const b64 = buf.toString('base64');
-        rules.push(
-          `@font-face{font-family:'Averta Std';src:url(data:font/ttf;base64,${b64}) format('truetype');font-weight:${weight};font-style:${style};}`
-        );
+        // Registramos un único peso regular; negrita/cursiva se simulan vía font-weight/style.
+        return `@font-face{font-family:'Averta Std';src:url(data:font/otf;base64,${b64}) format('opentype');font-weight:400;font-style:normal;}`;
       }
     } catch {
-      // ignorar si no se puede leer
+      // ignorar si no se puede leer e intentar la siguiente ruta
     }
   }
-  return rules.length > 0 ? rules.join('\n    ') : '';
+
+  return '';
 }
 
 export interface BuildDocumentHtmlOptions {
@@ -123,6 +123,7 @@ export function buildDocumentHtml(options: BuildDocumentHtmlOptions): string {
   const customFieldValues = (content.customFieldValues ?? {}) as Record<string, string>;
 
   const globalFontSize = typeof content.globalFontSize === 'number' ? content.globalFontSize : 11;
+  // Fuente por defecto: Averta Std (igual que cotizador / editor).
   const globalFontFamily = String(content.globalFontFamily ?? 'Averta Std').trim();
   const globalFontColor = String(content.globalFontColor ?? '#000000').trim();
   const globalFontBold = content.globalFontBold === true || content.globalFontBold === 'true';
@@ -269,7 +270,7 @@ export function buildDocumentHtml(options: BuildDocumentHtmlOptions): string {
       `word-break: break-word`,
       `overflow-wrap: break-word`,
       `box-sizing: border-box`,
-      `text-align: ${isTotal ? 'right' : 'left'}`,
+      `text-align: ${isTotalBox ? 'right' : 'left'}`,
       `direction: ltr`,
       `font-variant: no-common-ligatures`,
       `text-rendering: geometricPrecision`,
@@ -286,7 +287,7 @@ export function buildDocumentHtml(options: BuildDocumentHtmlOptions): string {
     // Para Total: envolver en span para que el contenedor flex (doc-box-inner) tenga un hijo explícito
     // y justify-content: flex-end lo alinee a la derecha (igual que en el editor).
     const innerContent = isTotalBox
-      ? `<span class="doc-box-total-text" style="display:inline-block;text-align:right;width:auto;margin-left:auto;line-height:1;transform:translateY(-0.08em);color:rgb(254,254,254) !important;-webkit-text-fill-color:rgb(254,254,254) !important;">${escapeHtml(text) || '&nbsp;'}</span>`
+      ? `<span class="doc-box-total-text" style="display:inline-block;text-align:right;width:auto;margin-left:auto;line-height:1;color:rgb(254,254,254) !important;-webkit-text-fill-color:rgb(254,254,254) !important;">${escapeHtml(text) || '&nbsp;'}</span>`
       : (escapeHtml(text) || '&nbsp;');
     const boxHtml = `<div class="${boxClass}" style="${boxStyle}"><div class="doc-box-inner" style="${innerStyle}">${innerContent}</div></div>`;
     boxHtmlParts.push(boxHtml);
@@ -317,6 +318,7 @@ export function buildDocumentWrapperHtml(
 ): string {
   const { content = {}, backgroundStyle = 'background-color: #ffffff;', fontFaceCss: injectedFontCss } = options;
   const customBoxes = (content.customBoxes ?? []) as CustomBox[];
+  // Misma fuente por defecto que en el editor: Averta Std.
   const globalFontFamily = String(content.globalFontFamily ?? 'Averta Std').trim();
   const needsAverta =
     injectedFontCss !== undefined
@@ -343,7 +345,7 @@ export function buildDocumentWrapperHtml(
       overflow: visible !important;
       line-height: 1 !important;
     }
-    .doc-box-total .doc-box-total-text { width: auto !important; flex-shrink: 0 !important; margin-left: auto !important; line-height: 1 !important; transform: translateY(-0.08em) !important; color: rgb(254,254,254) !important; -webkit-text-fill-color: rgb(254,254,254) !important; }
+    .doc-box-total .doc-box-total-text { width: auto !important; flex-shrink: 0 !important; margin-left: auto !important; line-height: 1 !important; color: rgb(254,254,254) !important; -webkit-text-fill-color: rgb(254,254,254) !important; }
     * {
       box-sizing: border-box;
       -webkit-print-color-adjust: exact !important;

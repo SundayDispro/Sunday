@@ -3,10 +3,11 @@ import bcrypt from 'bcrypt';
 import type { Request, Response, NextFunction } from 'express';
 import { PrismaClient } from '@prisma/client';
 
-const JWT_SECRET = process.env.JWT_SECRET;
-if (!JWT_SECRET) {
+const _jwtSecret = process.env.JWT_SECRET;
+if (!_jwtSecret) {
   throw new Error('JWT_SECRET no está definido. Configúralo en .env');
 }
+const JWT_SECRET: string = _jwtSecret;
 
 const JWT_EXPIRES_IN: string | number = process.env.JWT_EXPIRES_IN || '7d';
 
@@ -15,6 +16,8 @@ const BCRYPT_ROUNDS =
   BCRYPT_ROUNDS_ENV && !Number.isNaN(Number.parseInt(BCRYPT_ROUNDS_ENV, 10))
     ? Number.parseInt(BCRYPT_ROUNDS_ENV, 10)
     : 12;
+
+const ALLOWED_ROLES = new Set(['ADMIN', 'VENTAS', 'DISENO', 'TALLER', 'USER']);
 
 export type JwtPayload = {
   userId: string;
@@ -39,7 +42,42 @@ export function signJwt(payload: JwtPayload): string {
 }
 
 export function verifyJwt(token: string): JwtPayload {
-  return jwt.verify(token, JWT_SECRET) as JwtPayload;
+  const payload = jwt.verify(token, JWT_SECRET) as JwtPayload;
+  if (!payload.userId || typeof payload.role !== 'string' || !ALLOWED_ROLES.has(payload.role)) {
+    throw new Error('Token inválido: payload malformado o role no permitido');
+  }
+  return payload;
+}
+
+/** Payload del token de exportación (un solo uso, corta duración). */
+export type ExportTokenPayload = { userId: string; docId: string; purpose: 'export' };
+
+/** Firma un token de exportación para que Puppeteer abra /docs/export y cargue el doc. */
+export function signExportToken(payload: ExportTokenPayload): string {
+  return jwt.sign(
+    { ...payload, role: 'USER' },
+    JWT_SECRET,
+    { expiresIn: '120s' }
+  );
+}
+
+/** Verifica un token de exportación; lanza si es inválido. */
+export function verifyExportToken(token: string): ExportTokenPayload {
+  const payload = jwt.verify(token, JWT_SECRET) as ExportTokenPayload & { role?: string };
+  if (payload.purpose !== 'export' || !payload.userId || !payload.docId) {
+    throw new Error('Token de exportación inválido');
+  }
+  return { userId: payload.userId, docId: payload.docId, purpose: 'export' };
+}
+
+/** Devuelve docId si el token es de exportación (solo decodifica, no verifica). Usar tras authenticateToken. */
+export function getExportDocIdFromToken(token: string): string | null {
+  try {
+    const payload = jwt.decode(token) as (ExportTokenPayload & { purpose?: string }) | null;
+    return payload?.purpose === 'export' && payload?.docId ? payload.docId : null;
+  } catch {
+    return null;
+  }
 }
 
 declare module 'express-serve-static-core' {

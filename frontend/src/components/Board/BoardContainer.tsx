@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useMemo, useRef, useCallback } from 'react';
 import { Board, Group, BoardColumn, Item } from '../../types';
-import { socket } from '../../store/socket';
+import { socket, emitMoveItem } from '../../store/socket';
 import { BoardGroup } from './BoardGroup';
 import {
   Plus, Search, Filter, ArrowUpDown, EyeOff, ChevronDown, X, Folder,
@@ -37,6 +37,8 @@ import * as Popover from '@radix-ui/react-popover';
 import * as Dialog from '@radix-ui/react-dialog';
 import { motion } from 'framer-motion';
 import { useHideOnScroll } from '../../hooks/useHideOnScroll';
+import { useViewport } from '../../hooks/useViewport';
+import { apiFetch } from '../../api';
 
 const API_BASE = import.meta.env.DEV ? '' : (import.meta.env.VITE_API_URL || 'http://localhost:3001');
 
@@ -75,6 +77,7 @@ function GroupDragOverlay({ groups }: { groups: Group[] }) {
 
 const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode, mobileCalendarOnly = false, mobileOptimized = false, calendarStandalone = false, onHeaderVisibilityChange, isMobile = false }) => {
   const { currentUser } = useUser();
+  const { useCardView, isLandscapeShort, isPortrait } = useViewport();
   const { toast } = useToast();
   const [board, setBoard] = useState<Board | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
@@ -101,40 +104,6 @@ const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode, mobile
   const [addToProjectAfterItemId, setAddToProjectAfterItemId] = useState<string>('');
   const [addToProjectName, setAddToProjectName] = useState('');
   const [addToProjectSubmitting, setAddToProjectSubmitting] = useState(false);
-
-  /** Vista de tarjetas: móvil estrecho o landscape con poca altura (mejor UX que tabla con scroll horizontal) */
-  const [useCardView, setUseCardView] = useState(() => {
-    if (typeof window === 'undefined') return false;
-    const narrow = window.matchMedia('(max-width: 639px)').matches;
-    const landscapeNarrow = window.matchMedia('(orientation: landscape) and (max-width: 479px)').matches;
-    const landscapeShort = window.matchMedia('(orientation: landscape) and (max-height: 500px)').matches;
-    return narrow || landscapeNarrow || landscapeShort;
-  });
-  useEffect(() => {
-    const mqNarrow = window.matchMedia('(max-width: 639px)');
-    const mqLandscapeNarrow = window.matchMedia('(orientation: landscape) and (max-width: 479px)');
-    const mqLandscapeShort = window.matchMedia('(orientation: landscape) and (max-height: 500px)');
-    const update = () => setUseCardView(mqNarrow.matches || mqLandscapeNarrow.matches || mqLandscapeShort.matches);
-    mqNarrow.addEventListener('change', update);
-    mqLandscapeNarrow.addEventListener('change', update);
-    mqLandscapeShort.addEventListener('change', update);
-    return () => {
-      mqNarrow.removeEventListener('change', update);
-      mqLandscapeNarrow.removeEventListener('change', update);
-      mqLandscapeShort.removeEventListener('change', update);
-    };
-  }, []);
-
-  /** Orientación portrait/landscape para ajustes de layout y alturas (dvh) */
-  const [isPortrait, setIsPortrait] = useState(() =>
-    typeof window !== 'undefined' && window.matchMedia('(orientation: portrait)').matches
-  );
-  useEffect(() => {
-    const m = window.matchMedia('(orientation: portrait)');
-    const handler = () => setIsPortrait(m.matches);
-    m.addEventListener('change', handler);
-    return () => m.removeEventListener('change', handler);
-  }, []);
 
   /** FAB móvil: abrir menú "Nuevo elemento" desde fuera */
   useEffect(() => {
@@ -210,7 +179,7 @@ const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode, mobile
 
   const fetchBoard = async () => {
     try {
-      const res = await fetch(`${API_BASE}/api/boards/${boardId}`);
+      const res = await apiFetch(`${API_BASE}/api/boards/${boardId}`);
       if (res.ok) {
         const data = await res.json();
         setBoard(data);
@@ -420,7 +389,7 @@ const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode, mobile
     // Enviar al backend para persistir (REST + socket para tiempo real)
     idsToDelete.forEach(itemId => {
       socket.emit('delete_item', { itemId });
-      fetch(`${API_BASE}/api/items/${itemId}`, { method: 'DELETE' }).catch(err =>
+      apiFetch(`${API_BASE}/api/items/${itemId}`, { method: 'DELETE' }).catch(err =>
         console.error('Error persistiendo eliminación de item', itemId, err)
       );
     });
@@ -534,7 +503,7 @@ const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode, mobile
 
       setBoard(prev => (prev ? { ...prev, columns: withPositions } : prev));
 
-      fetch(`${API_BASE}/api/boards/${board.id}/columns/reorder`, {
+      apiFetch(`${API_BASE}/api/boards/${board.id}/columns/reorder`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ updates }),
@@ -611,7 +580,7 @@ const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode, mobile
       tGroup.items.splice(targetItemIdx, 0, movedItem);
       return { ...prev, groups: newGroups };
     });
-    socket.emit('move_item', { itemId: movedItemId, newGroupId, newPosition: finalPosition });
+    emitMoveItem({ itemId: movedItemId, newGroupId, newPosition: finalPosition });
   };
 
   const isTaller = currentUser?.role === 'TALLER';
@@ -654,9 +623,9 @@ const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode, mobile
         if (!cv?.value) return false;
         try {
           const p = JSON.parse(cv.value);
-          return (p?.optionId ?? cv) === 'aprobado';
+          return (p?.optionId ?? cv.value) === 'aprobado';
         } catch {
-          return cv === 'aprobado';
+          return cv.value === 'aprobado';
         }
       });
   }, [statusOrPriorityColumnIds]);
@@ -912,6 +881,8 @@ const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode, mobile
               board={boardForView}
               onRowClick={onRowClick}
               isTallerView={isTaller}
+              isMobile={isMobile}
+              isLandscapeShort={isLandscapeShort}
               onOpenAddToProject={() => setAddToProjectOpen(true)}
               onRegisterOpenCalendarEvent={registerOpenCalendarEvent}
               defaultViewType={calendarStandalone ? 'week' : undefined}
@@ -970,6 +941,8 @@ const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode, mobile
             board={boardForView}
             onRowClick={onRowClick}
             isTallerView={isTaller}
+            isMobile={isMobile}
+            isLandscapeShort={isLandscapeShort}
             onOpenAddToProject={() => setAddToProjectOpen(true)}
             onRegisterOpenCalendarEvent={registerOpenCalendarEvent}
             defaultViewType={calendarStandalone ? 'week' : undefined}
@@ -1001,27 +974,31 @@ const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode, mobile
       {/* ── Board Content: min-h-0 para que el flex permita scroll; touch para desplazamiento en móvil/horizontal ───────────────────────────────────────── */}
       <div
         ref={setScrollContainerRef}
-        className={`flex-1 min-h-0 overflow-y-auto overflow-x-hidden custom-scrollbar scroll-touch overscroll-y-contain ${isPortrait ? 'px-4 sm:px-6 py-5' : 'px-2 sm:px-4 py-3'}`}
+        className={`flex-1 min-h-0 overflow-y-auto overflow-x-hidden custom-scrollbar scroll-touch overscroll-y-contain ${
+          isPortrait ? 'px-4 sm:px-6 py-5' : isLandscapeShort ? 'px-2 sm:px-3 py-2' : 'px-2 sm:px-4 py-3'
+        }`}
         style={{ WebkitOverflowScrolling: 'touch', overscrollBehaviorY: 'contain' }}
       >
         {viewMode === 'kanban' && boardForView ? (
-          <KanbanView board={boardForView} onRowClick={onRowClick} />
+          <KanbanView board={boardForView} onRowClick={onRowClick} isMobile={isMobile} isLandscapeShort={isLandscapeShort} />
         ) : viewMode === 'calendar' && boardForView ? (
           <CalendarView
             board={boardForView}
             onRowClick={onRowClick}
             isTallerView={isTaller}
+            isMobile={isMobile}
+            isLandscapeShort={isLandscapeShort}
             onOpenAddToProject={() => setAddToProjectOpen(true)}
             onRegisterOpenCalendarEvent={registerOpenCalendarEvent}
           />
         ) : viewMode === 'facturacion' && board ? (
-          <FacturacionBoardView board={board} onRowClick={onRowClick} />
+          <FacturacionBoardView board={board} onRowClick={onRowClick} isMobile={isMobile} isLandscapeShort={isLandscapeShort} />
         ) : viewMode === 'resumen' && board ? (
-          <ResumenBoardView board={board} onRowClick={onRowClick} />
+          <ResumenBoardView board={board} onRowClick={onRowClick} isMobile={isMobile} isLandscapeShort={isLandscapeShort} />
         ) : viewMode === 'archivos' && board ? (
-          <ArchivosBoardView board={board} onRowClick={onRowClick} />
+          <ArchivosBoardView board={board} onRowClick={onRowClick} isMobile={isMobile} isLandscapeShort={isLandscapeShort} />
         ) : viewMode === 'timeline' && board ? (
-          <TimelineBoardView board={board} onRowClick={onRowClick} />
+          <TimelineBoardView board={board} onRowClick={onRowClick} isMobile={isMobile} isLandscapeShort={isLandscapeShort} />
         ) : (viewMode === 'table' || viewMode === 'miTrabajo') && board ? (
           rootDisplayGroups.length === 0 && viewMode === 'miTrabajo' ? (
             <div className="flex-1 flex flex-col items-center justify-center p-6 text-monday-subtext text-[13px]">

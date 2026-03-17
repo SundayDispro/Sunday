@@ -241,7 +241,8 @@ Cambios de hardening ya implementados en esta fase:
 - **JWT y autenticación**  
   - Eliminado el fallback inseguro `JWT_SECRET || 'change-me-in-prod'` en `backend/src/auth.ts`.  
   - Ahora el backend **falla al arrancar** si `JWT_SECRET` no está definido en `.env`.  
-  - `JWT_SECRET`, `JWT_EXPIRES_IN` y `BCRYPT_ROUNDS` quedan documentados y parametrizados en `backend/.env.example` (12 rondas por defecto).
+  - `JWT_SECRET`, `JWT_EXPIRES_IN` y `BCRYPT_ROUNDS` quedan documentados y parametrizados en `backend/.env.example` (12 rondas por defecto).  
+  - Todas las rutas protegidas del backend (`/api/boards`, `/api/docs`, `/api/feed`, `/api/users`, `/api/notifications`, `/api/workspaces/*/doc-groups`, `/api/export/folders`, etc.) son consumidas desde el frontend a través de `apiFetch`, que adjunta automáticamente el JWT y centraliza el manejo de 401/403.
 
 - **Socket.IO (VPN y móviles)**  
   - Configuración explícita en el servidor (`backend/src/index.ts`):  
@@ -262,7 +263,8 @@ Cambios de hardening ya implementados en esta fase:
     - `item_*`, `group_*`, `column_*` ya se emiten mayoritariamente a rooms, con fallbacks globales solo en casos sin `boardId`.  
     - Eventos de calendario (`calendar_event_added/updated/deleted`) migrados a `io.to(boardRoom(boardId))`.  
     - Eventos de linkado de docs/excel (`/api/boards/link-doc`) emiten `column_value_updated` al room del tablero cuando es posible.  
-  - Eventos globales legítimos (`user_added`, `user_updated`, `board_added`, `notification_created`, `update_added`) se mantienen como `io.emit` por compatibilidad, marcados con `TODO` para futura segmentación por usuario/workspace.
+  - Introducción de rooms por usuario `user:<userId>` en el handshake de Socket.IO a partir del JWT; las notificaciones (`notification_created`) y los comentarios (`update_added`) se envían ahora a estos rooms en lugar de hacer broadcast global.  
+  - Se mantienen como emisiones globales solo algunos eventos de bajo volumen (`user_added`, `user_updated`, `board_added`), documentados como deuda técnica para futura segmentación por workspace/usuario.
 
 - **Motor de PDF (Puppeteer) y event loop**  
   - Introducción de `backend/src/pdfWorker.ts` basado en `worker_threads`:  
@@ -272,6 +274,11 @@ Cambios de hardening ya implementados en esta fase:
   - `generatePdfFromHtml` se mantiene como helper legacy, usando Puppeteer directo, pero el flujo principal de impresiones usa el worker para minimizar bloqueos.
 
 - **Despliegue frontend y Nginx**  
+
+- **CORS coherente entre Express y Socket.IO**  
+  - El backend (`backend/src/index.ts`) lee ahora `ALLOWED_ORIGINS` como lista separada por comas y la aplica de forma consistente tanto al middleware `cors` de Express como a la configuración de Socket.IO.  
+  - En desarrollo se utilizan orígenes explícitos (`http://localhost:5173`, IP LAN de Vite) en lugar de `'*'`, dejando documentado en `backend/.env` cómo ajustar la lista para entornos LAN/VPN y producción.  
+  - Esto reduce superficie de ataque CORS manteniendo una experiencia cómoda en red local y móviles conectados por Wi‑Fi/VPN.
   - Añadido `nginx.conf` en la raíz del proyecto con:  
     - Servido del build de Vite como SPA (`root /ruta/al/frontend/dist`, `try_files ... /index.html`).  
     - Proxy de `/api`, `/uploads` y `/socket.io` hacia `http://localhost:3001` con soporte WebSocket y timeouts adecuados.  
@@ -370,16 +377,16 @@ Edge cases:
 
 - **Hashing de contraseñas**:
   - Implementado con `bcrypt` en `auth.ts` (`hashPassword`, `verifyPassword`).
-  - Rondas configuradas en `BCRYPT_ROUNDS = 10` (el objetivo estratégico menciona 12, la recomendación es alinear la constante a 12 en producción).
+  - Rondas configuradas vía `BCRYPT_ROUNDS` en `.env` (por defecto 12 en el código).
 - **Usuarios y roles**:
   - Modelo `User` en Prisma:
     - Campos: `username`, `name`, `initials`, `color`, `password`, `role`, `status`.
     - Roles posibles: `'ADMIN' | 'VENTAS' | 'DISENO' | 'TALLER' | 'USER'`.
   - Usuario `ADMIN` se inicializa mediante script (`scripts/set-admin.ts`) y está verificado en Postgres.
 
-Riesgos:
+Estado de endurecimiento (aplicado):
 
-- El `JWT_SECRET` tiene un fallback inseguro (`'change-me-in-prod'`). Para producción, es obligatorio usar un secreto fuerte vía `process.env.JWT_SECRET`.
+- **JWT_SECRET**: Sin fallback. El backend **falla al arrancar** si `JWT_SECRET` no está definido en `.env`. En producción es obligatorio configurar un secreto fuerte.
 
 #### 3.2 Tokens JWT y ciclo de vida
 
@@ -823,6 +830,11 @@ Líneas de trabajo:
     - Procesos hijos con comunicación vía colas o sockets internos.
 
 - **Observabilidad**:
+
+Estado a marzo 2026 (actualizado):
+
+- El build de frontend (`npm run build`) compila sin errores de TypeScript tras tipar de forma estricta vistas de tablero, calendario y editor/PDF (incluyendo `DocsPage`, `PdfTemplateEditor` y `UserContext`).  
+- La experiencia móvil al entrar en la app se ha estabilizado mediante un estado de “bootstrap” en `App.tsx`, que muestra una única pantalla de carga mientras se resuelven `currentUser`, workspaces y boards, evitando montajes/desmontajes repetidos de vistas de tablero y encabezados.
   - Añadir logging estructurado (JSON) y niveles (`info`, `warn`, `error`).
   - Instrumentar tiempos de consulta de Prisma.
   - Medir número de conexiones Socket.IO activas.
@@ -856,6 +868,11 @@ Este enfoque mantiene un flujo sencillo (desarrollo en cualquier PC → `git pus
 
 - **Configuraciones de CORS flexibles**:
   - El uso de `'*'` como origen permitido es aceptable en desarrollo, pero debe endurecerse en despliegue real a dominios concretos.
+
+- **Parpadeo crítico de la UI (especialmente en móvil)** — corregido:
+  - Se ha introducido un estado de arranque (`isBootstrapping`) en `App.tsx` que espera a que se carguen `currentUser`, workspaces y boards antes de montar las vistas pesadas en móvil.  
+  - Mientras dura el bootstrap se muestra una pantalla de carga única y se ocultan `MobileBoardHeader`, FAB y `BottomNav`, evitando los cambios encadenados de `activePage`/`activeBoardId` y el parpadeo entre distintas pantallas.  
+  - El comportamiento de navegación y sockets se mantiene intacto una vez finaliza el bootstrap.
 
 ---
 

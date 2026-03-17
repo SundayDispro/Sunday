@@ -8,6 +8,7 @@ import {
 } from './pdfTemplateConfig';
 import { TextFormatBarForTemplate } from '../../docs/TextFormatBar';
 import { useUser } from '../../../store/UserContext';
+import { apiFetch } from '../../../api';
 import { getDocument, GlobalWorkerOptions } from 'pdfjs-dist';
 import pdfjsWorker from 'pdfjs-dist/build/pdf.worker.mjs?url';
 
@@ -32,6 +33,12 @@ interface Props {
   savingTemplateConfig?: boolean;
   /** Solo visualización: sin barra de formato, sin menú admin y cuadros de solo lectura */
   viewerOnly?: boolean;
+  /** URL de plantilla PDF (cuando la proporciona el padre, no se hace fetch interno). */
+  templatePdfUrlProp?: string | null;
+  /** Llamado cuando el preview está listo para captura PDF (canvas + overlays). */
+  onExportReady?: () => void;
+  /** Escala de píxeles para export (ej. 3.125 = 300 DPI). Canvas y overlays se dibujan a 816*scale × 1056*scale. */
+  exportPixelScale?: number;
 }
 
 /** Relación de aspecto US Letter (612×792). */
@@ -62,7 +69,8 @@ function getSemanticPlaceholder(box: import('./pdfTemplateConfig').CustomBoxDef)
 const DEFAULT_TEMPLATE_CONFIG: TemplateConfigState = {
   fieldPositions: {},
   fontColor: '#000000',
-  fontFamily: 'Helvetica',
+  // Fuente base de las cotizaciones: Averta Std (coincide con backend/PDF).
+  fontFamily: 'Averta Std',
   fontSize: 11,
   fontBold: false,
   fontItalic: false,
@@ -80,12 +88,19 @@ export const PdfTemplateEditor: React.FC<Props> = ({
   onSaveTemplateConfig,
   savingTemplateConfig = false,
   viewerOnly = false,
+  templatePdfUrlProp = null,
+  onExportReady,
+  exportPixelScale,
 }) => {
   const { currentUser } = useUser();
-  const [templatePdfUrl, setTemplatePdfUrl] = useState<string | null>(null);
+  const [templatePdfUrlInternal, setTemplatePdfUrlInternal] = useState<string | null>(null);
+  const templatePdfUrl = templatePdfUrlProp ?? templatePdfUrlInternal;
   const containerRef = useRef<HTMLDivElement>(null);
   const wrapperRef = useRef<HTMLDivElement>(null);
   const [scale, setScale] = useState(1);
+  const pixelScale = exportPixelScale ?? 1;
+  const PAGE_WIDTH_PX = Math.round(PAGE_WIDTH_PX_96DPI * pixelScale);
+  const PAGE_HEIGHT_PX = Math.round(PAGE_HEIGHT_PX_96DPI * pixelScale);
   const [dragging, setDragging] = useState<{ fieldKey: string; startX: number; startY: number; startLeft: number; startTop: number } | null>(null);
   const [dragPreview, setDragPreview] = useState<{ x: number; y: number } | null>(null);
   type ResizeAxis = 'e' | 's' | 'se';
@@ -117,14 +132,15 @@ export const PdfTemplateEditor: React.FC<Props> = ({
   const fontBold = effectiveConfig.fontBold ?? false;
   const fontItalic = effectiveConfig.fontItalic ?? false;
 
-  // Cargar URL de plantilla PDF para usarla como fondo
+  // Cargar URL de plantilla PDF para usarla como fondo (solo si el padre no pasa templatePdfUrlProp)
   useEffect(() => {
+    if (templatePdfUrlProp != null) return;
     let revoked = false;
     let objectUrl: string | null = null;
-    fetch(`${API_BASE}/api/templates/${docType}`)
+    apiFetch(`${API_BASE}/api/templates/${docType}`)
       .then((res) => {
         if (!res.ok) {
-          setTemplatePdfUrl(null);
+          setTemplatePdfUrlInternal(null);
           return;
         }
         return res.blob();
@@ -132,39 +148,38 @@ export const PdfTemplateEditor: React.FC<Props> = ({
       .then((blob) => {
         if (revoked || !blob) return;
         objectUrl = URL.createObjectURL(blob);
-        setTemplatePdfUrl(objectUrl);
+        setTemplatePdfUrlInternal(objectUrl);
       })
-      .catch(() => setTemplatePdfUrl(null));
+      .catch(() => setTemplatePdfUrlInternal(null));
     return () => {
       revoked = true;
       if (objectUrl) {
         const url = objectUrl;
         objectUrl = null;
-        // WebKit puede seguir usando la URL un momento; revocar al instante causa WebKitBlobResource 1
         setTimeout(() => URL.revokeObjectURL(url), 500);
       }
     };
-  }, [docType]);
+  }, [docType, templatePdfUrlProp]);
 
-  const PAGE_WIDTH_PX = PAGE_WIDTH_PX_96DPI;
-  const PAGE_HEIGHT_PX = PAGE_HEIGHT_PX_96DPI;
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [pdfRenderError, setPdfRenderError] = useState<string | null>(null);
 
   useEffect(() => {
+    if (exportPixelScale) return;
     const el = wrapperRef.current;
     if (!el) return;
     const calcScale = () => {
       if (!wrapperRef.current) return;
+      const baseW = PAGE_WIDTH_PX_96DPI;
       const available = wrapperRef.current.clientWidth ?? 0;
-      const raw = available > 0 ? available / PAGE_WIDTH_PX : 1;
+      const raw = available > 0 ? available / baseW : 1;
       setScale(Math.max(0.25, Math.min(1, raw)));
     };
     calcScale();
     const ro = new ResizeObserver(calcScale);
     ro.observe(el);
     return () => ro.disconnect();
-  }, []);
+  }, [exportPixelScale]);
 
   useEffect(() => {
     if (!templatePdfUrl || !canvasRef.current) {
@@ -184,7 +199,7 @@ export const PdfTemplateEditor: React.FC<Props> = ({
         if (cancelled) return;
         const page = await pdf.getPage(1);
         if (cancelled) return;
-        const viewport = page.getViewport({ scale: PDF_SCALE });
+        const viewport = page.getViewport({ scale: PDF_SCALE * pixelScale });
         canvas.width = viewport.width;
         canvas.height = viewport.height;
         await page.render({
@@ -194,6 +209,17 @@ export const PdfTemplateEditor: React.FC<Props> = ({
         }).promise;
         if (cancelled) return;
         setPdfRenderError(null);
+        if (onExportReady) {
+          const done = () => {
+            if (cancelled) return;
+            setTimeout(() => onExportReady(), 150);
+          };
+          if (typeof document !== 'undefined' && document.fonts?.ready) {
+            document.fonts.ready.then(done).catch(done);
+          } else {
+            setTimeout(done, 250);
+          }
+        }
       } catch (e) {
         if (!cancelled) setPdfRenderError(e instanceof Error ? e.message : 'Error al cargar PDF');
       }
@@ -202,7 +228,7 @@ export const PdfTemplateEditor: React.FC<Props> = ({
     return () => {
       cancelled = true;
     };
-  }, [templatePdfUrl]);
+  }, [templatePdfUrl, onExportReady, pixelScale]);
 
   const handleCustomBoxMouseDown = useCallback((e: React.MouseEvent, box: CustomBoxDef) => {
     e.preventDefault();
@@ -288,7 +314,7 @@ export const PdfTemplateEditor: React.FC<Props> = ({
       formData.append('file', file);
       setImageDialogUploading(true);
       try {
-        const res = await fetch(`${API_BASE}/api/upload`, {
+        const res = await apiFetch(`${API_BASE}/api/upload`, {
           method: 'POST',
           body: formData,
         });
@@ -405,9 +431,9 @@ export const PdfTemplateEditor: React.FC<Props> = ({
     // Estilos globales definidos por admin en TemplateConfig;
     // los valores específicos por cuadro (fontSize, fontFamily, etc.)
     // prevalecen sobre los globales. line-height 1.1 para folio/una línea = igual que backend (documentHtmlBuilder).
-    // fontSize en px para consistencia entre navegadores (Edge, Arc, etc.)
+    // fontSize en px para consistencia entre navegadores (Edge, Arc, etc.). En export a alta res se escala.
     const sizePt = box.fontSize ?? fontSize;
-    const sizePx = Math.round(sizePt * (4 / 3));
+    const sizePx = Math.round(sizePt * (4 / 3)) * pixelScale;
     const colBase = box.fontColor ?? fontColor;
     const col = colBase.toLowerCase() === '#ffffff' ? '#ffffff' : '#000000';
     const ff = box.fontFamily ?? fontFamily;
@@ -421,8 +447,8 @@ export const PdfTemplateEditor: React.FC<Props> = ({
       fontStyle: italic ? 'italic' : 'normal',
       color: col,
       fontSize: `${sizePx}px`,
-      textAlign: isTotalBox ? 'right' : 'left',
-      direction: 'ltr',
+      textAlign: (isTotalBox ? 'right' : 'left') as 'left' | 'right',
+      direction: 'ltr' as const,
       lineHeight: isTotalBox ? 1 : (isSingleLineOrFolio ? 1.1 : 1.35),
       ...(box.backgroundColor ? { backgroundColor: box.backgroundColor } : {}),
     };
@@ -538,7 +564,7 @@ export const PdfTemplateEditor: React.FC<Props> = ({
               {onSaveTemplateConfig && (
                 <button
                   type="button"
-                  onClick={onSaveTemplateConfig}
+                  onClick={() => onSaveTemplateConfig()}
                   disabled={savingTemplateConfig}
                   className="flex items-center justify-center gap-2 px-3 py-2 rounded-lg bg-monday-blue text-white text-[13px] font-medium hover:bg-monday-blue/90 disabled:opacity-60"
                 >
@@ -560,7 +586,12 @@ export const PdfTemplateEditor: React.FC<Props> = ({
             fontColor: effectiveConfig.fontColor,
             customBoxes: effectiveConfig.customBoxes ?? [],
           }}
-          onTemplateConfigChange={onTemplateConfigChange}
+          onTemplateConfigChange={(patch) => {
+            onTemplateConfigChange({
+              ...effectiveConfig,
+              ...patch,
+            });
+          }}
           selectedBoxId={selectedBoxId}
           onAddTextBox={() => addCustomBox(false)}
           onAddImageBox={openAddImageDialog}
@@ -576,14 +607,18 @@ export const PdfTemplateEditor: React.FC<Props> = ({
         <div
           ref={wrapperRef}
           style={{
-            width: '100%',
-            maxWidth: `${PAGE_WIDTH_PX}px`,
-            ...(viewerOnly
-              ? { aspectRatio: '612/792', minHeight: 0, position: 'relative' as const, overflow: 'hidden' as const }
+            ...(exportPixelScale
+              ? { width: PAGE_WIDTH_PX, height: PAGE_HEIGHT_PX, position: 'relative' as const, overflow: 'hidden' as const }
               : {
-                  height: `${Math.max(100, PAGE_HEIGHT_PX * scale)}px`,
-                  position: 'relative' as const,
-                  overflow: 'hidden' as const,
+                  width: '100%',
+                  maxWidth: `${PAGE_WIDTH_PX}px`,
+                  ...(viewerOnly
+                    ? { aspectRatio: '612/792', minHeight: 0, position: 'relative' as const, overflow: 'hidden' as const }
+                    : {
+                        height: `${Math.max(100, PAGE_HEIGHT_PX * scale)}px`,
+                        position: 'relative' as const,
+                        overflow: 'hidden' as const,
+                      }),
                 }),
           }}
         >
@@ -595,7 +630,8 @@ export const PdfTemplateEditor: React.FC<Props> = ({
               height: `${PAGE_HEIGHT_PX}px`,
               position: 'relative',
               transformOrigin: 'top left',
-              transform: `scale(${scale})`,
+              transform: `scale(${exportPixelScale ? 1 : scale})`,
+              ...(exportPixelScale && exportPixelScale > 1 ? { fontSize: `${16 * exportPixelScale}px` } : {}),
             }}
           >
           {/* Capa 1: Fondo (PDF renderizado con PDF.js a 96 DPI o blanco). */}
@@ -727,7 +763,7 @@ export const PdfTemplateEditor: React.FC<Props> = ({
                           )}
                         </div>
                       ) : (
-                        <div
+                <div
                           contentEditable
                           suppressContentEditableWarning
                           onInput={(e) => {
@@ -740,6 +776,11 @@ export const PdfTemplateEditor: React.FC<Props> = ({
                                 customFieldValues: { ...customValues, [box.id]: text },
                               });
                             }
+                          }}
+                          onFocus={() => {
+                            // Mientras el cuadro tiene foco, evitamos sobrescribir su contenido desde React
+                            // para que no salte el cursor al principio.
+                            setSelectedBoxId(box.id);
                           }}
                           data-placeholder={getSemanticPlaceholder(box)}
                           style={{
@@ -761,12 +802,13 @@ export const PdfTemplateEditor: React.FC<Props> = ({
                             e.stopPropagation();
                             if (canFormatBox) setSelectedBoxId(box.id);
                           }}
-                          onFocus={() => {
-                            if (canFormatBox) setSelectedBoxId(box.id);
-                          }}
                           spellCheck
                         >
-                          {boxVal || ''}
+                          {/*
+                            No inyectamos boxVal cuando el cuadro está seleccionado para no
+                            forzar un re-render que mueva el cursor al inicio mientras el usuario escribe.
+                          */}
+                          {selectedBoxId === box.id ? null : boxVal || ''}
                         </div>
                       )}
                     </div>

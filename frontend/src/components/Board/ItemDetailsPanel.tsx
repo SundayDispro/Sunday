@@ -4,11 +4,13 @@ import { Item, Update } from '../../types';
 import { X, Image, Smile, AtSign, Paperclip, Send, Clock, FileText, Activity, Info } from 'lucide-react';
 import { socket } from '../../store/socket';
 import { useUser } from '../../store/UserContext';
-import { API_BASE } from '../../api';
+import { API_BASE, apiFetch } from '../../api';
 
 interface Props {
   item: Item;
   onClose: () => void;
+  /** En móvil: 'sheet' = overlay pantalla completa/sheet desde abajo con barra de cierre; 'panel' = lateral como en desktop */
+  variant?: 'panel' | 'sheet';
 }
 
 const TABS = ['Actualizaciones', 'Archivos', 'Registro de act.', 'Info'] as const;
@@ -25,7 +27,7 @@ function relativeTime(dateStr: string): string {
   return `hace ${Math.floor(hrs / 24)} días`;
 }
 
-export const ItemDetailsPanel: React.FC<Props> = ({ item, onClose }) => {
+export const ItemDetailsPanel: React.FC<Props> = ({ item, onClose, variant = 'panel' }) => {
   const { currentUser } = useUser();
   const [activeTab, setActiveTab] = useState<Tab>('Actualizaciones');
   const [updates, setUpdates] = useState<Update[]>([]);
@@ -38,7 +40,7 @@ export const ItemDetailsPanel: React.FC<Props> = ({ item, onClose }) => {
   useEffect(() => {
     setLoading(true);
     setUpdates([]);
-    fetch(`${API_BASE}/api/items/${item.id}/updates`)
+    apiFetch(`${API_BASE}/api/items/${item.id}/updates`)
       .then(r => r.ok ? r.json() : [])
       .then(data => { setUpdates(data); setLoading(false); })
       .catch(() => setLoading(false));
@@ -74,19 +76,31 @@ export const ItemDetailsPanel: React.FC<Props> = ({ item, onClose }) => {
     return null;
   };
 
+  const isSheet = variant === 'sheet';
+  const panelClassName = isSheet
+    ? 'w-full max-h-[90dvh] min-h-0 bg-white rounded-t-2xl shadow-monday-panel flex flex-col safe-area-padding border-t border-l border-r border-monday-border'
+    : 'w-full max-w-full md:w-[520px] h-full min-h-0 bg-white border-l border-monday-border shadow-monday-panel flex flex-col safe-area-padding';
+
   return (
-    <div className="w-full max-w-full md:w-[520px] h-full min-h-0 bg-white border-l border-monday-border shadow-monday-panel flex flex-col safe-area-padding">
-      {/* Header */}
-      <div className="flex items-start justify-between px-4 sm:px-5 py-4 border-b border-monday-border shrink-0">
-        <div className="flex-1 min-w-0 pr-3">
+    <div className={panelClassName}>
+      {/* Barra de agarre (solo sheet) para indicar que se puede cerrar */}
+      {isSheet && (
+        <div className="shrink-0 flex justify-center pt-2 pb-1">
+          <div className="w-10 h-1 rounded-full bg-monday-border/60" aria-hidden />
+        </div>
+      )}
+      {/* Header: título + Cerrar siempre visible, altura táctil */}
+      <div className="flex items-center justify-between px-4 sm:px-5 py-3 border-b border-monday-border shrink-0 gap-2">
+        <div className="flex-1 min-w-0">
           <h2 className="text-[16px] sm:text-[17px] font-semibold text-monday-text leading-tight truncate">{item.name}</h2>
           <p className="text-[12px] text-monday-subtext mt-0.5">Elemento · ID #{item.id.slice(0, 8)}</p>
         </div>
         <button
           onClick={onClose}
-          className="p-1.5 hover:bg-monday-hover rounded-monday text-monday-subtext hover:text-monday-text transition-colors shrink-0 min-h-[44px] min-w-[44px] flex items-center justify-center"
+          className="p-2.5 hover:bg-monday-hover rounded-monday text-monday-subtext hover:text-monday-text transition-colors shrink-0 min-h-[44px] min-w-[44px] flex items-center justify-center touch-manipulation"
+          aria-label="Cerrar"
         >
-          <X size={18} />
+          <X size={20} />
         </button>
       </div>
 

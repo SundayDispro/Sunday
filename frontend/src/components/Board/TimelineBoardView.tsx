@@ -4,6 +4,8 @@ import { Board, Item, Group, BoardColumn } from '../../types';
 interface Props {
   board: Board;
   onRowClick: (item: Item) => void;
+  isMobile?: boolean;
+  isLandscapeShort?: boolean;
 }
 
 interface ItemWithDate {
@@ -14,7 +16,7 @@ interface ItemWithDate {
   columnTitle: string;
 }
 
-export const TimelineBoardView: React.FC<Props> = ({ board, onRowClick }) => {
+export const TimelineBoardView: React.FC<Props> = ({ board, onRowClick, isMobile = false }) => {
   const { itemsWithDate, dateColumn } = useMemo(() => {
     const dateCol = board.columns.find(c => c.type === 'date') as BoardColumn | undefined;
     if (!dateCol) return { itemsWithDate: [] as ItemWithDate[], dateColumn: null as BoardColumn | null };
@@ -72,6 +74,34 @@ export const TimelineBoardView: React.FC<Props> = ({ board, onRowClick }) => {
     return (
       <div className="flex-1 flex items-center justify-center p-6 text-monday-subtext text-[13px]">
         <p>No hay elementos con fecha en la columna &quot;{dateColumn.title}&quot;.</p>
+      </div>
+    );
+  }
+
+  if (isMobile) {
+    return (
+      <div className="flex-1 overflow-auto scroll-touch custom-scrollbar p-4 sm:p-6 min-h-0">
+        <div className="mb-4">
+          <h3 className="text-[13px] font-semibold text-monday-text">Timeline por &quot;{dateColumn.title}&quot;</h3>
+          <p className="text-[12px] text-monday-subtext mt-0.5">
+            {itemsWithDate.length} elemento(s) · {minDate.toLocaleDateString()} – {maxDate.toLocaleDateString()}
+          </p>
+        </div>
+        <div className="flex flex-col gap-2">
+          {itemsWithDate.map(({ item, group, date }) => (
+            <div
+              key={item.id}
+              role="button"
+              tabIndex={0}
+              onClick={() => onRowClick(item)}
+              onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onRowClick(item); } }}
+              className="bg-white border border-monday-border rounded-xl p-4 shadow-monday-sm flex items-center justify-between gap-3 min-h-[48px] touch-manipulation active:bg-monday-hover/30"
+            >
+              <span className="font-medium text-monday-text text-[14px] truncate flex-1 min-w-0">{item.name}</span>
+              <span className="text-[12px] text-monday-subtext shrink-0">{date.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })}</span>
+            </div>
+          ))}
+        </div>
       </div>
     );
   }

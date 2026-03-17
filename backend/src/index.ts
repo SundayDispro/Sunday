@@ -1,4 +1,5 @@
 import 'dotenv/config';
+import crypto from 'crypto';
 import express from 'express';
 import { createServer } from 'http';
 import { Server } from 'socket.io';
@@ -7,16 +8,16 @@ import path from 'path';
 import fs from 'fs';
 import multer from 'multer';
 import { PrismaClient, Prisma } from '@prisma/client';
-import { attachUserFromJwt, authenticateToken, hashPassword, requireAdmin, requireAuth, verifyPassword, signJwt } from './auth';
+import { attachUserFromJwt, authenticateToken, hashPassword, requireAdmin, requireAuth, verifyPassword, signJwt, verifyJwt, verifyExportToken, signExportToken, getExportDocIdFromToken } from './auth';
 import webpush from 'web-push';
-import { getTemplatePathIfExists, getTemplateImagePathIfExists } from './templatePdfGenerator';
+import { getTemplatePathIfExists, getTemplateImagePathIfExists, generateFilledPdf, generatePdfFromTemplate, getTemplatesDir, TemplateKind, createPdfFromScreenshotPng } from './templatePdfGenerator';
+import * as notificationsService from './services/notifications';
 
 const prisma = new PrismaClient();
 const app = express();
 const httpServer = createServer(app);
 
-// ALLOWED_ORIGINS puede ser '*' o una lista separada por comas de dominios.
-// Ejemplo: ALLOWED_ORIGINS=https://app.midominio.com,https://www.midominio.com
+// En producción usar orígenes concretos (no '*'). Ejemplo: ALLOWED_ORIGINS=https://app.midominio.com,https://www.midominio.com
 const rawOrigins = process.env.ALLOWED_ORIGINS || '*';
 const allowedOrigins: string[] | '*' =
   rawOrigins.trim() === '*'
@@ -33,6 +34,8 @@ const io = new Server(httpServer, {
     methods: ['GET', 'POST', 'PUT', 'DELETE'],
   },
 });
+
+let socketConnectionCount = 0;
 
 // Configuración Web Push (VAPID)
 const VAPID_PUBLIC_KEY = process.env.VAPID_PUBLIC_KEY;
@@ -127,18 +130,30 @@ app.use(
   })
 );
 app.use(express.json());
+
+// Logging estructurado (Fase 5): método, ruta, status, duración
+app.use((req, res, next) => {
+  const start = Date.now();
+  res.on('finish', () => {
+    const durationMs = Date.now() - start;
+    const level = res.statusCode >= 500 ? 'error' : res.statusCode >= 400 ? 'warn' : 'info';
+    console.log(JSON.stringify({ level, msg: 'request', method: req.method, path: req.path, statusCode: res.statusCode, durationMs }));
+  });
+  next();
+});
+
 app.use(attachUserFromJwt);
 
 // Servir archivos subidos (URL pública: /uploads/nombre.jpg)
 app.use('/uploads', express.static(UPLOAD_DIR));
 
-// Health check (for frontend to verify backend is up)
+// Health check (for frontend to verify backend is up); socketConnections para observabilidad
 app.get('/api/health', (_req, res) => {
-  res.status(200).json({ ok: true });
+  res.status(200).json({ ok: true, socketConnections: socketConnectionCount });
 });
 
 // Subir documento (JPG o PDF) (multipart/form-data, field: "file"); responde con la URL pública
-app.post('/api/upload', (req, res) => {
+app.post('/api/upload', authenticateToken, (req, res) => {
   const sendError = (status: number, message: string) => {
     res.status(status).json({ error: message });
   };
@@ -649,7 +664,7 @@ app.post('/api/boards/link-doc', authenticateToken, async (req, res) => {
   }
 });
 
-app.get('/api/boards/:id', async (req, res) => {
+app.get('/api/boards/:id', authenticateToken, async (req, res) => {
   try {
     const board = await prisma.board.findUnique({
       where: { id: req.params.id },
@@ -682,9 +697,16 @@ app.get('/api/items/:itemId/updates', authenticateToken, async (req, res) => {
     const updates = await prisma.update.findMany({
       where: { itemId: req.params.itemId },
       orderBy: { createdAt: 'desc' },
-      include: {
-        author: true,
-      }
+      select: {
+        id: true,
+        content: true,
+        createdAt: true,
+        itemId: true,
+        authorId: true,
+        author: {
+          select: { id: true, username: true, name: true, initials: true, color: true },
+        },
+      },
     });
     const safe = updates.map(u => {
       const { author, ...rest } = u as any;
@@ -699,7 +721,7 @@ app.get('/api/items/:itemId/updates', authenticateToken, async (req, res) => {
 });
 
 // --- Bandeja feed (publicaciones con @mentions) ---
-app.get('/api/feed', async (req, res) => {
+app.get('/api/feed', authenticateToken, async (req, res) => {
   try {
     const filter = req.query.filter as string; // 'mentions' = solo donde me mencionaron
     const userId = req.query.userId as string;
@@ -729,7 +751,7 @@ app.get('/api/feed', async (req, res) => {
   }
 });
 
-app.post('/api/feed', async (req, res) => {
+app.post('/api/feed', authenticateToken, async (req, res) => {
   try {
     const { content, authorId, mentionedUserIds } = req.body ?? {};
     if (!content || typeof content !== 'string' || !authorId) {
@@ -840,6 +862,7 @@ app.post('/api/users', requireAuth, requireAdmin, async (req, res) => {
 
     const { password: _p, ...userWithoutPassword } = newUser;
     // Broadcast global por ahora; en el futuro se puede segmentar por workspace o rol.
+    // Global: lista de usuarios visible para todos; Fase 3+ podría usar room por workspace
     io.emit('user_added', userWithoutPassword);
     res.json(userWithoutPassword);
   } catch (err) {
@@ -849,7 +872,7 @@ app.post('/api/users', requireAuth, requireAdmin, async (req, res) => {
 });
 
 // Get all users (sin enviar password)
-app.get('/api/users', async (req, res) => {
+app.get('/api/users', authenticateToken, async (req, res) => {
   try {
     const users = await prisma.user.findMany({ orderBy: { name: 'asc' } });
     const safe = users.map(({ password: _p, ...u }) => u);
@@ -908,6 +931,7 @@ app.patch('/api/users/:id', requireAuth, requireAdmin, async (req, res) => {
 
     const { password: _p, ...safe } = updated;
     // Broadcast global por ahora; en el futuro se puede segmentar por workspace o rol.
+    // Global: lista de usuarios; Fase 3+ podría usar room por workspace
     io.emit('user_updated', safe);
     res.json(safe);
   } catch (e) {
@@ -985,22 +1009,11 @@ function getSyncProfileForRole(role: string): SyncProfile {
 
 // --- Notifications API ---
 
-app.get('/api/notifications', async (req, res) => {
+app.get('/api/notifications', authenticateToken, async (req, res) => {
   try {
     const userId = req.query.userId as string;
     if (!userId) return res.status(400).json({ error: 'userId required' });
-    const notifications = await prisma.notification.findMany({
-      where: { userId },
-      orderBy: { createdAt: 'desc' },
-      include: {
-        item: {
-          include: {
-            columnValues: true,
-            group: { include: { board: true } },
-          },
-        },
-      },
-    });
+    const notifications = await notificationsService.findManyByUserId(prisma, userId);
     res.json(notifications);
   } catch (e) {
     console.error(e);
@@ -1008,13 +1021,10 @@ app.get('/api/notifications', async (req, res) => {
   }
 });
 
-app.patch('/api/notifications/:id/read', async (req, res) => {
+app.patch('/api/notifications/:id/read', authenticateToken, async (req, res) => {
   try {
     const { id } = req.params;
-    await prisma.notification.update({
-      where: { id },
-      data: { read: true },
-    });
+    await notificationsService.markAsRead(prisma, id);
     res.json({ ok: true });
   } catch (e) {
     console.error(e);
@@ -1022,14 +1032,11 @@ app.patch('/api/notifications/:id/read', async (req, res) => {
   }
 });
 
-app.patch('/api/notifications/read-all', async (req, res) => {
+app.patch('/api/notifications/read-all', authenticateToken, async (req, res) => {
   try {
     const userId = req.query.userId as string;
     if (!userId) return res.status(400).json({ error: 'userId required' });
-    await prisma.notification.updateMany({
-      where: { userId },
-      data: { read: true },
-    });
+    await notificationsService.markAllAsRead(prisma, userId);
     res.json({ ok: true });
   } catch (e) {
     console.error(e);
@@ -1048,7 +1055,7 @@ app.get('/api/push/public-key', (_req, res) => {
 });
 
 // Registrar/actualizar una suscripción Web Push para un usuario
-app.post('/api/push/subscribe', async (req, res) => {
+app.post('/api/push/subscribe', authenticateToken, async (req, res) => {
   try {
     const { userId, subscription } = req.body ?? {};
     if (!userId || !subscription?.endpoint || !subscription?.keys?.p256dh || !subscription?.keys?.auth) {
@@ -1084,7 +1091,7 @@ app.post('/api/push/subscribe', async (req, res) => {
 });
 
 // Eliminar una suscripción (opcional)
-app.post('/api/push/unsubscribe', async (req, res) => {
+app.post('/api/push/unsubscribe', authenticateToken, async (req, res) => {
   try {
     const { userId, endpoint } = req.body ?? {};
     if (!userId || !endpoint) {
@@ -1124,7 +1131,7 @@ function isAssignedToUser(columnValues: { columnId: string; value: string }[], p
   }
 }
 
-app.post('/api/export/folders', async (req, res) => {
+app.post('/api/export/folders', authenticateToken, async (req, res) => {
   const errors: string[] = [];
   let copied = 0;
   let skipped = 0;
@@ -1314,9 +1321,55 @@ app.head('/api/docs/:id', authenticateToken, async (req, res) => {
   }
 });
 
+// Cache de contenido para exportación por captura: mismo contenido que el preview (draft actual).
+const exportContentCache = new Map<string, { content: Record<string, unknown>; docId: string; docType: string; expires: number }>();
+const EXPORT_CONTENT_TTL_MS = 120_000; // 2 min
+
+function cleanupExportContentCache(): void {
+  const now = Date.now();
+  for (const [key, entry] of exportContentCache.entries()) {
+    if (entry.expires < now) exportContentCache.delete(key);
+  }
+}
+
+app.get('/api/docs/export-content', (req, res) => {
+  const token = (req.query.token as string)?.trim();
+  const contentKey = (req.query.contentKey as string)?.trim();
+  if (!token || !contentKey) return res.status(400).json({ error: 'Faltan token o contentKey' });
+  try {
+    const { docId } = verifyExportToken(token);
+    cleanupExportContentCache();
+    const entry = exportContentCache.get(contentKey);
+    if (!entry) return res.status(404).json({ error: 'Contenido de exportación expirado o ya usado' });
+    if (entry.docId !== docId) return res.status(403).json({ error: 'No autorizado' });
+    exportContentCache.delete(contentKey);
+    res.json({ content: entry.content, docType: entry.docType });
+  } catch {
+    res.status(401).json({ error: 'Token de exportación inválido o expirado' });
+  }
+});
+
+// Verificación de token de exportación (sin auth de sesión)
+app.get('/api/docs/export-verify', (req, res) => {
+  const token = (req.query.token as string)?.trim();
+  if (!token) return res.status(400).json({ error: 'Falta token' });
+  try {
+    const { docId } = verifyExportToken(token);
+    res.json({ docId });
+  } catch {
+    res.status(401).json({ error: 'Token de exportación inválido o expirado' });
+  }
+});
+
 app.get('/api/docs/:id', authenticateToken, async (req, res) => {
   try {
     const { id } = req.params;
+    const auth = req.get('Authorization') || '';
+    const token = auth.startsWith('Bearer ') ? auth.slice(7).trim() : '';
+    const exportDocId = token ? getExportDocIdFromToken(token) : null;
+    if (exportDocId != null && exportDocId !== id) {
+      return res.status(403).json({ error: 'No autorizado para este documento' });
+    }
     const doc = await prisma.doc.findUnique({ where: { id } });
     if (!doc) return res.status(404).json({ error: 'Doc no encontrado' });
     res.json(doc);
@@ -1464,7 +1517,7 @@ app.delete('/api/docs/:id', authenticateToken, async (req, res) => {
 // ── Templates (PDF plantillas para cotización, levantamiento, hoja de trabajo) ────────────────
 const TEMPLATE_KINDS = ['cotizacion', 'levantamiento', 'hoja_trabajo'] as const;
 
-app.get('/api/templates/:kind', (req, res) => {
+app.get('/api/templates/:kind', authenticateToken, (req, res) => {
   const kind = req.params.kind as string;
   if (!TEMPLATE_KINDS.includes(kind as (typeof TEMPLATE_KINDS)[number])) {
     return res.status(400).json({ error: 'Tipo de plantilla no válido' });
@@ -1486,8 +1539,76 @@ app.get('/api/templates/:kind', (req, res) => {
   return res.status(404).json({ error: 'Plantilla no encontrada. Coloca el PDF o JPG en backend/templates/' + kind + '.pdf (o .jpg)' });
 });
 
-// Generación PDF WYSIWYG: mismo HTML/CSS que el editor (Puppeteer) para que el PDF sea idéntico a la previsualización.
-app.post('/api/templates/:kind/generate', async (req, res) => {
+// Subida de plantilla PDF base diseñada en Illustrator/Corel para un tipo concreto.
+// Solo ADMIN. Guarda el archivo como backend/templates/<kind>.pdf
+app.post(
+  '/api/templates/:kind/upload',
+  authenticateToken,
+  requireAdmin,
+  upload.single('file'),
+  async (req, res) => {
+    try {
+      const kind = req.params.kind as (typeof TEMPLATE_KINDS)[number];
+      if (!TEMPLATE_KINDS.includes(kind)) {
+        return res.status(400).json({ error: 'Tipo de plantilla no válido' });
+      }
+      if (!req.file) {
+        return res.status(400).json({ error: 'No se envió ningún archivo' });
+      }
+      if (req.file.mimetype !== 'application/pdf') {
+        return res.status(400).json({ error: 'Solo se aceptan archivos PDF para plantillas' });
+      }
+
+      const templatesDir = getTemplatesDir();
+      try {
+        fs.mkdirSync(templatesDir, { recursive: true });
+      } catch {
+        // ignorar si ya existe
+      }
+      const targetPath = path.join(templatesDir, `${kind}.pdf`);
+      fs.copyFileSync(req.file.path, targetPath);
+
+      return res.status(201).json({
+        ok: true,
+        kind,
+        path: `/templates/${kind}.pdf`,
+      });
+    } catch (e) {
+      console.error('Error subiendo plantilla PDF:', e);
+      return res.status(500).json({ error: 'Error al subir plantilla PDF' });
+    }
+  }
+);
+
+// Relleno directo de plantilla PDF con pdf-lib.
+// Paso 1: solo cotización con 3 campos básicos (cliente, fecha, total).
+app.post('/api/templates/:kind/fill', authenticateToken, async (req, res) => {
+  try {
+    const kind = req.params.kind as (typeof TEMPLATE_KINDS)[number];
+    if (!TEMPLATE_KINDS.includes(kind)) {
+      return res.status(400).json({ error: 'Tipo de plantilla no válido' });
+    }
+    const body = req.body ?? {};
+    const fields = (body.fields ?? {}) as Record<string, string | number | null | undefined>;
+
+    const buffer = await generateFilledPdf(kind as TemplateKind, fields);
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `inline; filename="${kind}.pdf"`);
+    return res.send(buffer);
+  } catch (e) {
+    console.error('Error rellenando plantilla PDF:', e);
+    const msg = e instanceof Error ? e.message : 'Error al generar PDF desde plantilla';
+    if (msg.includes('Plantilla') && msg.includes('no encontrada')) {
+      return res.status(404).json({ error: msg });
+    }
+    return res.status(500).json({ error: msg });
+  }
+});
+
+const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
+
+// Generación PDF: con docId intentamos captura del preview (idéntico); si falla o no hay docId, pdf-lib o Puppeteer.
+app.post('/api/templates/:kind/generate', authenticateToken, async (req, res) => {
   console.log(`[PDF] Generating ${req.params.kind}...`);
   try {
     const kind = req.params.kind as string;
@@ -1499,13 +1620,80 @@ app.post('/api/templates/:kind/generate', async (req, res) => {
       rawContent && typeof rawContent === 'object' && !Array.isArray(rawContent)
         ? (rawContent as Record<string, unknown>)
         : {};
+    const docId = typeof req.body?.docId === 'string' ? req.body.docId.trim() : null;
     const templatePdfPath = getTemplatePathIfExists(kind as (typeof TEMPLATE_KINDS)[number]);
+
+    // Cotización con docId: captura del preview a 300 DPI → screenshot PNG → PDF (idéntico al editor, máx. calidad)
+    if (kind === 'cotizacion' && docId && req.user?.id) {
+      try {
+        const exportToken = signExportToken({ docId, userId: req.user.id, purpose: 'export' });
+        const contentKey = crypto.randomUUID();
+        cleanupExportContentCache();
+        exportContentCache.set(contentKey, {
+          content,
+          docId,
+          docType: kind,
+          expires: Date.now() + EXPORT_CONTENT_TTL_MS,
+        });
+        // 300 DPI: la página de export renderiza a 2550×3300 px (scale=3.125); capturamos 1:1 sin escalar
+        const captureDpi = 300;
+        const exportPixelScale = captureDpi / 96;
+        const captureWidth = Math.round(816 * exportPixelScale);
+        const captureHeight = Math.round(1056 * exportPixelScale);
+        const exportUrl = `${FRONTEND_URL}/docs/export?docId=${encodeURIComponent(docId)}&token=${encodeURIComponent(exportToken)}&contentKey=${encodeURIComponent(contentKey)}&scale=${encodeURIComponent(String(exportPixelScale))}`;
+        const { default: puppeteer } = await import('puppeteer');
+        const browser = await puppeteer.launch({
+          headless: 'new',
+          args: ['--no-sandbox', '--disable-setuid-sandbox'],
+        });
+        try {
+          const page = await browser.newPage();
+          await page.setViewport({
+            width: captureWidth,
+            height: captureHeight,
+            deviceScaleFactor: 1,
+          });
+          // timeouts generosos: 30s para cargar la página, 20s para que el preview marque export-ready
+          await page.goto(exportUrl, { waitUntil: 'networkidle0', timeout: 30000 });
+          await page.waitForSelector('[data-export-ready="true"]', { timeout: 20000 });
+          await page.evaluate(() => new Promise((r) => setTimeout(r, 500)));
+          const screenshotBuffer = await page.screenshot({
+            type: 'png',
+            clip: { x: 0, y: 0, width: captureWidth, height: captureHeight },
+          });
+          if (!screenshotBuffer || !(screenshotBuffer instanceof Buffer)) {
+            throw new Error('Screenshot no devolvió buffer');
+          }
+          const buffer = await createPdfFromScreenshotPng(screenshotBuffer);
+          console.log(`[PDF] Generated by screenshot capture @ ${captureDpi} DPI`);
+          res.setHeader('X-PDF-Method', 'capture');
+          res.setHeader('Content-Type', 'application/pdf');
+          res.setHeader('Content-Disposition', 'inline; filename="cotizacion.pdf"');
+          return res.send(buffer);
+        } finally {
+          await browser.close().catch(() => {});
+        }
+      } catch (captureErr) {
+        console.error('[PDF] Capture export failed, falling back to template:', captureErr);
+      }
+    }
+
+    // Cotización con plantilla PDF: rellenar con pdf-lib (misma plantilla + customBoxes que el preview)
+    if (kind === 'cotizacion' && templatePdfPath) {
+      const buffer = await generatePdfFromTemplate(kind as TemplateKind, content);
+      res.setHeader('X-PDF-Method', 'template');
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader('Content-Disposition', 'inline; filename="' + kind + '.pdf"');
+      return res.send(buffer);
+    }
+
     const { generatePdfFromDocument } = await import('./htmlPdfGenerator');
     const buffer = await generatePdfFromDocument({
       content,
       format: 'Letter',
       templatePdfPath: templatePdfPath ?? undefined,
     });
+    res.setHeader('X-PDF-Method', 'html-worker');
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', 'inline; filename="' + kind + '.pdf"');
     res.send(buffer);
@@ -1546,7 +1734,7 @@ function getDefaultTemplateConfig() {
   };
 }
 
-app.get('/api/templates/:kind/config', async (req, res) => {
+app.get('/api/templates/:kind/config', authenticateToken, async (req, res) => {
   const defaultConfig = getDefaultTemplateConfig();
   try {
     const kind = req.params.kind as string;
@@ -1577,7 +1765,7 @@ app.get('/api/templates/:kind/config', async (req, res) => {
   }
 });
 
-app.put('/api/templates/:kind/config', async (req, res) => {
+app.put('/api/templates/:kind/config', authenticateToken, async (req, res) => {
   try {
     const kind = req.params.kind as string;
     if (!TEMPLATE_KINDS.includes(kind as (typeof TEMPLATE_KINDS)[number])) {
@@ -1762,11 +1950,26 @@ app.delete('/api/items/:id', authenticateToken, async (req, res) => {
   }
 });
 
+// Helper: room por tablero y por usuario (Fase 3)
+const boardRoom = (boardId: string) => `board:${boardId}`;
+const userRoom = (userId: string) => `user:${userId}`;
+
 // Socket.io real-time connection handler
 io.on('connection', (socket) => {
-  console.log('User connected:', socket.id);
+  socketConnectionCount += 1;
+  console.log(JSON.stringify({ level: 'info', msg: 'socket_connected', socketId: socket.id, connectionCount: socketConnectionCount }));
 
-  const boardRoom = (boardId: string) => `board:${boardId}`;
+  // Autenticación por JWT en handshake: unir al room del usuario para notificaciones/comentarios
+  const token = (socket.handshake.auth as { token?: string } | undefined)?.token;
+  if (token && typeof token === 'string') {
+    try {
+      const payload = verifyJwt(token);
+      socket.join(userRoom(payload.userId));
+      (socket as any).data = { ...((socket as any).data || {}), userId: payload.userId };
+    } catch {
+      // Token inválido o expirado: no unir a user room
+    }
+  }
 
   socket.on('join_board', (data: { boardId?: string }) => {
     const boardId = typeof data?.boardId === 'string' ? data.boardId : null;
@@ -1787,8 +1990,8 @@ io.on('connection', (socket) => {
       const updated = await prisma.item.update({
         where: { id: data.itemId },
         data: { name: data.name },
-        include: { columnValues: true },
         include: {
+          columnValues: true,
           group: { select: { boardId: true } },
         },
       });
@@ -1902,7 +2105,9 @@ io.on('connection', (socket) => {
         io.emit('column_value_updated', updated);
       }
 
-      // Si se actualiza "Estado Taller" a "colocado", crear (si no existe) el valor de "Estado Facturación"
+      // Regla Taller→Facturación: al marcar "colocado" se crea columna "Estado Facturación" si no existe
+      // y se setea "Pendiente de facturar". Si el board ya tiene una columna "Estado Facturación" con
+      // otra configuración, se usa esa columna (puede haber conflicto de opciones).
       if (
         column &&
         (column.type === 'status' || column.type === 'priority') &&
@@ -1972,8 +2177,9 @@ io.on('connection', (socket) => {
               }
             }
           }
-        } catch {
-          // Si el valor no es JSON de status, ignorar
+        } catch (err) {
+          // Valor no es JSON válido o no tiene optionId esperado; log para depuración
+          console.warn(JSON.stringify({ level: 'warn', msg: 'taller_facturacion_skip', itemId, columnId, reason: err instanceof Error ? err.message : 'invalid_value' }));
         }
       }
 
@@ -1983,8 +2189,7 @@ io.on('connection', (socket) => {
         const notif = await prisma.notification.create({
           data: { userId: assignedUserId, itemId, type: 'assigned', read: false },
         });
-        // TODO: migrar a room específico del usuario: user:<userId>
-        io.emit('notification_created', notif);
+        io.to(userRoom(assignedUserId)).emit('notification_created', notif);
 
         await sendWebPushToUser(assignedUserId, {
           title: 'Te asignaron un elemento',
@@ -2022,7 +2227,7 @@ io.on('connection', (socket) => {
       const newBoard = await prisma.board.create({
         data: { name, workspaceId: workspace.id },
       });
-      // TODO: considerar rooms por workspace en el futuro.
+      // Global: listado de tableros; Fase 3+ podría usar room por workspace
       io.emit('board_added', newBoard);
     } catch (e) {
       console.error('Error adding board:', e);
@@ -2231,8 +2436,14 @@ io.on('connection', (socket) => {
         return { ...rest, author: safeAuthor };
       })();
 
-      // TODO: migrar a room por boardId cuando se añadan más metadatos al update.
-      io.emit('update_added', safeUpdate);
+      // Emitir a autor y a usuarios asignados al ítem (rooms por usuario)
+      const recipientIds = new Set<string>();
+      if (authorId) recipientIds.add(authorId);
+      item.columnValues.forEach((cv) => {
+        const v = cv.value?.trim();
+        if (v) recipientIds.add(v);
+      });
+      recipientIds.forEach((uid) => io.to(userRoom(uid)).emit('update_added', safeUpdate));
 
       // Notificaciones Web Push a los usuarios asignados al item (excepto el propio autor)
       if (item && authorId) {
@@ -2262,7 +2473,8 @@ io.on('connection', (socket) => {
   });
 
   socket.on('disconnect', () => {
-    console.log('User disconnected:', socket.id);
+    socketConnectionCount = Math.max(0, socketConnectionCount - 1);
+    console.log(JSON.stringify({ level: 'info', msg: 'socket_disconnected', socketId: socket.id, connectionCount: socketConnectionCount }));
   });
 });
 

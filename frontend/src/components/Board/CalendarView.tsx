@@ -22,8 +22,8 @@ const DAY_ROW_H = 28;
 const LANE_H = 20;
 /** Máximo de barras visibles por celda/día antes de mostrar "+N más". Aumentar para ver más, reducir para celdas más compactas. */
 const MAX_BARS_VISIBLE_IN_CELL = 4;
-/** Rutas relativas para que Vite proxy (/api → backend) funcione y evitar 404/CORS */
-const API_BASE = '';
+const API_BASE = import.meta.env.DEV ? '' : (import.meta.env.VITE_API_URL || 'http://localhost:3001');
+import { apiFetch } from '../../api';
 
 const WEEKDAYS = ['lun.', 'mar.', 'mié.', 'jue.', 'vie.', 'sáb.', 'dom.'];
 const MONTHS = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
@@ -148,6 +148,10 @@ interface Props {
   board: Board;
   onRowClick: (item: Item) => void;
   isTallerView?: boolean;
+  /** En móvil: controles más grandes (touch), menos padding, misma estructura */
+  isMobile?: boolean;
+  /** Landscape con poca altura: aún más compacto (menos padding, controles más densos) */
+  isLandscapeShort?: boolean;
   /** Si se pasa, se muestra el botón "Crear Tarea" que abre el modal Añadir a proyecto */
   onOpenAddToProject?: () => void;
   /** Registra una función para abrir el modal de evento de calendario con fecha y tipo (desde la barra superior) */
@@ -163,7 +167,7 @@ function formatDateForModal(d: Date): string {
   return `${day} ${month} ${year}`;
 }
 
-export const CalendarView: React.FC<Props> = ({ board, onRowClick, isTallerView, onOpenAddToProject, onRegisterOpenCalendarEvent, defaultViewType }) => {
+export const CalendarView: React.FC<Props> = ({ board, onRowClick, isTallerView, isMobile = false, isLandscapeShort = false, onOpenAddToProject, onRegisterOpenCalendarEvent, defaultViewType }) => {
   const [viewDate, setViewDate] = useState(() => new Date());
   const [viewType, setViewType] = useState<CalendarViewType>(defaultViewType ?? 'month');
   const [viewDropdownOpen, setViewDropdownOpen] = useState(false);
@@ -196,7 +200,7 @@ export const CalendarView: React.FC<Props> = ({ board, onRowClick, isTallerView,
 
   useEffect(() => {
     const boardId = board.id;
-    fetch(`${API_BASE}/api/boards/${boardId}/calendar-events`)
+    apiFetch(`${API_BASE}/api/boards/${boardId}/calendar-events`)
       .then(res => res.ok ? res.json() : [])
       .then((data: CalendarEvent[]) => {
         const list = Array.isArray(data) ? data : [];
@@ -289,7 +293,7 @@ export const CalendarView: React.FC<Props> = ({ board, onRowClick, isTallerView,
       const m = String(new Date(editFormEvent.eventDate).getMonth() + 1).padStart(2, '0');
       const d = String(new Date(editFormEvent.eventDate).getDate()).padStart(2, '0');
       const dateStr = `${y}-${m}-${d}`;
-      const res = await fetch(`${API_BASE}/api/boards/${board.id}/calendar-events/${editFormEvent.id}`, {
+      const res = await apiFetch(`${API_BASE}/api/boards/${board.id}/calendar-events/${editFormEvent.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name: editFormName.trim() || editFormEvent.name, date: dateStr, time: editFormTime }),
@@ -306,7 +310,7 @@ export const CalendarView: React.FC<Props> = ({ board, onRowClick, isTallerView,
 
   const handleDeleteEvent = async (ev: CalendarEvent) => {
     try {
-      await fetch(`${API_BASE}/api/boards/${board.id}/calendar-events/${ev.id}`, { method: 'DELETE' });
+      await apiFetch(`${API_BASE}/api/boards/${board.id}/calendar-events/${ev.id}`, { method: 'DELETE' });
       setCalendarEvents(prev => prev.filter(e => e.id !== ev.id));
       setEventMenuEvent(null);
     } catch (_) {}
@@ -318,7 +322,7 @@ export const CalendarView: React.FC<Props> = ({ board, onRowClick, isTallerView,
     setSendToGroupId('');
     setSendToAfterItemId('');
     setSelectedBoardForSend(null);
-    fetch(`${API_BASE}/api/boards`)
+    apiFetch(`${API_BASE}/api/boards`)
       .then(res => res.ok ? res.json() : [])
       .then((list: { id: string; name: string }[]) => {
         setBoardsList(Array.isArray(list) ? list : []);
@@ -327,7 +331,7 @@ export const CalendarView: React.FC<Props> = ({ board, onRowClick, isTallerView,
             setSelectedBoardForSend(board);
             setSendToGroupId(board.groups[0]?.id ?? '');
           } else {
-            fetch(`${API_BASE}/api/boards/${list[0].id}`)
+            apiFetch(`${API_BASE}/api/boards/${list[0].id}`)
               .then(r => r.ok ? r.json() : null)
               .then((b: Board | null) => {
                 if (b) {
@@ -348,7 +352,7 @@ export const CalendarView: React.FC<Props> = ({ board, onRowClick, isTallerView,
       setSendToAfterItemId('');
       return;
     }
-    fetch(`${API_BASE}/api/boards/${boardId}`)
+    apiFetch(`${API_BASE}/api/boards/${boardId}`)
       .then(res => res.ok ? res.json() : null)
       .then((b: Board | null) => {
         if (b) {
@@ -407,7 +411,7 @@ export const CalendarView: React.FC<Props> = ({ board, onRowClick, isTallerView,
       const m = String(addModalDate.getMonth() + 1).padStart(2, '0');
       const d = String(addModalDate.getDate()).padStart(2, '0');
       const dateStr = `${y}-${m}-${d}`;
-      const res = await fetch(`${API_BASE}/api/boards/${board.id}/calendar-events`, {
+      const res = await apiFetch(`${API_BASE}/api/boards/${board.id}/calendar-events`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name, eventType: addModalEventType, date: dateStr, time: addModalTime }),
@@ -540,19 +544,27 @@ export const CalendarView: React.FC<Props> = ({ board, onRowClick, isTallerView,
   const calendarOnlyBars = useMemo((): CalendarBarEntry[] => {
     const seen = new Set<string>();
     const isTaller = !!isTallerView;
-    return calendarEvents
-      .map(ev => {
-        if (seen.has(ev.id)) return null;
-        seen.add(ev.id);
-        // En vista Taller solo mostramos eventos de tipo "colocacion"
-        if (isTaller && ev.eventType !== 'colocacion') return null;
-        const d = ev.eventDate ? new Date(ev.eventDate) : null;
-        if (!d || isNaN(d.getTime())) return null;
-        const start = new Date(d.getFullYear(), d.getMonth(), d.getDate());
-        const color = EVENT_TYPE_COLORS[ev.eventType] ?? '#888';
-        return { id: ev.id, name: ev.name, start, end: new Date(start), color, isCalendarOnly: true, calendarEvent: ev };
-      })
-      .filter((b): b is CalendarBarEntry => b != null);
+    const bars: CalendarBarEntry[] = [];
+    for (const ev of calendarEvents) {
+      if (seen.has(ev.id)) continue;
+      seen.add(ev.id);
+      // En vista Taller solo mostramos eventos de tipo "colocacion"
+      if (isTaller && ev.eventType !== 'colocacion') continue;
+      const d = ev.eventDate ? new Date(ev.eventDate) : null;
+      if (!d || isNaN(d.getTime())) continue;
+      const start = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+      const color = EVENT_TYPE_COLORS[ev.eventType] ?? '#888';
+      bars.push({
+        id: ev.id,
+        name: ev.name,
+        start,
+        end: new Date(start),
+        color,
+        isCalendarOnly: true,
+        calendarEvent: ev,
+      });
+    }
+    return bars;
   }, [calendarEvents, isTallerView]);
 
   const allBars = useMemo((): CalendarBarEntry[] => {
@@ -729,28 +741,30 @@ export const CalendarView: React.FC<Props> = ({ board, onRowClick, isTallerView,
 
   return (
     <div className="h-full flex flex-col bg-white">
-      {/* Barra de navegación del calendario (estilo Monday) */}
-      <div className="flex items-center justify-between px-4 py-3 border-b border-monday-border shrink-0 flex-wrap gap-2">
-        <div className="flex items-center gap-2">
+      {/* Barra de navegación del calendario (estilo Monday); en móvil: áreas táctiles más grandes; landscape corto: más compacto */}
+      <div className={`flex items-center justify-between border-b border-monday-border shrink-0 flex-wrap gap-2 ${
+        isLandscapeShort ? 'px-2 py-1.5 gap-1' : isMobile ? 'px-3 py-2' : 'px-4 py-3'
+      }`}>
+        <div className={`flex items-center gap-1 sm:gap-2 ${isMobile ? 'gap-1' : ''}`}>
           <button
             onClick={goToToday}
-            className="px-3 py-1.5 rounded-monday border border-monday-border bg-white text-[13px] font-medium text-monday-text hover:bg-monday-hover transition-colors"
+            className={`rounded-monday border border-monday-border bg-white text-monday-text hover:bg-monday-hover transition-colors ${isMobile ? 'px-3 py-2.5 text-[13px] font-medium min-h-[44px]' : 'px-3 py-1.5 text-[13px] font-medium'}`}
           >
             Hoy
           </button>
           <button
             onClick={prev}
-            className="p-1.5 rounded-monday text-monday-subtext hover:bg-monday-hover hover:text-monday-text transition-colors"
+            className={`rounded-monday text-monday-subtext hover:bg-monday-hover hover:text-monday-text transition-colors ${isMobile ? 'p-2.5 min-w-[44px] min-h-[44px] flex items-center justify-center' : 'p-1.5'}`}
             aria-label="Anterior"
           >
-            <ChevronLeft size={20} />
+            <ChevronLeft size={isMobile ? 22 : 20} />
           </button>
           <button
             onClick={next}
-            className="p-1.5 rounded-monday text-monday-subtext hover:bg-monday-hover hover:text-monday-text transition-colors"
+            className={`rounded-monday text-monday-subtext hover:bg-monday-hover hover:text-monday-text transition-colors ${isMobile ? 'p-2.5 min-w-[44px] min-h-[44px] flex items-center justify-center' : 'p-1.5'}`}
             aria-label="Siguiente"
           >
-            <ChevronRight size={20} />
+            <ChevronRight size={isMobile ? 22 : 20} />
           </button>
           <Popover.Root
             open={datePickerOpen}
@@ -762,7 +776,7 @@ export const CalendarView: React.FC<Props> = ({ board, onRowClick, isTallerView,
             <Popover.Trigger asChild>
               <button
                 type="button"
-                className="text-[15px] font-semibold text-monday-text min-w-[160px] text-center px-2 py-1 rounded-monday hover:bg-monday-hover transition-colors"
+                className={`font-semibold text-monday-text text-center rounded-monday hover:bg-monday-hover transition-colors ${isMobile ? 'text-[14px] min-w-[140px] px-2 py-2 min-h-[44px]' : 'text-[15px] min-w-[160px] px-2 py-1'}`}
                 title="Clic para elegir día o semana"
               >
                 {titleText}
@@ -812,7 +826,7 @@ export const CalendarView: React.FC<Props> = ({ board, onRowClick, isTallerView,
           <div className="relative">
             <button
               onClick={() => setViewDropdownOpen(!viewDropdownOpen)}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-monday border border-monday-border bg-white text-[13px] font-medium text-monday-text hover:bg-monday-hover transition-colors"
+              className={`flex items-center gap-1.5 rounded-monday border border-monday-border bg-white font-medium text-monday-text hover:bg-monday-hover transition-colors ${isMobile ? 'px-3 py-2.5 min-h-[44px] text-[13px]' : 'px-3 py-1.5 text-[13px]'}`}
             >
               {viewType === 'month' ? 'Mes' : viewType === 'week' ? 'Semana' : 'Día'}
               <ChevronDown size={14} className={`transition-transform ${viewDropdownOpen ? 'rotate-180' : ''}`} />
@@ -842,8 +856,11 @@ export const CalendarView: React.FC<Props> = ({ board, onRowClick, isTallerView,
         </div>
       </div>
 
-      {/* Cuerpo del calendario — vista Mes / Semana / Día (estilo Monday: amplio, celdas cuadradas, líneas finas) */}
-      <div className="flex-1 overflow-auto scroll-touch custom-scrollbar p-4 min-h-0 flex flex-col bg-monday-bg/30">
+      {/* Cuerpo del calendario — vista Mes / Semana / Día (estilo Monday); en móvil menos padding; landscape corto mínimo */}
+      <div className={`flex-1 overflow-auto scroll-touch custom-scrollbar min-h-0 flex flex-col bg-monday-bg/30 ${
+        isLandscapeShort ? 'p-2' : isMobile ? 'p-3' : 'p-4'
+      }`}
+           style={isMobile ? { WebkitOverflowScrolling: 'touch' } : undefined}>
         {viewType === 'day' && (
           <div className="rounded-xl border border-monday-border shadow-monday-sm bg-white overflow-hidden min-h-[280px]">
             <button
@@ -958,7 +975,7 @@ export const CalendarView: React.FC<Props> = ({ board, onRowClick, isTallerView,
                     tabIndex={0}
                     onClick={() => openAddModal(cell.date)}
                     onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openAddModal(cell.date); } }}
-                    className={`p-2 flex flex-col gap-1.5 min-h-[160px] border-r border-monday-border last:border-r-0 cursor-pointer hover:bg-monday-hover/40 transition-colors ${
+                    className={`p-2 flex flex-col gap-1.5 border-r border-monday-border last:border-r-0 cursor-pointer hover:bg-monday-hover/40 transition-colors touch-manipulation ${isMobile ? 'min-h-[200px]' : 'min-h-[160px]'} ${
                       cell.month !== viewDate.getMonth() ? 'bg-monday-bg/50' : 'bg-white'
                     }`}
                   >
@@ -967,7 +984,7 @@ export const CalendarView: React.FC<Props> = ({ board, onRowClick, isTallerView,
                         key={bar.id}
                         type="button"
                         onClick={(e) => handleBarClick(bar, e)}
-                        className={`text-left px-2 py-1.5 rounded-md text-white text-[12px] font-medium truncate w-full transition-opacity hover:opacity-95 shadow-sm ${bar.isCalendarOnly ? 'cursor-pointer' : bar.item ? '' : 'cursor-default'}`}
+                        className={`text-left px-2 rounded-md text-white text-[12px] font-medium truncate w-full transition-opacity hover:opacity-95 shadow-sm touch-manipulation ${isMobile ? 'py-2 min-h-[44px]' : 'py-1.5'} ${bar.isCalendarOnly ? 'cursor-pointer' : bar.item ? '' : 'cursor-default'}`}
                         style={{ backgroundColor: bar.color }}
                         title={bar.name}
                       >
@@ -980,15 +997,17 @@ export const CalendarView: React.FC<Props> = ({ board, onRowClick, isTallerView,
                           <button
                             type="button"
                             onClick={(e) => { e.stopPropagation(); setMorePopoverKey(cell.key); }}
-                            className="text-[11px] text-monday-blue font-medium hover:underline mt-auto pt-1"
+                            className={`text-[11px] text-monday-blue font-medium hover:underline mt-auto touch-manipulation ${isMobile ? 'min-h-[44px] py-2 pt-1' : 'pt-1'}`}
                           >
                             +{rest} más
                           </button>
                         </Popover.Trigger>
                         <Popover.Portal>
                           <Popover.Content
-                            className="bg-white rounded-lg border border-monday-border shadow-monday-lg p-3 z-[200] max-h-[280px] overflow-auto min-w-[200px]"
+                            className="bg-white rounded-lg border border-monday-border shadow-monday-lg p-3 z-[200] max-h-[280px] overflow-auto min-w-[200px] max-w-[min(320px,100vw-24px)]"
                             sideOffset={4}
+                            side={isMobile ? 'top' : undefined}
+                            align={isMobile ? 'center' : undefined}
                             onClick={(e) => e.stopPropagation()}
                           >
                             <p className="text-[12px] font-semibold text-monday-text mb-2">
@@ -1076,12 +1095,12 @@ export const CalendarView: React.FC<Props> = ({ board, onRowClick, isTallerView,
                           key={`${seg.bar.id}-${laneIdx}-${seg.startCol}`}
                           type="button"
                           onClick={(e) => handleBarClick(seg.bar, e)}
-                          className={`text-left px-1.5 py-0.5 rounded text-white text-[10px] font-medium truncate border-0 min-w-0 hover:opacity-92 transition-opacity ${seg.bar.isCalendarOnly ? 'cursor-pointer' : seg.bar.item ? '' : 'cursor-default'}`}
+                          className={`text-left px-1.5 rounded text-white text-[10px] font-medium truncate border-0 min-w-0 hover:opacity-92 transition-opacity touch-manipulation ${isMobile ? 'py-1.5 min-h-[32px]' : 'py-0.5'} ${seg.bar.isCalendarOnly ? 'cursor-pointer' : seg.bar.item ? '' : 'cursor-default'}`}
                           style={{
                             backgroundColor: seg.bar.color,
                             gridColumn: `${seg.startCol + 1} / ${seg.endCol + 2}`,
                             gridRow: laneIdx + 2,
-                            minHeight: LANE_H - 2,
+                            minHeight: isMobile ? 32 : LANE_H - 2,
                             boxShadow: '0 1px 1px rgba(0,0,0,0.06)',
                           }}
                           title={seg.bar.name}

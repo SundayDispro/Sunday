@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Bell, Check, CheckCheck, ExternalLink, AtSign, UserPlus } from 'lucide-react';
 import { useUser } from '../../store/UserContext';
 import { Notification as NotificationType, Item } from '../../types';
+import { apiFetch } from '../../api';
 
 const API_BASE = import.meta.env.DEV ? '' : (import.meta.env.VITE_API_URL || 'http://localhost:3001');
 
@@ -38,7 +39,7 @@ export const NotificationsPage: React.FC<NotificationsPageProps> = ({
   const fetchNotifications = async () => {
     if (!currentUser?.id) return;
     try {
-      const res = await fetch(`${API_BASE}/api/notifications?userId=${currentUser.id}`);
+      const res = await apiFetch(`${API_BASE}/api/notifications?userId=${currentUser.id}`);
       if (res.ok) {
         const data = await res.json();
         setNotifications(Array.isArray(data) ? data : []);
@@ -51,7 +52,7 @@ export const NotificationsPage: React.FC<NotificationsPageProps> = ({
   const fetchMentions = async () => {
     if (!currentUser?.id) return;
     try {
-      const res = await fetch(
+      const res = await apiFetch(
         `${API_BASE}/api/feed?filter=mentions&userId=${encodeURIComponent(currentUser.id)}`
       );
       if (res.ok) {
@@ -70,7 +71,7 @@ export const NotificationsPage: React.FC<NotificationsPageProps> = ({
 
   const markAsRead = async (id: string) => {
     try {
-      const res = await fetch(`${API_BASE}/api/notifications/${id}/read`, { method: 'PATCH' });
+      const res = await apiFetch(`${API_BASE}/api/notifications/${id}/read`, { method: 'PATCH' });
       if (res.ok) {
         setNotifications(prev => prev.map(n => (n.id === id ? { ...n, read: true } : n)));
         onNotificationsChange?.();
@@ -83,7 +84,7 @@ export const NotificationsPage: React.FC<NotificationsPageProps> = ({
   const markAllAsRead = async () => {
     if (!currentUser?.id) return;
     try {
-      const res = await fetch(
+      const res = await apiFetch(
         `${API_BASE}/api/notifications/read-all?userId=${currentUser.id}`,
         { method: 'PATCH' }
       );

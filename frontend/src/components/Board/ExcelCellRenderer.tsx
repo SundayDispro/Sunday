@@ -5,6 +5,7 @@ import { FileSpreadsheet, Upload, Loader2, X } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import * as Dialog from '@radix-ui/react-dialog';
 import { useToast } from '../Toast';
+import { apiFetch } from '../../api';
 
 const API_BASE = import.meta.env.DEV ? '' : (import.meta.env.VITE_API_URL || 'http://localhost:3001');
 
@@ -76,7 +77,7 @@ export const ExcelCellRenderer: React.FC<Props> = ({ item, column, value }) => {
     const formData = new FormData();
     formData.append('file', file);
     try {
-      const res = await fetch(`${API_BASE}/api/upload`, {
+      const res = await apiFetch(`${API_BASE}/api/upload`, {
         method: 'POST',
         body: formData,
       });

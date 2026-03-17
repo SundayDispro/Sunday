@@ -6,7 +6,8 @@ import * as Popover from '@radix-ui/react-popover';
 import * as Dialog from '@radix-ui/react-dialog';
 import { FileText, ChevronDown, ExternalLink, Upload, Loader2, Trash2, FilePenLine } from 'lucide-react';
 
-// En desarrollo Vite hace proxy de /api y /uploads al backend (3001); usar '' para mismo origen
+import { apiFetch } from '../../api';
+
 const API_BASE = import.meta.env.DEV ? '' : (import.meta.env.VITE_API_URL || 'http://localhost:3001');
 
 interface DocsValue {
@@ -69,7 +70,7 @@ export const DocsCellRenderer: React.FC<Props> = ({ item, column, value }) => {
     let cancelled = false;
     docIds.forEach((docId) => {
       if (docIdExists[docId] !== undefined) return;
-      fetch(`${API_BASE}/api/docs/${docId}`, { method: 'HEAD' })
+      apiFetch(`${API_BASE}/api/docs/${docId}`, { method: 'HEAD' })
         .then((res) => {
           if (cancelled) return;
           setDocIdExists((prev) => ({ ...prev, [docId]: res.ok }));
@@ -139,7 +140,7 @@ export const DocsCellRenderer: React.FC<Props> = ({ item, column, value }) => {
     const formData = new FormData();
     formData.append('file', file);
     try {
-      const res = await fetch(`${API_BASE}/api/upload`, {
+      const res = await apiFetch(`${API_BASE}/api/upload`, {
         method: 'POST',
         body: formData,
       });

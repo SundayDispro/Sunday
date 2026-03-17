@@ -40,15 +40,15 @@ var import_server = require("react-dom/server");
 var import_jsx_runtime = require("react/jsx-runtime");
 var PAGE_W_PT = 612;
 var PAGE_H_PT = 792;
-var PADDING_TOP_FOLIO_PX = 12;
-var PADDING_TOP_SINGLE_PX = 16;
-var PADDING_TOP_DESCRIPCION_CORTA_PX = 28;
-var PADDING_TOP_TOTAL_PX = 0;
-var PADDING_TOP_MULTI_PX = 8;
-var PADDING_BOTTOM_PX = 4;
-var PADDING_SIDES_PX = 6;
-var PADDING_FOLIO_LEFT_PX = 8;
-var PADDING_TOTAL_RIGHT_PX = 16;
+var PADDING_TOP_FOLIO_PT = 9;
+var PADDING_TOP_SINGLE_PT = 12;
+var PADDING_TOP_DESCRIPCION_CORTA_PT = 27;
+var PADDING_TOP_MULTI_PT = 6;
+var PADDING_BOTTOM_PT = 3;
+var PADDING_SIDES_PT = 4.5;
+var PADDING_FOLIO_LEFT_PT = 4.5;
+var PADDING_TOP_TOTAL_PT = 0;
+var PADDING_TOTAL_RIGHT_PT = 4.5;
 function formatDateForPdf(value) {
   const s = String(value).trim();
   if (!s) return s;
@@ -130,15 +130,11 @@ var DocumentPageForPdf = ({
   };
   const boxes = customBoxes.map((box) => {
     if (!box) return null;
-    const isFolioBox = box.semantic === "folio" || box.fieldKey === "folio";
-    const FOLIO_OFFSET_PT = 40;
-    const rawLeftPt = Math.round((box.x ?? 0) * PAGE_W_PT);
-    const leftPt = isFolioBox ? Math.min(rawLeftPt + FOLIO_OFFSET_PT, PAGE_W_PT - 28) : rawLeftPt;
-    const topPt = Math.round((box.y ?? 0) * PAGE_H_PT);
-    const rawWidthPt = Math.round((box.width ?? 0.3) * PAGE_W_PT);
-    const widthPt = isFolioBox ? Math.max(28, rawWidthPt - FOLIO_OFFSET_PT) : rawWidthPt;
+    const leftPt = (box.x ?? 0) * PAGE_W_PT;
+    const topPt = (box.y ?? 0) * PAGE_H_PT;
+    const widthPt = (box.width ?? 0.3) * PAGE_W_PT;
     if (box.kind === "image" && box.imageUrl) {
-      const heightPt = Math.round((box.height ?? 0.15) * PAGE_H_PT);
+      const heightPt2 = (box.height ?? 0.15) * PAGE_H_PT;
       return /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
         "img",
         {
@@ -149,7 +145,7 @@ var DocumentPageForPdf = ({
             left: `${leftPt}pt`,
             top: `${topPt}pt`,
             width: `${widthPt}pt`,
-            height: `${heightPt}pt`,
+            height: `${heightPt2}pt`,
             objectFit: "contain",
             objectPosition: "left top"
           }
@@ -161,9 +157,7 @@ var DocumentPageForPdf = ({
     const totalStr = String(content?.total ?? "").trim();
     const isTotalBox = box.fieldKey === "total" || totalStr !== "" && text.trim() === totalStr;
     let size = typeof box.fontSize === "number" ? box.fontSize : globalFontSize;
-    if (isTotalBox) {
-      size = Math.max(size, 11);
-    }
+    if (isTotalBox) size = Math.max(size, 11);
     if (box.semantic === "folio" || box.fieldKey === "folio") {
       size = typeof box.fontSize === "number" ? box.fontSize : globalFontSize;
     }
@@ -179,17 +173,17 @@ var DocumentPageForPdf = ({
       textCol = PDF_WHITE_COLOR;
       if (isTotalBox) bgCol = "#000000";
     }
-    const isFolio = box.semantic === "folio";
+    const isFolio = box.semantic === "folio" || box.fieldKey === "folio";
     const isSingleLine = box.singleLine === true || isFolio;
     const isDescripcionCorta = box.fieldKey === "descripcion_corta";
     const isTotal = isTotalBox;
-    const rawHeightPt = Math.round((box.height ?? 0.05) * PAGE_H_PT);
-    const heightClampedPt = Math.min(rawHeightPt, PAGE_H_PT - topPt);
+    const heightPt = (box.height ?? 0.05) * PAGE_H_PT;
+    const heightClampedPt = Math.min(heightPt, PAGE_H_PT - topPt);
     const lineHeight = isSingleLine ? 1.1 : 1.35;
-    const paddingTopPx = isTotalBox ? PADDING_TOP_TOTAL_PX : isDescripcionCorta ? PADDING_TOP_DESCRIPCION_CORTA_PX : isFolio ? PADDING_TOP_FOLIO_PX : isSingleLine ? PADDING_TOP_SINGLE_PX : PADDING_TOP_MULTI_PX;
-    const paddingBottomPx = isTotalBox ? 0 : PADDING_BOTTOM_PX;
-    const paddingLeftPx = isFolio ? PADDING_FOLIO_LEFT_PX : PADDING_SIDES_PX;
-    const paddingRightPx = isTotal ? PADDING_TOTAL_RIGHT_PX : PADDING_SIDES_PX;
+    const paddingTopPt = isTotalBox ? PADDING_TOP_TOTAL_PT : isDescripcionCorta ? PADDING_TOP_DESCRIPCION_CORTA_PT : isFolio ? PADDING_TOP_FOLIO_PT : isSingleLine ? PADDING_TOP_SINGLE_PT : PADDING_TOP_MULTI_PT;
+    const paddingBottomPt = isTotalBox ? 0 : PADDING_BOTTOM_PT;
+    const paddingLeftPt = isFolio ? PADDING_FOLIO_LEFT_PT : PADDING_SIDES_PT;
+    const paddingRightPt = isTotalBox ? PADDING_TOTAL_RIGHT_PT : PADDING_SIDES_PT;
     const boxStyle = {
       position: "absolute",
       left: `${leftPt}pt`,
@@ -197,7 +191,7 @@ var DocumentPageForPdf = ({
       width: `${widthPt}pt`,
       height: `${heightClampedPt}pt`,
       margin: 0,
-      padding: `${paddingTopPx}px ${paddingRightPx}px ${paddingBottomPx}px ${paddingLeftPx}px`,
+      padding: `${paddingTopPt}pt ${paddingRightPt}pt ${paddingBottomPt}pt ${paddingLeftPt}pt`,
       lineHeight,
       boxSizing: "border-box",
       overflow: isTotalBox ? "visible" : "hidden",
@@ -207,6 +201,7 @@ var DocumentPageForPdf = ({
       WebkitPrintColorAdjust: "exact",
       printColorAdjust: "exact"
     };
+    const isWhiteText = textCol === PDF_WHITE_COLOR;
     const innerStyle = {
       display: isTotalBox ? "flex" : "block",
       justifyContent: isTotalBox ? "flex-end" : void 0,
@@ -233,7 +228,7 @@ var DocumentPageForPdf = ({
       WebkitPrintColorAdjust: "exact",
       printColorAdjust: "exact",
       ...isTotalBox && { lineHeight: 1 },
-      ...isTotalBox && { WebkitTextFillColor: PDF_WHITE_COLOR }
+      ...isWhiteText && { WebkitTextFillColor: PDF_WHITE_COLOR }
     };
     return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: isTotalBox ? "doc-box-total" : void 0, style: boxStyle, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: innerStyle, children: isTotalBox ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { style: { display: "inline-block", textAlign: "right", width: "auto", flexShrink: 0, marginLeft: "auto", lineHeight: 1, transform: "translateY(-0.08em)", color: PDF_WHITE_COLOR, WebkitTextFillColor: PDF_WHITE_COLOR }, children: text || "\xA0" }) : text || "\xA0" }) }, box.id);
   });
