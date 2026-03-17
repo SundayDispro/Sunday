@@ -26,6 +26,7 @@ import {
   Mail,
   MoreVertical,
 } from 'lucide-react';
+import html2canvas from 'html2canvas';
 import { GROUP_PALETTE } from '../Board/GroupColorPicker';
 import * as Popover from '@radix-ui/react-popover';
 import * as Dialog from '@radix-ui/react-dialog';
@@ -3221,14 +3222,37 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
             globalFontItalic: false,
           };
       // Un solo flujo: con docId el backend puede generar por captura del preview (PDF idéntico); si no, pdf-lib o Puppeteer.
-      const res = await apiFetch(`${API_BASE}/api/templates/${docType}/generate`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          content: contentToSend,
-          ...(selectedDoc?.id ? { docId: selectedDoc.id } : {}),
-        }),
-      });
+      let res: Response;
+
+      // Si estamos viendo una cotización con preview, capturamos ese mismo preview en el navegador
+      // y enviamos la imagen al backend para que genere el PDF a partir de ese PNG.
+      if (selectedDoc && selectedDoc.type === 'cotizacion' && previewWrapperRef.current) {
+        const node = previewWrapperRef.current;
+        const canvas = await html2canvas(node, {
+          scale: 2,
+          useCORS: true,
+          backgroundColor: '#ffffff',
+        });
+        const imageDataUrl = canvas.toDataURL('image/png');
+        res = await apiFetch(`${API_BASE}/api/templates/${docType}/generate`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            content: contentToSend,
+            docId: selectedDoc.id,
+            imageDataUrl,
+          }),
+        });
+      } else {
+        res = await apiFetch(`${API_BASE}/api/templates/${docType}/generate`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            content: contentToSend,
+            ...(selectedDoc?.id ? { docId: selectedDoc.id } : {}),
+          }),
+        });
+      }
       if (!res.ok) {
         const text = await res.text();
         let errMsg = 'Error al generar PDF';
@@ -3241,7 +3265,7 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
         throw new Error(errMsg);
       }
       const methodHeader = res.headers.get('X-PDF-Method');
-      if (methodHeader && methodHeader !== 'capture') {
+      if (methodHeader && methodHeader !== 'capture' && methodHeader !== 'client-capture') {
         toast('PDF generado desde plantilla. Si no coincide con el preview, usa \"Descargar vista actual\".', 'info');
       }
       const blob = await res.blob();
