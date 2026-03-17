@@ -960,7 +960,6 @@ function App() {
               const pageIds = ['board', 'calendar', 'inbox', 'search', 'docs', 'team', 'notifications'];
               if (pageIds.includes(id)) {
                 setActivePage(id as typeof activePage);
-                setSidebarOpen(false);
                 if (id === 'notifications') fetchUnreadNotifications();
                 if (id === 'calendar' && boards.length > 0 && !activeBoardId) setActiveBoardId(boards[0].id);
               }
@@ -2078,7 +2077,7 @@ if (ok && data && typeof data.id === 'string') {
                     <div className="w-px h-5 bg-monday-border" />
                     <button
                       type="button"
-                      onClick={() => { setActivePage('search'); setSidebarOpen(false); }}
+                      onClick={() => { setActivePage('search'); }}
                       className="toolbar-btn"
                       title="Buscar en la aplicación"
                     >
@@ -2315,20 +2314,16 @@ if (ok && data && typeof data.id === 'string') {
             if (page === 'calendar') {
               setActivePage('calendar');
               if (boards.length > 0 && !activeBoardId) setActiveBoardId(boards[0].id);
-              setSidebarOpen(false);
               return;
             }
             if (page === 'docs') {
               setActivePage('docs');
-              setSidebarOpen(false);
               return;
             }
             if (page === 'home') {
               setActivePage('board');
-              setSidebarOpen(false);
               return;
             }
-            setSidebarOpen(false);
           }}
           unreadNotifCount={unreadNotifCount}
           items={isTaller ? ['home', 'calendar', 'docs', 'more'] : undefined}
