@@ -317,40 +317,81 @@ export function MobileMoreDrawer({
                     <div className="flex flex-col gap-0.5">
                     <div className="flex items-center gap-2 px-2.5 py-2">
                       <span className="text-[12px] text-monday-subtext shrink-0">Tema</span>
-                      <div className="flex gap-1 flex-1">
-                        {(['light', 'dark', 'night', 'dawn', 'fog', 'plum', 'ember'] as const).map((t) => (
+                      <Popover.Root>
+                        <Popover.Trigger asChild>
                           <button
-                            key={t}
-                            onClick={() => onThemeChange(t)}
-                            className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-lg text-[12px] transition-colors ${
-                              theme === t ? 'bg-monday-pill text-monday-text font-medium' : 'text-monday-subtext hover:bg-monday-hover'
-                            }`}
+                            type="button"
+                            className="flex-1 flex items-center justify-between gap-2 px-3 py-1.5 rounded-lg border border-monday-border bg-white text-[12px] text-monday-text hover:bg-monday-hover transition-colors"
                           >
-                            {t === 'light' && <Sun size={14} />}
-                            {t === 'dark' && <Moon size={14} />}
-                            {t === 'night' && <Sparkles size={14} />}
-                            {t === 'dawn' && <Sparkles size={14} />}
-                            {t === 'fog' && <Sparkles size={14} />}
-                            {t === 'plum' && <Sparkles size={14} />}
-                            {t === 'ember' && <Sparkles size={14} />}
-                            <span>
-                              {t === 'light'
-                                ? 'Claro'
-                                : t === 'dark'
-                                ? 'Oscuro'
-                                : t === 'night'
-                                ? 'Noche'
-                                : t === 'dawn'
-                                ? 'Dawn'
-                                : t === 'fog'
-                                ? 'Fog'
-                                : t === 'plum'
-                                ? 'Plum'
-                                : 'Ember'}
+                            <span className="flex items-center gap-1.5">
+                              {theme === 'light' && <Sun size={14} />}
+                              {theme === 'dark' && <Moon size={14} />}
+                              {theme === 'night' && <Sparkles size={14} />}
+                              {theme === 'dawn' && <Sparkles size={14} />}
+                              {theme === 'fog' && <Sparkles size={14} />}
+                              {theme === 'plum' && <Sparkles size={14} />}
+                              {theme === 'ember' && <Sparkles size={14} />}
+                              <span>
+                                {theme === 'light'
+                                  ? 'Claro'
+                                  : theme === 'dark'
+                                  ? 'Oscuro'
+                                  : theme === 'night'
+                                  ? 'Noche'
+                                  : theme === 'dawn'
+                                  ? 'Dawn'
+                                  : theme === 'fog'
+                                  ? 'Fog'
+                                  : theme === 'plum'
+                                  ? 'Plum'
+                                  : 'Ember'}
+                              </span>
                             </span>
+                            <ChevronDown size={14} className="text-monday-subtext shrink-0" />
                           </button>
-                        ))}
-                      </div>
+                        </Popover.Trigger>
+                        <Popover.Portal>
+                          <Popover.Content
+                            className="z-50 bg-white rounded-xl shadow-monday-lg border border-monday-border w-44 max-h-[60vh] overflow-y-auto custom-scrollbar p-1"
+                            sideOffset={6}
+                            align="start"
+                          >
+                            {(['light', 'dark', 'night', 'dawn', 'fog', 'plum', 'ember'] as const).map((t) => (
+                              <button
+                                key={t}
+                                type="button"
+                                onClick={() => onThemeChange(t)}
+                                className={`w-full flex items-center gap-2 px-3 py-2 rounded-lg text-[12px] text-left transition-colors ${
+                                  theme === t ? 'bg-monday-pill text-monday-text font-medium' : 'text-monday-text hover:bg-monday-hover'
+                                }`}
+                              >
+                                {t === 'light' && <Sun size={14} />}
+                                {t === 'dark' && <Moon size={14} />}
+                                {t === 'night' && <Sparkles size={14} />}
+                                {t === 'dawn' && <Sparkles size={14} />}
+                                {t === 'fog' && <Sparkles size={14} />}
+                                {t === 'plum' && <Sparkles size={14} />}
+                                {t === 'ember' && <Sparkles size={14} />}
+                                <span>
+                                  {t === 'light'
+                                    ? 'Claro'
+                                    : t === 'dark'
+                                    ? 'Oscuro'
+                                    : t === 'night'
+                                    ? 'Noche'
+                                    : t === 'dawn'
+                                    ? 'Dawn'
+                                    : t === 'fog'
+                                    ? 'Fog'
+                                    : t === 'plum'
+                                    ? 'Plum'
+                                    : 'Ember'}
+                                </span>
+                              </button>
+                            ))}
+                          </Popover.Content>
+                        </Popover.Portal>
+                      </Popover.Root>
                     </div>
                     <div className="px-2.5 py-1">
                       <UserPanel

@@ -1,13 +1,13 @@
 import React from 'react';
-import { LayoutGrid, Calendar, BookOpen, MoreHorizontal } from 'lucide-react';
+import { Home, LayoutGrid, Calendar, MoreHorizontal } from 'lucide-react';
 
-/** 4 pestañas: Tableros, Calendario, Docs, Más. Bandeja y Notificaciones solo desde el drawer "Más". */
-export type BottomNavPage = 'home' | 'calendar' | 'docs' | 'more';
+/** 4 pestañas: Hoy, Tableros, Calendario, Más. Bandeja, Notificaciones y Docs solo desde el drawer "Más". */
+export type BottomNavPage = 'home' | 'board' | 'calendar' | 'more';
 
 const ALL_ITEMS: { id: BottomNavPage; icon: React.ReactNode; label: string }[] = [
-  { id: 'home', icon: <LayoutGrid size={22} strokeWidth={2.25} />, label: 'Tableros' },
+  { id: 'home', icon: <Home size={22} strokeWidth={2.25} />, label: 'Hoy' },
+  { id: 'board', icon: <LayoutGrid size={22} strokeWidth={2.25} />, label: 'Tableros' },
   { id: 'calendar', icon: <Calendar size={22} strokeWidth={2.25} />, label: 'Calendario' },
-  { id: 'docs', icon: <BookOpen size={22} strokeWidth={2.25} />, label: 'Docs' },
   { id: 'more', icon: <MoreHorizontal size={22} strokeWidth={2.25} />, label: 'Más' },
 ];
 
@@ -15,7 +15,7 @@ interface BottomNavProps {
   activePage: string;
   onNavigate: (page: BottomNavPage) => void;
   unreadNotifCount?: number;
-  /** Si se proporciona, solo se muestran estos ítems (ej. rol TALLER: ['home', 'calendar', 'docs', 'more']) */
+  /** Si se proporciona, solo se muestran estos ítems (ej. rol TALLER: ['home', 'board', 'calendar', 'more']) */
   items?: BottomNavPage[];
   /** Si true, el tab "Más" se considera activo cuando el drawer está abierto */
   moreIsActive?: boolean;

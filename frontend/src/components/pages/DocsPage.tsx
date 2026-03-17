@@ -26,7 +26,6 @@ import {
   Mail,
   MoreVertical,
 } from 'lucide-react';
-import html2canvas from 'html2canvas';
 import { GROUP_PALETTE } from '../Board/GroupColorPicker';
 import * as Popover from '@radix-ui/react-popover';
 import * as Dialog from '@radix-ui/react-dialog';
@@ -41,6 +40,7 @@ import {
 import { FONT_OPTIONS, FONT_SIZES } from '../docs/TextFormatBar';
 import type { TemplateConfigState, CustomBoxDef } from './docs/pdfTemplateConfig';
 import { PdfTemplateEditor, PAGE_ASPECT } from './docs/PdfTemplateEditor';
+import { buildPdfContent } from './docs/buildPdfContent';
 import { TextFormatBarForEditor } from '../docs/TextFormatBar';
 import { useUser } from '../../store/UserContext';
 import { useToast } from '../Toast';
@@ -2352,6 +2352,9 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
     });
   };
 
+  // En móvil priorizamos siempre la vista de lista; la vista general solo existe en desktop.
+  const effectiveViewMode: 'docs' | 'overview' = isMobile ? 'docs' : viewMode;
+
   useEffect(() => {
     if (!workspaceId || !currentUserId) {
       setCustomGroups([]);
@@ -3124,160 +3127,22 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
     try {
       const docType = selectedDoc.type as 'cotizacion' | 'levantamiento' | 'hoja_trabajo';
       const config = templateConfigByType[docType];
-      const docFieldPositions = (pdfFormDraft.fieldPositions ?? {}) as Record<
-        string,
-        { x: number; y: number; fontSize?: number; maxWidth?: number }
-      >;
-      const rawCustomBoxes = Array.isArray(config?.customBoxes) ? config.customBoxes : [];
-      const customFieldValues = (pdfFormDraft.customFieldValues ?? {}) as Record<string, string>;
-      const fieldKeysByType: Record<string, string[]> = {
-        cotizacion: ['cliente', 'fecha', 'vigencia', 'descripcion_corta', 'elemento', 'total', 'notas'],
-        levantamiento: ['proyecto', 'fecha', 'direccion', 'descripcion', 'observaciones'],
-        hoja_trabajo: ['titulo', 'fecha', 'item', 'descripcion', 'observaciones'],
-      };
-      const keysByIndex = (fieldKeysByType[docType] ?? []).filter((k) => k !== 'folio');
-      let keyIndex = 0;
-      const customBoxes: CustomBoxDef[] = rawCustomBoxes.map((b) => {
-        const box = b as Partial<CustomBoxDef> & { semantic?: string; fieldKey?: string };
-        const fieldKey =
-          box.fieldKey
-            ? box.fieldKey
-            : box.semantic === 'folio'
-              ? 'folio'
-              : box.semantic === 'element'
-                ? 'elemento'
-                : keysByIndex[keyIndex++] ?? undefined;
-        return {
-          ...(box as CustomBoxDef),
-          fieldKey: box.fieldKey ?? fieldKey,
-          x: Math.max(0, Math.min(1, Number(box.x) || 0)),
-          y: Math.max(0, Math.min(1, Number(box.y) || 0)),
-          width: Math.max(0.01, Math.min(1, Number(box.width) ?? 0.3)),
-          height: Math.max(0.01, Math.min(1, Number(box.height) ?? 0.05)),
-        };
+
+      const { contentToSend } = buildPdfContent({
+        docType,
+        parsedContent: parsed as Record<string, unknown>,
+        pdfFormDraft,
+        templateConfig: config,
+        selectedDocId: selectedDoc.id,
       });
-      const contentFromDraft = {
-        ...(parsed as Record<string, unknown>),
-        ...pdfFormDraft,
-      } as Record<string, unknown>;
-
-      // PDF 1:1 con el editor: cada caja con fieldKey usa exactamente el valor visible en el editor (pdfFormDraft[fieldKey] ?? customFieldValues[box.id])
-      customBoxes.forEach((box: { id?: string; fieldKey?: string }) => {
-        if (!box.fieldKey || !box.id) return;
-        const visibleInEditor = pdfFormDraft[box.fieldKey] ?? customFieldValues[box.id] ?? '';
-        const visibleStr = (typeof visibleInEditor === 'string' ? visibleInEditor : String(visibleInEditor ?? '')).trim();
-        if (visibleStr !== '') contentFromDraft[box.fieldKey] = visibleStr;
-      });
-      const knownFields = (fieldKeysByType[docType] ?? []).concat('folio');
-      knownFields.forEach((key) => {
-        if (
-          contentFromDraft[key] === undefined ||
-          contentFromDraft[key] === null ||
-          String(contentFromDraft[key]).trim() === ''
-        ) {
-          const box = customBoxes.find((b: { fieldKey?: string }) => b.fieldKey === key);
-          if (box?.id && customFieldValues[box.id]?.trim()) {
-            contentFromDraft[key] = String(customFieldValues[box.id]).trim();
-          }
-        }
-      });
-
-      // Fecha en el PDF = exactamente lo que muestra la vista previa (1:1). Si está vacío, enviar vacío; nunca inyectar fecha actual ni parsed.
-      const fechaBox = customBoxes.find((b: { fieldKey?: string }) => b.fieldKey === 'fecha');
-      const fechaFromBox = fechaBox
-        ? (pdfFormDraft.fecha ?? customFieldValues[fechaBox.id] ?? '')
-        : contentFromDraft.fecha ?? '';
-      const fechaStr = (typeof fechaFromBox === 'string' ? fechaFromBox : String(fechaFromBox ?? '')).trim();
-      contentFromDraft.fecha = fechaStr;
-
-      // Folio en el PDF = solo lo que muestra la caja de folio. No usar parsed.folio ni selectedDoc.id como valor visible.
-      const folioBox = customBoxes.find((b) => b.fieldKey === 'folio' || b.semantic === 'folio');
-      const folioFromBox = folioBox
-        ? (pdfFormDraft.folio ?? customFieldValues[folioBox.id] ?? '')
-        : contentFromDraft.folio ?? '';
-      const folioStr = (typeof folioFromBox === 'string' ? folioFromBox : String(folioFromBox ?? '')).trim();
-      contentFromDraft.folio = folioStr !== '' ? folioStr : selectedDoc.id ?? '';
-
-      // Total en el PDF = valor visible en la caja de total (draft o customFieldValues) para que siempre se muestre
-      const totalBox = customBoxes.find((b: { fieldKey?: string }) => b.fieldKey === 'total');
-      const totalFromBox = totalBox
-        ? (pdfFormDraft.total ?? customFieldValues[totalBox.id] ?? (contentFromDraft.total ?? '')).toString().trim()
-        : String(contentFromDraft.total ?? '').trim();
-      contentFromDraft.total = totalFromBox;
-
-      // Asegurar que elemento esté en content para el PDF
-      const elementoBox = customBoxes.find((b: { fieldKey?: string }) => b.fieldKey === 'elemento');
-      if (
-        elementoBox?.id &&
-        (contentFromDraft.elemento === undefined ||
-          contentFromDraft.elemento === null ||
-          String(contentFromDraft.elemento).trim() === '') &&
-        customFieldValues[elementoBox.id]?.trim()
-      ) {
-        contentFromDraft.elemento = String(customFieldValues[elementoBox.id]).trim();
-      }
-
-      const contentToSend = config
-        ? {
-            ...contentFromDraft,
-            fieldPositions: { ...config.fieldPositions, ...docFieldPositions },
-            customBoxes,
-            globalFontSize: config.fontSize ?? 11,
-            globalFontColor: config.fontColor ?? '#000000',
-            // Fuente por defecto para PDF: Averta Std (si el admin no ha definido otra en la plantilla).
-            globalFontFamily: config.fontFamily ?? 'Averta Std',
-            globalFontBold: config.fontBold ?? false,
-            globalFontItalic: config.fontItalic ?? false,
-          }
-        : {
-            ...contentFromDraft,
-            customBoxes: [],
-            globalFontSize: 11,
-            globalFontColor: '#000000',
-            globalFontFamily: 'Averta Std',
-            globalFontBold: false,
-            globalFontItalic: false,
-          };
-
-      // Un solo flujo: con docId el backend puede generar por captura del preview (PDF idéntico); si no, pdf-lib o Puppeteer.
-      let imageDataUrl: string | null = null;
-      if (selectedDoc.type === 'cotizacion' && previewWrapperRef.current) {
-        try {
-          const node = previewWrapperRef.current;
-          const canvas = await html2canvas(node, {
-            // Escala 1 para minimizar el peso del PNG manteniendo legibilidad
-            scale: 1,
-            useCORS: true,
-            backgroundColor: '#ffffff',
-          });
-          imageDataUrl = canvas.toDataURL('image/png');
-        } catch (captureErr) {
-          console.error('Error capturando vista previa para PDF', captureErr);
-          toast(
-            'No se pudo capturar la vista previa. Se generará un PDF basado en la plantilla, que puede no coincidir al 100% con el preview.',
-            'warning'
-          );
-        }
-      }
-
-      const body: {
-        content: Record<string, unknown>;
-        docId?: string;
-        imageDataUrl?: string;
-      } = {
-        content: contentToSend,
-      };
-      if (selectedDoc.id) {
-        body.docId = selectedDoc.id;
-      }
-      if (docType === 'cotizacion' && imageDataUrl) {
-        body.imageDataUrl = imageDataUrl;
-      }
 
       const res = await apiFetch(`${API_BASE}/api/templates/${docType}/generate`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
+        body: JSON.stringify({
+          content: contentToSend,
+          ...(selectedDoc.id ? { docId: selectedDoc.id } : {}),
+        }),
       });
 
       if (!res.ok) {
@@ -3306,12 +3171,12 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
 
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `${docType}.pdf`;
-      a.click();
-      // WebKit necesita que la URL siga activa un momento para iniciar la descarga; revocar al instante causa WebKitBlobResource 1
-      setTimeout(() => URL.revokeObjectURL(url), 2000);
+      // Usar navegación directa: maximiza compatibilidad y evita bloqueos de popups.
+      window.location.href = url;
+      // Dejar un margen amplio antes de revocar para no cortar la carga.
+      setTimeout(() => {
+        URL.revokeObjectURL(url);
+      }, 60000);
     } catch (e) {
       console.error('PDF download error', e);
       setError(e instanceof Error ? e.message : 'No se pudo descargar el PDF.');
@@ -3725,33 +3590,35 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
           <BookOpen size={20} className="text-monday-blue sm:w-[22px] sm:h-[22px]" />
           Documentos
         </h1>
-        <div className="flex rounded-lg border border-monday-border overflow-x-auto scroll-touch overflow-y-hidden bg-white shrink-0 flex-nowrap">
-          <button
-            type="button"
-            onClick={() => setViewMode('overview')}
-            className={`flex items-center gap-1.5 px-3 py-2.5 sm:py-1.5 min-h-[44px] sm:min-h-0 shrink-0 text-[13px] transition-colors touch-manipulation ${
-              viewMode === 'overview' ? 'bg-monday-blue text-white' : 'text-monday-subtext hover:bg-monday-hover'
-            }`}
-          >
-            <LayoutDashboard size={14} />
-            <span className="sm:hidden">General</span>
-            <span className="hidden sm:inline">Vista general</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => setViewMode('docs')}
-            className={`flex items-center gap-1.5 px-3 py-2.5 sm:py-1.5 min-h-[44px] sm:min-h-0 shrink-0 text-[13px] transition-colors touch-manipulation ${
-              viewMode === 'docs' ? 'bg-monday-blue text-white' : 'text-monday-subtext hover:bg-monday-hover'
-            }`}
-          >
-            <List size={14} />
-            <span className="sm:hidden">Lista</span>
-            <span className="hidden sm:inline">Documentos</span>
-          </button>
-        </div>
+        {!isMobile && (
+          <div className="flex rounded-lg border border-monday-border overflow-x-auto scroll-touch overflow-y-hidden bg-white shrink-0 flex-nowrap">
+            <button
+              type="button"
+              onClick={() => setViewMode('overview')}
+              className={`flex items-center gap-1.5 px-3 py-2.5 sm:py-1.5 min-h-[44px] sm:min-h-0 shrink-0 text-[13px] transition-colors touch-manipulation ${
+                effectiveViewMode === 'overview' ? 'bg-monday-blue text-white' : 'text-monday-subtext hover:bg-monday-hover'
+              }`}
+            >
+              <LayoutDashboard size={14} />
+              <span className="sm:hidden">General</span>
+              <span className="hidden sm:inline">Vista general</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setViewMode('docs')}
+              className={`flex items-center gap-1.5 px-3 py-2.5 sm:py-1.5 min-h-[44px] sm:min-h-0 shrink-0 text-[13px] transition-colors touch-manipulation ${
+                effectiveViewMode === 'docs' ? 'bg-monday-blue text-white' : 'text-monday-subtext hover:bg-monday-hover'
+              }`}
+            >
+              <List size={14} />
+              <span className="sm:hidden">Lista</span>
+              <span className="hidden sm:inline">Documentos</span>
+            </button>
+          </div>
+        )}
       </div>
 
-      {viewMode === 'overview' ? (
+      {effectiveViewMode === 'overview' ? (
         <div className="flex-1 flex flex-col min-h-0 overflow-hidden bg-monday-bg">
           {/* Menús superiores: en móvil grid más compacto */}
           <div className="p-4 sm:p-6 pb-2 shrink-0">
@@ -4267,7 +4134,7 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
                     <div
                       ref={previewWrapperRef}
                       className="flex flex-col shrink-0 bg-white self-start"
-                      style={{ width: '612px', height: '792px', minWidth: '612px', minHeight: '792px' }}
+                      style={{ width: '816px', height: '1056px', minWidth: '816px', minHeight: '1056px' }}
                     >
                       <PdfTemplateEditor
                         key={selectedDoc.id}

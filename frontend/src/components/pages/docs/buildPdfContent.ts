@@ -61,6 +61,20 @@ export function buildPdfContent({
     ...pdfFormDraft,
   } as Record<string, unknown>;
 
+  // Normalizar fecha: aceptar tanto "fecha" como "date" y volcar todo en content.fecha
+  const rawFecha =
+    (pdfFormDraft as Record<string, unknown>).fecha ??
+    (pdfFormDraft as Record<string, unknown>).date ??
+    (parsedContent as Record<string, unknown>).fecha ??
+    (parsedContent as Record<string, unknown>).date ??
+    contentFromDraft.fecha ??
+    '';
+  const normalizedFecha =
+    typeof rawFecha === 'string' ? rawFecha.trim() : String(rawFecha ?? '').trim();
+  if (normalizedFecha) {
+    contentFromDraft.fecha = normalizedFecha;
+  }
+
   // PDF 1:1 con el editor: cada caja con fieldKey usa exactamente el valor visible en el editor
   customBoxes.forEach((box: { id?: string; fieldKey?: string }) => {
     if (!box.fieldKey || !box.id) return;
@@ -86,8 +100,11 @@ export function buildPdfContent({
   // Fecha en el PDF = exactamente lo que muestra la vista previa (1:1).
   const fechaBox = customBoxes.find((b: { fieldKey?: string }) => b.fieldKey === 'fecha');
   const fechaFromBox = fechaBox
-    ? ((pdfFormDraft as Record<string, unknown>).fecha ?? customFieldValues[fechaBox.id] ?? '')
-    : contentFromDraft.fecha ?? '';
+    ? ((pdfFormDraft as Record<string, unknown>).fecha ??
+        (pdfFormDraft as Record<string, unknown>).date ??
+        customFieldValues[fechaBox.id] ??
+        '')
+    : contentFromDraft.fecha ?? normalizedFecha ?? '';
   const fechaStr = (typeof fechaFromBox === 'string' ? fechaFromBox : String(fechaFromBox ?? '')).trim();
   contentFromDraft.fecha = fechaStr;
 

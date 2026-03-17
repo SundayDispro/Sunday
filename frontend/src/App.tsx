@@ -34,6 +34,7 @@ import { TeamPage } from './components/pages/TeamPage';
 import { FacturacionPage } from './components/pages/FacturacionPage';
 import { WorkspaceOverviewPage } from './components/pages/WorkspaceOverviewPage';
 import { MiTrabajoPage } from './components/pages/MiTrabajoPage';
+import { TodayPage } from './components/pages/TodayPage';
 import { BottomNav, type BottomNavPage } from './components/BottomNav';
 import { MobileBoardHeaderMinimal } from './components/MobileBoardHeaderMinimal';
 import { BoardViewBottomSheet } from './components/Board/BoardViewBottomSheet';
@@ -229,7 +230,7 @@ function App() {
   const [showAddViewPopover, setShowAddViewPopover] = useState(false);
   const [calendarBoardPickerOpen, setCalendarBoardPickerOpen] = useState(false);
   const [boardVistaSheetOpen, setBoardVistaSheetOpen] = useState(false);
-  const [lastMainTab, setLastMainTab] = useState<'home' | 'calendar' | 'docs'>('home');
+  const [lastMainTab, setLastMainTab] = useState<'home' | 'board' | 'calendar'>('home');
   const [mobileHeaderHidden, setMobileHeaderHidden] = useState(false);
   const [mobileHeaderHeight, setMobileHeaderHeight] = useState(120);
   const mobileHeaderRef = useRef<HTMLDivElement>(null);
@@ -903,9 +904,9 @@ function App() {
           }}
           onNavigate={(page) => {
             if (page === 'inbox' || page === 'notifications') {
-              if (activePage === 'board' || activePage === 'home' || activePage === 'miTrabajo') setLastMainTab('home');
+              if (activePage === 'home') setLastMainTab('home');
+              else if (activePage === 'board' || activePage === 'miTrabajo') setLastMainTab('board');
               else if (activePage === 'calendar') setLastMainTab('calendar');
-              else if (activePage === 'docs') setLastMainTab('docs');
               setActivePage(page === 'inbox' ? 'inbox' : 'notifications');
             } else {
               setActivePage(page);
@@ -1024,9 +1025,10 @@ function App() {
           </Popover.Trigger>
           <Popover.Portal>
             <Popover.Content
-              className="z-50 bg-white rounded-xl shadow-monday-lg border border-monday-border w-44 p-2 fade-in"
+              className="z-50 bg-white rounded-xl shadow-monday-lg border border-monday-border w-44 max-h-[70vh] overflow-y-auto custom-scrollbar p-2 fade-in"
               sideOffset={8}
               align="end"
+              side="bottom"
               onClick={e => e.stopPropagation()}
             >
               <p className="text-[11px] font-semibold text-monday-subtext px-2 mb-1.5 uppercase tracking-wider">
@@ -1690,8 +1692,8 @@ if (ok && data && typeof data.id === 'string') {
                               : activePage === 'miTrabajo'
                                 ? 'Mi trabajo'
                                 : activePage === 'home'
-                                  ? 'Tableros'
-                                  : 'Tableros'}
+                                  ? 'Hoy'
+                                  : 'Hoy'}
             </span>
           </header>
 
@@ -1710,47 +1712,28 @@ if (ok && data && typeof data.id === 'string') {
               Cargando Sunday...
             </div>
           ) : activePage === 'home' ? (
-            <WorkspaceOverviewPage
-              workspace={workspaces.find(w => w.id === activeWorkspaceId) ?? null}
-              workspaces={workspaces}
-              boards={boards}
-              onSelectBoard={(id) => { setActiveBoardId(id); setActivePage('board'); }}
-              onSelectWorkspace={(id) => {
-                setActiveWorkspaceId(id);
-                setActiveBoardId(null);
+            <TodayPage
+              onGoSearch={() => {
+                setActivePage('search');
+                setSidebarOpen(false);
               }}
-              onWorkspaceUpdated={(updated) => {
-                setWorkspaces(prev => prev.map(w => w.id === updated.id ? { ...w, ...updated } : w));
+              onGoKanban={() => {
+                // En Inicio, abrir directamente el Kanban del tablero actual (o el primero disponible).
+                if (!activeBoardId && boards.length > 0) {
+                  setActiveBoardId(boards[0].id);
+                }
+                setCurrentView('kanban');
+                setActivePage('board');
+                setSidebarOpen(false);
               }}
-              onWorkspaceDeleted={() => {
-                apiFetch(`${API_BASE}/api/workspaces`)
-                  .then(r => (r.ok ? r.json() : Promise.resolve(null)))
-                  .then((data: Workspace[] | null) => {
-                    if (!data || !Array.isArray(data)) return;
-                    setWorkspaces(data);
-                    const stillExists = data.some(w => w.id === activeWorkspaceId);
-                    if (!stillExists) {
-                      setActiveWorkspaceId(data[0]?.id ?? null);
-                      setActiveBoardId(null);
-                      setBoards([]);
-                    }
-                  })
-                  .catch(() => {});
+              onGoInbox={() => {
+                setActivePage('inbox');
+                setSidebarOpen(false);
               }}
-              onBoardDeleted={() => {
-                const url = activeWorkspaceId
-                  ? `${API_BASE}/api/boards?workspaceId=${encodeURIComponent(activeWorkspaceId)}`
-                  : `${API_BASE}/api/boards`;
-                apiFetch(url)
-                  .then(r => (r.ok ? r.json() : Promise.resolve(null)))
-                  .then((data: Board[] | null) => {
-                    if (!data || !Array.isArray(data)) return;
-                    setBoards(data);
-                    setActiveBoardId(prev => (prev && data.some(b => b.id === prev) ? prev : null));
-                  })
-                  .catch(() => {});
+              onGoDocs={() => {
+                setActivePage('docs');
+                setSidebarOpen(false);
               }}
-              showAsHome
             />
           ) : activePage === 'calendar' && !isMobile ? (
             <>
@@ -2276,7 +2259,7 @@ if (ok && data && typeof data.id === 'string') {
         </AnimatedDialog>
       )}
 
-      {isMobile && !isBootstrapping && ((activePage === 'board' && activeBoardId) || (activePage === 'miTrabajo' && activeBoardId)) && mobileHeaderHidden && (
+      {isMobile && !isBootstrapping && (activePage === 'home' || activePage === 'board' || activePage === 'calendar') && mobileHeaderHidden && (
         <button
           type="button"
           onClick={() => window.dispatchEvent(new CustomEvent('sunday-fab-add-item'))}
@@ -2297,13 +2280,13 @@ if (ok && data && typeof data.id === 'string') {
           activePage={
             activePage === 'inbox' || activePage === 'notifications'
               ? (lastMainTab === 'home' ? 'home' : lastMainTab)
-              : activePage === 'board' || activePage === 'home' || activePage === 'miTrabajo'
+              : activePage === 'home'
                 ? 'home'
+                : activePage === 'board' || activePage === 'miTrabajo'
+                  ? 'board'
                 : activePage === 'calendar'
                   ? 'calendar'
-                  : activePage === 'docs'
-                    ? 'docs'
-                    : 'home'
+                  : 'home'
           }
           moreIsActive={sidebarOpen}
           onNavigate={(page: BottomNavPage) => {
@@ -2316,17 +2299,17 @@ if (ok && data && typeof data.id === 'string') {
               if (boards.length > 0 && !activeBoardId) setActiveBoardId(boards[0].id);
               return;
             }
-            if (page === 'docs') {
-              setActivePage('docs');
+            if (page === 'home') {
+              setActivePage('home');
               return;
             }
-            if (page === 'home') {
+            if (page === 'board') {
               setActivePage('board');
               return;
             }
           }}
           unreadNotifCount={unreadNotifCount}
-          items={isTaller ? ['home', 'calendar', 'docs', 'more'] : undefined}
+          items={isTaller ? ['home', 'board', 'calendar', 'more'] : undefined}
           compact={isLandscapeShort}
         />
       )}
