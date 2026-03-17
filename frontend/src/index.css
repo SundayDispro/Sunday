@@ -85,6 +85,90 @@
   --scrollbar-track: rgba(255, 255, 255, 0.06);
 }
 
+/* Modo dawn: arena monocrómatico, cálido y relajado (más oscuro) */
+[data-theme="dawn"] {
+  --monday-bg: #e1d4c0;          /* arena media */
+  --monday-surface: #d4c4ab;     /* tarjetas más marcadas */
+  --monday-text: #2a241d;        /* café muy oscuro */
+  --monday-subtext: #756654;     /* café-gris medio */
+  --monday-border: #bda78a;
+  --monday-hover: #cbb89d;
+  --monday-pill: #c2ae90;
+  --monday-sidebar: #1f1912;     /* sidebar café profundo */
+  --monday-sidebarHover: #2a231a;
+  --monday-sidebarPanel: #e6d8c5;
+  --monday-shadow-sm: 0 4px 14px rgba(0, 0, 0, 0.12);
+  --monday-shadow-md: 0 8px 24px rgba(0, 0, 0, 0.18);
+  --monday-shadow-lg: 0 12px 40px rgba(0, 0, 0, 0.24);
+  --monday-shadow-panel: -4px 0 24px rgba(0, 0, 0, 0.18);
+  --scrollbar-thumb: #a79275;
+  --scrollbar-thumb-hover: #8e7a5c;
+  --scrollbar-track: rgba(0, 0, 0, 0.06);
+}
+
+/* Modo fog: grises aún más oscuros, manteniendo buen contraste */
+[data-theme="fog"] {
+  --monday-bg: #b8b8b8;          /* gris medio */
+  --monday-surface: #a3a3a3;     /* superficie claramente más oscura */
+  --monday-text: #111111;        /* casi negro */
+  --monday-subtext: #4a4a4a;
+  --monday-border: #8f8f8f;
+  --monday-hover: #9a9a9a;
+  --monday-pill: #909090;
+  --monday-sidebar: #101010;     /* sidebar muy oscuro */
+  --monday-sidebarHover: #1a1a1a;
+  --monday-sidebarPanel: #c4c4c4;
+  --monday-shadow-sm: 0 4px 16px rgba(0, 0, 0, 0.2);
+  --monday-shadow-md: 0 8px 26px rgba(0, 0, 0, 0.26);
+  --monday-shadow-lg: 0 12px 42px rgba(0, 0, 0, 0.32);
+  --monday-shadow-panel: -4px 0 26px rgba(0, 0, 0, 0.26);
+  --scrollbar-thumb: #707070;
+  --scrollbar-thumb-hover: #5a5a5a;
+  --scrollbar-track: rgba(0, 0, 0, 0.08);
+}
+
+/* Modo plum: morado oscuro, profundo pero legible */
+[data-theme="plum"] {
+  --monday-bg: #12091a;          /* fondo morado muy oscuro */
+  --monday-surface: #1b1026;     /* tarjetas un poco más claras */
+  --monday-text: #f3e9ff;        /* texto lila muy claro */
+  --monday-subtext: #c4a9f0;
+  --monday-border: #3a244f;
+  --monday-hover: #241331;
+  --monday-pill: #2f1840;
+  --monday-sidebar: #0a050f;     /* sidebar casi negro púrpura */
+  --monday-sidebarHover: #160b20;
+  --monday-sidebarPanel: #1b1026;
+  --monday-shadow-sm: 0 4px 16px rgba(0, 0, 0, 0.5);
+  --monday-shadow-md: 0 8px 28px rgba(0, 0, 0, 0.6);
+  --monday-shadow-lg: 0 14px 46px rgba(0, 0, 0, 0.7);
+  --monday-shadow-panel: -4px 0 26px rgba(0, 0, 0, 0.6);
+  --scrollbar-thumb: #5d3a86;
+  --scrollbar-thumb-hover: #7a4fb0;
+  --scrollbar-track: rgba(255, 255, 255, 0.06);
+}
+
+/* Modo ember: naranja plano y vivo (similar a la muestra) */
+[data-theme="ember"] {
+  --monday-bg: #ff9800;          /* fondo naranja vivo */
+  --monday-surface: #ff8a00;     /* tarjetas un poco más oscuras */
+  --monday-text: #23150a;        /* texto marrón muy oscuro para contraste */
+  --monday-subtext: #4e2c13;
+  --monday-border: #e07700;
+  --monday-hover: #ff9100;
+  --monday-pill: #ffb74d;
+  --monday-sidebar: #e07700;     /* sidebar naranja más oscuro */
+  --monday-sidebarHover: #cc6a00;
+  --monday-sidebarPanel: #ff9800;
+  --monday-shadow-sm: 0 4px 14px rgba(0, 0, 0, 0.25);
+  --monday-shadow-md: 0 8px 22px rgba(0, 0, 0, 0.30);
+  --monday-shadow-lg: 0 12px 36px rgba(0, 0, 0, 0.35);
+  --monday-shadow-panel: -4px 0 24px rgba(0, 0, 0, 0.30);
+  --scrollbar-thumb: #ffb74d;    /* naranja claro para scroll */
+  --scrollbar-thumb-hover: #ffcc80;
+  --scrollbar-track: rgba(0, 0, 0, 0.08);
+}
+
 @layer base {
   body {
     margin: 0;

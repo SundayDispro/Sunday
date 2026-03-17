@@ -22,7 +22,7 @@ import * as Popover from '@radix-ui/react-popover';
 import { UserPanel } from './UserPanel';
 import type { Workspace, Board } from '../types';
 
-export type AppTheme = 'light' | 'dark' | 'night';
+export type AppTheme = 'light' | 'dark' | 'night' | 'dawn' | 'fog' | 'plum' | 'ember';
 
 interface MobileMoreDrawerProps {
   open: boolean;
@@ -314,11 +314,11 @@ export function MobileMoreDrawer({
                   <p className="text-monday-subtext text-[11px] font-semibold px-2 mb-2 uppercase tracking-wider">
                     Cuenta
                   </p>
-                  <div className="flex flex-col gap-0.5">
+                    <div className="flex flex-col gap-0.5">
                     <div className="flex items-center gap-2 px-2.5 py-2">
                       <span className="text-[12px] text-monday-subtext shrink-0">Tema</span>
                       <div className="flex gap-1 flex-1">
-                        {(['light', 'dark', 'night'] as const).map((t) => (
+                        {(['light', 'dark', 'night', 'dawn', 'fog', 'plum', 'ember'] as const).map((t) => (
                           <button
                             key={t}
                             onClick={() => onThemeChange(t)}
@@ -329,7 +329,25 @@ export function MobileMoreDrawer({
                             {t === 'light' && <Sun size={14} />}
                             {t === 'dark' && <Moon size={14} />}
                             {t === 'night' && <Sparkles size={14} />}
-                            <span>{t === 'light' ? 'Claro' : t === 'dark' ? 'Oscuro' : 'Noche'}</span>
+                            {t === 'dawn' && <Sparkles size={14} />}
+                            {t === 'fog' && <Sparkles size={14} />}
+                            {t === 'plum' && <Sparkles size={14} />}
+                            {t === 'ember' && <Sparkles size={14} />}
+                            <span>
+                              {t === 'light'
+                                ? 'Claro'
+                                : t === 'dark'
+                                ? 'Oscuro'
+                                : t === 'night'
+                                ? 'Noche'
+                                : t === 'dawn'
+                                ? 'Dawn'
+                                : t === 'fog'
+                                ? 'Fog'
+                                : t === 'plum'
+                                ? 'Plum'
+                                : 'Ember'}
+                            </span>
                           </button>
                         ))}
                       </div>

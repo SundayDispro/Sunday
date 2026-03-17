@@ -8,9 +8,17 @@ import {
   Users, BookOpen, BarChart2, Inbox, Star, Plus, Receipt, Calendar, Folder, PieChart, FolderOpen, UserCheck, GanttChart, Check, AlertCircle, X, Sun, Moon, Sparkles, LayoutGrid, Menu, ChevronLeft,
 } from 'lucide-react';
 
-type AppTheme = 'light' | 'dark' | 'night';
+type AppTheme = 'light' | 'dark' | 'night' | 'dawn' | 'fog' | 'plum' | 'ember';
 const THEME_STORAGE_KEY = 'sunday-theme';
-const THEME_COLORS: Record<AppTheme, string> = { light: '#f6f7fb', dark: '#111827', night: '#0a0a0a' };
+const THEME_COLORS: Record<AppTheme, string> = {
+  light: '#f6f7fb',
+  dark: '#111827',
+  night: '#0a0a0a',
+  dawn: '#e1d4c0',
+  fog: '#b8b8b8',
+  plum: '#1b1026',
+  ember: '#ff9800',
+};
 import { Item, Board, Workspace, User } from './types';
 import { useUser } from './store/UserContext';
 import { Login } from './components/Login';
@@ -228,14 +236,15 @@ function App() {
   const [exportingFolders, setExportingFolders] = useState(false);
   const { isMobile, isLandscapeShort } = useViewport();
   const [sidebarOpen, setSidebarOpen] = useState(() => typeof window !== 'undefined' && window.innerWidth >= 768);
-  useEffect(() => {
-    if (isMobile) setSidebarOpen(false);
-  }, [isMobile]);
   const [theme, setTheme] = useState<AppTheme>(() => {
     if (typeof window === 'undefined') return 'light';
     try {
-      const stored = localStorage.getItem(THEME_STORAGE_KEY);
-      if (stored === 'dark' || stored === 'night' || stored === 'light') return stored;
+      const raw = localStorage.getItem(THEME_STORAGE_KEY);
+      let stored = raw as AppTheme | 'zen' | 'zenPlus' | null;
+      // Migración de nombres antiguos a los nuevos
+      if (stored === 'zen') stored = 'dawn';
+      if (stored === 'zenPlus') stored = 'fog';
+      if (stored && ['light', 'dark', 'night', 'dawn', 'fog', 'plum', 'ember'].includes(stored)) return stored as AppTheme;
       return window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
     } catch {
       return 'light';
@@ -476,7 +485,6 @@ function App() {
         columnId: string;
       }>;
       setActivePage('docs');
-      setSidebarOpen(false);
       if (ev.detail?.boardId) {
         setActiveBoardId(ev.detail.boardId);
       }
@@ -493,7 +501,6 @@ function App() {
       const ev = event as CustomEvent<{ docId: string }>;
       if (ev.detail?.docId) {
         setActivePage('docs');
-        setSidebarOpen(false);
         setOpenDocId(ev.detail.docId);
       }
     };
@@ -900,15 +907,15 @@ function App() {
               else if (activePage === 'calendar') setLastMainTab('calendar');
               else if (activePage === 'docs') setLastMainTab('docs');
               setActivePage(page === 'inbox' ? 'inbox' : 'notifications');
-            } else setActivePage(page);
-            setSidebarOpen(false);
+            } else {
+              setActivePage(page);
+            }
           }}
           theme={theme}
           onThemeChange={setTheme}
           canSeeFacturacion={!!canSeeFacturacionView}
           isTaller={!!isTaller}
           onRequestAddBoard={() => {
-            setSidebarOpen(false);
             setShowCreateBoardModal(true);
           }}
           unreadNotifCount={unreadNotifCount}
@@ -991,13 +998,29 @@ function App() {
           <Popover.Trigger asChild>
             <button
               title={
-                theme === 'light' ? 'Tema claro' : theme === 'dark' ? 'Tema oscuro' : 'Modo noche'
+                theme === 'light'
+                  ? 'Tema claro'
+                  : theme === 'dark'
+                  ? 'Tema oscuro'
+                  : theme === 'night'
+                  ? 'Modo noche'
+                  : theme === 'dawn'
+                  ? 'Modo dawn'
+                  : theme === 'fog'
+                  ? 'Modo fog'
+                  : theme === 'plum'
+                  ? 'Modo plum'
+                  : 'Modo ember'
               }
               className="min-h-[44px] min-w-[44px] w-11 h-11 flex items-center justify-center rounded-lg text-white/70 hover:text-white hover:bg-monday-sidebarHover transition-all duration-150"
             >
               {theme === 'light' && <Sun size={20} strokeWidth={2.25} />}
               {theme === 'dark' && <Moon size={20} strokeWidth={2.25} />}
               {theme === 'night' && <Sparkles size={20} strokeWidth={2.25} />}
+              {theme === 'dawn' && <Sparkles size={20} strokeWidth={2.25} />}
+              {theme === 'fog' && <Sparkles size={20} strokeWidth={2.25} />}
+              {theme === 'plum' && <Sparkles size={20} strokeWidth={2.25} />}
+              {theme === 'ember' && <Sparkles size={20} strokeWidth={2.25} />}
             </button>
           </Popover.Trigger>
           <Popover.Portal>
@@ -1010,7 +1033,7 @@ function App() {
               <p className="text-[11px] font-semibold text-monday-subtext px-2 mb-1.5 uppercase tracking-wider">
                 Tema
               </p>
-              {(['light', 'dark', 'night'] as const).map(t => (
+              {(['light', 'dark', 'night', 'dawn', 'fog', 'plum', 'ember'] as const).map(t => (
                 <button
                   key={t}
                   onClick={() => { setTheme(t); setThemeSelectorOpen(false); }}
@@ -1019,7 +1042,25 @@ function App() {
                   {t === 'light' && <Sun size={16} className="shrink-0" />}
                   {t === 'dark' && <Moon size={16} className="shrink-0" />}
                   {t === 'night' && <Sparkles size={16} className="shrink-0" />}
-                  <span>{t === 'light' ? 'Claro' : t === 'dark' ? 'Oscuro' : 'Noche'}</span>
+                  {t === 'dawn' && <Sparkles size={16} className="shrink-0" />}
+                  {t === 'fog' && <Sparkles size={16} className="shrink-0" />}
+                  {t === 'plum' && <Sparkles size={16} className="shrink-0" />}
+                  {t === 'ember' && <Sparkles size={16} className="shrink-0" />}
+                  <span>
+                    {t === 'light'
+                      ? 'Claro'
+                      : t === 'dark'
+                      ? 'Oscuro'
+                      : t === 'night'
+                      ? 'Noche'
+                      : t === 'dawn'
+                      ? 'Dawn'
+                      : t === 'fog'
+                      ? 'Fog'
+                      : t === 'plum'
+                      ? 'Plum'
+                      : 'Ember'}
+                  </span>
                 </button>
               ))}
             </Popover.Content>
@@ -1880,7 +1921,7 @@ if (ok && data && typeof data.id === 'string') {
                   }
                 }}
                 exportingFolders={exportingFolders}
-                onOpenSearch={() => { setActivePage('search'); setSidebarOpen(false); }}
+                onOpenSearch={() => { setActivePage('search'); }}
               />
             </>
           ) : activePage === 'miTrabajo' ? (
@@ -2100,7 +2141,6 @@ if (ok && data && typeof data.id === 'string') {
               onItemClick={setSelectedItem}
               initialTab={activePage === 'notifications' ? 'notificaciones' : 'actividad'}
               onOpenItem={(item, boardId) => {
-                setSidebarOpen(false);
                 setActivePage('board');
                 setActiveBoardId(boardId);
                 setSelectedItem(item);
@@ -2116,19 +2156,17 @@ if (ok && data && typeof data.id === 'string') {
           ) : activePage === 'notifications' ? (
             <NotificationsPage
               onOpenItem={(item, boardId) => {
-                setSidebarOpen(false);
                 setActivePage('board');
                 setActiveBoardId(boardId);
                 setSelectedItem(item);
               }}
-              onOpenInbox={() => { setSidebarOpen(false); setActivePage('inbox'); }}
+              onOpenInbox={() => { setActivePage('inbox'); }}
               onNotificationsChange={fetchUnreadNotifications}
             />
           ) : activePage === 'search' ? (
             <SearchPage
               onItemClick={setSelectedItem}
               onResultClick={(item, boardId) => {
-                setSidebarOpen(false);
                 setActivePage('board');
                 setActiveBoardId(boardId);
                 setSelectedItem(item);
@@ -2149,7 +2187,6 @@ if (ok && data && typeof data.id === 'string') {
             <TeamPage
               onOpenInboxForUser={(user) => {
                 setComposeToUser(user);
-                setSidebarOpen(false);
                 setActivePage('inbox');
               }}
             />
@@ -2157,7 +2194,6 @@ if (ok && data && typeof data.id === 'string') {
             <FacturacionPage
               boards={boards}
               onOpenItem={(item, boardId) => {
-                setSidebarOpen(false);
                 setActivePage('board');
                 setActiveBoardId(boardId);
                 setSelectedItem(item);
