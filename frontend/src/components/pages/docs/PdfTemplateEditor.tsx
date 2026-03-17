@@ -624,7 +624,11 @@ export const PdfTemplateEditor: React.FC<Props> = ({
         >
           <div
             ref={containerRef}
-            className={`relative bg-transparent ${viewerOnly ? 'w-full h-full rounded-none overflow-visible border border-gray-200' : 'overflow-hidden rounded-lg border border-monday-border/60 shadow-monday'}`}
+            className={`relative bg-transparent ${
+              viewerOnly
+                ? 'w-full h-full rounded-none overflow-visible'
+                : 'overflow-hidden rounded-lg border border-monday-border/60 shadow-monday'
+            }`}
             style={{
               width: `${PAGE_WIDTH_PX}px`,
               height: `${PAGE_HEIGHT_PX}px`,

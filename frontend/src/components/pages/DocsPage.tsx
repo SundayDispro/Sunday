@@ -3124,7 +3124,10 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
     try {
       const docType = selectedDoc.type as 'cotizacion' | 'levantamiento' | 'hoja_trabajo';
       const config = templateConfigByType[docType];
-      const docFieldPositions = (pdfFormDraft.fieldPositions ?? {}) as Record<string, { x: number; y: number; fontSize?: number; maxWidth?: number }>;
+      const docFieldPositions = (pdfFormDraft.fieldPositions ?? {}) as Record<
+        string,
+        { x: number; y: number; fontSize?: number; maxWidth?: number }
+      >;
       const rawCustomBoxes = Array.isArray(config?.customBoxes) ? config.customBoxes : [];
       const customFieldValues = (pdfFormDraft.customFieldValues ?? {}) as Record<string, string>;
       const fieldKeysByType: Record<string, string[]> = {
@@ -3153,18 +3156,25 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
           height: Math.max(0.01, Math.min(1, Number(box.height) ?? 0.05)),
         };
       });
-      const contentFromDraft = { ...(parsed as Record<string, unknown>), ...pdfFormDraft } as Record<string, unknown>;
+      const contentFromDraft = {
+        ...(parsed as Record<string, unknown>),
+        ...pdfFormDraft,
+      } as Record<string, unknown>;
 
       // PDF 1:1 con el editor: cada caja con fieldKey usa exactamente el valor visible en el editor (pdfFormDraft[fieldKey] ?? customFieldValues[box.id])
       customBoxes.forEach((box: { id?: string; fieldKey?: string }) => {
         if (!box.fieldKey || !box.id) return;
-        const visibleInEditor = (pdfFormDraft[box.fieldKey] ?? customFieldValues[box.id] ?? '');
+        const visibleInEditor = pdfFormDraft[box.fieldKey] ?? customFieldValues[box.id] ?? '';
         const visibleStr = (typeof visibleInEditor === 'string' ? visibleInEditor : String(visibleInEditor ?? '')).trim();
         if (visibleStr !== '') contentFromDraft[box.fieldKey] = visibleStr;
       });
       const knownFields = (fieldKeysByType[docType] ?? []).concat('folio');
       knownFields.forEach((key) => {
-        if (contentFromDraft[key] === undefined || contentFromDraft[key] === null || String(contentFromDraft[key]).trim() === '') {
+        if (
+          contentFromDraft[key] === undefined ||
+          contentFromDraft[key] === null ||
+          String(contentFromDraft[key]).trim() === ''
+        ) {
           const box = customBoxes.find((b: { fieldKey?: string }) => b.fieldKey === key);
           if (box?.id && customFieldValues[box.id]?.trim()) {
             contentFromDraft[key] = String(customFieldValues[box.id]).trim();
@@ -3176,7 +3186,7 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
       const fechaBox = customBoxes.find((b: { fieldKey?: string }) => b.fieldKey === 'fecha');
       const fechaFromBox = fechaBox
         ? (pdfFormDraft.fecha ?? customFieldValues[fechaBox.id] ?? '')
-        : (contentFromDraft.fecha ?? '');
+        : contentFromDraft.fecha ?? '';
       const fechaStr = (typeof fechaFromBox === 'string' ? fechaFromBox : String(fechaFromBox ?? '')).trim();
       contentFromDraft.fecha = fechaStr;
 
@@ -3184,9 +3194,9 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
       const folioBox = customBoxes.find((b) => b.fieldKey === 'folio' || b.semantic === 'folio');
       const folioFromBox = folioBox
         ? (pdfFormDraft.folio ?? customFieldValues[folioBox.id] ?? '')
-        : (contentFromDraft.folio ?? '');
+        : contentFromDraft.folio ?? '';
       const folioStr = (typeof folioFromBox === 'string' ? folioFromBox : String(folioFromBox ?? '')).trim();
-      contentFromDraft.folio = folioStr !== '' ? folioStr : (selectedDoc?.id ?? '');
+      contentFromDraft.folio = folioStr !== '' ? folioStr : selectedDoc.id ?? '';
 
       // Total en el PDF = valor visible en la caja de total (draft o customFieldValues) para que siempre se muestre
       const totalBox = customBoxes.find((b: { fieldKey?: string }) => b.fieldKey === 'total');
@@ -3197,9 +3207,16 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
 
       // Asegurar que elemento esté en content para el PDF
       const elementoBox = customBoxes.find((b: { fieldKey?: string }) => b.fieldKey === 'elemento');
-      if (elementoBox?.id && (contentFromDraft.elemento === undefined || contentFromDraft.elemento === null || String(contentFromDraft.elemento).trim() === '') && customFieldValues[elementoBox.id]?.trim()) {
+      if (
+        elementoBox?.id &&
+        (contentFromDraft.elemento === undefined ||
+          contentFromDraft.elemento === null ||
+          String(contentFromDraft.elemento).trim() === '') &&
+        customFieldValues[elementoBox.id]?.trim()
+      ) {
         contentFromDraft.elemento = String(customFieldValues[elementoBox.id]).trim();
       }
+
       const contentToSend = config
         ? {
             ...contentFromDraft,
@@ -3221,53 +3238,72 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
             globalFontBold: false,
             globalFontItalic: false,
           };
-      // Un solo flujo: con docId el backend puede generar por captura del preview (PDF idéntico); si no, pdf-lib o Puppeteer.
-      let res: Response;
 
-      // Si estamos viendo una cotización con preview, capturamos ese mismo preview en el navegador
-      // y enviamos la imagen al backend para que genere el PDF a partir de ese PNG.
-      if (selectedDoc && selectedDoc.type === 'cotizacion' && previewWrapperRef.current) {
-        const node = previewWrapperRef.current;
-        const canvas = await html2canvas(node, {
-          scale: 2,
-          useCORS: true,
-          backgroundColor: '#ffffff',
-        });
-        const imageDataUrl = canvas.toDataURL('image/png');
-        res = await apiFetch(`${API_BASE}/api/templates/${docType}/generate`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            content: contentToSend,
-            docId: selectedDoc.id,
-            imageDataUrl,
-          }),
-        });
-      } else {
-        res = await apiFetch(`${API_BASE}/api/templates/${docType}/generate`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            content: contentToSend,
-            ...(selectedDoc?.id ? { docId: selectedDoc.id } : {}),
-          }),
-        });
+      // Un solo flujo: con docId el backend puede generar por captura del preview (PDF idéntico); si no, pdf-lib o Puppeteer.
+      let imageDataUrl: string | null = null;
+      if (selectedDoc.type === 'cotizacion' && previewWrapperRef.current) {
+        try {
+          const node = previewWrapperRef.current;
+          const canvas = await html2canvas(node, {
+            // Escala 1 para minimizar el peso del PNG manteniendo legibilidad
+            scale: 1,
+            useCORS: true,
+            backgroundColor: '#ffffff',
+          });
+          imageDataUrl = canvas.toDataURL('image/png');
+        } catch (captureErr) {
+          console.error('Error capturando vista previa para PDF', captureErr);
+          toast(
+            'No se pudo capturar la vista previa. Se generará un PDF basado en la plantilla, que puede no coincidir al 100% con el preview.',
+            'warning'
+          );
+        }
       }
+
+      const body: {
+        content: Record<string, unknown>;
+        docId?: string;
+        imageDataUrl?: string;
+      } = {
+        content: contentToSend,
+      };
+      if (selectedDoc.id) {
+        body.docId = selectedDoc.id;
+      }
+      if (docType === 'cotizacion' && imageDataUrl) {
+        body.imageDataUrl = imageDataUrl;
+      }
+
+      const res = await apiFetch(`${API_BASE}/api/templates/${docType}/generate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+
       if (!res.ok) {
         const text = await res.text();
         let errMsg = 'Error al generar PDF';
         try {
           const data = text ? JSON.parse(text) : {};
-          if (typeof (data as { error?: string }).error === 'string') errMsg = (data as { error: string }).error;
+          if (typeof (data as { error?: string }).error === 'string') {
+            errMsg = (data as { error: string }).error;
+          }
         } catch {
-          if (res.status === 404) errMsg = 'Plantilla no encontrada. Revisa que exista el PDF en backend/templates.';
+          if (res.status === 404) {
+            errMsg = 'Plantilla no encontrada. Revisa que exista el PDF en backend/templates.';
+          }
         }
         throw new Error(errMsg);
       }
+
       const methodHeader = res.headers.get('X-PDF-Method');
       if (methodHeader && methodHeader !== 'capture' && methodHeader !== 'client-capture') {
-        toast('PDF generado desde plantilla. Si no coincide con el preview, usa \"Descargar vista actual\".', 'info');
+        toast(
+          'PDF generado desde plantilla. Si no coincide con el preview, usa \"Descargar vista actual\".',
+          'info'
+        );
       }
+
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
@@ -3851,15 +3887,9 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
                       <span>Cerrar</span>
                     </button>
                       {selectedDoc && isPdfDocType(selectedDoc.type as DocType) && (
-                        <button
-                          type="button"
-                          onClick={handleDownloadPdf}
-                          disabled={downloadingPdf}
-                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-monday border border-monday-border text-[13px] font-medium text-monday-text hover:bg-monday-hover disabled:opacity-60"
-                        >
-                          <Download size={14} />
-                          {downloadingPdf ? 'Descargando…' : 'Descargar PDF'}
-                        </button>
+                        <span className="text-[11px] text-monday-subtext">
+                          La descarga de PDF se hace desde la vista de documentos.
+                        </span>
                       )}
                       {selectedDoc && (
                         <button
