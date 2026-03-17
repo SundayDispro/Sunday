@@ -9,6 +9,9 @@ import path from 'path';
 const PAGE_W_PT = 612;
 const PAGE_H_PT = 792;
 
+// Raíz del backend (tanto en src como en dist/src) para resolver assets de forma estable.
+const BACKEND_ROOT = path.join(__dirname, '..');
+
 // Paddings en pt (convertidos de px: 1px = 0.75pt a 96 DPI)
 const PADDING_TOP_FOLIO_PT = 9;       // 12px -> 9pt
 const PADDING_TOP_SINGLE_PT = 12;      // 16px -> 12pt
@@ -81,29 +84,54 @@ interface CustomBox {
 
 /** Devuelve CSS @font-face para Averta Std (mismo nombre que en el editor) para que Puppeteer renderice igual. */
 function getAvertaStdFontFaceCss(): string {
-  // Usamos la fuente OTF que ya se incluye en el build del frontend,
-  // y la exponemos al PDF con el nombre "Averta Std" para que coincida con el editor.
-  const candidatePaths = [
-    // Frontend dist raíz
-    path.join(process.cwd(), '..', 'frontend', 'dist', 'AvertaDemoPECuttedDemo-Regular.otf'),
-    // Variante bajo assets del build
-    path.join(process.cwd(), '..', 'frontend', 'dist', 'assets', 'AvertaDemoPECuttedDemo-Regular-A7gaq-Ug.otf'),
+  const fontsDir = path.join(BACKEND_ROOT, 'assets', 'fonts', 'AvertaStd');
+
+  const candidates: Array<{
+    file: string;
+    weight: number;
+    style: 'normal' | 'italic';
+  }> = [
+    { file: 'AvertaStd-Thin.ttf', weight: 100, style: 'normal' },
+    { file: 'AvertaStd-ThinItalic.ttf', weight: 100, style: 'italic' },
+    { file: 'AvertaStd-ExtraThin.ttf', weight: 200, style: 'normal' },
+    { file: 'AvertaStd-ExtraThinItalic.ttf', weight: 200, style: 'italic' },
+    { file: 'AvertaStd-Light.ttf', weight: 300, style: 'normal' },
+    { file: 'AvertaStd-LightItalic.ttf', weight: 300, style: 'italic' },
+    { file: 'AvertaStd-Regular.ttf', weight: 400, style: 'normal' },
+    { file: 'AvertaStd-RegularItalic.ttf', weight: 400, style: 'italic' },
+    { file: 'AvertaStd-Semibold.ttf', weight: 600, style: 'normal' },
+    { file: 'AvertaStd-SemiboldItalic.ttf', weight: 600, style: 'italic' },
+    { file: 'AvertaStd-Bold.ttf', weight: 700, style: 'normal' },
+    { file: 'AvertaStd-BoldItalic.ttf', weight: 700, style: 'italic' },
+    { file: 'AvertaStd-ExtraBold.ttf', weight: 800, style: 'normal' },
+    { file: 'AvertaStd-ExtraBoldItalic.ttf', weight: 800, style: 'italic' },
+    { file: 'AvertaStd-Black.ttf', weight: 900, style: 'normal' },
+    { file: 'AvertaStd-BlackItalic.ttf', weight: 900, style: 'italic' },
   ];
 
-  for (const filePath of candidatePaths) {
+  const rules: string[] = [];
+
+  for (const candidate of candidates) {
     try {
-      if (fs.existsSync(filePath)) {
-        const buf = fs.readFileSync(filePath);
-        const b64 = buf.toString('base64');
-        // Registramos un único peso regular; negrita/cursiva se simulan vía font-weight/style.
-        return `@font-face{font-family:'Averta Std';src:url(data:font/otf;base64,${b64}) format('opentype');font-weight:400;font-style:normal;}`;
-      }
+      const filePath = path.join(fontsDir, candidate.file);
+      if (!fs.existsSync(filePath)) continue;
+      const buf = fs.readFileSync(filePath);
+      const b64 = buf.toString('base64');
+      rules.push(
+        "@font-face{font-family:'Averta Std';src:url('data:font/ttf;base64," +
+          b64 +
+          "') format('truetype');font-weight:" +
+          String(candidate.weight) +
+          ';font-style:' +
+          candidate.style +
+          ';}'
+      );
     } catch {
-      // ignorar si no se puede leer e intentar la siguiente ruta
+      // ignorar errores de lectura individuales y continuar con el resto
     }
   }
 
-  return '';
+  return rules.join('\n');
 }
 
 export interface BuildDocumentHtmlOptions {
@@ -365,6 +393,8 @@ export function buildDocumentWrapperHtml(
       box-shadow: none;
       -webkit-print-color-adjust: exact;
       print-color-adjust: exact;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
     }
   </style>
 </head>
