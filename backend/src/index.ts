@@ -1582,6 +1582,122 @@ app.delete('/api/docs/:id', authenticateToken, async (req, res) => {
   }
 });
 
+// --- Designs API (editores vectoriales por workspace) ---
+
+app.get('/api/designs', authenticateToken, async (req, res) => {
+  try {
+    const { workspaceId } = req.query as { workspaceId?: string };
+    if (!workspaceId) {
+      return res.status(400).json({ error: 'workspaceId es obligatorio' });
+    }
+    const designs = await prisma.design.findMany({
+      where: { workspaceId },
+      orderBy: { updatedAt: 'desc' },
+    });
+    res.json(designs);
+  } catch (e) {
+    console.error('Error fetching designs list:', e);
+    res.status(500).json({ error: 'Failed to fetch designs' });
+  }
+});
+
+app.post('/api/designs', authenticateToken, async (req, res) => {
+  try {
+    const body = req.body ?? {};
+    const workspaceId = String(body.workspaceId || '').trim();
+    if (!workspaceId) {
+      return res.status(400).json({ error: 'workspaceId es obligatorio' });
+    }
+    const name = (body.name && String(body.name).trim()) || 'Nuevo diseño';
+    const rawContent = body.content ?? {};
+    const content =
+      typeof rawContent === 'string' ? rawContent : JSON.stringify(rawContent);
+    const contentJson =
+      typeof rawContent === 'string'
+        ? (JSON.parse(rawContent) as unknown as Prisma.JsonValue)
+        : (rawContent as unknown as Prisma.JsonValue);
+    const design = await prisma.design.create({
+      data: {
+        name,
+        content,
+        contentJson,
+        workspaceId,
+        boardId: body.boardId ? String(body.boardId) : null,
+        createdBy: body.createdBy ? String(body.createdBy) : null,
+      },
+    });
+    res.status(201).json(design);
+  } catch (e) {
+    console.error('Error creating design:', e);
+    const msg = e instanceof Error ? e.message : 'Failed to create design';
+    res.status(500).json({ error: msg });
+  }
+});
+
+app.get('/api/designs/:id', authenticateToken, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const design = await prisma.design.findUnique({ where: { id } });
+    if (!design) return res.status(404).json({ error: 'Design no encontrado' });
+    // TODO: verificar que el usuario tiene acceso al workspace design.workspaceId
+    res.json(design);
+  } catch (e) {
+    console.error('Error fetching design:', e);
+    res.status(500).json({ error: 'Failed to fetch design' });
+  }
+});
+
+app.patch('/api/designs/:id', authenticateToken, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const body = req.body ?? {};
+    const data: {
+      name?: string;
+      content?: string;
+      contentJson?: Prisma.JsonValue;
+      thumbnailUrl?: string | null;
+    } = {};
+    if (body.name !== undefined) data.name = String(body.name).trim() || 'Sin título';
+    if (body.content !== undefined) {
+      const rawContent = body.content;
+      data.content =
+        typeof rawContent === 'string' ? rawContent : JSON.stringify(rawContent ?? {});
+      data.contentJson =
+        typeof rawContent === 'string'
+          ? (JSON.parse(rawContent) as unknown as Prisma.JsonValue)
+          : (rawContent as unknown as Prisma.JsonValue);
+    }
+    if (body.thumbnailUrl !== undefined) {
+      data.thumbnailUrl = body.thumbnailUrl ? String(body.thumbnailUrl) : null;
+    }
+    if (Object.keys(data).length === 0) {
+      return res.status(400).json({ error: 'Nada que actualizar' });
+    }
+    const design = await prisma.design.update({ where: { id }, data });
+    res.json(design);
+  } catch (e) {
+    console.error('Error updating design:', e);
+    if ((e as { code?: string })?.code === 'P2025') {
+      return res.status(404).json({ error: 'Design no encontrado' });
+    }
+    res.status(500).json({ error: 'Failed to update design' });
+  }
+});
+
+app.delete('/api/designs/:id', authenticateToken, async (req, res) => {
+  try {
+    const { id } = req.params;
+    await prisma.design.delete({ where: { id } });
+    res.status(204).end();
+  } catch (e) {
+    console.error('Error deleting design:', e);
+    if ((e as { code?: string })?.code === 'P2025') {
+      return res.status(404).json({ error: 'Design no encontrado' });
+    }
+    res.status(500).json({ error: 'Failed to delete design' });
+  }
+});
+
 // ── Templates (PDF plantillas para cotización, levantamiento, hoja de trabajo) ────────────────
 const TEMPLATE_KINDS = ['cotizacion', 'levantamiento', 'hoja_trabajo'] as const;
 

@@ -33,6 +33,7 @@ model Workspace {
   docGroupsJson  Json?   // Sombra JSONB para Postgres
   boards      Board[]
   docs        Doc[]
+  designs     Design[]
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 }
@@ -46,6 +47,7 @@ model Board {
   columns        BoardColumn[]
   docs           Doc[]
   calendarEvents CalendarEvent[]
+  designs        Design[]
   createdAt      DateTime        @default(now())
   updatedAt      DateTime        @updatedAt
 }
@@ -161,6 +163,21 @@ model Doc {
   board       Board?   @relation(fields: [boardId], references: [id], onDelete: Cascade)
   workspaceId String
   workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  createdBy   String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model Design {
+  id          String   @id @default(uuid())
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  name        String
+  content     String   @default("{}")   // JSON string (Fabric canvas)
+  contentJson Json?                     // Sombra JSONB para Postgres
+  thumbnailUrl String?
+  boardId     String?
+  board       Board?   @relation(fields: [boardId], references: [id], onDelete: Cascade)
   createdBy   String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt

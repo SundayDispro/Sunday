@@ -17,6 +17,8 @@
     "@radix-ui/react-popover": "^1.1.15",
     "@tanstack/react-table": "^8.21.3",
     "clsx": "^2.1.1",
+    "fabric": "^6.9.1",
+    "fabric-pen-tool": "^1.1.1",
     "framer-motion": "^12.36.0",
     "html2canvas": "^1.4.1",
     "jspdf": "^4.2.0",

@@ -5,7 +5,7 @@ import BoardContainer from './components/Board/BoardContainer';
 import { ItemDetailsPanel } from './components/Board/ItemDetailsPanel';
 import {
   Home, Bell, Search, ChevronDown, ChevronRight,
-  Users, BookOpen, BarChart2, Inbox, Star, Plus, Receipt, Calendar, Folder, PieChart, FolderOpen, UserCheck, GanttChart, Check, AlertCircle, X, Sun, Moon, Sparkles, LayoutGrid, Menu, ChevronLeft,
+  Users, BookOpen, BarChart2, Inbox, Star, Plus, Receipt, Calendar, Folder, PieChart, FolderOpen, UserCheck, GanttChart, Check, AlertCircle, X, Sun, Moon, Sparkles, LayoutGrid, Menu, ChevronLeft, PenSquare,
 } from 'lucide-react';
 
 type AppTheme = 'light' | 'dark' | 'night' | 'dawn' | 'fog' | 'plum' | 'ember';
@@ -34,6 +34,7 @@ import { TeamPage } from './components/pages/TeamPage';
 import { FacturacionPage } from './components/pages/FacturacionPage';
 import { WorkspaceOverviewPage } from './components/pages/WorkspaceOverviewPage';
 import { MiTrabajoPage } from './components/pages/MiTrabajoPage';
+import DesignPage from './components/pages/DesignPage';
 import { TodayPage } from './components/pages/TodayPage';
 import { BottomNav, type BottomNavPage } from './components/BottomNav';
 import { MobileBoardHeaderMinimal } from './components/MobileBoardHeaderMinimal';
@@ -267,7 +268,7 @@ function App() {
   }, [theme]);
   
   // Navigation state
-  const [activePage, setActivePage] = useState<'home' | 'inbox' | 'notifications' | 'board' | 'calendar' | 'search' | 'docs' | 'team' | 'facturacion' | 'miTrabajo'>('board');
+  const [activePage, setActivePage] = useState<'home' | 'inbox' | 'notifications' | 'board' | 'calendar' | 'search' | 'docs' | 'estudio' | 'team' | 'facturacion' | 'miTrabajo'>('board');
   const [boards, setBoards] = useState<Board[]>([]);
   const [boardsLoaded, setBoardsLoaded] = useState(false);
   const [activeBoardId, setActiveBoardId] = useState<string | null>(null);
@@ -632,6 +633,7 @@ function App() {
     (activePage === 'miTrabajo' && activeBoardId !== null) ||
     activePage === 'calendar' ||
     activePage === 'docs' ||
+    activePage === 'estudio' ||
     ['search', 'team', 'notifications', 'facturacion', 'inbox'].includes(activePage);
 
   const navIconsAll = [
@@ -641,6 +643,7 @@ function App() {
     { id: 'notifications', icon: <Bell size={22} strokeWidth={2.25} />, label: 'Notificaciones' },
     { id: 'search', icon: <Search size={22} strokeWidth={2.25} />, label: 'Buscar' },
     { id: 'docs', icon: <BookOpen size={22} strokeWidth={2.25} />, label: 'Docs' },
+    { id: 'estudio', icon: <PenSquare size={22} strokeWidth={2.25} />, label: 'Estudio' },
     { id: 'team', icon: <Users size={22} strokeWidth={2.25} />, label: 'Equipo' },
   ];
   const navIcons = isTaller ? navIconsAll.filter(n => n.id === 'board' || n.id === 'calendar') : navIconsAll;
@@ -958,7 +961,7 @@ function App() {
             key={id}
             title={label}
             onClick={() => {
-              const pageIds = ['board', 'calendar', 'inbox', 'search', 'docs', 'team', 'notifications'];
+              const pageIds = ['board', 'calendar', 'inbox', 'search', 'docs', 'estudio', 'team', 'notifications'] as const;
               if (pageIds.includes(id)) {
                 setActivePage(id as typeof activePage);
                 if (id === 'notifications') fetchUnreadNotifications();
@@ -2164,6 +2167,10 @@ if (ok && data && typeof data.id === 'string') {
               onConsumeInitialOpenDocId={() => setOpenDocId(null)}
               onAddTaskList={addTaskWindow}
               onAddCalculatorWidget={ensureCalculatorVisible}
+            />
+          ) : activePage === 'estudio' ? (
+            <DesignPage
+              workspaceId={activeWorkspaceId ?? workspaces[0]?.id ?? null}
             />
           ) : activePage === 'team' ? (
             <TeamPage
