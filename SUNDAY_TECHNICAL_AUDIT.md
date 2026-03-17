@@ -147,7 +147,7 @@ flowchart LR
 
   subgraph DB["Persistencia (PostgreSQL + Prisma)"]
     Prisma["Prisma Client\nschema.prisma"]
-    Models["Modelos:\nUser, Workspace, Board,\nGroup, Item, BoardColumn,\nColumnValue, Update,\nNotification, FeedPost,\nDoc, TemplateConfig,\nPushSubscription"]
+    Models["Modelos:\nUser, Workspace, Board,\nGroup, Item, BoardColumn,\nColumnValue, Update,\nNotification, FeedPost,\nDoc, Design, TemplateConfig,\nPushSubscription"]
   end
 
   subgraph Storage["Sistema de archivos"]
@@ -313,6 +313,9 @@ Para varios modelos se ha implementado una arquitectura de **"Campos Sombra"**:
 - `Doc`:
   - `content: String` (JSON string legacy).
   - `contentJson: Json?` (sombra).
+- `Design`:
+  - `content: String` (JSON string con el estado del canvas Fabric).
+  - `contentJson: Json?` (sombra JSONB, útil para futuras consultas o tooling).
 - `TemplateConfig`:
   - `fieldPositions: String` / `fieldPositionsJson: Json?`.
   - `customBoxes: String` / `customBoxesJson: Json?`.
@@ -562,7 +565,53 @@ sendNotificationToUser(userId, notif):
 
 Con esto se elimina el broadcast global innecesario y se reduce la presión sobre la red móvil.
 
-#### 4.2 Generador de PDF (WYSIWYG)
+#### 4.2 Editor vectorial Estudio (Fabric.js)
+
+La app incorpora ahora una página **Estudio** (solo desktop) orientada a diseño vectorial para taller/señalética.
+
+- **Motor gráfico**:
+  - Basado en **Fabric.js 6.x** sobre `<canvas>`, integrado en `VectorEditor`.
+  - El estado del lienzo se serializa en JSON vía `canvas.toJSON()` y se persiste en el modelo `Design` (`content` / `contentJson`).
+- **Modelo y API**:
+  - Modelo `Design` en Prisma: `id`, `workspaceId`, `name`, `content`, `contentJson`, `thumbnailUrl?`, `boardId?`, `createdBy?`, timestamps.
+  - Endpoints REST:
+    - `GET /api/designs?workspaceId=...` — lista los diseños de un workspace.
+    - `POST /api/designs` — crea un diseño vacío o con contenido inicial.
+    - `GET /api/designs/:id` — obtiene un diseño.
+    - `PATCH /api/designs/:id` — actualiza nombre y contenido (JSON de Fabric).
+    - `DELETE /api/designs/:id` — elimina un diseño.
+  - Todas las rutas usan `authenticateToken`; la validación estricta de workspace (que `design.workspaceId` pertenezca a un workspace accesible por el usuario) está diseñada pero aún puede reforzarse.
+- **UI actual**:
+  - Barra lateral izquierda (`DesignPage`):
+    - Lista de diseños con nombre y `updatedAt`.
+    - Botón **Nuevo** → `POST /api/designs` con contenido `{}` y selección inmediata del diseño creado.
+  - `VectorEditor`:
+    - Toolbar flotante con efecto **“liquid glass”** (`backdrop-filter: blur`) con herramientas:
+      - Selección, Rectángulo, Elipse, (Pluma preparada pero todavía sin integración completa de `fabric-pen-tool`), Texto, Imagen (text/image aún sin comportamiento completo en esta iteración).
+    - Lienzo responsivo:
+      - `ResizeObserver` adapta `width/height` del canvas al contenedor.
+      - Zoom con rueda (0.1x–5x en el MVP actual) y slider que muestra porcentaje.
+      - Pan con **barra espaciadora + arrastrar**, moviendo el viewport de Fabric.
+    - Panel de capas (`LayersPanel`):
+      - Lista de objetos actuales, permite seleccionar objetos desde la lista.
+      - Aún sin miniaturas por capa; previsto para fases posteriores usando `object.toDataURL()`.
+    - Panel de propiedades (`PropertiesPanel`):
+      - Ajuste de relleno, trazo y grosor del objeto seleccionado.
+    - Barra superior:
+      - Campo de nombre del diseño, indicador **dirty state** (punto rojo cuando hay cambios sin guardar).
+      - Control de zoom y botón **Guardar** (deshabilitado si no hay cambios).
+- **Persistencia y dirty state**:
+  - El editor no hace PATCH continuo; cualquier cambio marca `isDirty = true`.
+  - Al pulsar **Guardar**, se llama a `canvas.toJSON()` y se envía vía `PATCH /api/designs/:id`.
+  - El dirty flag se limpia al recibir respuesta correcta.
+
+Limitaciones actuales (respecto a Illustrator):
+
+- No hay todavía edición de nodos (subselección de puntos Bézier) ni operaciones booleanas avanzadas.
+- El snapping/guías y las unidades físicas (cm/m) aún no están implementados; el canvas trabaja esencialmente en px.
+- La integración con items de tablero (asociar un diseño a un `Item`) está pensada pero no cableada; se soporta relación opcional `boardId` pero no `itemId`.
+
+#### 4.3 Generador de PDF (WYSIWYG)
 
 Pipeline de generación:
 
@@ -615,7 +664,13 @@ PDF:
 
 - Mantener una hoja de estilos compartida (CSS) para ambos entornos.
 
-#### 4.3 Reglas de negocio clave (Taller → Facturación)
+Estado a marzo 2026 (actualizado tras integración de plantilla vectorial de cotización):
+
+- Para documentos de tipo **`cotizacion`**, el flujo principal de descarga usa ahora la plantilla PDF vectorial (`backend/templates/cotizacion.pdf`) y el motor `generatePdfFromTemplate`, alimentado por `buildPdfContent` y `customBoxes` compartidos con el preview (`DocumentPageForPdf`).  
+- Las fuentes **Averta Std** se empaquetan en el backend en `backend/assets/fonts/AvertaStd` y se embeben mediante `pdf-lib`; en la práctica, la mayoría de visores muestran ya texto nítido y vectorial, aunque persisten pequeñas diferencias de “hinting”/renderizado frente al navegador (especialmente en tamaños pequeños y en la línea bajo “Fecha de emisión”).  
+- El botón **“Descargar PDF”** de `DocsPage` está cableado exclusivamente al flujo vectorial (`/api/templates/:kind/generate`), mientras que los errores de captura HTML (worker de Puppeteer) quedan aislados del flujo principal; la descarga abre actualmente el PDF en el visor del navegador (misma pestaña) y puede ajustarse a descarga directa según preferencias de UX.
+
+#### 4.4 Reglas de negocio clave (Taller → Facturación)
 
 Trigger automático implementado en el servidor (`update_column_value` en `index.ts`):
 
@@ -648,7 +703,7 @@ Edge cases:
 - Si el board ya tiene una columna `'Estado Facturación'` con configuración distinta, la automatización podría entrar en conflicto con expectativas del usuario.
 - Si `value` no es JSON válido, la lógica cae en un `try/catch` silencioso y simplemente no dispara el trigger (evitando caídas, pero ocultando datos malformados).
 
-#### 4.4 Exportación de carpetas y Web Push
+#### 4.5 Exportación de carpetas y Web Push
 
 - Exportación de carpetas:
   - El servidor sincroniza archivos solo si el usuario está asignado al ítem (columna tipo `person`).
@@ -678,7 +733,7 @@ Edge cases:
 - `backend/src/auth.ts`:
   - Lógica de JWT, hashing de contraseñas y middlewares de autorización.
 - `backend/prisma/schema.prisma`:
-  - Definición del modelo de datos: `User`, `Workspace`, `Board`, `Group`, `Item`, `BoardColumn`, `ColumnValue`, `Update`, `Notification`, `FeedPost`, `Doc`, `TemplateConfig`, `PushSubscription`.
+  - Definición del modelo de datos: `User`, `Workspace`, `Board`, `Group`, `Item`, `BoardColumn`, `ColumnValue`, `Update`, `Notification`, `FeedPost`, `Doc`, **`Design`**, `TemplateConfig`, `PushSubscription`.
 - `backend/scripts/*`:
   - `build-document-view.js`: build del bundle React server-side para PDFs.
   - `set-admin.ts`: inicialización del usuario administrador.
@@ -700,10 +755,10 @@ Componentes clave:
 - `frontend/src/App.tsx`:
   - Orquestador general:
     - Estado de navegación (`activePage` virtual en lugar de `react-router`).
-    - Gestión de vistas (`table`, `kanban`, `calendar`, `facturacion`, `resumen`, `timeline`).
+    - Gestión de vistas (`table`, `kanban`, `calendar`, `facturacion`, `resumen`, `timeline`, **`estudio`**).
     - Detección responsive (`matchMedia`, `ResizeObserver`).
     - Tema (`light` / `dark` / `night`) con persistencia en `localStorage` y sincronización con `<meta name="theme-color">`.
-  - Gestión de paneles móviles (bottom nav, sidebars).
+  - Gestión de paneles móviles (bottom nav, sidebars) y drawer `MobileMoreDrawer` (donde **`Estudio` solo está disponible en desktop, no en móvil** para evitar complejidad de UX en pantallas pequeñas).
 
 - `frontend/src/store/socket.ts`:
   - Singleton de Socket.IO cliente.
@@ -719,12 +774,16 @@ Componentes clave:
   - Representación visual de tableros tipo Monday.com (grupos, items, columnas).
 
 - `frontend/src/components/pages/*`:
-  - `InboxPage`, `NotificationsPage`, `DocsPage`, `TeamPage`, `FacturacionPage`, `WorkspaceOverviewPage`, `MiTrabajoPage`.
+  - `InboxPage`, `NotificationsPage`, `DocsPage`, `TeamPage`, `FacturacionPage`, `WorkspaceOverviewPage`, `MiTrabajoPage`, **`DesignPage` (Estudio)**.
   - Cada página corresponde a una "vista" de datos de negocio específica.
+
+- `frontend/src/components/design/*`:
+  - `VectorEditor`, `Toolbar`, `LayersPanel`, `PropertiesPanel`, `canvasSetup`, `designTypes`.
+  - Implementan el editor vectorial basado en Fabric.js para la página Estudio.
 
 Servicios:
 
-- Capa `apiFetch` (ubicada en un util del frontend) centraliza:
+- Capa `apiFetch` (ubicada en `frontend/src/api.ts`) centraliza:
   - Construcción de URLs (`API_BASE`).
   - Manejo de headers (Bearer token).
   - Tratamiento de errores comunes (401/403 → logout).
@@ -839,7 +898,55 @@ Estado a marzo 2026 (actualizado):
   - Instrumentar tiempos de consulta de Prisma.
   - Medir número de conexiones Socket.IO activas.
 
-#### 6.4 Automatización ligera de despliegues (Git + script en servidor)
+#### 6.4 Camino a un Estudio “tipo Illustrator”
+
+Además de las fases generales, el editor vectorial Estudio tiene su propia hoja de ruta específica:
+
+- **Fase E1 — Pluma y edición de nodos**  
+  - Integrar `fabric-pen-tool` o un módulo equivalente sobre Fabric.js 6 para:
+    - Herramienta Pluma con creación de paths Bézier.
+    - Modo de **edición de nodos** (Direct Selection): mover puntos y mangos, añadir/eliminar nodos.
+  - Diseño de UX: herramienta de selección directa separada, atajos de teclado (P, A, V).
+
+- **Fase E2 — Zoom, Pan y Rulers “industriales”**  
+  - Extender el rango de zoom a **0.1x–100x** con control visual y atajos (`Ctrl + rueda`, botones +/-).
+  - Mejorar el pan con barra espaciadora (suavizado y freno).
+  - Implementar **reglas (Rulers)** superior/izquierda que:
+    - Se actualicen con el zoom y el viewport.
+    - Sirvan como origen para **guías arrastrables**.
+
+- **Fase E3 — Capas avanzadas y miniaturas**  
+  - Ampliar `LayersPanel` con:
+    - Miniatura por objeto (`object.toDataURL()`), icono por tipo (Rect, Path, Text, Image).
+    - Reordenación drag & drop (z-index), visibilidad y bloqueo.
+  - Optimizar rendimiento para lienzos con docenas/centenares de objetos.
+
+- **Fase E4 — Texto, imágenes, snapping y unidades reales**  
+  - Herramienta Texto (`IText`/`Textbox`) y herramienta Imagen (subida/local o URL).
+  - Panel de propiedades enriquecido (fuentes, tamaños, alineaciones, tracking simple).
+  - **Snapping profesional**:
+    - A bordes y centros de objetos.
+    - A guías horizontales/verticales y centro del lienzo.
+    - Feedback visual con líneas de alineación.
+  - **Unidades físicas**:
+    - Configuración de tamaño de lienzo en cm/m.
+    - Factor de escala interno (ej. 100 px = 10 cm) y reglas/panel que muestren unidades reales.
+
+- **Fase E5 — Export y operaciones booleanas**  
+  - Exportar SVG/PNG desde el editor, con control de resolución y escala para archivos de corte.
+  - Historial de deshacer/rehacer basado en snapshots JSON (con límites y compactación).
+  - Operaciones booleanas (Pathfinder-like):
+    - Integrar una librería de geometría 2D (Paper.js o ClipperLib) para unir/restar/intersecar paths.
+    - Flujo: el usuario selecciona 2+ objetos → “Unir / Restar / Intersección” → se genera un nuevo Path resultado.
+
+- **Fase E6 — Integración profunda con tableros**  
+  - Asociación de `Design` a `Item` (`itemId` en el modelo).
+  - Botones desde columnas o panel de detalle de ítem: “Abrir en Estudio”.
+  - Convenciones para exportar archivos listos para producción (nomenclatura, estructura de capas, tamaño físico).
+
+Estas fases, combinadas, acercan Estudio a una experiencia de trabajo **tipo Illustrator** pero centrada en los casos de uso del taller (rotulación, señalética, corte, etc.), manteniendo persistencia robusta en JSON/JSONB y un flujo de trabajo integrado con tableros y documentos de Sunday.
+
+#### 6.5 Automatización ligera de despliegues (Git + script en servidor)
 
 Como mejora operativa inmediata, se implementará en breve un **script de despliegue en el servidor** que:
 
