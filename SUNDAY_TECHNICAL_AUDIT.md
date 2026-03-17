@@ -16,7 +16,7 @@
 
 - **Fase 2 — Seguridad Enterprise (bcrypt + JWT + middleware)**  
   - Sustitución de la identidad en body por **JWT** en header `Authorization: Bearer`.  
-  - Implementación de hashing de contraseñas con **bcrypt** (10 rondas actualmente, objetivo 12) y almacenamiento seguro en Postgres.  
+  - Implementación de hashing de contraseñas con **bcrypt** (12 rondas actualmente, alineado con el objetivo de endurecimiento) y almacenamiento seguro en Postgres.  
   - Creación de middlewares de Express `attachUserFromJwt`, `authenticateToken`, `requireAuth`, `requireAdmin` que centralizan la matriz de acceso.  
   - Adaptación del frontend para gestionar el ciclo de vida del token (login/logout, refresco de sesión ante 401/403).  
   - Usuario `ADMIN` inicializado y verificado en Postgres como cuenta de referencia.
@@ -79,7 +79,7 @@ Q1 2025  ─── Seguridad Enterprise (Fase 2)
           - Adaptación del frontend:
               * apiFetch centralizado con envío de Bearer token.
               * Logout automático en 401/403.
-          - Creación del usuario ADMIN de referencia (Sunday2025! en entorno controlado).
+          - Creación del usuario ADMIN de referencia; en la fase actual el usuario inicial `ADMIN` se genera vía script de seed (`prisma/seed.ts`) con contraseña `root` hasheada con bcrypt (12 rondas) únicamente para entornos de desarrollo/LAN.
 
 Q2 2025  ─── Generador de PDF WYSIWYG y TemplateConfig
           - Creación de renderDocumentToHtml.tsx y pipeline esbuild → CJS.
@@ -193,6 +193,22 @@ flowchart LR
   - Múltiples dispositivos móviles (teléfonos/tabletas) que acceden al frontend mediante el mismo host (`192.168.x.x:5173` o dominio equivalente) y se conectan al backend vía proxy o `VITE_API_URL`.
 
 Esta configuración define una **topología estrella** con un único backend central y clientes delgados (React) que consumen API REST, WebSockets y recursos estáticos.
+
+##### 1.1.1 Fase inicial de acceso externo: Cloudflare Tunnel (modo gratuito)
+
+- **Objetivo de la fase inicial**:  
+  - Permitir acceso remoto (móviles fuera de la LAN, PCs en otras redes) sin contratar todavía dominio propio ni VPS.  
+  - Mantener el backend y el frontend ejecutándose en un PC servidor de oficina prácticamente siempre encendido.
+- **Mecanismo elegido**:  
+  - Uso de **Cloudflare Tunnel en modo quick tunnel gratuito** (`cloudflared tunnel --url http://localhost:51xx`) para exponer el servidor de Vite (que a su vez proxya `/api`, `/uploads` y `/socket.io` al backend en `3001`).  
+  - El acceso externo se realiza a través de URLs temporales del tipo `https://<nombre>.trycloudflare.com`, que se regeneran al reiniciar el comando.
+- **Implicaciones y límites**:  
+  - Adecuado para **pruebas, pilotos y primeras fases** de adopción de Sunday (equipo reducido, uso controlado).  
+  - No hay garantía de uptime ni de estabilidad de URL: es una solución explícitamente **no definitiva** para producción.  
+  - La seguridad de aplicación (JWT, CORS endurecido, Socket.IO con origen controlado) permanece igual; Cloudflare Tunnel actúa solo como capa de transporte cifrado y tunelizado.
+- **Hoja de ruta posterior**:  
+  - Migrar de quick tunnels a un **túnel nombrado** asociado a un dominio propio (`sunday.midominio.com`) cuando se decida formalizar el despliegue externo.  
+  - Mantener el mismo PC servidor como origen inicial, sustituyendo únicamente la capa de entrada (de `trycloudflare.com` temporal a dominio propio gestionado por Cloudflare).
 
 #### 1.2 Rol del proxy de Vite
 

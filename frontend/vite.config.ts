@@ -7,6 +7,8 @@ export default defineConfig({
   plugins: [react()],
   server: {
     host: true,
+    // Permitir acceso desde dominios de Cloudflare Tunnel (quick tunnels: *.trycloudflare.com)
+    allowedHosts: ['.trycloudflare.com'],
     proxy: {
       '/api': {
         target: 'http://localhost:3001',
