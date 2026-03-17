@@ -1,4 +1,5 @@
 import { PrismaClient } from '@prisma/client';
+import bcrypt from 'bcrypt';
 
 const prisma = new PrismaClient();
 
@@ -14,13 +15,14 @@ async function main() {
   await prisma.workspace.deleteMany({});
 
   // --- Create ADMIN User ---
+  const adminPasswordHash = await bcrypt.hash('root', 12);
   const admin = await prisma.user.create({
     data: {
       username: 'ADMIN',
       name: 'Administrador Principal',
       initials: 'AD',
       color: '#00c875',
-      password: 'root', // As requested
+      password: adminPasswordHash,
       role: 'ADMIN',
     }
   });
