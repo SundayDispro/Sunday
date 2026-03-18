@@ -122,9 +122,14 @@ export const Login: React.FC<LoginProps> = ({ theme, layout = 'horizontal' }) =>
         {layout === 'vertical' ? (
           <div className="relative z-10">
             <div className="relative h-[270px] bg-[radial-gradient(circle_at_20%_20%,#ff4aa8,transparent_55%),radial-gradient(circle_at_80%_15%,#7c3aed,transparent_58%),radial-gradient(circle_at_60%_85%,#ffb100,transparent_55%),linear-gradient(135deg,#ff2f7d,#6d28d9,#ffb100)]">
-              <div className={`absolute inset-0 flex items-center justify-center ${logoEntered ? 'login-logo-idle' : 'login-logo-enter'}`} aria-hidden="true">
-                <div className="translate-y-2">
-                  <AnimatedLogo size={190} color={verticalLogoColor} />
+              <div className="absolute inset-x-0 top-0 p-5 flex items-start justify-between gap-4">
+                <h1 className={`text-left text-[44px] leading-[1.02] font-semibold tracking-tight ${verticalTitleTopClass}`}>
+                  Bienvenido
+                  <br />
+                  <span className={verticalTitleBottomClass}>a Sunday</span>
+                </h1>
+                <div className={`shrink-0 ${logoEntered ? 'login-logo-idle' : 'login-logo-enter'}`} aria-hidden="true">
+                  <AnimatedLogo size={34} color={verticalLogoColor} />
                 </div>
               </div>
               <svg viewBox="0 0 100 30" preserveAspectRatio="none" className="absolute -bottom-px left-0 w-full h-[56px]">
@@ -133,13 +138,7 @@ export const Login: React.FC<LoginProps> = ({ theme, layout = 'horizontal' }) =>
             </div>
 
             <div className="px-5 pb-6 pt-3">
-              <h1 className={`text-center text-[28px] leading-[1.05] font-semibold tracking-tight ${verticalTitleTopClass}`}>
-                Bienvenido
-                <br />
-                <span className={verticalTitleBottomClass}>a Sunday</span>
-              </h1>
-
-              <form onSubmit={handleSubmit} className="mt-5 flex flex-col gap-3 max-w-[300px] mx-auto">
+              <form onSubmit={handleSubmit} className="mt-4 flex flex-col gap-3 max-w-[300px] mx-auto">
               {error && (
                 <div className={`rounded-lg border px-3 py-2 text-[12px] ${verticalIsDark ? 'border-red-400/25 bg-red-500/10 text-red-100' : 'border-red-500/20 bg-red-500/10 text-red-800'}`}>
                   {error}

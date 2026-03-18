@@ -35,7 +35,6 @@ import { TeamPage } from './components/pages/TeamPage';
 import { FacturacionPage } from './components/pages/FacturacionPage';
 import { WorkspaceOverviewPage } from './components/pages/WorkspaceOverviewPage';
 import { MiTrabajoPage } from './components/pages/MiTrabajoPage';
-import BrowserPage from './components/pages/BrowserPage';
 import { TodayPage } from './components/pages/TodayPage';
 import { MobileBottomNav, type MobileBottomTab } from './components/MobileBottomNav';
 import { MobileBoardHeaderMinimal } from './components/MobileBoardHeaderMinimal';
@@ -289,7 +288,6 @@ function App() {
     | 'calendar'
     | 'search'
     | 'docs'
-    | 'browser'
     | 'team'
     | 'facturacion'
     | 'miTrabajo'
@@ -310,7 +308,6 @@ function App() {
       inbox: 'shimmer',
       notifications: 'shimmer',
       search: 'spin',
-      browser: 'morph',
       team: 'pulse',
       facturacion: 'morph',
       miTrabajo: 'pulse',
@@ -682,7 +679,6 @@ function App() {
     (activePage === 'miTrabajo' && activeBoardId !== null) ||
     activePage === 'calendar' ||
     activePage === 'docs' ||
-    activePage === 'browser' ||
     ['search', 'team', 'notifications', 'facturacion', 'inbox'].includes(activePage);
 
   const navIconsAll = [
@@ -692,7 +688,6 @@ function App() {
     { id: 'notifications', icon: <Bell size={22} strokeWidth={2.25} />, label: 'Notificaciones' },
     { id: 'search', icon: <Search size={22} strokeWidth={2.25} />, label: 'Buscar' },
     { id: 'docs', icon: <BookOpen size={22} strokeWidth={2.25} />, label: 'Docs' },
-    { id: 'browser', icon: <Globe size={22} strokeWidth={2.25} />, label: 'Navegador' },
     { id: 'team', icon: <Users size={22} strokeWidth={2.25} />, label: 'Equipo' },
   ];
   const navIcons = isTaller ? navIconsAll.filter(n => n.id === 'board' || n.id === 'calendar') : navIconsAll;
@@ -1027,7 +1022,6 @@ function App() {
                 'inbox',
                 'search',
                 'docs',
-                'browser',
                 'team',
                 'notifications',
               ] as const;
@@ -1731,7 +1725,6 @@ if (ok && data && typeof data.id === 'string') {
                     else if (activePage === 'miTrabajo' && activeBoardId !== null) setActiveBoardId(null);
                     else if (activePage === 'calendar') setActivePage('home');
                     else if (activePage === 'docs') setActivePage('home');
-                    else if (activePage === 'browser') setActivePage('board');
                     else if (['search', 'team', 'facturacion'].includes(activePage)) setActivePage('board');
                     else if (activePage === 'inbox' || activePage === 'notifications') setActivePage(lastMainTab);
                   }}
@@ -1776,8 +1769,6 @@ if (ok && data && typeof data.id === 'string') {
                         ? 'Buscar'
                         : activePage === 'docs'
                           ? 'Docs'
-                          : activePage === 'browser'
-                            ? 'Navegador'
                             : activePage === 'team'
                             ? 'Equipo'
                             : activePage === 'facturacion'
@@ -2295,10 +2286,6 @@ if (ok && data && typeof data.id === 'string') {
                 onAddCalculatorWidget={ensureCalculatorVisible}
               />
             )
-          ) : activePage === 'browser' ? (
-            <BrowserPage
-              workspaceId={activeWorkspaceId ?? workspaces[0]?.id ?? null}
-            />
           ) : activePage === 'team' ? (
             <TeamPage
               onOpenInboxForUser={(user) => {

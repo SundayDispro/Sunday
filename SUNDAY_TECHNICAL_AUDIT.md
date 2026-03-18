@@ -680,21 +680,13 @@ Limitaciones que motivaron la retirada (respecto a estándares tipo Illustrator)
 - El snapping/guías y las unidades físicas (cm/m) no estaban implementados; el canvas trabajaba en px.
 - La integración con items de tablero estaba pensada pero no cableada.
 
-#### 4.2.1 Pestaña Navegador (Browser) integrado
+#### 4.2.1 Pestaña Navegador (Browser) — retirada
 
-Se añadió una **pestaña "Navegador"** en la barra lateral (desktop) y en el menú "Más" (móvil), con las siguientes características:
+La pestaña **Navegador** fue retirada de la aplicación.
 
-- **Frontend** (`BrowserPage.tsx`):
-  - Barra de navegación con Atrás, Adelante, Recargar, campo de URL e iframe para mostrar la página.
-  - Panel lateral de favoritos (guardar/abrir/eliminar) y accesos rápidos (Google, Figma, YouTube, Wikipedia).
-  - URL por defecto: `https://www.google.com`; historial y favoritos cargados desde la API al montar.
-- **Backend**:
-  - Modelos Prisma `BrowserHistoryEntry` y `BrowserFavorite` (por usuario y opcionalmente por workspace).
-  - Endpoints: `GET/POST /api/browser/history`, `GET/POST /api/browser/favorites`, `DELETE /api/browser/favorites/:id`.
-  - Todas las rutas protegidas con `authenticateToken`.
+Motivo: la mayoría de sitios modernos (por ejemplo Google / WhatsApp Web) bloquean el render dentro de iframes mediante `X-Frame-Options` / `Content-Security-Policy`, por lo que un “navegador integrado” basado en iframe no es una solución fiable ni mantenible para Sunday.
 
-**Incidencia conocida (estado actual):**  
-Al entrar a la pestaña Navegador, **se muestra una pantalla vacía**: el área donde debería mostrarse el iframe con la página web aparece en negro/vacía. La barra superior (URL, botones) y el panel de favoritos son visibles, pero el contenido principal (iframe) no se renderiza correctamente o el contenedor no recibe altura suficiente en el layout. Este comportamiento está pendiente de resolución.
+Estado: se eliminó la UI, rutas backend y modelos asociados; si en el futuro se retoma, debe plantearse como **“Abrir en navegador del sistema”** (PWA) o mediante un contenedor nativo con WebView (fuera del alcance actual).
 
 #### 4.3 Generador de PDF (WYSIWYG)
 
@@ -841,11 +833,11 @@ Componentes clave:
 - `frontend/src/App.tsx`:
   - Orquestador general:
     - Estado de navegación (`activePage` virtual en lugar de `react-router`).
-    - Gestión de vistas (`table`, `kanban`, `calendar`, `facturacion`, `resumen`, `timeline`, **`browser`**).
-    - La pestaña **Estudio** fue eliminada; la pestaña **Navegador** (`browser`) está en la barra lateral y en el drawer.
+    - Gestión de vistas (`table`, `kanban`, `calendar`, `facturacion`, `resumen`, `timeline`).
+    - La pestaña **Estudio** fue eliminada; la pestaña **Navegador** fue retirada por no ser viable como iframe.
     - Detección responsive (`matchMedia`, `ResizeObserver`).
     - Tema (`light` / `dark` / `night`) con persistencia en `localStorage` y sincronización con `<meta name="theme-color">`.
-  - Gestión de paneles móviles (bottom nav, sidebars) y drawer `MobileMoreDrawer` (incluye acceso a **Navegador**; Estudio ya no está en la app).
+  - Gestión de paneles móviles (bottom nav, sidebars) y drawer `MobileMoreDrawer`.
 
 - `frontend/src/store/socket.ts`:
   - Singleton de Socket.IO cliente.
@@ -856,14 +848,19 @@ Componentes clave:
     - Almacena `currentUser`, token JWT y helpers `login/logout`.
     - Maneja expiración de sesión (logout en 401/403).
 
+- `frontend/src/components/Login.tsx`:
+  - Pantalla de login (skin vertical principal):
+    - Encabezado del hero con **“Bienvenido / a Sunday”** alineado a la izquierda en dos renglones.
+    - `AnimatedLogo` pequeño en la esquina superior derecha del header.
+
 - `frontend/src/components/Board/*`:
   - `BoardContainer`, `ItemDetailsPanel`, etc.
   - Representación visual de tableros tipo Monday.com (grupos, items, columnas).
 
 - `frontend/src/components/pages/*`:
-  - `InboxPage`, `NotificationsPage`, `DocsPage`, `TeamPage`, `FacturacionPage`, `WorkspaceOverviewPage`, `MiTrabajoPage`, **`BrowserPage` (Navegador)**.
+  - `InboxPage`, `NotificationsPage`, `DocsPage`, `TeamPage`, `FacturacionPage`, `WorkspaceOverviewPage`, `MiTrabajoPage`.
   - La página **DesignPage (Estudio)** fue retirada de la navegación; el código puede seguir en el repo pero no se monta desde `App.tsx`.
-  - Cada página corresponde a una "vista" de datos de negocio específica. **Incidencia conocida:** al entrar en la pestaña Navegador se muestra una pantalla vacía (el iframe/contenido principal no se ve).
+  - Cada página corresponde a una "vista" de datos de negocio específica.
 
 - `frontend/src/components/design/*`:
   - `VectorEditor`, `Toolbar`, `LayersPanel`, `PropertiesPanel`, `canvasSetup`, `designTypes`.
@@ -1039,7 +1036,7 @@ La pestaña **Estudio** fue eliminada de la aplicación por no cumplir con los e
   - Botones desde columnas o panel de detalle de ítem: “Abrir en Estudio”.
   - Convenciones para exportar archivos listos para producción (nomenclatura, estructura de capas, tamaño físico).
 
-Estas fases, combinadas, acercarían un futuro Estudio a una experiencia **tipo Illustrator** centrada en el taller. **Prioridad actual:** resolver la incidencia de la pestaña Navegador (pantalla vacía al entrar) antes de retomar funcionalidades de diseño vectorial.
+Estas fases, combinadas, acercarían un futuro Estudio a una experiencia **tipo Illustrator** centrada en el taller. **Prioridad actual:** consolidar performance/estabilidad (móvil/VPN) y cerrar pendientes del editor/PDF antes de retomar funcionalidades de diseño vectorial.
 
 #### 6.5 Automatización ligera de despliegues (Git + script en servidor)
 
@@ -1056,8 +1053,8 @@ Este enfoque mantiene un flujo sencillo (desarrollo en cualquier PC → `git pus
 
 ### 7. Edge Cases y Riesgos Remanentes
 
-- **Pestaña Navegador (Browser) — pantalla vacía**:
-  - Al entrar en la pestaña Navegador, el área principal donde debería mostrarse el iframe con la página web aparece vacía (pantalla oscura o en blanco). La barra de URL y el panel de favoritos son visibles; el fallo afecta al contenido embebido o al layout del contenedor del iframe. Pendiente de diagnóstico y corrección.
+- **Navegador integrado (Browser) — retirado**:
+  - Se retiró por limitaciones estructurales de iframes/CSP en sitios modernos (Google/WhatsApp, etc.). No es un riesgo vigente; el “riesgo” se considera cerrado al eliminar la funcionalidad.
 
 - **Tokens expirados o inválidos**:
   - Si el frontend no captura correctamente todos los 401/403, pueden aparecer estados inconsistentes (UI que asume usuario logueado, pero backend lo rechaza).
