@@ -24,7 +24,14 @@ export function buildPdfContent({
     string,
     { x: number; y: number; fontSize?: number; maxWidth?: number }
   >;
-  const rawCustomBoxes = Array.isArray(config?.customBoxes) ? config.customBoxes : [];
+  // Las cajas/imágenes deben venir del documento; la plantilla solo actúa como fallback
+  // cuando el documento aún no tiene customBoxes guardados.
+  const docCustomBoxesRaw = Array.isArray(pdfFormDraft.customBoxes) ? pdfFormDraft.customBoxes : [];
+  const rawCustomBoxes = docCustomBoxesRaw.length > 0
+    ? docCustomBoxesRaw
+    : Array.isArray(config?.customBoxes)
+      ? config.customBoxes
+      : [];
   const customFieldValues = (pdfFormDraft.customFieldValues ?? {}) as Record<string, string>;
 
   const fieldKeysByType: Record<string, string[]> = {
@@ -141,26 +148,37 @@ export function buildPdfContent({
     contentFromDraft.elemento = String(customFieldValues[elementoBox.id]).trim();
   }
 
-  const contentToSend = config
-    ? {
-        ...contentFromDraft,
-        fieldPositions: { ...(config.fieldPositions ?? {}), ...docFieldPositions },
-        customBoxes,
-        globalFontSize: config.fontSize ?? 11,
-        globalFontColor: config.fontColor ?? '#000000',
-        globalFontFamily: config.fontFamily ?? 'Averta Std',
-        globalFontBold: config.fontBold ?? false,
-        globalFontItalic: config.fontItalic ?? false,
-      }
-    : {
-        ...contentFromDraft,
-        customBoxes: [],
-        globalFontSize: 11,
-        globalFontColor: '#000000',
-        globalFontFamily: 'Averta Std',
-        globalFontBold: false,
-        globalFontItalic: false,
-      };
+  const effectiveFontSize =
+    typeof pdfFormDraft.globalFontSize === 'number'
+      ? pdfFormDraft.globalFontSize
+      : config?.fontSize ?? 11;
+  const effectiveFontColor =
+    typeof pdfFormDraft.globalFontColor === 'string'
+      ? pdfFormDraft.globalFontColor
+      : config?.fontColor ?? '#000000';
+  const effectiveFontFamily =
+    typeof pdfFormDraft.globalFontFamily === 'string'
+      ? pdfFormDraft.globalFontFamily
+      : config?.fontFamily ?? 'Averta Std';
+  const effectiveFontBold =
+    pdfFormDraft.globalFontBold === true || pdfFormDraft.globalFontBold === 'true'
+      ? true
+      : config?.fontBold ?? false;
+  const effectiveFontItalic =
+    pdfFormDraft.globalFontItalic === true || pdfFormDraft.globalFontItalic === 'true'
+      ? true
+      : config?.fontItalic ?? false;
+
+  const contentToSend = {
+    ...contentFromDraft,
+    fieldPositions: { ...(config?.fieldPositions ?? {}), ...docFieldPositions },
+    customBoxes,
+    globalFontSize: effectiveFontSize,
+    globalFontColor: effectiveFontColor,
+    globalFontFamily: effectiveFontFamily,
+    globalFontBold: effectiveFontBold,
+    globalFontItalic: effectiveFontItalic,
+  };
 
   return { contentToSend };
 }

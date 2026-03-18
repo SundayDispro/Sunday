@@ -2638,12 +2638,10 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
 
   const pdfDocType = (selectedDoc && isPdfDocType(selectedDoc.type as DocType) ? selectedDoc.type : newDocDraft && isPdfDocType(newDocDraft.type) ? newDocDraft.type : null) as 'cotizacion' | 'levantamiento' | 'hoja_trabajo' | null;
 
-  // Config efectiva para el viewer: priorizar API; si no hay cajas desde API, usar las del documento para que todos los roles vean igual
+  // Config efectiva para el viewer: priorizar el documento; si el doc no tiene cajas, usar la plantilla global.
   const effectiveTemplateConfigForPdf = useMemo((): TemplateConfigState | null => {
     if (!pdfDocType) return null;
     const fromApi = templateConfigByType[pdfDocType];
-    const apiBoxes = fromApi?.customBoxes ?? [];
-    if (apiBoxes.length > 0) return fromApi ?? null;
     const fromDoc = Array.isArray(pdfFormDraft.customBoxes) ? pdfFormDraft.customBoxes : [];
     if (fromDoc.length > 0) {
       return {
@@ -2725,40 +2723,11 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
     return () => { cancelled = true; };
   }, [pdfDocType]);
 
-  // Auto-guardar configuración de plantilla cuando cambian customBoxes (p. ej. al añadir/editar imagen),
-  // para que no se pierda al recargar sin haber pulsado "Guardar cambios".
+  // Importante: no guardamos automáticamente la configuración global de plantilla al editar
+  // un documento. Las cajas (incluidas imágenes) deben quedar guardadas en el documento.
   useEffect(() => {
-    if (!currentUser || !isAdmin || !pdfDocType) return;
-    const config = templateConfigByType[pdfDocType];
-    if (!config) return;
-    if (templateConfigJustLoadedRef.current) {
-      templateConfigJustLoadedRef.current = false;
-      return;
-    }
-    const timer = setTimeout(() => {
-      const toSave = {
-        userId: currentUser.id,
-        username: currentUser.username,
-        fieldPositions: config.fieldPositions ?? {},
-        fontColor: config.fontColor ?? '#000000',
-        fontFamily: config.fontFamily ?? 'Helvetica',
-        fontSize: config.fontSize ?? 11,
-        fontBold: config.fontBold ?? false,
-        fontItalic: config.fontItalic ?? false,
-        customBoxes: config.customBoxes ?? [],
-      };
-      apiFetch(`${API_BASE}/api/templates/${pdfDocType}/config?userId=${encodeURIComponent(currentUser.id)}`, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-User-Id': currentUser.id,
-          'X-User-Username': currentUser.username ?? '',
-        },
-        body: JSON.stringify(toSave),
-      }).catch(() => {});
-    }, 1500);
-    return () => clearTimeout(timer);
-  }, [pdfDocType, templateConfigByType, isAdmin, currentUser?.id, currentUser?.username]);
+    // no-op
+  }, []);
 
   async function handleCreate(
     type: DocType,
@@ -2968,9 +2937,11 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
         // Incluir customBoxes y fuentes en el contenido del doc para que cualquier usuario vea la misma plantilla al abrirlo
         const docType = selectedDoc.type as 'cotizacion' | 'levantamiento' | 'hoja_trabajo';
         const config = templateConfigByType[docType];
+        const draftCustomBoxes = Array.isArray(pdfFormDraft.customBoxes) ? pdfFormDraft.customBoxes : [];
+        const shouldFillTemplateDefaults = draftCustomBoxes.length === 0;
         content = {
           ...pdfFormDraft,
-          ...(config && Array.isArray(config.customBoxes)
+          ...(config && shouldFillTemplateDefaults && Array.isArray(config.customBoxes)
             ? {
                 customBoxes: config.customBoxes,
                 globalFontColor: config.fontColor,
@@ -3016,34 +2987,6 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
         setLinkToBoardItem(null);
       }
       toast('Documento guardado', 'success');
-      // Si el documento es un PDF de plantilla y el usuario es admin, persistir también
-      // la configuración de plantilla global (fuente/tamaño/posiciones) para este tipo.
-      if (isAdmin && selectedDoc && isPdfDocType(selectedDoc.type as DocType)) {
-        const docType = selectedDoc.type as 'cotizacion' | 'levantamiento' | 'hoja_trabajo';
-        const config = templateConfigByType[docType];
-        if (config) {
-          const toSave = {
-            userId: currentUser.id,
-            username: currentUser.username,
-            fieldPositions: config.fieldPositions ?? {},
-            fontColor: config.fontColor ?? '#000000',
-            fontFamily: config.fontFamily ?? 'Helvetica',
-            fontSize: config.fontSize ?? 11,
-            fontBold: config.fontBold ?? false,
-            fontItalic: config.fontItalic ?? false,
-            customBoxes: config.customBoxes ?? [],
-          };
-          await apiFetch(`${API_BASE}/api/templates/${docType}/config?userId=${encodeURIComponent(currentUser.id)}`, {
-            method: 'PUT',
-            headers: {
-              'Content-Type': 'application/json',
-              'X-User-Id': currentUser.id,
-              'X-User-Username': currentUser.username ?? '',
-            },
-            body: JSON.stringify(toSave),
-          }).catch(() => {});
-        }
-      }
     } catch (e) {
       console.error('Error saving doc', e);
       setError(e instanceof Error ? e.message : 'No se pudo guardar el documento.');
@@ -3249,9 +3192,11 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
       } else if (isPdfDocType(docType as DocType)) {
         const pdfType = docType as 'cotizacion' | 'levantamiento' | 'hoja_trabajo';
         const config = templateConfigByType[pdfType];
+        const draftCustomBoxes = Array.isArray(pdfFormDraft.customBoxes) ? pdfFormDraft.customBoxes : [];
+        const shouldFillTemplateDefaults = draftCustomBoxes.length === 0;
         content = {
           ...pdfFormDraft,
-          ...(config && Array.isArray(config.customBoxes)
+          ...(config && shouldFillTemplateDefaults && Array.isArray(config.customBoxes)
             ? {
                 customBoxes: config.customBoxes,
                 globalFontColor: config.fontColor,
@@ -3338,9 +3283,11 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
     } else if (isPdfDocType(docType as DocType)) {
       const pdfType = docType as 'cotizacion' | 'levantamiento' | 'hoja_trabajo';
       const config = templateConfigByType[pdfType];
+      const draftCustomBoxes = Array.isArray(pdfFormDraft.customBoxes) ? pdfFormDraft.customBoxes : [];
+      const shouldFillTemplateDefaults = draftCustomBoxes.length === 0;
       content = {
         ...pdfFormDraft,
-        ...(config && Array.isArray(config.customBoxes)
+        ...(config && shouldFillTemplateDefaults && Array.isArray(config.customBoxes)
           ? {
               customBoxes: config.customBoxes,
               globalFontColor: config.fontColor,
@@ -3772,10 +3719,43 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
                           isAdmin={isAdmin}
                           onTemplateConfigChange={
                             pdfDocType
-                              ? (config) => setTemplateConfigByType((prev) => ({ ...prev, [pdfDocType]: { ...(prev[pdfDocType] || {}), ...config } }))
+                              ? (config) =>
+                                  setPdfFormDraft((prev) => {
+                                    const prevFieldPositions =
+                                      typeof prev.fieldPositions === 'object' && prev.fieldPositions != null && !Array.isArray(prev.fieldPositions)
+                                        ? (prev.fieldPositions as Record<string, { x: number; y: number }>)
+                                        : {};
+                                    const prevBold = prev.globalFontBold === true || prev.globalFontBold === 'true';
+                                    const prevItalic = prev.globalFontItalic === true || prev.globalFontItalic === 'true';
+                                    return {
+                                      ...prev,
+                                      fieldPositions: config.fieldPositions ?? prevFieldPositions,
+                                      globalFontColor:
+                                        typeof config.fontColor === 'string'
+                                          ? config.fontColor
+                                          : typeof prev.globalFontColor === 'string'
+                                            ? prev.globalFontColor
+                                            : '#000000',
+                                      globalFontFamily:
+                                        typeof config.fontFamily === 'string'
+                                          ? config.fontFamily
+                                          : typeof prev.globalFontFamily === 'string'
+                                            ? prev.globalFontFamily
+                                            : 'Helvetica',
+                                      globalFontSize:
+                                        typeof config.fontSize === 'number'
+                                          ? config.fontSize
+                                          : typeof prev.globalFontSize === 'number'
+                                            ? prev.globalFontSize
+                                            : 11,
+                                      globalFontBold: config.fontBold ?? prevBold,
+                                      globalFontItalic: config.fontItalic ?? prevItalic,
+                                      customBoxes: config.customBoxes ?? (Array.isArray(prev.customBoxes) ? prev.customBoxes : []),
+                                    } as Record<string, unknown>;
+                                  })
                               : undefined
                           }
-                          onSaveTemplateConfig={canSaveTemplateConfig ? handleSaveTemplateConfig : undefined}
+                          onSaveTemplateConfig={undefined}
                           savingTemplateConfig={savingTemplateConfig}
                         />
                       )}
