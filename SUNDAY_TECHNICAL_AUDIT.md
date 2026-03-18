@@ -29,7 +29,7 @@
 
 - **Estado a marzo 2026 (según manifiesto)**  
   - **Tableros en tiempo real**: 100% funcionales, pendiente seguir refinando rooms por usuario.  
-  - **Editor/PDF**: ~90% (persisten ajustes finos de box-model).  
+  - **Editor/PDF**: ~95% (flujo 1:1 de descarga consolidado; quedan detalles finos en edge cases).  
   - **Seguridad JWT**: middleware y manejo en frontend implementados; pendiente endurecer algunos valores por defecto (`JWT_SECRET`, rondas bcrypt).  
   - **PostgreSQL**: esquema y campos sombra en producción, con migración lógica desde strings; continúan tareas de eliminación de código puramente legacy.  
   - **Modo móvil/PWA**: ~80%, con UX optimizada pero pendiente pulir modo offline.
@@ -708,38 +708,24 @@ Pipeline de generación:
 
 Problema de box-model actual:
 
-- El editor visual emplea `<textarea>` (con métricas dependientes del navegador).
-- El PDF usa `<div>` con estilos CSS.
+- El editor visual de plantillas (`PdfTemplateEditor`) usa cajas con `contentEditable` y aplica `line-height`/paddings consistentes en cliente.
+- El PDF descargado en el flujo principal (“Generar PDF” → “Guardar como PDF”) se genera capturando **la misma vista** del preview con `html2canvas` (escala 300/96) e incrustándola en US Letter con `jsPDF`.
 
 Resultado:
 
-- Pequeñas desalineaciones (line-height, padding, wrapping de texto) entre lo que ve el usuario y lo que se renderiza en el PDF.
+- Para el flujo **1:1** que ve el usuario, el PDF coincide con el preview porque proviene del mismo DOM renderizado en cliente.
+- Las discrepancias restantes quedan acotadas a rutas server-side (renderizado/embebido con Puppeteer/pdf-lib) y a edge cases de normalización de estilos/colores y recorte de cajas cerca del borde.
 
-Además, **persiste un bug funcional conocido**:
+Además, hay que vigilar edge cases de color en rutas server-side:
 
-- Cuando el texto se configura con color blanco en el editor, en algunos casos **no se visualiza correctamente en el PDF descargado** (queda invisible o con contraste insuficiente sobre el fondo).  
-- Este comportamiento sugiere una discrepancia entre:
-  - El estilo aplicado en el editor (color/fondo) y
-  - El estilo final aplicado en la plantilla PDF durante el renderizado server-side.
-- Debe tratarse como incidencia abierta a resolver en paralelo a la migración a `contentEditable` y a la consolidación de la hoja de estilos compartida.
+- El mapeo de contraste para “texto blanco” se calcula en `pdf-lib` (fuerza blanco para cajas tipo `total` y/o fondos negros).
+- En el flujo 1:1 del cliente, el color se corresponde con el preview; cualquier discrepancia suele aparecer cuando el valor de `fontColor` no llega en un formato normalizado (por ejemplo, diferencias entre `#fff` y `#ffffff`) o por reglas de recorte en el renderizado en backend.
 
 Plan de mejora:
 
-- Migrar el editor a un sistema basado en `div` + `contentEditable` con las mismas clases CSS que el PDF:
-
-```text
-Editor:
-  <div contentEditable class="doc-text-block">
-    ...
-  </div>
-
-PDF:
-  <div class="doc-text-block">
-    ...
-  </div>
-```
-
-- Mantener una hoja de estilos compartida (CSS) para ambos entornos.
+- Unificar/simplificar normalización de `fontColor` y `backgroundColor` entre UI y backend (aceptar variantes como `#fff` y `#ffffff`, y no asumir solo valores exactos).
+- Revisar el clamping/recorte de cajas cuando están muy cerca de bordes (evitar que se pierda texto por 1–2px efectivos a escala alta).
+- Mantener consistencia de escalas (300/96) y factores de tipografía para que el rasterizado server-side y el cliente sigan siendo equivalentes.
 
 Estado a marzo 2026 (actualizado tras flujo Generar PDF y descarga 1:1):
 
@@ -851,7 +837,7 @@ Componentes clave:
 - `frontend/src/components/Login.tsx`:
   - Pantalla de login (skin vertical principal):
     - Encabezado del hero con **“Bienvenido / a Sunday”** alineado a la izquierda en dos renglones.
-    - `AnimatedLogo` pequeño en la esquina superior derecha del header.
+    - `AnimatedLogo` pequeño: render SVG por capas (sol + rayos) con animaciones sincronizadas y color que se adapta al tema vía `currentColor`.
 
 - `frontend/src/components/Board/*`:
   - `BoardContainer`, `ItemDetailsPanel`, etc.

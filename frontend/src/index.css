@@ -430,13 +430,19 @@
 }
 
 /* Selección de variante (se mantiene hasta cambiar de pestaña) */
-html[data-sun-anim="pulse"] .animated-logo-sun { animation-name: sun-pulse; }
-html[data-sun-anim="spin"] .animated-logo-sun { animation-name: sun-spin; }
-html[data-sun-anim="shimmer"] .animated-logo-sun { animation-name: sun-shimmer; }
-html[data-sun-anim="morph"] .animated-logo-sun { animation-name: sun-morph; }
+html[data-sun-anim="pulse"] .animated-logo-sun,
+html[data-sun-anim="pulse"] .animated-logo-rays { animation-name: sun-pulse; }
+html[data-sun-anim="spin"] .animated-logo-sun,
+html[data-sun-anim="spin"] .animated-logo-rays { animation-name: sun-spin; }
+html[data-sun-anim="shimmer"] .animated-logo-sun,
+html[data-sun-anim="shimmer"] .animated-logo-rays { animation-name: sun-shimmer; }
+html[data-sun-anim="morph"] .animated-logo-sun,
+html[data-sun-anim="morph"] .animated-logo-rays { animation-name: sun-morph; }
 
 .animated-logo-rays {
-  animation: none;
+  animation: sun-pulse 6.2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+  animation-delay: 0s;
+  will-change: transform;
 }
 
 .animated-logo-waves {
@@ -467,7 +473,8 @@ html[data-sun-anim="morph"] .animated-logo-sun { animation-name: sun-morph; }
 }
 
 .login-logo-idle .animated-logo-rays {
-  animation: none;
+  animation: logo-sun-hero 6.2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+  animation-delay: 0s;
 }
 
 .login-logo-idle .animated-logo-waves {
@@ -479,7 +486,8 @@ html[data-sun-anim="morph"] .animated-logo-sun { animation-name: sun-morph; }
 }
 
 .login-logo-enter .animated-logo-rays {
-  animation: none;
+  animation: logo-sun-hero 6.2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+  animation-delay: 0s;
 }
 
 .login-logo-enter .animated-logo-waves {
