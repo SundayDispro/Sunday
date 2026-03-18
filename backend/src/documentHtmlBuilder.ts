@@ -328,7 +328,8 @@ export function buildDocumentHtml(options: BuildDocumentHtmlOptions): string {
     customBoxes.some((b) => b && typeof b.fontFamily === 'string' && /averta\s*std/i.test(b.fontFamily));
   const fontFaceCss = needsAverta ? getAvertaStdFontFaceCss() : '';
 
-  const pageDivHtml = `<div class="page" style="width:${PAGE_W_PT}pt;height:${PAGE_H_PT}pt;min-width:${PAGE_W_PT}pt;min-height:${PAGE_H_PT}pt;position:relative;overflow:hidden;background-color:#ffffff;${backgroundStyle}">\n${boxesHtml}\n</div>`;
+  // overflow:visible para que el rasterizado a 300 dpi no recorte cajas (ej. total) que sobresalgan ligeramente
+  const pageDivHtml = `<div class="page" style="width:${PAGE_W_PT}pt;height:${PAGE_H_PT}pt;min-width:${PAGE_W_PT}pt;min-height:${PAGE_H_PT}pt;position:relative;overflow:visible;background-color:#ffffff;${backgroundStyle}">\n${boxesHtml}\n</div>`;
   return buildDocumentWrapperHtml(pageDivHtml, { content, fontFaceCss });
 }
 
@@ -386,7 +387,7 @@ export function buildDocumentWrapperHtml(
       height: ${PAGE_H_PT}pt;
       min-width: ${PAGE_W_PT}pt;
       min-height: ${PAGE_H_PT}pt;
-      overflow: hidden;
+      overflow: visible;
       background-color: #ffffff !important;
       border: none;
       outline: none;

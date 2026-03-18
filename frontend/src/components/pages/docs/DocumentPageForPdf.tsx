@@ -1,6 +1,8 @@
 /**
  * Vista estática del documento para PDF y preview.
- * Una sola fuente de verdad: mismo layout que el backend usará para generar el PDF.
+ * Una sola fuente de verdad: mismo layout que el backend usa para generar el PDF
+ * rasterizado a 300 dpi (worker + renderDocumentToHtml). overflow:visible y colores
+ * (PDF_WHITE_COLOR, print-color-adjust) evitan recortes y pérdida de texto blanco al rasterizar.
  * Solo estilos inline (sin Tailwind) para poder renderizarse en Node con react-dom/server.
  */
 import React from 'react';
