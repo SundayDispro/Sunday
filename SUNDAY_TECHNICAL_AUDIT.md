@@ -289,12 +289,9 @@ Cambios de hardening ya implementados en esta fase:
     - Ahora instancia un `Worker` (`pdfWorker.js`), pasa las opciones del documento y `API_BASE_URL`, y aplica un **timeout defensivo de 90 segundos**, tras el cual termina el worker y devuelve error controlado.  
   - `generatePdfFromHtml` se mantiene como helper legacy, usando Puppeteer directo, pero el flujo principal de impresiones usa el worker para minimizar bloqueos.
 
-- **Motor de PDF de cotizaciones vectoriales**  
-  - El botón **“Descargar PDF”** de `DocsPage` para `cotizacion` ya no depende del HTML/WYSIWYG como ruta principal:  
-    - `POST /api/templates/:kind/generate` prioriza ahora el flujo rasterizado (`generatePdfFromDocument` / worker) para producir una imagen de la página embebida en un PDF US Letter a 300 dpi efectivos.  
-    - Si la captura rasterizada falla, el backend cae al flujo vectorial (`generatePdfFromTemplate(kind, content)`) como fallback para no romper la descarga.  
-  - Las fuentes `Averta Std` del flujo vectorial se cargan desde `backend/assets/fonts/AvertaStd` y se incrustan directamente en el PDF; esto explica que el resultado visual pueda diferir ligeramente del preview HTML aunque la tipografía sea la misma.  
-  - El flujo HTML/WYSIWYG sigue siendo útil como respaldo y para documentos sin plantilla vectorial, pero **no** es el camino dominante para la descarga.
+- **Motor de PDF y descarga 1:1 (Generar PDF)**  
+  - En Docs, vista documento, el botón **"Generar PDF"** (cotización, levantamiento, hoja de trabajo) abre la ventana `/docs/pdf-preview` con la misma vista que el preview (`PdfTemplateEditor` solo lectura). El usuario pulsa **"Guardar como PDF"**: el frontend captura con `html2canvas` a escala 300/96, genera un PDF US Letter con `jsPDF` y descarga. El PDF descargado es **1:1** respecto al preview. En la ventana hay **Enviar por WhatsApp** y **Enviar por correo**.  
+  - El backend mantiene `POST /api/templates/:kind/generate` (worker raster o vectorial) para otros usos; la descarga que ve el usuario es la ventana cliente. Las fuentes Averta Std se usan en el editor y en el flujo vectorial del backend.
 
 - **Despliegue frontend y Nginx**  
 
@@ -458,6 +455,15 @@ En `auth.ts` se define una cadena clara de responsabilidad:
   - Variante de `requireAuth` que exige `role === 'ADMIN'`.
   - Responde `403` si el usuario no es administrador.
 
+- **`requireRoles([...])` (RBAC por rol)**:
+  - Middleware general para autorizar **por lista de roles permitidos** (ej. `['ADMIN','VENTAS']`).
+  - Hardening aplicado (marzo 2026):
+    - **Valida la configuración** (roles no vacíos y dentro del set permitido) para evitar typos silenciosos.
+    - **Bypass de ADMIN**: el rol `ADMIN` se considera “acceso total” y pasa aunque no esté incluido explícitamente en la lista.
+  - Respuestas:
+    - `401` si no hay usuario autenticado (`req.authUser` ausente).
+    - `403` si el rol no está autorizado.
+
 Esto proporciona una matriz de acceso basada en roles:
 
 - Rutas generales autenticadas → `authenticateToken` / `requireAuth`.
@@ -513,10 +519,35 @@ client.apiFetch(path, options):
 - **Workspaces, boards, panel-notes**:
   - Todas las operaciones de lectura/escritura relevantes están protegidas con `authenticateToken`.
   - Esto impide accesos anónimos a la estructura de trabajo y notas personales.
+- **Endurecimiento RBAC aplicado (marzo 2026)**:
+  - `GET /api/my-work`: requiere JWT (`authenticateToken`) y **filtra por usuario** (solo ítems asignados al `userId` del token).
+  - `GET /api/search`: requiere JWT (`authenticateToken`) y para roles restrictivos filtra a ítems **asignados al usuario**; para roles amplios (`ADMIN|VENTAS|DISENO`) permite búsqueda más global dentro del workspace.
+  - `DELETE /api/items/:id`: requiere JWT y además `requireRoles(['ADMIN','VENTAS'])` (por bypass, `ADMIN` siempre pasa). Esto bloquea borrados desde roles no autorizados (incluyendo `DISENO`, `TALLER`, `USER`).
 - **Notificaciones y bandeja de entrada**:
   - Asociadas a `userId`, protegidas también por auth.
 - **Administración de usuarios y plantillas**:
   - Deben estar protegidas por `requireAdmin` (verificar en el código que todas las rutas de administración usan este middleware).
+- **Rutas REST con `requireRoles` aplicado (marzo 2026)**:
+  - **Deletions destructivas**:
+    - `DELETE /api/workspaces/:id` → `requireRoles(['ADMIN'])`.
+    - `DELETE /api/boards/:id` → `requireRoles(['ADMIN'])`.
+    - `DELETE /api/items/:id` → `requireRoles(['ADMIN','VENTAS'])` (excepción operativa: ventas puede borrar ítems; `ADMIN` bypass).
+  - **Creación/edición sensible (estructura o acciones de alto impacto)**:
+    - `POST /api/workspaces` → `requireRoles(['ADMIN'])`.
+    - `PATCH /api/workspaces/:id` → `requireRoles(['ADMIN'])`.
+    - `POST /api/boards` → `requireRoles(['ADMIN','VENTAS'])`.
+    - `POST /api/boards/:id/columns/reorder` → `requireRoles(['ADMIN','VENTAS'])`.
+    - `POST /api/boards/link-doc` → `requireRoles(['ADMIN','VENTAS','DISENO'])` (alineado con creación/edición de ítems).
+    - `POST /api/boards/:boardId/calendar-events` → `requireRoles(['ADMIN','VENTAS','DISENO'])`.
+    - `PATCH /api/boards/:boardId/calendar-events/:eventId` → `requireRoles(['ADMIN','VENTAS','DISENO'])`.
+    - `DELETE /api/boards/:boardId/calendar-events/:eventId` → `requireRoles(['ADMIN','VENTAS','DISENO'])`.
+- **Facturación / costos (backend como fuente de verdad)**:
+  - No existe un endpoint REST dedicado tipo `/api/billing` o `/api/costos`.
+  - La vista de facturación se nutre de los datos del tablero (boards/columnas/columnValues), y el control de acceso se refuerza en:
+    - Frontend: `can(user, 'billing.view')`.
+    - Sockets: `update_column_value` bloquea a `DISENO` en la columna **"Estado Facturación"**.
+- **Grupos (eliminación)**:
+  - No existe `DELETE /api/groups` (REST). La eliminación de grupos es vía Socket.IO (`delete_group`) y queda restringida en backend (solo `ADMIN` por bypass + lista vacía).
 
 Edge cases y recomendaciones:
 
@@ -552,6 +583,21 @@ Flujos principales:
     - Persiste cambios en Postgres vía Prisma.
     - Recupera el `boardId` asociado (a través de `group`).
     - Emite el evento usando `io.to(boardRoom(boardId)).emit(...)`.
+
+Endurecimiento aplicado (marzo 2026) — **RBAC en eventos Socket.IO**:
+
+- **Problema**: aunque la API REST esté protegida, si los eventos Socket.IO de escritura no validan rol/JWT,
+  un usuario (ej. `DISENO`) podría emitir `delete_item` desde consola y el backend lo procesaría.
+- **Solución implementada en `backend/src/index.ts`**:
+  - En el handshake se verifica el JWT y se persiste `{ userId, role }` en `socket.data`.
+  - Se introduce un wrapper `withSocketRoles(event, rolesAllowed, handler)`:
+    - Si no hay JWT válido → emite `action_denied { event, reason: 'unauthenticated' }` y no procesa.
+    - Si el rol no está permitido → emite `action_denied { event, reason: 'unauthorized' }` y no procesa.
+    - `ADMIN` tiene bypass (acceso total) por diseño.
+  - **Hardening adicional por columna** en `update_column_value`:
+    - `TALLER` y `USER` solo pueden actualizar la columna **`Estado Taller`** (tipo `status`) y nunca columnas `person`.
+    - `DISENO` no puede actualizar la columna **`Estado Facturación`**.
+  - **Hardening de identidad**: en `add_update` se ignora `authorId` del cliente y se fuerza `authorId = socketJWT.userId`.
 
 - Eventos sobre columnas, grupos y boards:
   - Similarmente, se centran en el board correspondiente y emiten al room adecuado.
@@ -703,9 +749,10 @@ PDF:
 
 - Mantener una hoja de estilos compartida (CSS) para ambos entornos.
 
-Estado a marzo 2026 (actualizado tras integración de plantilla vectorial de cotización):
+Estado a marzo 2026 (actualizado tras flujo Generar PDF y descarga 1:1):
 
-- Para documentos de tipo **`cotizacion`** (y el resto de plantillas), el flujo principal de descarga es **rasterizado a 300 dpi**: el endpoint `POST /api/templates/:kind/generate` llama a `generatePdfFromDocument` (worker en `pdfWorker.ts`), que renderiza el documento con el mismo HTML que el preview (`renderDocumentToHtml` / bundle CJS), captura una PNG a escala 300/96 y la embebe en un PDF US Letter con `createPdfFromScreenshotPng`. La plantilla PDF (`cotizacion.pdf`, etc.) se usa como imagen de fondo en ese render si existe. **Fallback**: si la generación rasterizada falla, se usa el motor vectorial `generatePdfFromTemplate` para no romper la descarga.  
+- El flujo principal que ve el usuario para **descargar el PDF** es en cliente: en Docs, vista documento, **"Generar PDF"** abre la ventana `/docs/pdf-preview` con la misma vista que el preview (`PdfTemplateEditor` solo lectura). El usuario pulsa **"Guardar como PDF"**: el frontend captura con `html2canvas` a escala 300/96, genera un PDF US Letter con `jsPDF` y descarga. **El PDF descargado es 1:1** respecto al preview. En la ventana están también **Enviar por WhatsApp** y **Enviar por correo**.
+- El backend mantiene `POST /api/templates/:kind/generate` (worker en `pdfWorker.ts` o flujo vectorial): se usa para otros usos (impresiones, etc.). Para documentos tipo **`cotizacion`** y resto de plantillas, ese flujo es **rasterizado a 300 dpi** (`generatePdfFromDocument` → PNG 300/96 → `createPdfFromScreenshotPng`) con fallback a `generatePdfFromTemplate` si falla.  
 - Las fuentes **Averta Std** se cargan en el backend (`backend/assets/fonts/AvertaStd`) y se usan tanto en el bundle de render (worker) como en el flujo vectorial (`pdf-lib`); en la práctica, la mayoría de visores muestran ya texto nítido y vectorial, aunque persisten pequeñas diferencias de “hinting”/renderizado frente al navegador (especialmente en tamaños pequeños, en el ajuste vertical de las cajas y en la lectura del total blanco sobre fondo oscuro).
 - La cabecera de respuesta `X-PDF-Method` indica `raster-300dpi` o `vector-fallback` según el camino usado.
 
@@ -822,6 +869,11 @@ Componentes clave:
   - `VectorEditor`, `Toolbar`, `LayersPanel`, `PropertiesPanel`, `canvasSetup`, `designTypes`.
   - Código del editor vectorial Fabric.js; ya no está expuesto en la UI al haberse eliminado la pestaña Estudio.
 
+- **Guards de autorización en frontend (UX) — Fase 4 aplicada (marzo 2026)**:
+  - Helper central `frontend/src/authz/can.ts`: `can(user, action)` con acciones tipadas (`billing.view`, `board.delete`, `group.delete`, `column.delete`, `item.delete`). Solo controla **visibilidad/UX**; el backend es la fuente de verdad.
+  - Reglas UX alineadas con RBAC backend: `billing.view` → solo ADMIN/VENTAS; `item.delete` → ADMIN/VENTAS; `group.delete`, `column.delete`, `board.delete` → solo ADMIN (botones ocultos para el resto).
+  - Uso: `App.tsx` usa `can(currentUser, 'billing.view')` para mostrar/ocultar vista y pestaña de Facturación; `BoardGroup.tsx` oculta botón y diálogo "Eliminar grupo" y opción "Eliminar" en menú de columna según permiso; `BoardContainer.tsx` oculta botón "Eliminar" del toolbar de selección múltiple de ítems y guard defensivo en confirmación.
+
 Servicios:
 
 - Capa `apiFetch` (ubicada en `frontend/src/api.ts`) centraliza:
@@ -935,6 +987,8 @@ Estado a marzo 2026 (actualizado):
 
 - El build de frontend (`npm run build`) compila sin errores de TypeScript tras tipar de forma estricta vistas de tablero, calendario y editor/PDF (incluyendo `DocsPage`, `PdfTemplateEditor` y `UserContext`).  
 - La experiencia móvil al entrar en la app se ha estabilizado mediante un estado de “bootstrap” en `App.tsx`, que muestra una única pantalla de carga mientras se resuelven `currentUser`, workspaces y boards, evitando montajes/desmontajes repetidos de vistas de tablero y encabezados.
+- La UX móvil/PWA consolidó navegación principal con bottom navigation (Inicio/Calendario/Docs) y un Hub de Docs (Explorar/Crear) optimizado para scroll en iOS/Safari.
+- Se corrigió la aplicación de temas en móvil: el layout móvil dejó de forzar `bg-black/text-white` y ahora consume los tokens del sistema de temas (`--monday-bg/surface/text/border/hover/pill`) vía clases semánticas (`bg-monday-bg`, `bg-white`, `text-monday-text`, etc.), alineando `header` y `bottom nav` con `data-theme` (light/dark/night/dawn/fog/plum/ember).
   - Añadir logging estructurado (JSON) y niveles (`info`, `warn`, `error`).
   - Instrumentar tiempos de consulta de Prisma.
   - Medir número de conexiones Socket.IO activas.
@@ -1025,6 +1079,16 @@ Este enfoque mantiene un flujo sencillo (desarrollo en cualquier PC → `git pus
   - Se ha introducido un estado de arranque (`isBootstrapping`) en `App.tsx` que espera a que se carguen `currentUser`, workspaces y boards antes de montar las vistas pesadas en móvil.  
   - Mientras dura el bootstrap se muestra una pantalla de carga única y se ocultan `MobileBoardHeader`, FAB y `BottomNav`, evitando los cambios encadenados de `activePage`/`activeBoardId` y el parpadeo entre distintas pantallas.  
   - El comportamiento de navegación y sockets se mantiene intacto una vez finaliza el bootstrap.
+
+- **Zoom involuntario en móvil tras login (iOS/Safari)** — corregido:
+  - Síntoma: al enfocar inputs con tipografía <16px, Safari aplica zoom; al hacer login, el zoom puede persistir en la siguiente vista.
+  - Mitigación aplicada: inputs del login usan `text-[16px]` en móvil (con `sm:text-[14px]` para desktop) y se fuerza `blur()` del elemento activo al enviar el formulario.
+
+**Estado del plan RBAC (marzo 2026):**
+- **Fase 1 (REST brechas críticas):** Completa — `/api/my-work` y `/api/search` con `authenticateToken` y filtrado por usuario.
+- **Fase 2 (Middleware REST):** En progreso — `requireRoles` en auth; aplicado a DELETE workspaces/boards/items; pendiente extender a rutas de facturación y otras escrituras sensibles.
+- **Fase 3 (Socket.IO):** Completa — RBAC por evento (`withSocketRoles`), `action_denied`, endurecimiento por columna en `update_column_value`, `authorId` forzado desde JWT en `add_update`.
+- **Fase 4 (Frontend guards UX):** Completa — `can(user, action)` en `authz/can.ts`; Facturación y botones de eliminar (tablero/grupo/columna/ítem) ocultos según rol.
 
 ---
 

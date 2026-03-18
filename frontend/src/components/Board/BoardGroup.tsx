@@ -28,6 +28,7 @@ import { GroupColorPicker, GROUP_PALETTE } from './GroupColorPicker';
 import { StatusLabelsEditor } from './StatusLabelsEditor';
 import { HorizontalScrollArea } from '../HorizontalScrollArea';
 import { useUser } from '../../store/UserContext';
+import { can } from '../../authz/can';
 
 interface Props {
   group: Group;
@@ -281,6 +282,8 @@ const ColumnHeader: React.FC<{ col: BoardColumn; onEditLabels?: (col: BoardColum
   const [menuOpen, setMenuOpen] = useState(false);
   const [renaming, setRenaming] = useState(false);
   const [draft, setDraft] = useState(col.title);
+  const { currentUser } = useUser();
+  const canDeleteColumn = can(currentUser, 'column.delete');
   const {
     attributes,
     listeners,
@@ -369,13 +372,15 @@ const ColumnHeader: React.FC<{ col: BoardColumn; onEditLabels?: (col: BoardColum
               Editar etiquetas
             </button>
           )}
-          <button
-            className="w-full flex items-center gap-2.5 text-[13px] text-monday-red hover:bg-red-500/15 px-3 py-2 rounded-monday"
-            onClick={() => { setMenuOpen(false); socket.emit('delete_column', { columnId: col.id }); }}
-          >
-            <Trash2 size={14} />
-            Eliminar
-          </button>
+          {canDeleteColumn && (
+            <button
+              className="w-full flex items-center gap-2.5 text-[13px] text-monday-red hover:bg-red-500/15 px-3 py-2 rounded-monday"
+              onClick={() => { setMenuOpen(false); socket.emit('delete_column', { columnId: col.id }); }}
+            >
+              <Trash2 size={14} />
+              Eliminar
+            </button>
+          )}
           <Popover.Arrow className="fill-white" />
         </Popover.Content>
       </Popover.Portal>
@@ -412,7 +417,7 @@ export const BoardGroup: React.FC<Props> = ({
   const [cardColumnsExpanded, setCardColumnsExpanded] = useState(false);
   const addInputRef = useRef<HTMLInputElement>(null);
   const { currentUser } = useUser();
-  const isAdminOrVentas = currentUser?.role === 'ADMIN' || currentUser?.role === 'VENTAS';
+  const canDeleteGroup = can(currentUser, 'group.delete');
 
   const {
     attributes,
@@ -732,20 +737,22 @@ export const BoardGroup: React.FC<Props> = ({
           </button>
         )}
 
-        <button
-          onClick={e => {
-            e.stopPropagation();
-            setShowDeleteConfirm(true);
-          }}
-          className="ml-auto p-1.5 rounded-lg text-monday-subtext hover:text-monday-red hover:bg-red-500/15 transition-colors"
-          title="Eliminar grupo"
-        >
-          <Trash2 size={16} />
-        </button>
+        {canDeleteGroup && (
+          <button
+            onClick={e => {
+              e.stopPropagation();
+              setShowDeleteConfirm(true);
+            }}
+            className="ml-auto p-1.5 rounded-lg text-monday-subtext hover:text-monday-red hover:bg-red-500/15 transition-colors"
+            title="Eliminar grupo"
+          >
+            <Trash2 size={16} />
+          </button>
+        )}
       </div>
 
       {/* Diálogo de confirmación eliminar grupo */}
-      <AnimatedDialog open={showDeleteConfirm} onOpenChange={setShowDeleteConfirm}>
+      <AnimatedDialog open={canDeleteGroup && showDeleteConfirm} onOpenChange={setShowDeleteConfirm}>
         <Dialog.Overlay className="fixed inset-0 bg-black/40 z-[100]" />
         <Dialog.Content
           className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 bg-white rounded-xl shadow-monday-xl border border-monday-border p-6 w-[400px] max-w-[90vw] z-[101]"

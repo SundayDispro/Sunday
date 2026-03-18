@@ -372,19 +372,49 @@
   }
 }
 
-@keyframes logo-sun-pulse {
-  0%, 100% { transform: scale(1.005); opacity: 0.98; }
-  50% { transform: scale(0.975); opacity: 1; }
+/* --- Logo animado por capas: sol, rayos, olas ---
+   Animaciones refinadas: suaves, orgánicas, con desfases entre capas. */
+:root {
+  --logo-idle-duration: 6s;
+  --logo-enter-duration: 0.9s;
+  --logo-enter-ease: cubic-bezier(0.25, 0.46, 0.45, 0.94);
+  --logo-idle-ease: cubic-bezier(0.4, 0, 0.6, 1);
+  --logo-sync-delay: 1s;
 }
 
-@keyframes logo-rays-drift {
-  0%, 100% { transform: scale(0.99); opacity: 0.95; }
-  50% { transform: scale(1.02); opacity: 1; }
+/* ÚNICA animación: sol orgánico + rotación (pulsación elegante con deformación) */
+@keyframes logo-sun-hero {
+  /* Sin skew/translate para evitar desplazamiento visual: solo rotate + scaleX/scaleY */
+  0%   { transform: rotate(0deg)   scaleX(1.02) scaleY(1.01); }
+  18%  { transform: rotate(18deg)  scaleX(0.97) scaleY(0.99); }
+  38%  { transform: rotate(90deg)  scaleX(1.04) scaleY(1.02); }
+  58%  { transform: rotate(180deg) scaleX(0.985) scaleY(1.005); }
+  78%  { transform: rotate(270deg) scaleX(1.03) scaleY(0.995); }
+  100% { transform: rotate(360deg) scaleX(1.02) scaleY(1.01); }
 }
 
-@keyframes logo-waves-shift {
-  0%, 100% { transform: scale(0.995); opacity: 0.96; }
-  50% { transform: scale(1.01); opacity: 1; }
+/* Variantes para rotar por pestaña (se elige vía data-sun-anim en <html>) */
+@keyframes sun-pulse {
+  0%, 100% { transform: rotate(0deg) scaleX(1.02) scaleY(1.01); }
+  40% { transform: rotate(0deg) scaleX(0.98) scaleY(1.04); }
+  70% { transform: rotate(0deg) scaleX(1.03) scaleY(0.99); }
+}
+
+@keyframes sun-spin {
+  0% { transform: rotate(0deg) scaleX(1.01) scaleY(1.01); }
+  100% { transform: rotate(360deg) scaleX(1.01) scaleY(1.01); }
+}
+
+@keyframes sun-shimmer {
+  0%, 100% { transform: rotate(0deg) scaleX(1.01) scaleY(1.01); filter: drop-shadow(0 0 0 rgba(255,255,255,0)); }
+  50% { transform: rotate(0deg) scaleX(1.03) scaleY(0.99); filter: drop-shadow(0 10px 18px rgba(255,255,255,0.10)); }
+}
+
+@keyframes sun-morph {
+  0% { transform: rotate(0deg) scaleX(1.02) scaleY(1.01); }
+  25% { transform: rotate(35deg) scaleX(0.96) scaleY(1.05); }
+  55% { transform: rotate(110deg) scaleX(1.06) scaleY(0.98); }
+  100% { transform: rotate(360deg) scaleX(1.02) scaleY(1.01); }
 }
 
 .animated-logo {
@@ -392,92 +422,66 @@
 }
 
 .animated-logo-sun {
+  transform-box: fill-box;
   transform-origin: center;
-  animation: logo-sun-pulse 5.2s ease-in-out infinite;
-  will-change: transform, opacity;
+  animation: sun-pulse 6.2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+  animation-delay: 0s;
+  will-change: transform;
 }
 
+/* Selección de variante (se mantiene hasta cambiar de pestaña) */
+html[data-sun-anim="pulse"] .animated-logo-sun { animation-name: sun-pulse; }
+html[data-sun-anim="spin"] .animated-logo-sun { animation-name: sun-spin; }
+html[data-sun-anim="shimmer"] .animated-logo-sun { animation-name: sun-shimmer; }
+html[data-sun-anim="morph"] .animated-logo-sun { animation-name: sun-morph; }
+
 .animated-logo-rays {
-  transform-origin: center;
-  animation: logo-rays-drift 5.2s ease-in-out infinite;
-  will-change: transform, opacity;
+  animation: none;
 }
 
 .animated-logo-waves {
-  transform-origin: center;
-  animation: logo-waves-shift 5.2s ease-in-out infinite;
-  will-change: transform, opacity;
+  animation: none;
 }
 
 @media (prefers-reduced-motion: reduce) {
   .animated-logo-sun,
-  .animated-logo-rays {
+  .animated-logo-rays,
+  .animated-logo-waves {
     animation: none;
+    animation-delay: 0s;
   }
 }
 
-@keyframes login-logo-enter {
-  0% { transform: scale(1); opacity: 1; filter: brightness(1); }
-  45% { transform: scale(1.14); opacity: 1; filter: brightness(1.08); }
-  100% { transform: scale(1.02); opacity: 1; filter: brightness(1); }
-}
-
-@keyframes login-logo-idle {
-  0%, 100% { transform: scale(1); }
-  50% { transform: scale(1.015); }
-}
-
 .login-logo-enter {
-  animation: login-logo-enter 420ms cubic-bezier(0.2, 0.9, 0.2, 1) both;
+  animation: none;
 }
 
 .login-logo-idle {
   animation: none;
 }
 
+/* Idle en login: mismas animaciones por capa con desfases */
 .login-logo-idle .animated-logo-sun {
-  animation: logo-sun-pulse 5.2s ease-in-out infinite;
+  animation: logo-sun-hero 6.2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+  animation-delay: 0s;
 }
 
 .login-logo-idle .animated-logo-rays {
-  animation: logo-rays-drift 5.2s ease-in-out infinite;
+  animation: none;
 }
 
 .login-logo-idle .animated-logo-waves {
-  animation: logo-waves-shift 5.2s ease-in-out infinite;
+  animation: none;
 }
 
 .login-logo-enter .animated-logo-sun {
-  animation: login-logo-enter-sun 1100ms cubic-bezier(0.2, 0.9, 0.2, 1) 1;
+  animation: logo-sun-hero 6.2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
 }
 
-.login-logo-enter .animated-logo-rays,
+.login-logo-enter .animated-logo-rays {
+  animation: none;
+}
+
 .login-logo-enter .animated-logo-waves {
-  animation-duration: 860ms;
-  animation-iteration-count: 1;
-  animation-timing-function: ease-out;
-}
-
-@keyframes login-logo-enter-sun {
-  0% { transform: scale(0.98); opacity: 0.96; }
-  45% { transform: scale(1.08); opacity: 1; }
-  100% { transform: scale(1.1); opacity: 1; }
-}
-
-@keyframes login-exit-logo-pop {
-  0% { transform: scale(0.76); opacity: 0; filter: blur(1px); }
-  22% { transform: scale(0.92); opacity: 1; filter: blur(0px); }
-  62% { transform: scale(1.05); opacity: 1; }
-  100% { transform: scale(1.28); opacity: 0; }
-}
-
-.login-exit-logo-wrap {
-  animation: login-exit-logo-pop 980ms cubic-bezier(0.18, 0.9, 0.16, 1) both;
-  filter: drop-shadow(0 22px 48px rgba(255,255,255,0.08));
-  will-change: transform, opacity, filter;
-}
-
-.login-exit-logo-wrap .animated-logo-rays,
-.login-exit-logo-wrap .animated-logo-waves {
   animation: none;
 }

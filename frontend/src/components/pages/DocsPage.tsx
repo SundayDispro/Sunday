@@ -65,6 +65,8 @@ interface Props {
   onConsumeInitialOpenDocId?: () => void;
   onAddTaskList?: () => void;
   onAddCalculatorWidget?: () => void;
+  /** En móvil hub: el scroll lo hace el contenedor padre; la lista no debe tener overflow propio (arregla iOS Safari). */
+  scrollListInParent?: boolean;
 }
 
 export interface TaskItem {
@@ -2179,7 +2181,7 @@ function ExcelLikeSheet({
   );
 }
 
-export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFromBoard, onConsumeInitialCreateFromBoard, initialOpenDocId, onConsumeInitialOpenDocId, onAddTaskList, onAddCalculatorWidget }) => {
+export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFromBoard, onConsumeInitialCreateFromBoard, initialOpenDocId, onConsumeInitialOpenDocId, onAddTaskList, onAddCalculatorWidget, scrollListInParent = false }) => {
   const { currentUser } = useUser();
   const currentUserId = currentUser?.id ?? null;
   const isAdmin = !!(currentUser && String(currentUser.role || '').toUpperCase() === 'ADMIN');
@@ -2352,8 +2354,18 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
     });
   };
 
-  // En móvil priorizamos siempre la vista de lista; la vista general solo existe en desktop.
-  const effectiveViewMode: 'docs' | 'overview' = isMobile ? 'docs' : viewMode;
+  // En móvil preferimos la vista "docs" (lista + visor), pero permitimos "overview"
+  // cuando el usuario lo solicita (ej. "Editar plantilla" para PDFs).
+  const effectiveViewMode: 'docs' | 'overview' = viewMode;
+
+  // Solo una vez al montar en móvil: arrancar en lista. No volver a forzar 'docs'
+  // o al tocar "Editar plantilla" el efecto nos devolvería a lista.
+  const hasSetInitialMobileViewRef = useRef(false);
+  useEffect(() => {
+    if (!isMobile || hasSetInitialMobileViewRef.current) return;
+    hasSetInitialMobileViewRef.current = true;
+    setViewMode('docs');
+  }, [isMobile]);
 
   useEffect(() => {
     if (!workspaceId || !currentUserId) {
@@ -3140,7 +3152,9 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
     try {
       localStorage.setItem('sunday_pdf_preview', JSON.stringify(payload));
       const url = `${window.location.origin}/docs/pdf-preview?t=${Date.now()}`;
-      window.open(url, '_blank', 'noopener,noreferrer,width=920,height=960,scrollbars=yes');
+      requestAnimationFrame(() => {
+        window.open(url, '_blank', 'noopener,noreferrer,width=920,height=960,scrollbars=yes');
+      });
     } catch (e) {
       console.error('PDF preview open error', e);
       setError(e instanceof Error ? e.message : 'No se pudo abrir la vista para PDF.');
@@ -3371,7 +3385,7 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
   };
 
   return (
-    <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
+    <div className={`flex-1 flex flex-col min-h-0 ${scrollListInParent ? 'overflow-visible min-h-min' : 'overflow-hidden'}`}>
       <Dialog.Root open={!!deleteConfirm} onOpenChange={open => !open && setDeleteConfirm(null)}>
         <Dialog.Portal>
           <Dialog.Overlay className="fixed inset-0 bg-black/40 z-[150]" />
@@ -3615,7 +3629,7 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
                   </span>
                 </button>
               ))}
-              {onAddTaskList && (
+              {!isMobile && onAddTaskList && (
                 <Popover.Root>
                   <Popover.Trigger asChild>
                     <button
@@ -3692,9 +3706,11 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
                       <p className="mb-1">
                         Elige un tipo de documento arriba (texto, hoja, cotización, etc.) para comenzar.
                       </p>
-                      <p>
-                        También puedes añadir un widget desde el bloque <span className="font-semibold">“Añadir widget”</span>.
-                      </p>
+                      {!isMobile && (
+                        <p>
+                          También puedes añadir un widget desde el bloque <span className="font-semibold">“Añadir widget”</span>.
+                        </p>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -3709,40 +3725,33 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
                   <div className="flex items-center gap-2">
                     <button
                       type="button"
-                      onClick={() => { if (newDocDraft) setNewDocDraft(null); else setSelectedId(null); }}
-                      className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-monday border border-monday-border text-[12px] text-monday-subtext hover:bg-monday-hover"
+                      onClick={handleSave}
+                      disabled={saving || (!selectedDoc && !newDocDraft)}
+                      className="px-3 py-1.5 rounded-monday bg-monday-blue text-white text-[13px] font-medium hover:bg-monday-blue/90 disabled:opacity-60"
                     >
-                      <X size={12} />
-                      <span>Cerrar</span>
+                      {saving ? 'Guardando…' : 'Guardar'}
                     </button>
-                      {selectedDoc && isPdfDocType(selectedDoc.type as DocType) && (
-                        <span className="text-[11px] text-monday-subtext">
-                          La descarga de PDF se hace desde la vista de documentos.
-                        </span>
-                      )}
-                      {selectedDoc && (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setSaveModal({ mode: 'saveAs', doc: selectedDoc });
-                            setSaveModalTitle(selectedDoc.title);
-                            setSaveModalGroupId(assignments[selectedDoc.id] ?? '');
-                            setSaveModalSubgroupId(subgroupAssignments[selectedDoc.id] ?? '');
-                          }}
-                          className="px-3 py-1.5 rounded-monday border border-monday-border text-[13px] font-medium text-monday-text hover:bg-monday-hover"
-                        >
-                          Guardar como
-                        </button>
-                      )}
-                      <button
-                        type="button"
-                        onClick={handleSave}
-                        disabled={saving || (!selectedDoc && !newDocDraft)}
-                        className="px-3 py-1.5 rounded-monday bg-monday-blue text-white text-[13px] font-medium hover:bg-monday-blue/90 disabled:opacity-60"
-                      >
-                        {saving ? 'Guardando…' : 'Guardar'}
-                      </button>
-                    </div>
+                    <button
+                      type="button"
+                      onClick={handleGeneratePdf}
+                      disabled={!selectedDoc || !isPdfDocType((selectedDoc?.type ?? '') as DocType)}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-monday border border-monday-border text-[13px] font-medium text-monday-text hover:bg-monday-hover disabled:opacity-50"
+                      title="Generar PDF"
+                    >
+                      <Download size={14} />
+                      Generar PDF
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleGeneratePdf}
+                      disabled={!selectedDoc || !isPdfDocType((selectedDoc?.type ?? '') as DocType)}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-monday border border-monday-border text-[13px] font-medium text-monday-text hover:bg-monday-hover disabled:opacity-50"
+                      title="Enviar"
+                    >
+                      <MessageCircle size={14} />
+                      Enviar
+                    </button>
+                  </div>
                   </div>
 
                   {(selectedDoc && isPdfDocType(selectedDoc.type as DocType)) || (newDocDraft && isPdfDocType(newDocDraft.type)) ? (
@@ -3798,10 +3807,13 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
           </div>
         </div>
       ) : (
-      <div className="flex-1 flex flex-col md:flex-row overflow-hidden bg-monday-bg min-h-0">
+      <div className={`flex-1 flex flex-col md:flex-row bg-monday-bg min-h-0 ${scrollListInParent ? 'overflow-visible min-h-min' : 'overflow-hidden'}`}>
         {/* Panel izquierdo: lista de docs. En móvil solo visible cuando mobileDocOpen === false. */}
         {(!isMobile || !mobileDocOpen) && (
-        <div className="flex-1 min-h-0 overflow-auto custom-scrollbar scroll-touch px-4 sm:px-6 py-4 sm:py-5 min-w-0">
+        <div
+          className={`flex-1 min-h-0 px-4 sm:px-6 py-4 sm:py-5 min-w-0 overscroll-contain pb-28 ${scrollListInParent ? 'overflow-visible' : 'overflow-y-auto overflow-x-hidden custom-scrollbar scroll-touch'}`}
+          style={scrollListInParent ? undefined : { WebkitOverflowScrolling: 'touch' }}
+        >
           {!workspaceId && (
             <div className="p-4 text-[13px] text-amber-700 bg-amber-50 border border-amber-200 rounded-lg max-w-md">
               Selecciona un workspace en la barra lateral para ver y crear documentos.

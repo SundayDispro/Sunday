@@ -35,26 +35,34 @@ export default function DocsPdfPreviewPage() {
 
   const onExportReady = useCallback(() => setExportReady(true), []);
 
-  // Leer datos que la ventana padre guardó en localStorage
+  // Leer datos que la ventana padre guardó en localStorage (con reintentos por si la ventana carga antes de que se escriba)
   useEffect(() => {
-    try {
-      const raw = typeof window !== 'undefined' ? window.localStorage.getItem(STORAGE_KEY) : null;
-      if (!raw) {
-        // En desarrollo con React StrictMode este efecto puede ejecutarse dos veces;
-        // si no hay datos simplemente mostramos estado de carga y dejamos que el
-        // usuario vuelva a abrir la ventana desde "Generar PDF".
-        setError(null);
-        return;
+    let cancelled = false;
+    const read = (attempt = 0) => {
+      try {
+        const raw = typeof window !== 'undefined' ? window.localStorage.getItem(STORAGE_KEY) : null;
+        if (raw) {
+          const data = JSON.parse(raw) as StoredPayload;
+          if (data.docType && data.content && typeof data.content === 'object') {
+            if (!cancelled) {
+              setPayload(data);
+              setError(null);
+            }
+            return;
+          }
+        }
+        if (attempt < 2) {
+          const delay = attempt === 0 ? 100 : 250;
+          setTimeout(() => { if (!cancelled) read(attempt + 1); }, delay);
+        } else if (!cancelled) {
+          setError('No hay datos de vista previa. Cierra esta ventana y usa "Generar PDF" desde el documento.');
+        }
+      } catch {
+        if (!cancelled) setError('Error al leer los datos de vista previa.');
       }
-      const data = JSON.parse(raw) as StoredPayload;
-      if (!data.docType || !data.content || typeof data.content !== 'object') {
-        setError('Datos de vista previa inválidos.');
-        return;
-      }
-      setPayload(data);
-    } catch {
-      setError('Error al leer los datos de vista previa.');
-    }
+    };
+    read();
+    return () => { cancelled = true; };
   }, []);
 
   // Cargar plantilla PDF (fondo)
@@ -152,7 +160,7 @@ export default function DocsPdfPreviewPage() {
           Vista para PDF — {payload.docType}
         </h1>
         <div className="flex items-center gap-2 flex-wrap justify-end">
-          {error && (
+          {error && payload && (
             <span className="text-red-400 text-sm mr-1">{error}</span>
           )}
           <button

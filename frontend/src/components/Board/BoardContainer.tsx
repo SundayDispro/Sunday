@@ -39,6 +39,7 @@ import { motion } from 'framer-motion';
 import { useHideOnScroll } from '../../hooks/useHideOnScroll';
 import { useViewport } from '../../hooks/useViewport';
 import { apiFetch } from '../../api';
+import { can } from '../../authz/can';
 
 const API_BASE = import.meta.env.DEV ? '' : (import.meta.env.VITE_API_URL || 'http://localhost:3001');
 
@@ -77,6 +78,7 @@ function GroupDragOverlay({ groups }: { groups: Group[] }) {
 
 const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode, mobileCalendarOnly = false, mobileOptimized = false, calendarStandalone = false, onHeaderVisibilityChange, isMobile = false }) => {
   const { currentUser } = useUser();
+  const canDeleteItem = can(currentUser, 'item.delete');
   const { useCardView, isLandscapeShort, isPortrait } = useViewport();
   const { toast } = useToast();
   const [board, setBoard] = useState<Board | null>(null);
@@ -364,11 +366,13 @@ const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode, mobile
   };
 
   const openDeleteConfirm = () => {
+    if (!canDeleteItem) return;
     if (selectedItemIds.size === 0) return;
     setShowDeleteItemsConfirm(true);
   };
 
   const confirmDeleteSelected = () => {
+    if (!canDeleteItem) return;
     if (selectedItemIds.size === 0 || !board) return;
     const idsToDelete = Array.from(selectedItemIds);
 
@@ -1146,15 +1150,17 @@ const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode, mobile
                 <Archive size={14} />
                 Archivar
               </button>
-              <button
-                type="button"
-                onClick={openDeleteConfirm}
-                className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-monday text-[12px] text-monday-red hover:bg-red-500/15"
-                title="Eliminar"
-              >
-                <Trash2 size={14} />
-                Eliminar
-              </button>
+              {canDeleteItem && (
+                <button
+                  type="button"
+                  onClick={openDeleteConfirm}
+                  className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-monday text-[12px] text-monday-red hover:bg-red-500/15"
+                  title="Eliminar"
+                >
+                  <Trash2 size={14} />
+                  Eliminar
+                </button>
+              )}
               <Popover.Root open={showMovePopover} onOpenChange={setShowMovePopover}>
                 <Popover.Trigger asChild>
                   <button

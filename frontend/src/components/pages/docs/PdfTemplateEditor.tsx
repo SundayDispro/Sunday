@@ -735,16 +735,14 @@ export const PdfTemplateEditor: React.FC<Props> = ({
                       ) : viewerOnly ? (
                         <div
                           style={boxTextStyle}
-                          className={`w-full h-full min-h-0 border-0 outline-none bg-transparent px-1.5 overflow-hidden block whitespace-pre-wrap break-words text-left box-border ${
+                          className={`w-full h-full min-h-0 border-0 outline-none bg-transparent px-1.5 overflow-hidden whitespace-pre-wrap break-words text-left box-border ${
                             isTotalBox
-                              ? 'pt-0 pb-0 flex items-center justify-end'
+                              ? 'flex items-center justify-end py-0'
                               : isDescripcionCorta
-                                ? 'pt-6 pb-1'
-                                : isFolio
-                                  ? 'pt-3 pb-1'
-                                  : isSingleLineOrFolio
-                                    ? 'pt-4 pb-1'
-                                    : 'pt-2 py-1'
+                                ? 'flex flex-col justify-center pt-5 pb-1'
+                                : isFolio || isSingleLineOrFolio
+                                  ? 'flex items-center py-0'
+                                  : 'flex flex-col justify-center pt-1.5 pb-1'
                           }`}
                         >
                           {isTotalBox ? (
@@ -755,8 +753,7 @@ export const PdfTemplateEditor: React.FC<Props> = ({
                                 width: 'auto',
                                 flexShrink: 0,
                                 marginLeft: 'auto',
-                                lineHeight: 1,
-                                transform: 'translateY(-0.08em)',
+                                lineHeight: 1.2,
                                 color: boxTextStyle.color ?? '#ffffff',
                               }}
                             >

@@ -37,12 +37,14 @@ import { WorkspaceOverviewPage } from './components/pages/WorkspaceOverviewPage'
 import { MiTrabajoPage } from './components/pages/MiTrabajoPage';
 import BrowserPage from './components/pages/BrowserPage';
 import { TodayPage } from './components/pages/TodayPage';
-import { BottomNav, type BottomNavPage } from './components/BottomNav';
+import { MobileBottomNav, type MobileBottomTab } from './components/MobileBottomNav';
 import { MobileBoardHeaderMinimal } from './components/MobileBoardHeaderMinimal';
 import { BoardViewBottomSheet } from './components/Board/BoardViewBottomSheet';
 import { MobileMoreDrawer } from './components/MobileMoreDrawer';
 import { AnimatedDialog } from './components/AnimatedDialog';
 import { useToast } from './components/Toast';
+import { MobileHomePage } from './components/mobile/MobileHomePage';
+import { MobileDocsHub } from './components/mobile/MobileDocsHub';
 import { useViewport } from './hooks/useViewport';
 import * as Popover from '@radix-ui/react-popover';
 import * as Dialog from '@radix-ui/react-dialog';
@@ -143,12 +145,13 @@ function AddViewDropdown({
 
 const API_BASE = import.meta.env.DEV ? '' : (import.meta.env.VITE_API_URL || 'http://localhost:3001');
 import { apiFetch } from './api';
+import { can } from './authz/can';
 
 function App() {
   const { currentUser, logout } = useUser();
   const { toast } = useToast();
   const [selectedItem, setSelectedItem] = useState<Item | null>(null);
-  const canSeeFacturacionView = currentUser?.role === 'ADMIN' || currentUser?.role === 'VENTAS';
+  const canSeeFacturacionView = can(currentUser, 'billing.view');
   const isTaller = currentUser?.role === 'TALLER';
 
   const defaultViewsForRole = isTaller ? (['table', 'calendar'] as ViewMode[]) : (['table', 'kanban'] as ViewMode[]);
@@ -254,7 +257,6 @@ function App() {
     }
   });
   const [themeSelectorOpen, setThemeSelectorOpen] = useState(false);
-  const [loginExitTransition, setLoginExitTransition] = useState(false);
   const hasMountedRef = useRef(false);
   const prevUserRef = useRef<User | null>(null);
 
@@ -274,14 +276,6 @@ function App() {
   useEffect(() => {
     if (!hasMountedRef.current) {
       hasMountedRef.current = true;
-      prevUserRef.current = currentUser;
-      return;
-    }
-    if (!prevUserRef.current && currentUser) {
-      setLoginExitTransition(true);
-      const timer = window.setTimeout(() => setLoginExitTransition(false), 1250);
-      prevUserRef.current = currentUser;
-      return () => window.clearTimeout(timer);
     }
     prevUserRef.current = currentUser;
   }, [currentUser]);
@@ -299,7 +293,31 @@ function App() {
     | 'team'
     | 'facturacion'
     | 'miTrabajo'
-  >('board');
+  >(() => {
+    if (typeof window === 'undefined') return 'board';
+    const isMobileInitial = window.innerWidth <= 767 || (window.matchMedia?.('(orientation: landscape) and (max-height: 500px)')?.matches ?? false);
+    return isMobileInitial ? 'home' : 'board';
+  });
+
+  // Animación del sol: se mantiene fija por pestaña y cambia al cambiar de pestaña.
+  useEffect(() => {
+    if (typeof document === 'undefined') return;
+    const root = document.documentElement;
+    const pageToVariant: Record<string, string> = {
+      board: 'pulse',
+      docs: 'morph',
+      calendar: 'spin',
+      inbox: 'shimmer',
+      notifications: 'shimmer',
+      search: 'spin',
+      browser: 'morph',
+      team: 'pulse',
+      facturacion: 'morph',
+      miTrabajo: 'pulse',
+      home: 'spin',
+    };
+    root.setAttribute('data-sun-anim', pageToVariant[activePage] ?? 'pulse');
+  }, [activePage]);
   const [boards, setBoards] = useState<Board[]>([]);
   const [boardsLoaded, setBoardsLoaded] = useState(false);
   const [activeBoardId, setActiveBoardId] = useState<string | null>(null);
@@ -651,7 +669,7 @@ function App() {
   }, [currentUser, workspacesLoaded, boardsLoaded]);
 
   if (!currentUser) {
-    return <Login theme={theme} />;
+    return <Login theme={theme} layout="vertical" />;
   }
 
   const activeWorkspaceName =
@@ -925,14 +943,6 @@ function App() {
 
   return (
     <div className="flex min-h-[100dvh] h-screen max-h-[100dvh] bg-monday-bg overflow-hidden font-sans pt-[env(safe-area-inset-top)] pr-[env(safe-area-inset-right)] pb-[env(safe-area-inset-bottom)] pl-[env(safe-area-inset-left)]">
-      {loginExitTransition && (
-        <div className="fixed inset-0 z-[120] pointer-events-none bg-[#0e0816]/82 backdrop-blur-[26px] flex items-center justify-center">
-          <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(255,255,255,0.24),transparent_22%),radial-gradient(circle_at_top,rgba(255,255,255,0.1),transparent_18%),linear-gradient(180deg,rgba(255,255,255,0.03),transparent_36%)]" />
-          <div className="login-exit-logo-wrap">
-            <AnimatedLogo size={440} color={theme === 'light' ? '#222221' : '#f8fafc'} />
-          </div>
-        </div>
-      )}
       {/* Drawer "Más" en móvil (sustituye sidebar + rail) */}
       {isMobile && (
         <MobileMoreDrawer
@@ -958,6 +968,7 @@ function App() {
               if (activePage === 'home') setLastMainTab('home');
               else if (activePage === 'board' || activePage === 'miTrabajo') setLastMainTab('board');
               else if (activePage === 'calendar') setLastMainTab('calendar');
+              else if (activePage === 'docs') setLastMainTab('home');
               setActivePage(page === 'inbox' ? 'inbox' : 'notifications');
             } else {
               setActivePage(page);
@@ -1385,15 +1396,17 @@ if (ok && data && typeof data.id === 'string') {
                 <p className="text-monday-subtext text-[11px] font-semibold px-2 mb-2 uppercase tracking-wider">Docs</p>
                 <p className="text-monday-text text-[12px] px-2">Documentación del equipo.</p>
               </div>
-              <p className="text-[11px] font-semibold text-monday-subtext uppercase tracking-wider px-2 mb-1 mt-2">Tus widgets</p>
-              {tasksLoading && (
-                <p className="text-[12px] text-monday-subtext px-2 mb-2">Cargando tareas...</p>
-              )}
-        {!tasksLoading && taskWindows.length === 0 && (
-                <p className="text-[12px] text-monday-subtext px-2 mb-2">No hay widgets. Usa \"Añadir widget\" en Docs.</p>
-              )}
-              <div className="space-y-3 mb-3">
-          {taskWindows.map(win => (
+              {!isMobile && (
+                <>
+                  <p className="text-[11px] font-semibold text-monday-subtext uppercase tracking-wider px-2 mb-1 mt-2">Tus widgets</p>
+                  {tasksLoading && (
+                    <p className="text-[12px] text-monday-subtext px-2 mb-2">Cargando tareas...</p>
+                  )}
+                  {!tasksLoading && taskWindows.length === 0 && (
+                    <p className="text-[12px] text-monday-subtext px-2 mb-2">No hay widgets. Usa &quot;Añadir widget&quot; en Docs.</p>
+                  )}
+                  <div className="space-y-3 mb-3">
+                    {taskWindows.map(win => (
             <div
               key={win.id}
               draggable
@@ -1662,8 +1675,10 @@ if (ok && data && typeof data.id === 'string') {
                 </div>
               )}
             </div>
-          ))}
-              </div>
+                    ))}
+                  </div>
+                </>
+              )}
             </>
           ) : activePage === 'notifications' ? (
             <div className="p-3">
@@ -1686,13 +1701,27 @@ if (ok && data && typeof data.id === 'string') {
 
       {/* Main Content Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ */}
       <main
-        className={`flex-1 flex flex-col min-w-0 p-2 sm:p-3 pl-0 bg-monday-bg overflow-hidden min-h-0 ${
-          isMobile ? (isLandscapeShort ? 'pb-[52px] main-mobile main-mobile-landscape' : 'pb-[72px] main-mobile') : ''
-        }`}
+        className={[
+          'flex-1 flex flex-col min-w-0 overflow-hidden min-h-0',
+          isMobile ? 'p-0 bg-monday-bg' : 'p-2 sm:p-3 pl-0 bg-monday-bg',
+          isMobile ? (isLandscapeShort ? 'pb-[52px] main-mobile main-mobile-landscape' : 'pb-[80px] main-mobile') : '',
+        ].join(' ')}
       >
-        <div className="flex-1 flex flex-col min-h-0 bg-white rounded-xl sm:rounded-2xl shadow-monday-sm border border-monday-border overflow-hidden">
+        <div
+          className={[
+            'flex-1 flex flex-col min-h-0 overflow-hidden',
+            isMobile ? 'bg-monday-bg' : 'bg-white rounded-xl sm:rounded-2xl shadow-monday-sm border border-monday-border',
+          ].join(' ')}
+        >
           {/* Barra común: ocultar/mostrar panel lateral en todas las vistas */}
-          <header className="shrink-0 h-14 flex items-center gap-2 px-3 sm:px-4 border-b border-monday-border">
+          <header
+            className={[
+              'shrink-0 h-14 flex items-center gap-2 px-3 sm:px-4',
+              isMobile
+                ? 'border-b border-monday-border bg-white backdrop-blur-xl'
+                : 'border-b border-monday-border',
+            ].join(' ')}
+          >
             {isMobile ? (
               mobileCanGoBack ? (
                 <button
@@ -1700,13 +1729,13 @@ if (ok && data && typeof data.id === 'string') {
                   onClick={() => {
                     if (activePage === 'board' && activeBoardId !== null) setActiveBoardId(null);
                     else if (activePage === 'miTrabajo' && activeBoardId !== null) setActiveBoardId(null);
-                    else if (activePage === 'calendar') setActivePage('board');
-                    else if (activePage === 'docs') setActivePage('board');
+                    else if (activePage === 'calendar') setActivePage('home');
+                    else if (activePage === 'docs') setActivePage('home');
                     else if (activePage === 'browser') setActivePage('board');
                     else if (['search', 'team', 'facturacion'].includes(activePage)) setActivePage('board');
-                    else if (activePage === 'inbox' || activePage === 'notifications') setActivePage(lastMainTab === 'home' ? 'board' : lastMainTab);
+                    else if (activePage === 'inbox' || activePage === 'notifications') setActivePage(lastMainTab);
                   }}
-                  className="min-h-[44px] min-w-[44px] flex items-center justify-center p-2 rounded-lg text-monday-subtext hover:bg-monday-hover hover:text-monday-text transition-colors"
+                  className="min-h-[44px] min-w-[44px] flex items-center justify-center p-2 rounded-2xl text-monday-subtext hover:bg-monday-hover hover:text-monday-text transition-colors"
                   aria-label="Volver"
                 >
                   <ChevronLeft size={22} />
@@ -1715,7 +1744,7 @@ if (ok && data && typeof data.id === 'string') {
                 <button
                   type="button"
                   onClick={() => setSidebarOpen(true)}
-                  className="min-h-[44px] min-w-[44px] flex items-center justify-center p-2 rounded-lg text-monday-subtext hover:bg-monday-hover hover:text-monday-text transition-colors"
+                  className="min-h-[44px] min-w-[44px] flex items-center justify-center p-2 rounded-2xl text-monday-subtext hover:bg-monday-hover hover:text-monday-text transition-colors"
                   aria-label="Menú"
                 >
                   <Menu size={22} />
@@ -1732,7 +1761,7 @@ if (ok && data && typeof data.id === 'string') {
                 <ChevronRight size={20} className={`transition-transform ${sidebarOpen ? 'rotate-180' : 'rotate-0'}`} />
               </button>
             )}
-            <span className="text-[15px] font-semibold text-monday-text truncate">
+            <span className={isMobile ? 'flex-1 text-[15px] font-semibold text-monday-text truncate' : 'flex-1 text-[15px] font-semibold text-monday-text truncate'}>
               {activePage === 'calendar'
                 ? 'Calendario'
                 : activePage === 'board' && activeBoardId
@@ -1756,9 +1785,14 @@ if (ok && data && typeof data.id === 'string') {
                               : activePage === 'miTrabajo'
                                 ? 'Mi trabajo'
                                 : activePage === 'home'
-                                  ? 'Hoy'
-                                  : 'Hoy'}
+                                  ? 'Inicio'
+                                  : 'Inicio'}
             </span>
+            {isMobile && (
+              <div className="shrink-0">
+                <AnimatedLogo size={26} color="currentColor" />
+              </div>
+            )}
           </header>
 
           <AnimatePresence mode="wait" initial={false}>
@@ -1776,29 +1810,49 @@ if (ok && data && typeof data.id === 'string') {
               Cargando Sunday...
             </div>
           ) : activePage === 'home' ? (
-            <TodayPage
-              onGoSearch={() => {
-                setActivePage('search');
-                setSidebarOpen(false);
-              }}
-              onGoKanban={() => {
-                // En Inicio, abrir directamente el Kanban del tablero actual (o el primero disponible).
-                if (!activeBoardId && boards.length > 0) {
-                  setActiveBoardId(boards[0].id);
-                }
-                setCurrentView('kanban');
-                setActivePage('board');
-                setSidebarOpen(false);
-              }}
-              onGoInbox={() => {
-                setActivePage('inbox');
-                setSidebarOpen(false);
-              }}
-              onGoDocs={() => {
-                setActivePage('docs');
-                setSidebarOpen(false);
-              }}
-            />
+            isMobile ? (
+              <MobileHomePage
+                userName={currentUser?.name ?? currentUser?.username ?? null}
+                onOpenSearch={() => {
+                  setActivePage('search');
+                  setSidebarOpen(false);
+                }}
+                onOpenKanban={() => {
+                  if (!activeBoardId && boards.length > 0) setActiveBoardId(boards[0].id);
+                  setCurrentView('kanban');
+                  setActivePage('board');
+                  setSidebarOpen(false);
+                }}
+                onOpenMentions={() => {
+                  setActivePage('notifications');
+                  setSidebarOpen(false);
+                }}
+              />
+            ) : (
+              <TodayPage
+                onGoSearch={() => {
+                  setActivePage('search');
+                  setSidebarOpen(false);
+                }}
+                onGoKanban={() => {
+                  // En Inicio, abrir directamente el Kanban del tablero actual (o el primero disponible).
+                  if (!activeBoardId && boards.length > 0) {
+                    setActiveBoardId(boards[0].id);
+                  }
+                  setCurrentView('kanban');
+                  setActivePage('board');
+                  setSidebarOpen(false);
+                }}
+                onGoInbox={() => {
+                  setActivePage('inbox');
+                  setSidebarOpen(false);
+                }}
+                onGoDocs={() => {
+                  setActivePage('docs');
+                  setSidebarOpen(false);
+                }}
+              />
+            )
           ) : activePage === 'calendar' && !isMobile ? (
             <>
               <header className="shrink-0 border-b border-monday-border bg-white">
@@ -2219,16 +2273,28 @@ if (ok && data && typeof data.id === 'string') {
               }}
             />
           ) : activePage === 'docs' ? (
-            <DocsPage
-              workspaceId={activeWorkspaceId ?? workspaces[0]?.id ?? null}
-              boards={boards}
-              initialCreateFromBoard={pendingDocFromBoard}
-              onConsumeInitialCreateFromBoard={() => setPendingDocFromBoard(null)}
-              initialOpenDocId={openDocId}
-              onConsumeInitialOpenDocId={() => setOpenDocId(null)}
-              onAddTaskList={addTaskWindow}
-              onAddCalculatorWidget={ensureCalculatorVisible}
-            />
+            isMobile ? (
+              <MobileDocsHub
+                workspaceId={activeWorkspaceId ?? workspaces[0]?.id ?? null}
+                boards={boards}
+                initialCreateFromBoard={pendingDocFromBoard}
+                onConsumeInitialCreateFromBoard={() => setPendingDocFromBoard(null)}
+                initialOpenDocId={openDocId}
+                onConsumeInitialOpenDocId={() => setOpenDocId(null)}
+                onRequestOpenDoc={(id) => setOpenDocId(id)}
+              />
+            ) : (
+              <DocsPage
+                workspaceId={activeWorkspaceId ?? workspaces[0]?.id ?? null}
+                boards={boards}
+                initialCreateFromBoard={pendingDocFromBoard}
+                onConsumeInitialCreateFromBoard={() => setPendingDocFromBoard(null)}
+                initialOpenDocId={openDocId}
+                onConsumeInitialOpenDocId={() => setOpenDocId(null)}
+                onAddTaskList={addTaskWindow}
+                onAddCalculatorWidget={ensureCalculatorVisible}
+              />
+            )
           ) : activePage === 'browser' ? (
             <BrowserPage
               workspaceId={activeWorkspaceId ?? workspaces[0]?.id ?? null}
@@ -2344,40 +2410,32 @@ if (ok && data && typeof data.id === 'string') {
       )}
 
       {isMobile && !isBootstrapping && (
-        <BottomNav
-          activePage={
-            activePage === 'inbox' || activePage === 'notifications'
-              ? (lastMainTab === 'home' ? 'home' : lastMainTab)
-              : activePage === 'home'
-                ? 'home'
-                : activePage === 'board' || activePage === 'miTrabajo'
-                  ? 'board'
-                : activePage === 'calendar'
-                  ? 'calendar'
-                  : 'home'
+        <MobileBottomNav
+          activeTab={
+            activePage === 'calendar'
+              ? 'calendar'
+              : activePage === 'docs'
+                ? 'docs'
+                : 'home'
           }
-          moreIsActive={sidebarOpen}
-          onNavigate={(page: BottomNavPage) => {
-            if (page === 'more') {
-              setSidebarOpen(true);
+          onNavigate={(tab: MobileBottomTab) => {
+            if (tab === 'home') {
+              setLastMainTab('home');
+              setActivePage('home');
               return;
             }
-            if (page === 'calendar') {
+            if (tab === 'calendar') {
+              setLastMainTab('calendar');
               setActivePage('calendar');
               if (boards.length > 0 && !activeBoardId) setActiveBoardId(boards[0].id);
               return;
             }
-            if (page === 'home') {
-              setActivePage('home');
-              return;
-            }
-            if (page === 'board') {
-              setActivePage('board');
+            if (tab === 'docs') {
+              setLastMainTab('home');
+              setActivePage('docs');
               return;
             }
           }}
-          unreadNotifCount={unreadNotifCount}
-          items={isTaller ? ['home', 'board', 'calendar', 'more'] : undefined}
           compact={isLandscapeShort}
         />
       )}
