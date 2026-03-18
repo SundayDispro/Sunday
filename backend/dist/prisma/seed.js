@@ -1,6 +1,10 @@
 "use strict";
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
 Object.defineProperty(exports, "__esModule", { value: true });
 const client_1 = require("@prisma/client");
+const bcrypt_1 = __importDefault(require("bcrypt"));
 const prisma = new client_1.PrismaClient();
 async function main() {
     console.log('🌱 Seeding Sunday (Monday Clone) base data...');
@@ -12,13 +16,14 @@ async function main() {
     await prisma.board.deleteMany({});
     await prisma.workspace.deleteMany({});
     // --- Create ADMIN User ---
+    const adminPasswordHash = await bcrypt_1.default.hash('root', 12);
     const admin = await prisma.user.create({
         data: {
             username: 'ADMIN',
             name: 'Administrador Principal',
             initials: 'AD',
             color: '#00c875',
-            password: 'root', // As requested
+            password: adminPasswordHash,
             role: 'ADMIN',
         }
     });

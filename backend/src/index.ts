@@ -17,12 +17,39 @@ const prisma = new PrismaClient();
 const app = express();
 const httpServer = createServer(app);
 
-// En producción usar orígenes concretos (no '*'). Ejemplo: ALLOWED_ORIGINS=https://app.midominio.com,https://www.midominio.com
-const rawOrigins = process.env.ALLOWED_ORIGINS || '*';
+function toValueJson(legacyValue: string): Prisma.JsonValue | null {
+  const v = (legacyValue ?? '').toString();
+  const trimmed = v.trim();
+  if (!trimmed) return null;
+  try {
+    return JSON.parse(v) as unknown as Prisma.JsonValue;
+  } catch {
+    // Si es un valor "plano" (no JSON), lo guardamos como string en el shadow JSONB.
+    return v as unknown as Prisma.JsonValue;
+  }
+}
+
+// CORS estricto:
+// - En producción: ALLOWED_ORIGINS NO puede ser vacío ni '*'.
+// - En dev: se permite '*' para no bloquear el ciclo rápido.
+const isProduction = process.env.NODE_ENV === 'production';
+const rawOrigins = (process.env.ALLOWED_ORIGINS ?? '').trim();
+if (isProduction && (!rawOrigins || rawOrigins === '*')) {
+  throw new Error("ALLOWED_ORIGINS requerido en producción y no puede ser '*'. Define una lista separada por comas (p.ej. https://app.midominio.com,https://www.midominio.com).");
+}
+
 const allowedOrigins: string[] | '*' =
-  rawOrigins.trim() === '*'
+  rawOrigins === ''
     ? '*'
-    : rawOrigins.split(',').map((s) => s.trim()).filter(Boolean);
+    : rawOrigins === '*'
+      ? '*'
+      : rawOrigins.split(',').map((s) => s.trim()).filter(Boolean);
+
+const corsOriginOption = allowedOrigins === '*' ? true : allowedOrigins;
+
+if (isProduction && allowedOrigins !== '*' && allowedOrigins.length === 0) {
+  throw new Error('ALLOWED_ORIGINS inválido: la lista de orígenes resultó vacía.');
+}
 
 const io = new Server(httpServer, {
   pingTimeout: 60000, // 60s — default 20s
@@ -30,7 +57,7 @@ const io = new Server(httpServer, {
   connectTimeout: 45000, // 45s para VPN lentas
   transports: ['websocket', 'polling'], // polling como fallback VPN
   cors: {
-    origin: allowedOrigins,
+    origin: corsOriginOption,
     methods: ['GET', 'POST', 'PUT', 'DELETE'],
   },
 });
@@ -126,7 +153,7 @@ const upload = multer({
 
 app.use(
   cors({
-    origin: allowedOrigins === '*' ? true : allowedOrigins,
+    origin: corsOriginOption,
   })
 );
 // Aumentar límite de JSON para soportar capturas PNG base64 desde el cliente (html2canvas)
@@ -368,26 +395,43 @@ app.get('/api/workspaces/:workspaceId/doc-groups', authenticateToken, async (req
   try {
     const { workspaceId } = req.params;
     const userId = typeof req.query.userId === 'string' ? req.query.userId : null;
-    const w = await prisma.workspace.findUnique({ where: { id: workspaceId }, select: { id: true, docGroups: true } });
+    const w = await prisma.workspace.findUnique({
+      where: { id: workspaceId },
+      select: { id: true, docGroups: true, docGroupsJson: true },
+    });
     if (!w) return res.status(404).json({ error: 'Workspace no encontrado' });
     const docGroupsRaw = (w as { docGroups?: string | null }).docGroups;
+    const docGroupsJsonRaw = (w as { docGroupsJson?: Prisma.JsonValue | null }).docGroupsJson;
+
+    let parsed: Record<string, {
+      groups?: { id: string; name: string }[];
+      assignments?: Record<string, string>;
+      subgroupsByType?: Record<string, { id: string; name: string }[]>;
+      subgroupAssignments?: Record<string, string>;
+    }> | null = null;
+
     if (docGroupsRaw && String(docGroupsRaw).trim()) {
       try {
-        const parsed = JSON.parse(docGroupsRaw) as Record<string, {
-          groups?: { id: string; name: string }[];
-          assignments?: Record<string, string>;
-          subgroupsByType?: Record<string, { id: string; name: string }[]>;
-          subgroupAssignments?: Record<string, string>;
-        }>;
-        const userData = userId && parsed[userId] ? parsed[userId] : null;
-        if (userData) {
-          defaultPayload.groups = Array.isArray(userData.groups) ? userData.groups : [];
-          defaultPayload.assignments = userData.assignments && typeof userData.assignments === 'object' ? userData.assignments : {};
-          defaultPayload.subgroupsByType = userData.subgroupsByType && typeof userData.subgroupsByType === 'object' ? userData.subgroupsByType : {};
-          defaultPayload.subgroupAssignments = userData.subgroupAssignments && typeof userData.subgroupAssignments === 'object' ? userData.subgroupAssignments : {};
-        }
+        parsed = JSON.parse(docGroupsRaw) as Record<string, any>;
       } catch (_) {
         // keep defaults on parse error
+      }
+    }
+
+    if (!parsed && docGroupsJsonRaw && typeof docGroupsJsonRaw === 'object' && !Array.isArray(docGroupsJsonRaw)) {
+      parsed = docGroupsJsonRaw as any;
+    }
+
+    if (parsed) {
+      const userData = userId && parsed[userId] ? parsed[userId] : null;
+      if (userData) {
+        defaultPayload.groups = Array.isArray(userData.groups) ? userData.groups : [];
+        defaultPayload.assignments =
+          userData.assignments && typeof userData.assignments === 'object' ? userData.assignments : {};
+        defaultPayload.subgroupsByType =
+          userData.subgroupsByType && typeof userData.subgroupsByType === 'object' ? userData.subgroupsByType : {};
+        defaultPayload.subgroupAssignments =
+          userData.subgroupAssignments && typeof userData.subgroupAssignments === 'object' ? userData.subgroupAssignments : {};
       }
     }
     return res.json(defaultPayload);
@@ -440,7 +484,10 @@ app.patch('/api/workspaces/:workspaceId/doc-groups', authenticateToken, async (r
 
     await prisma.workspace.update({
       where: { id: workspaceId },
-      data: { docGroups: JSON.stringify(all) },
+      data: {
+        docGroups: JSON.stringify(all),
+        docGroupsJson: all as unknown as Prisma.JsonValue,
+      },
     });
     res.json({
       groups: current.groups,
@@ -717,16 +764,13 @@ app.post('/api/boards/link-doc', authenticateToken, requireRoles(['ADMIN', 'VENT
     }
     if (column.type === 'excel') {
       const value = JSON.stringify({ docId });
+      const valueJson = toValueJson(value);
       const updated = await prisma.columnValue.upsert({
         where: { itemId_columnId: { itemId, columnId } },
-        update: { value },
-        create: { itemId, columnId, value },
+        update: { value, valueJson },
+        create: { itemId, columnId, value, valueJson },
       });
-      if (column.boardId) {
-        io.to(boardRoom(column.boardId)).emit('column_value_updated', updated);
-      } else {
-        io.emit('column_value_updated', updated);
-      }
+      io.to(boardRoom(column.boardId)).emit('column_value_updated', updated);
       return res.json({ ok: true, updated });
     }
     if (column.type === 'docs') {
@@ -744,16 +788,13 @@ app.post('/api/boards/link-doc', authenticateToken, requireRoles(['ADMIN', 'VENT
       const docIdKey = docType === 'cotizacion' ? 'cotizacionDocId' : docType === 'levantamiento' ? 'levantamientoDocId' : 'hojaTrabajoDocId';
       parsed[docIdKey] = docId;
       const value = JSON.stringify(parsed);
+      const valueJson = toValueJson(value);
       const updated = await prisma.columnValue.upsert({
         where: { itemId_columnId: { itemId, columnId } },
-        update: { value },
-        create: { itemId, columnId, value },
+        update: { value, valueJson },
+        create: { itemId, columnId, value, valueJson },
       });
-      if (column.boardId) {
-        io.to(boardRoom(column.boardId)).emit('column_value_updated', updated);
-      } else {
-        io.emit('column_value_updated', updated);
-      }
+      io.to(boardRoom(column.boardId)).emit('column_value_updated', updated);
       return res.json({ ok: true, updated });
     }
     return res.status(400).json({ error: 'Solo se puede ligar en columnas de tipo docs o excel' });
@@ -966,8 +1007,8 @@ app.post('/api/users', requireAuth, requireAdmin, async (req, res) => {
 
     const { password: _p, ...userWithoutPassword } = newUser;
     // Broadcast global por ahora; en el futuro se puede segmentar por workspace o rol.
-    // Global: lista de usuarios visible para todos; Fase 3+ podría usar room por workspace
-    io.emit('user_added', userWithoutPassword);
+    // Para la iteración actual usamos room por usuario para evitar broadcast global residual.
+    io.to(userRoom(userWithoutPassword.id)).emit('user_added', userWithoutPassword);
     res.json(userWithoutPassword);
   } catch (err) {
     console.error(err);
@@ -1035,8 +1076,8 @@ app.patch('/api/users/:id', requireAuth, requireAdmin, async (req, res) => {
 
     const { password: _p, ...safe } = updated;
     // Broadcast global por ahora; en el futuro se puede segmentar por workspace o rol.
-    // Global: lista de usuarios; Fase 3+ podría usar room por workspace
-    io.emit('user_updated', safe);
+    // Para la iteración actual usamos room por usuario para evitar broadcast global residual.
+    io.to(userRoom(safe.id)).emit('user_updated', safe);
     res.json(safe);
   } catch (e) {
     console.error('Error updating user:', e);
@@ -1115,8 +1156,9 @@ function getSyncProfileForRole(role: string): SyncProfile {
 
 app.get('/api/notifications', authenticateToken, async (req, res) => {
   try {
-    const userId = req.query.userId as string;
-    if (!userId) return res.status(400).json({ error: 'userId required' });
+    // IDOR fix: el usuario solo puede ver sus propias notificaciones.
+    const userId = req.authUser?.id;
+    if (!userId) return res.status(401).json({ error: 'No autenticado' });
     const notifications = await notificationsService.findManyByUserId(prisma, userId);
     res.json(notifications);
   } catch (e) {
@@ -1128,7 +1170,9 @@ app.get('/api/notifications', authenticateToken, async (req, res) => {
 app.patch('/api/notifications/:id/read', authenticateToken, async (req, res) => {
   try {
     const { id } = req.params;
-    await notificationsService.markAsRead(prisma, id);
+    const userId = req.authUser?.id;
+    if (!userId) return res.status(401).json({ error: 'No autenticado' });
+    await notificationsService.markAsRead(prisma, id, userId);
     res.json({ ok: true });
   } catch (e) {
     console.error(e);
@@ -1138,8 +1182,8 @@ app.patch('/api/notifications/:id/read', authenticateToken, async (req, res) => 
 
 app.patch('/api/notifications/read-all', authenticateToken, async (req, res) => {
   try {
-    const userId = req.query.userId as string;
-    if (!userId) return res.status(400).json({ error: 'userId required' });
+    const userId = req.authUser?.id;
+    if (!userId) return res.status(401).json({ error: 'No autenticado' });
     await notificationsService.markAllAsRead(prisma, userId);
     res.json({ ok: true });
   } catch (e) {
@@ -1525,13 +1569,13 @@ app.delete('/api/docs/:id', authenticateToken, async (req, res) => {
         where: {
           type: { in: ['docs', 'excel'] },
         },
-        select: { id: true, type: true },
+        select: { id: true, type: true, boardId: true },
       });
 
       if (relevantColumns.length > 0) {
-        const columnMap = new Map<string, string>();
+        const columnMap = new Map<string, { colType: string; boardId: string }>();
         for (const c of relevantColumns) {
-          columnMap.set(c.id, c.type);
+          columnMap.set(c.id, { colType: c.type, boardId: c.boardId });
         }
         const columnIds = relevantColumns.map((c) => c.id);
 
@@ -1542,8 +1586,10 @@ app.delete('/api/docs/:id', authenticateToken, async (req, res) => {
         });
 
         for (const cv of columnValues) {
-          const colType = columnMap.get(cv.columnId);
-          if (!cv.value || !colType) continue;
+          const meta = columnMap.get(cv.columnId);
+          const colType = meta?.colType;
+          const boardId = meta?.boardId;
+          if (!cv.value || !colType || !boardId) continue;
 
           let changed = false;
           let nextValue: string | null = cv.value;
@@ -1596,11 +1642,12 @@ app.delete('/api/docs/:id', authenticateToken, async (req, res) => {
           }
 
           if (changed) {
+            const valueLegacy = nextValue ?? '';
             const updated = await prisma.columnValue.update({
               where: { id: cv.id },
-              data: { value: nextValue ?? '' },
+              data: { value: valueLegacy, valueJson: toValueJson(valueLegacy) },
             });
-            io.emit('column_value_updated', updated);
+            io.to(boardRoom(boardId)).emit('column_value_updated', updated);
           }
         }
       }
@@ -2275,10 +2322,11 @@ io.on('connection', (socket) => {
       if (Array.isArray(initialColumnValues) && initialColumnValues.length > 0) {
         for (const cv of initialColumnValues) {
           if (cv?.columnId && typeof cv.value === 'string') {
+            const valueJson = toValueJson(cv.value);
             await prisma.columnValue.upsert({
               where: { itemId_columnId: { itemId: newItem.id, columnId: cv.columnId } },
-              update: { value: cv.value },
-              create: { itemId: newItem.id, columnId: cv.columnId, value: cv.value }
+              update: { value: cv.value, valueJson },
+              create: { itemId: newItem.id, columnId: cv.columnId, value: cv.value, valueJson },
             });
           }
         }
@@ -2344,7 +2392,8 @@ io.on('connection', (socket) => {
 
   socket.on('update_column_value', withSocketRoles('update_column_value', ['VENTAS', 'DISENO', 'TALLER', 'USER'], async (auth, data: any) => {
     try {
-      const { itemId, columnId, value } = data;
+      const { itemId, columnId, value: rawValue } = data;
+      const value = typeof rawValue === 'string' ? rawValue : String(rawValue ?? '');
       const column = await prisma.boardColumn.findUnique({ where: { id: columnId } });
       if (!column) {
         return;
@@ -2374,10 +2423,12 @@ io.on('connection', (socket) => {
         }
       }
 
+      const valueJson = toValueJson(value);
+
       const updated = await prisma.columnValue.upsert({
         where: { itemId_columnId: { itemId, columnId } },
-        update: { value },
-        create: { itemId, columnId, value }
+        update: { value, valueJson },
+        create: { itemId, columnId, value, valueJson }
       });
       io.to(boardRoom(column.boardId)).emit('column_value_updated', updated);
 
@@ -2442,11 +2493,14 @@ io.on('connection', (socket) => {
               });
 
               if (!existingBilling) {
+                const billingLegacyValue = JSON.stringify({ optionId: 'pendiente_factura' });
+                const billingValueJson = toValueJson(billingLegacyValue);
                 const billingValue = await prisma.columnValue.create({
                   data: {
                     itemId,
                     columnId: billingColumn.id,
-                    value: JSON.stringify({ optionId: 'pendiente_factura' }),
+                    value: billingLegacyValue,
+                    valueJson: billingValueJson,
                   },
                 });
                 io.to(boardRoom(column.boardId)).emit('column_value_updated', billingValue);
@@ -2503,8 +2557,14 @@ io.on('connection', (socket) => {
       const newBoard = await prisma.board.create({
         data: { name, workspaceId: workspace.id },
       });
-      // Global: listado de tableros; Fase 3+ podría usar room por workspace
-      io.emit('board_added', newBoard);
+      // Evitar broadcast global: emitimos a rooms de usuarios conectados.
+      const sockets = await io.fetchSockets();
+      const userIds = new Set<string>();
+      sockets.forEach((s: any) => {
+        const uid = typeof s?.data?.userId === 'string' ? s.data.userId : null;
+        if (uid) userIds.add(uid);
+      });
+      userIds.forEach((uid) => io.to(userRoom(uid)).emit('board_added', newBoard));
     } catch (e) {
       console.error('Error adding board:', e);
     }

@@ -54,6 +54,19 @@ export const Login: React.FC<LoginProps> = ({ theme, layout = 'horizontal' }) =>
   const [logoEntered, setLogoEntered] = useState(false);
 
   useEffect(() => {
+    // Mensaje consistente al redirigir por 401 (sesión expirada).
+    try {
+      const reason = sessionStorage.getItem('logout_reason');
+      if (reason === 'session_expired') {
+        setError('Tu sesión expiró. Inicia sesión nuevamente.');
+        sessionStorage.removeItem('logout_reason');
+      }
+    } catch {
+      // ignore
+    }
+  }, []);
+
+  useEffect(() => {
     const t = window.setTimeout(() => setLogoEntered(true), LOGIN_LOGO_ENTER_MS);
     return () => window.clearTimeout(t);
   }, []);

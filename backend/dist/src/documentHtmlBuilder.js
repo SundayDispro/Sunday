@@ -14,6 +14,8 @@ const path_1 = __importDefault(require("path"));
 // US Letter en puntos (no píxeles). Mismo sistema que PdfTemplateEditor.
 const PAGE_W_PT = 612;
 const PAGE_H_PT = 792;
+// Raíz del backend (tanto en src como en dist/src) para resolver assets de forma estable.
+const BACKEND_ROOT = path_1.default.join(__dirname, '..');
 // Paddings en pt (convertidos de px: 1px = 0.75pt a 96 DPI)
 const PADDING_TOP_FOLIO_PT = 9; // 12px -> 9pt
 const PADDING_TOP_SINGLE_PT = 12; // 16px -> 12pt
@@ -66,28 +68,46 @@ function formatDateForPdf(value) {
 }
 /** Devuelve CSS @font-face para Averta Std (mismo nombre que en el editor) para que Puppeteer renderice igual. */
 function getAvertaStdFontFaceCss() {
-    const fontsDir = path_1.default.join(__dirname, '..', 'assets', 'fonts', 'AvertaStd');
-    const pairs = [
+    const fontsDir = path_1.default.join(BACKEND_ROOT, 'assets', 'fonts', 'AvertaStd');
+    const candidates = [
+        { file: 'AvertaStd-Thin.ttf', weight: 100, style: 'normal' },
+        { file: 'AvertaStd-ThinItalic.ttf', weight: 100, style: 'italic' },
+        { file: 'AvertaStd-ExtraThin.ttf', weight: 200, style: 'normal' },
+        { file: 'AvertaStd-ExtraThinItalic.ttf', weight: 200, style: 'italic' },
+        { file: 'AvertaStd-Light.ttf', weight: 300, style: 'normal' },
+        { file: 'AvertaStd-LightItalic.ttf', weight: 300, style: 'italic' },
         { file: 'AvertaStd-Regular.ttf', weight: 400, style: 'normal' },
-        { file: 'AvertaStd-Bold.ttf', weight: 700, style: 'normal' },
         { file: 'AvertaStd-RegularItalic.ttf', weight: 400, style: 'italic' },
+        { file: 'AvertaStd-Semibold.ttf', weight: 600, style: 'normal' },
+        { file: 'AvertaStd-SemiboldItalic.ttf', weight: 600, style: 'italic' },
+        { file: 'AvertaStd-Bold.ttf', weight: 700, style: 'normal' },
         { file: 'AvertaStd-BoldItalic.ttf', weight: 700, style: 'italic' },
+        { file: 'AvertaStd-ExtraBold.ttf', weight: 800, style: 'normal' },
+        { file: 'AvertaStd-ExtraBoldItalic.ttf', weight: 800, style: 'italic' },
+        { file: 'AvertaStd-Black.ttf', weight: 900, style: 'normal' },
+        { file: 'AvertaStd-BlackItalic.ttf', weight: 900, style: 'italic' },
     ];
     const rules = [];
-    for (const { file, weight, style } of pairs) {
-        const filePath = path_1.default.join(fontsDir, file);
+    for (const candidate of candidates) {
         try {
-            if (fs_1.default.existsSync(filePath)) {
-                const buf = fs_1.default.readFileSync(filePath);
-                const b64 = buf.toString('base64');
-                rules.push(`@font-face{font-family:'Averta Std';src:url(data:font/ttf;base64,${b64}) format('truetype');font-weight:${weight};font-style:${style};}`);
-            }
+            const filePath = path_1.default.join(fontsDir, candidate.file);
+            if (!fs_1.default.existsSync(filePath))
+                continue;
+            const buf = fs_1.default.readFileSync(filePath);
+            const b64 = buf.toString('base64');
+            rules.push("@font-face{font-family:'Averta Std';src:url('data:font/ttf;base64," +
+                b64 +
+                "') format('truetype');font-weight:" +
+                String(candidate.weight) +
+                ';font-style:' +
+                candidate.style +
+                ';}');
         }
         catch {
-            // ignorar si no se puede leer
+            // ignorar errores de lectura individuales y continuar con el resto
         }
     }
-    return rules.length > 0 ? rules.join('\n    ') : '';
+    return rules.join('\n');
 }
 /**
  * Construye el HTML de una página US Letter (612×792) con los mismos cuadros y estilos que el editor.
@@ -98,6 +118,7 @@ function buildDocumentHtml(options) {
     const customBoxes = (content.customBoxes ?? []);
     const customFieldValues = (content.customFieldValues ?? {});
     const globalFontSize = typeof content.globalFontSize === 'number' ? content.globalFontSize : 11;
+    // Fuente por defecto: Averta Std (igual que cotizador / editor).
     const globalFontFamily = String(content.globalFontFamily ?? 'Averta Std').trim();
     const globalFontColor = String(content.globalFontColor ?? '#000000').trim();
     const globalFontBold = content.globalFontBold === true || content.globalFontBold === 'true';
@@ -254,7 +275,7 @@ function buildDocumentHtml(options) {
         // Para Total: envolver en span para que el contenedor flex (doc-box-inner) tenga un hijo explícito
         // y justify-content: flex-end lo alinee a la derecha (igual que en el editor).
         const innerContent = isTotalBox
-            ? `<span class="doc-box-total-text" style="display:inline-block;text-align:right;width:auto;margin-left:auto;line-height:1;transform:translateY(-0.08em);color:rgb(254,254,254) !important;-webkit-text-fill-color:rgb(254,254,254) !important;">${escapeHtml(text) || '&nbsp;'}</span>`
+            ? `<span class="doc-box-total-text" style="display:inline-block;text-align:right;width:auto;margin-left:auto;line-height:1;color:rgb(254,254,254) !important;-webkit-text-fill-color:rgb(254,254,254) !important;">${escapeHtml(text) || '&nbsp;'}</span>`
             : (escapeHtml(text) || '&nbsp;');
         const boxHtml = `<div class="${boxClass}" style="${boxStyle}"><div class="doc-box-inner" style="${innerStyle}">${innerContent}</div></div>`;
         boxHtmlParts.push(boxHtml);
@@ -263,7 +284,8 @@ function buildDocumentHtml(options) {
     const needsAverta = /averta\s*std/i.test(globalFontFamily) ||
         customBoxes.some((b) => b && typeof b.fontFamily === 'string' && /averta\s*std/i.test(b.fontFamily));
     const fontFaceCss = needsAverta ? getAvertaStdFontFaceCss() : '';
-    const pageDivHtml = `<div class="page" style="width:${PAGE_W_PT}pt;height:${PAGE_H_PT}pt;min-width:${PAGE_W_PT}pt;min-height:${PAGE_H_PT}pt;position:relative;overflow:hidden;background-color:#ffffff;${backgroundStyle}">\n${boxesHtml}\n</div>`;
+    // overflow:visible para que el rasterizado a 300 dpi no recorte cajas (ej. total) que sobresalgan ligeramente
+    const pageDivHtml = `<div class="page" style="width:${PAGE_W_PT}pt;height:${PAGE_H_PT}pt;min-width:${PAGE_W_PT}pt;min-height:${PAGE_H_PT}pt;position:relative;overflow:visible;background-color:#ffffff;${backgroundStyle}">\n${boxesHtml}\n</div>`;
     return buildDocumentWrapperHtml(pageDivHtml, { content, fontFaceCss });
 }
 /**
@@ -273,6 +295,7 @@ function buildDocumentHtml(options) {
 function buildDocumentWrapperHtml(pageContentHtml, options) {
     const { content = {}, backgroundStyle = 'background-color: #ffffff;', fontFaceCss: injectedFontCss } = options;
     const customBoxes = (content.customBoxes ?? []);
+    // Misma fuente por defecto que en el editor: Averta Std.
     const globalFontFamily = String(content.globalFontFamily ?? 'Averta Std').trim();
     const needsAverta = injectedFontCss !== undefined
         ? !!injectedFontCss
@@ -297,7 +320,7 @@ function buildDocumentWrapperHtml(pageContentHtml, options) {
       overflow: visible !important;
       line-height: 1 !important;
     }
-    .doc-box-total .doc-box-total-text { width: auto !important; flex-shrink: 0 !important; margin-left: auto !important; line-height: 1 !important; transform: translateY(-0.08em) !important; color: rgb(254,254,254) !important; -webkit-text-fill-color: rgb(254,254,254) !important; }
+    .doc-box-total .doc-box-total-text { width: auto !important; flex-shrink: 0 !important; margin-left: auto !important; line-height: 1 !important; color: rgb(254,254,254) !important; -webkit-text-fill-color: rgb(254,254,254) !important; }
     * {
       box-sizing: border-box;
       -webkit-print-color-adjust: exact !important;
@@ -310,13 +333,15 @@ function buildDocumentWrapperHtml(pageContentHtml, options) {
       height: ${PAGE_H_PT}pt;
       min-width: ${PAGE_W_PT}pt;
       min-height: ${PAGE_H_PT}pt;
-      overflow: hidden;
+      overflow: visible;
       background-color: #ffffff !important;
       border: none;
       outline: none;
       box-shadow: none;
       -webkit-print-color-adjust: exact;
       print-color-adjust: exact;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
     }
   </style>
 </head>

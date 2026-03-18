@@ -146,9 +146,34 @@ const API_BASE = import.meta.env.DEV ? '' : (import.meta.env.VITE_API_URL || 'ht
 import { apiFetch } from './api';
 import { can } from './authz/can';
 
+function decodeJwtExpMs(token: string): number | null {
+  try {
+    const parts = token.split('.');
+    if (parts.length < 2) return null;
+    const payloadBase64Url = parts[1];
+    const base64 = payloadBase64Url.replace(/-/g, '+').replace(/_/g, '/');
+    const padding = '='.repeat((4 - (base64.length % 4)) % 4);
+    const decoded = atob(base64 + padding);
+    const payload = JSON.parse(decoded) as { exp?: unknown };
+    const expSec =
+      typeof payload.exp === 'number'
+        ? payload.exp
+        : typeof payload.exp === 'string'
+          ? Number(payload.exp)
+          : NaN;
+    if (!Number.isFinite(expSec)) return null;
+    return expSec * 1000;
+  } catch {
+    return null;
+  }
+}
+
 function App() {
   const { currentUser, logout } = useUser();
   const { toast } = useToast();
+  const [jwtIsExpiringSoon, setJwtIsExpiringSoon] = useState(false);
+  const [jwtIsExpired, setJwtIsExpired] = useState(false);
+  const [jwtMinutesLeft, setJwtMinutesLeft] = useState<number | null>(null);
   const [selectedItem, setSelectedItem] = useState<Item | null>(null);
   const canSeeFacturacionView = can(currentUser, 'billing.view');
   const isTaller = currentUser?.role === 'TALLER';
@@ -230,6 +255,62 @@ function App() {
     setCurrentViewState(prev => (prev === 'facturacion' ? 'table' : prev));
     setEnabledViewsState(prev => prev.filter(v => v !== 'facturacion'));
   }, [canSeeFacturacionView]);
+
+  // UI proactiva ante expiracion del JWT (lee exp sin verificar firma).
+  useEffect(() => {
+    const updateJwtUi = () => {
+      let token: string | null = null;
+      try {
+        token = localStorage.getItem('sunday_token');
+      } catch {
+        token = null;
+      }
+
+      if (!token) {
+        setJwtIsExpiringSoon(false);
+        setJwtIsExpired(false);
+        setJwtMinutesLeft(null);
+        return;
+      }
+
+      const expMs = decodeJwtExpMs(token);
+      if (!expMs) {
+        setJwtIsExpiringSoon(false);
+        setJwtIsExpired(false);
+        setJwtMinutesLeft(null);
+        return;
+      }
+
+      const now = Date.now();
+      const diffMs = expMs - now;
+      if (diffMs <= 0) {
+        setJwtIsExpired(true);
+        setJwtIsExpiringSoon(false);
+        setJwtMinutesLeft(null);
+        return;
+      }
+
+      const minutesLeft = Math.ceil(diffMs / 60000);
+      setJwtMinutesLeft(minutesLeft);
+      setJwtIsExpired(false);
+      setJwtIsExpiringSoon(diffMs <= 60 * 60 * 1000); // <= 60 minutos
+    };
+
+    updateJwtUi();
+    const intervalId = window.setInterval(updateJwtUi, 30000);
+
+    const onSessionExpired = () => {
+      setJwtIsExpired(true);
+      setJwtIsExpiringSoon(false);
+      setJwtMinutesLeft(null);
+    };
+    window.addEventListener('session-expired', onSessionExpired);
+
+    return () => {
+      window.clearInterval(intervalId);
+      window.removeEventListener('session-expired', onSessionExpired);
+    };
+  }, [currentUser?.id]);
 
   const [showAddViewPopover, setShowAddViewPopover] = useState(false);
   const [calendarBoardPickerOpen, setCalendarBoardPickerOpen] = useState(false);
@@ -938,6 +1019,44 @@ function App() {
 
   return (
     <div className="flex min-h-[100dvh] h-screen max-h-[100dvh] bg-monday-bg overflow-hidden font-sans pt-[env(safe-area-inset-top)] pr-[env(safe-area-inset-right)] pb-[env(safe-area-inset-bottom)] pl-[env(safe-area-inset-left)]">
+      {jwtIsExpiringSoon && !jwtIsExpired && (
+        <div className="fixed top-0 left-0 right-0 z-[2100] flex justify-center pointer-events-none">
+          <div className="mt-3 mx-3 pointer-events-auto bg-[#111827]/95 text-white border border-white/10 rounded-xl px-4 py-3 shadow-[0_18px_50px_rgba(0,0,0,0.35)]">
+            <div className="text-[13px] font-semibold">Aviso de sesión</div>
+            <div className="text-[12px] mt-1 text-white/90">
+              Tu sesión caduca en aprox. {jwtMinutesLeft ?? 'menos de 60'} min. Guarda tu trabajo.
+            </div>
+          </div>
+        </div>
+      )}
+
+      {jwtIsExpired && (
+        <div className="fixed inset-0 z-[2200] flex items-center justify-center bg-black/40 p-4">
+          <div className="w-full max-w-md rounded-xl bg-white shadow-xl border border-black/10 overflow-hidden">
+            <div className="p-5 bg-[#111827] text-white">
+              <div className="text-[14px] font-semibold">Sesión expirada</div>
+              <div className="text-[12px] opacity-90 mt-1">Inicia sesión nuevamente para continuar.</div>
+            </div>
+            <div className="p-5">
+              <div className="text-[13px] text-[#111827]/80 leading-relaxed">
+                Por seguridad, tu sesión expiró. Guarda tu información y vuelve a entrar.
+              </div>
+              <div className="mt-4 flex justify-end">
+                <button
+                  className="px-4 py-2 rounded-lg border border-black/10 text-[#111827] bg-white hover:bg-[#f3f4f6]"
+                  onClick={() => {
+                    try { sessionStorage.setItem('logout_reason', 'session_expired'); } catch {/* ignore */}
+                    try { window.location.href = '/'; } catch {/* ignore */}
+                  }}
+                >
+                  Ir a login
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Drawer "Más" en móvil (sustituye sidebar + rail) */}
       {isMobile && (
         <MobileMoreDrawer

@@ -68,10 +68,32 @@ export function clearAuthStorage(): void {
   }
 }
 
+function decodeJwtExpMs(token: string): number | null {
+  try {
+    const parts = token.split('.');
+    if (parts.length < 2) return null;
+    const payloadBase64Url = parts[1];
+    const base64 = payloadBase64Url.replace(/-/g, '+').replace(/_/g, '/');
+    const padding = '='.repeat((4 - (base64.length % 4)) % 4);
+    const decoded = atob(base64 + padding);
+    const payload = JSON.parse(decoded) as { exp?: unknown };
+    const expSec =
+      typeof payload.exp === 'number'
+        ? payload.exp
+        : typeof payload.exp === 'string'
+          ? Number(payload.exp)
+          : NaN;
+    if (!Number.isFinite(expSec)) return null;
+    return expSec * 1000;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Wrapper de fetch que:
  * - Añade automáticamente el header Authorization: Bearer <token> si existe.
- * - Si recibe 401/403, limpia sesión local y redirige al login.
+ * - Si recibe 401/403, guarda razón en sessionStorage, limpia sesión local y redirige al login.
  */
 export async function apiFetch(input: RequestInfo | URL, init: RequestInit = {}): Promise<Response> {
   const headersWithAuth = buildAuthHeaders(init.headers ?? {});
@@ -81,9 +103,29 @@ export async function apiFetch(input: RequestInfo | URL, init: RequestInit = {})
   // Si no hay token (pantalla de login), dejamos que el caller maneje el 401.
   const token = getAuthToken();
   if (token && (res.status === 401 || res.status === 403)) {
+    // UX consistente: el Login mostrará un mensaje claro si la sesión expiró.
+    try {
+      sessionStorage.setItem('logout_reason', 'session_expired');
+    } catch {/* ignore */}
+
+    const expMs = decodeJwtExpMs(token);
+    const isExpired = expMs != null ? expMs <= Date.now() : true;
+
+    // Provisional: avisar a la UI para que muestre banner/modal antes del redirect.
+    try {
+      window.dispatchEvent(
+        new CustomEvent('session-expired', {
+          detail: { reason: 'session_expired', isExpired },
+        })
+      );
+    } catch {/* ignore */}
+
     clearAuthStorage();
     try {
-      window.location.href = '/';
+      const delayMs = isExpired ? 250 : 0;
+      setTimeout(() => {
+        try { window.location.href = '/'; } catch {/* ignore */}
+      }, delayMs);
     } catch {
       // ignore en entornos sin window
     }

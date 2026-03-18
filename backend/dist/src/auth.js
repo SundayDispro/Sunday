@@ -7,10 +7,14 @@ exports.hashPassword = hashPassword;
 exports.verifyPassword = verifyPassword;
 exports.signJwt = signJwt;
 exports.verifyJwt = verifyJwt;
+exports.signExportToken = signExportToken;
+exports.verifyExportToken = verifyExportToken;
+exports.getExportDocIdFromToken = getExportDocIdFromToken;
 exports.attachUserFromJwt = attachUserFromJwt;
 exports.authenticateToken = authenticateToken;
 exports.requireAuth = requireAuth;
 exports.requireAdmin = requireAdmin;
+exports.requireRoles = requireRoles;
 const jsonwebtoken_1 = __importDefault(require("jsonwebtoken"));
 const bcrypt_1 = __importDefault(require("bcrypt"));
 const client_1 = require("@prisma/client");
@@ -47,6 +51,28 @@ function verifyJwt(token) {
         throw new Error('Token inválido: payload malformado o role no permitido');
     }
     return payload;
+}
+/** Firma un token de exportación para que Puppeteer abra /docs/export y cargue el doc. */
+function signExportToken(payload) {
+    return jsonwebtoken_1.default.sign({ ...payload, role: 'USER' }, JWT_SECRET, { expiresIn: '120s' });
+}
+/** Verifica un token de exportación; lanza si es inválido. */
+function verifyExportToken(token) {
+    const payload = jsonwebtoken_1.default.verify(token, JWT_SECRET);
+    if (payload.purpose !== 'export' || !payload.userId || !payload.docId) {
+        throw new Error('Token de exportación inválido');
+    }
+    return { userId: payload.userId, docId: payload.docId, purpose: 'export' };
+}
+/** Devuelve docId si el token es de exportación (solo decodifica, no verifica). Usar tras authenticateToken. */
+function getExportDocIdFromToken(token) {
+    try {
+        const payload = jsonwebtoken_1.default.decode(token);
+        return payload?.purpose === 'export' && payload?.docId ? payload.docId : null;
+    }
+    catch {
+        return null;
+    }
 }
 const prisma = new client_1.PrismaClient();
 async function attachUserFromJwt(req, _res, next) {
@@ -123,4 +149,33 @@ function requireAdmin(req, res, next) {
     }
     req.user = { ...req.authUser };
     return next();
+}
+function requireRoles(rolesAllowed) {
+    const allowed = new Set(rolesAllowed);
+    // Defensa: si el middleware se configura mal, fallar de forma explícita.
+    if (allowed.size === 0) {
+        throw new Error('requireRoles(): rolesAllowed no puede ser vacío');
+    }
+    // Validar roles para evitar typos silenciosos que abran/corten acceso incorrectamente.
+    for (const r of allowed) {
+        if (!ALLOWED_ROLES.has(r)) {
+            throw new Error(`requireRoles(): rol no permitido en configuración: ${String(r)}`);
+        }
+    }
+    return function requireRolesMiddleware(req, res, next) {
+        if (!req.authUser) {
+            return res.status(401).json({ error: 'No autenticado' });
+        }
+        const role = req.authUser.role;
+        // ADMIN siempre tiene acceso total (backend como única fuente de verdad).
+        if (role === 'ADMIN') {
+            req.user = { ...req.authUser };
+            return next();
+        }
+        if (!allowed.has(role)) {
+            return res.status(403).json({ error: 'No autorizado' });
+        }
+        req.user = { ...req.authUser };
+        return next();
+    };
 }

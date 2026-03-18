@@ -38,8 +38,11 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.TEMPLATE_FIELD_POSITIONS = void 0;
 exports.getTemplatePathIfExists = getTemplatePathIfExists;
+exports.getTemplatesDir = getTemplatesDir;
+exports.createPdfFromScreenshotPng = createPdfFromScreenshotPng;
 exports.getTemplateImagePathIfExists = getTemplateImagePathIfExists;
 exports.generatePdfFromTemplate = generatePdfFromTemplate;
+exports.generateFilledPdf = generateFilledPdf;
 const fs_1 = __importDefault(require("fs"));
 const path_1 = __importDefault(require("path"));
 const pdf_lib_1 = require("pdf-lib");
@@ -60,8 +63,11 @@ function hexToRgb(hex) {
     }
     return (0, pdf_lib_1.rgb)(0, 0, 0);
 }
-const TEMPLATES_DIR = path_1.default.join(process.cwd(), 'templates');
-const FONTS_DIR = path_1.default.join(process.cwd(), 'assets', 'fonts', 'AvertaStd');
+// Rutas relativas al backend para que funcionen aunque el proceso se inicie desde la raíz del repo
+const isInDist = __dirname.includes(path_1.default.sep + 'dist' + path_1.default.sep);
+const BACKEND_ROOT = isInDist ? path_1.default.resolve(__dirname, '..', '..') : path_1.default.resolve(__dirname, '..');
+const TEMPLATES_DIR = path_1.default.join(BACKEND_ROOT, 'templates');
+const FONTS_DIR = path_1.default.join(BACKEND_ROOT, 'assets', 'fonts', 'AvertaStd');
 const UPLOAD_DIR = path_1.default.join(process.cwd(), 'uploads');
 /** Formato de fecha para PDF (DD/MM/YYYY como en Corel/Illustrator). */
 function formatDateForPdf(value) {
@@ -105,6 +111,30 @@ function getTemplatePath(kind) {
 function getTemplatePathIfExists(kind) {
     const p = getTemplatePath(kind);
     return fs_1.default.existsSync(p) ? p : null;
+}
+/** Ruta del directorio de plantillas (para que el endpoint de upload guarde en el mismo sitio). */
+function getTemplatesDir() {
+    return TEMPLATES_DIR;
+}
+/** US Letter en puntos (72 pt = 1 inch). */
+const LETTER_WIDTH_PT = 612;
+const LETTER_HEIGHT_PT = 792;
+/**
+ * Crea un PDF de una página US Letter con la imagen PNG de la captura (ej. screenshot a 300 DPI).
+ * La imagen se dibuja a tamaño completo en la página (612×792 pt).
+ */
+async function createPdfFromScreenshotPng(pngBuffer) {
+    const pdfDoc = await pdf_lib_1.PDFDocument.create();
+    const page = pdfDoc.addPage([LETTER_WIDTH_PT, LETTER_HEIGHT_PT]);
+    const embedded = await pdfDoc.embedPng(pngBuffer);
+    page.drawImage(embedded, {
+        x: 0,
+        y: 0,
+        width: LETTER_WIDTH_PT,
+        height: LETTER_HEIGHT_PT,
+    });
+    const bytes = await pdfDoc.save();
+    return Buffer.from(bytes);
 }
 /** Si no hay PDF, devuelve la ruta a una imagen de plantilla (JPG o PNG) si existe. */
 function getTemplateImagePathIfExists(kind) {
@@ -161,6 +191,15 @@ function imageUrlToBuffer(imageUrl) {
         return null;
     }
 }
+const SIMPLE_TEMPLATE_FIELDS = {
+    cotizacion: {
+        cliente: { page: 0, x: 80, y: 678, size: 11, align: 'left' },
+        fecha: { page: 0, x: 450, y: 700, size: 11, align: 'left' },
+        total: { page: 0, x: 520, y: 120, size: 12, align: 'right' },
+    },
+    levantamiento: {},
+    hoja_trabajo: {},
+};
 /**
  * Genera un PDF rellenando la plantilla con el contenido.
  * Si no existe la plantilla, crea un PDF de una página con los textos en las posiciones definidas.
@@ -199,14 +238,47 @@ async function generatePdfFromTemplate(kind, content) {
     let avertaItalic = standardHelveticaOblique;
     let avertaBoldItalic = standardHelveticaBoldOblique;
     try {
-        const regularBytes = fs_1.default.readFileSync(path_1.default.join(FONTS_DIR, 'AvertaStd-Regular.ttf'));
-        const boldBytes = fs_1.default.readFileSync(path_1.default.join(FONTS_DIR, 'AvertaStd-Bold.ttf'));
-        avertaRegular = await pdfDoc.embedFont(regularBytes);
-        avertaBold = await pdfDoc.embedFont(boldBytes);
-        const italicBytes = fs_1.default.readFileSync(path_1.default.join(FONTS_DIR, 'AvertaStd-RegularItalic.ttf'));
-        const boldItalicBytes = fs_1.default.readFileSync(path_1.default.join(FONTS_DIR, 'AvertaStd-BoldItalic.ttf'));
-        avertaItalic = await pdfDoc.embedFont(italicBytes);
-        avertaBoldItalic = await pdfDoc.embedFont(boldItalicBytes);
+        const regularPath = path_1.default.join(FONTS_DIR, 'AvertaStd-Regular.ttf');
+        const boldPath = path_1.default.join(FONTS_DIR, 'AvertaStd-Bold.ttf');
+        let regularBytes = null;
+        let boldBytes = null;
+        if (fs_1.default.existsSync(regularPath))
+            regularBytes = fs_1.default.readFileSync(regularPath);
+        if (fs_1.default.existsSync(boldPath))
+            boldBytes = fs_1.default.readFileSync(boldPath);
+        // Fallback: OTF del frontend (misma fuente que el preview)
+        if (!regularBytes) {
+            const otfPaths = [
+                path_1.default.join(BACKEND_ROOT, '..', 'frontend', 'dist', 'AvertaDemoPECuttedDemo-Regular.otf'),
+                path_1.default.join(BACKEND_ROOT, '..', 'frontend', 'dist', 'assets', 'AvertaDemoPECuttedDemo-Regular-A7gaq-Ug.otf'),
+            ];
+            for (const p of otfPaths) {
+                if (fs_1.default.existsSync(p)) {
+                    regularBytes = fs_1.default.readFileSync(p);
+                    break;
+                }
+            }
+        }
+        if (regularBytes) {
+            avertaRegular = await pdfDoc.embedFont(regularBytes);
+            avertaItalic = avertaRegular; // OTF demo suele ser solo Regular
+        }
+        if (boldBytes) {
+            avertaBold = await pdfDoc.embedFont(boldBytes);
+            avertaBoldItalic = avertaBold;
+        }
+        else if (regularBytes) {
+            avertaBold = avertaRegular;
+            avertaBoldItalic = avertaRegular;
+        }
+        if (!boldBytes && regularBytes) {
+            const italicPath = path_1.default.join(FONTS_DIR, 'AvertaStd-RegularItalic.ttf');
+            const boldItalicPath = path_1.default.join(FONTS_DIR, 'AvertaStd-BoldItalic.ttf');
+            if (fs_1.default.existsSync(italicPath))
+                avertaItalic = await pdfDoc.embedFont(fs_1.default.readFileSync(italicPath));
+            if (fs_1.default.existsSync(boldItalicPath))
+                avertaBoldItalic = await pdfDoc.embedFont(fs_1.default.readFileSync(boldItalicPath));
+        }
     }
     catch {
         // Si Averta no está disponible se usan las estándar ya asignadas
@@ -237,22 +309,22 @@ async function generatePdfFromTemplate(kind, content) {
     const defaultColor = hexToRgb(content.globalFontColor || '#000000');
     const globalFontBold = content.globalFontBold === true || content.globalFontBold === 'true';
     const globalFontItalic = content.globalFontItalic === true || content.globalFontItalic === 'true';
-    const lineHeight = 1.2;
     /** Relación aproximada ascenso/tamaño (em). Valor conservador para que la parte superior del glifo no se corte en el cuadro (folio, etc.). */
     const ascentFactor = 0.82;
-    /** Margen superior en puntos; alineado con pt-4 del preview (Documentos) para coincidir con vista general. */
-    const TOP_MARGIN_PT = 14;
-    /** Padding lateral (izq/der) en puntos; debe coincidir con documentHtmlBuilder PADDING_SIDES_PX para que preview y PDF alineen igual. */
-    const PADDING_SIDES_PT = 6;
+    /** Paddings en pt sincronizados con DocumentPageForPdf (1px = 0.75pt a 96 DPI). */
+    const PADDING_TOP_FOLIO_PT = 9; // 12px
+    const PADDING_TOP_SINGLE_PT = 12; // 16px
+    const PADDING_TOP_DESCRIPCION_CORTA_PT = 27; // 36px (12+24)
+    const PADDING_TOP_MULTI_PT = 6; // 8px
+    const PADDING_SIDES_PT = 4.5; // 6px
+    const pdfWhite = (0, pdf_lib_1.rgb)(254 / 255, 254 / 255, 254 / 255);
     /** Dibuja texto respetando saltos de línea (\n) y word-wrap. y = distancia desde el borde SUPERIOR de la página hasta la parte superior del cuadro (origen arriba-izq). */
-    function drawText(text, x, y, fontSize, maxWidth, font, color = defaultColor) {
+    function drawText(text, x, y, fontSize, maxWidth, font, color = defaultColor, align = 'left', paddingTopPt, lineHeight) {
         if (text == null || String(text).trim() === '')
             return;
         const safeText = String(text).slice(0, 2000);
         const size = fontSize;
-        // Margen superior por cuadro: evita que el borde corte la parte alta de las letras (ej. folio "006").
-        const topMarginPt = Math.max(TOP_MARGIN_PT, size * 0.08);
-        // En PDF drawText usa baseline (y hacia arriba). baseline desde arriba = y + margen + ascenso.
+        const topMarginPt = Math.max(paddingTopPt, size * 0.08);
         const firstLineBaselineFromTop = y + topMarginPt + size * ascentFactor;
         let yy = height - firstLineBaselineFromTop;
         const wrapLine = (line) => {
@@ -277,13 +349,19 @@ async function generatePdfFromTemplate(kind, content) {
                 result.push(current);
             return result;
         };
-        // Respetar saltos de línea del documento
+        const effectiveWidth = maxWidth ?? (width - x - PADDING_SIDES_PT * 2);
         const paragraphs = safeText.split(/\r?\n/);
         for (const para of paragraphs) {
             const sublines = wrapLine(para);
             for (const line of sublines) {
                 if (line.length > 0) {
-                    page.drawText(line, { x, y: yy, size, font, color });
+                    const lineW = font.widthOfTextAtSize(line, size);
+                    let drawX = x;
+                    if (align === 'right' && effectiveWidth > 0)
+                        drawX = x + effectiveWidth - lineW;
+                    else if (align === 'center' && effectiveWidth > 0)
+                        drawX = x + (effectiveWidth - lineW) / 2;
+                    page.drawText(line, { x: drawX, y: yy, size, font, color });
                 }
                 yy -= size * lineHeight;
             }
@@ -344,23 +422,104 @@ async function generatePdfFromTemplate(kind, content) {
             }
             if (!text)
                 continue;
-            const size = typeof box.fontSize === 'number' && !Number.isNaN(box.fontSize)
+            let size = typeof box.fontSize === 'number' && !Number.isNaN(box.fontSize)
                 ? box.fontSize
                 : defaultBoxFontSize;
-            const boxBold = typeof box.fontBold === 'boolean' ? box.fontBold : globalFontBold;
+            const isTotalBox = box.fieldKey === 'total';
+            const isFolioBox = box.fieldKey === 'folio' || box.semantic === 'folio';
+            const isDescripcionCortaBox = box.fieldKey === 'descripcion_corta';
+            const isSingleLineBox = box.singleLine === true || isFolioBox || isTotalBox;
+            if (isTotalBox)
+                size = Math.max(size, 11);
+            const boxBg = typeof box.backgroundColor === 'string' && box.backgroundColor.trim() ? box.backgroundColor.trim().toLowerCase() : '';
+            const hasBlackBg = boxBg === '#000000' || boxBg === '#000';
+            const useWhiteText = isTotalBox || hasBlackBg;
+            const boxBold = isTotalBox ? true : (typeof box.fontBold === 'boolean' ? box.fontBold : globalFontBold);
             const boxItalic = typeof box.fontItalic === 'boolean' ? box.fontItalic : globalFontItalic;
             const boxFont = getFont(box.fontFamily, boxBold, boxItalic);
-            const boxColor = typeof box.fontColor === 'string' && box.fontColor
-                ? hexToRgb(box.fontColor)
-                : defaultColor;
+            const boxColor = useWhiteText ? pdfWhite : (typeof box.fontColor === 'string' && box.fontColor ? hexToRgb(box.fontColor) : defaultColor);
             const boxW = num(box.width, 0.3);
             const boxWidthPts = boxW > 0 ? boxW * width : 0;
-            const maxWidth = boxWidthPts > PADDING_SIDES_PT * 2 ? boxWidthPts - PADDING_SIDES_PT * 2 : undefined;
+            const paddingTopPt = isTotalBox
+                ? 0
+                : isDescripcionCortaBox
+                    ? PADDING_TOP_DESCRIPCION_CORTA_PT
+                    : isFolioBox
+                        ? PADDING_TOP_FOLIO_PT
+                        : isSingleLineBox
+                            ? PADDING_TOP_SINGLE_PT
+                            : PADDING_TOP_MULTI_PT;
+            const effectiveWidthPts = boxWidthPts > PADDING_SIDES_PT * 2 ? boxWidthPts - PADDING_SIDES_PT * 2 : 0;
+            const maxWidth = effectiveWidthPts > 0 ? effectiveWidthPts : undefined;
             const xPts = num(box.x, 0) * width + PADDING_SIDES_PT;
             const yPts = num(box.y, 0) * height;
-            drawText(text, xPts, yPts, size, maxWidth, boxFont, boxColor);
+            const textAlign = isTotalBox ? 'right' : 'left';
+            const lineHeightForBox = isTotalBox ? 1 : isSingleLineBox ? 1.1 : 1.35;
+            drawText(text, xPts, yPts, size, maxWidth, boxFont, boxColor, textAlign, paddingTopPt, lineHeightForBox);
         }
     }
     const pdfBytes = await pdfDoc.save();
     return Buffer.from(pdfBytes);
+}
+/**
+ * Rellena una plantilla PDF base dibujando texto directamente con pdf-lib.
+ * Paso 1 del plan: solo campos básicos de cotización (cliente, fecha, total) con
+ * coordenadas fijas; más adelante se generalizará usando TemplateConfig/customBoxes.
+ */
+async function generateFilledPdf(kind, fieldValues) {
+    const templatePath = getTemplatePathIfExists(kind);
+    if (!templatePath) {
+        throw new Error(`Plantilla ${kind} no encontrada. Coloca el archivo en backend/templates/${kind}.pdf`);
+    }
+    const bytes = fs_1.default.readFileSync(templatePath);
+    const pdfDoc = await pdf_lib_1.PDFDocument.load(bytes);
+    const pages = pdfDoc.getPages();
+    if (!pages.length) {
+        pages.push(pdfDoc.addPage([612, 792]));
+    }
+    const { StandardFonts } = await Promise.resolve().then(() => __importStar(require('pdf-lib')));
+    const standardHelvetica = await pdfDoc.embedFont(StandardFonts.Helvetica);
+    const standardHelveticaBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
+    let avertaRegular = standardHelvetica;
+    let avertaBold = standardHelveticaBold;
+    try {
+        const regularBytes = fs_1.default.readFileSync(path_1.default.join(FONTS_DIR, 'AvertaStd-Regular.ttf'));
+        const boldBytes = fs_1.default.readFileSync(path_1.default.join(FONTS_DIR, 'AvertaStd-Bold.ttf'));
+        avertaRegular = await pdfDoc.embedFont(regularBytes);
+        avertaBold = await pdfDoc.embedFont(boldBytes);
+    }
+    catch {
+        // Si Averta no está disponible se usan las fuentes estándar ya asignadas.
+    }
+    const fieldsForKind = SIMPLE_TEMPLATE_FIELDS[kind] ?? {};
+    const page0 = pages[0];
+    for (const [key, cfg] of Object.entries(fieldsForKind)) {
+        const raw = fieldValues[key] !== undefined && fieldValues[key] !== null
+            ? String(fieldValues[key]).trim()
+            : '';
+        if (!raw)
+            continue;
+        const text = key === 'fecha' ? formatDateForPdf(raw) : raw;
+        const font = key === 'total' ? avertaBold : avertaRegular;
+        let x = cfg.x;
+        const y = cfg.y;
+        if (cfg.align === 'right') {
+            const w = font.widthOfTextAtSize(text, cfg.size);
+            x = cfg.x - w;
+        }
+        else if (cfg.align === 'center') {
+            const w = font.widthOfTextAtSize(text, cfg.size);
+            x = cfg.x - w / 2;
+        }
+        const targetPage = pages[cfg.page] ?? page0;
+        targetPage.drawText(text, {
+            x,
+            y,
+            size: cfg.size,
+            font,
+            color: hexToRgb('#000000'),
+        });
+    }
+    const outBytes = await pdfDoc.save();
+    return Buffer.from(outBytes);
 }

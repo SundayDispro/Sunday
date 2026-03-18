@@ -38,9 +38,11 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.generatePdfFromHtml = generatePdfFromHtml;
 exports.generatePdfFromDocument = generatePdfFromDocument;
+exports.generatePdfFromExportPreview = generatePdfFromExportPreview;
 const fs_1 = __importDefault(require("fs"));
 const path_1 = __importDefault(require("path"));
 const worker_threads_1 = require("worker_threads");
+const templatePdfGenerator_1 = require("./templatePdfGenerator");
 const UPLOAD_DIR = path_1.default.join(process.cwd(), 'uploads');
 /**
  * Convierte una imageUrl (relativa o absoluta apuntando al backend) en un data URL base64.
@@ -116,6 +118,9 @@ function resolveImageUrlsToDataUrls(content) {
 /** US Letter en px a 96 DPI: 612pt = 816px, 792pt = 1056px. Misma escala que el HTML de export. */
 const TEMPLATE_VIEWPORT_WIDTH = 816;
 const TEMPLATE_VIEWPORT_HEIGHT = 1056;
+const PDF_EXPORT_DPI = 300;
+const VIEWPORT_DPI = 96;
+const RASTER_SCALE = PDF_EXPORT_DPI / VIEWPORT_DPI;
 /**
  * Convierte la primera página del PDF de plantilla a imagen base64.
  * Viewport 816×1056 (96 DPI) para que la imagen no se reescale en el HTML (612pt×792pt = 816×1056 px).
@@ -162,18 +167,20 @@ async function generatePdfFromHtml(html, options = {}) {
     });
     try {
         const page = await browser.newPage();
-        await page.setContent(html, { waitUntil: 'load', timeout: 60000 });
-        const pdf = await page.pdf({
-            format: options.format ?? 'Letter',
-            printBackground: true,
-            margin: {
-                top: '0mm',
-                right: '0mm',
-                bottom: '0mm',
-                left: '0mm',
-            },
+        // Captura rasterizada a 300 dpi efectivos: 96 dpi de base * 3.125 = 300 dpi.
+        await page.setViewport({
+            width: TEMPLATE_VIEWPORT_WIDTH,
+            height: TEMPLATE_VIEWPORT_HEIGHT,
+            deviceScaleFactor: RASTER_SCALE,
         });
-        return Buffer.from(pdf);
+        await page.setContent(html, { waitUntil: 'load', timeout: 60000 });
+        await page.emulateMediaType('screen');
+        const screenshotBuffer = await page.screenshot({
+            type: 'png',
+            fullPage: true,
+            omitBackground: false,
+        });
+        return (0, templatePdfGenerator_1.createPdfFromScreenshotPng)(Buffer.from(screenshotBuffer));
     }
     finally {
         await browser.close();
@@ -252,4 +259,36 @@ async function generatePdfFromDocument(options) {
             reject(new Error(`PDF worker exited with code ${code}`));
         });
     });
+}
+async function generatePdfFromExportPreview(options) {
+    const { default: puppeteer } = await Promise.resolve().then(() => __importStar(require('puppeteer')));
+    const scale = options.exportScale && options.exportScale > 0 ? options.exportScale : RASTER_SCALE;
+    const url = new URL('/docs/export', options.frontendUrl);
+    url.searchParams.set('docId', options.docId);
+    url.searchParams.set('token', options.token);
+    if (options.contentKey)
+        url.searchParams.set('contentKey', options.contentKey);
+    url.searchParams.set('scale', String(scale));
+    const browser = await puppeteer.launch({
+        headless: 'new',
+        args: ['--no-sandbox', '--disable-setuid-sandbox'],
+    });
+    try {
+        const page = await browser.newPage();
+        await page.setViewport({
+            width: TEMPLATE_VIEWPORT_WIDTH,
+            height: TEMPLATE_VIEWPORT_HEIGHT,
+            deviceScaleFactor: scale,
+        });
+        await page.goto(url.toString(), { waitUntil: 'networkidle0', timeout: 60000 });
+        await page.waitForSelector('[data-export-ready="true"]', { timeout: 60000 });
+        const root = await page.$('[data-export-root="true"]');
+        if (!root)
+            throw new Error('No se encontró la vista de exportación');
+        const screenshotBuffer = await root.screenshot({ type: 'png' });
+        return (0, templatePdfGenerator_1.createPdfFromScreenshotPng)(Buffer.from(screenshotBuffer));
+    }
+    finally {
+        await browser.close();
+    }
 }

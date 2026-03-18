@@ -41,6 +41,7 @@ const path_1 = __importDefault(require("path"));
 const puppeteer_1 = __importDefault(require("puppeteer"));
 const worker_threads_1 = require("worker_threads");
 const documentHtmlBuilder_1 = require("./documentHtmlBuilder");
+const templatePdfGenerator_1 = require("./templatePdfGenerator");
 const UPLOAD_DIR = path_1.default.join(process.cwd(), 'uploads');
 function imageUrlToDataUrl(imageUrl) {
     try {
@@ -96,8 +97,13 @@ function resolveImageUrlsToDataUrls(content) {
     });
     return { ...content, customBoxes: resolvedBoxes };
 }
+// US Letter a 96 DPI lógico: 612pt → 816px, 792pt → 1056px
 const TEMPLATE_VIEWPORT_WIDTH = 816;
 const TEMPLATE_VIEWPORT_HEIGHT = 1056;
+/** Escala para 300 dpi efectivos en la captura PNG (300/96 ≈ 3.125). */
+const PDF_EXPORT_DPI = 300;
+const VIEWPORT_DPI = 96;
+const RENDER_SCALE = PDF_EXPORT_DPI / VIEWPORT_DPI;
 async function getTemplatePdfFirstPageAsDataUrlWithBrowser(browser, templatePdfPath) {
     if (!fs_1.default.existsSync(templatePdfPath))
         return null;
@@ -168,7 +174,11 @@ async function runInWorker(payload) {
                 backgroundImageDataUrl,
             });
         const page = await browser.newPage();
-        await page.setViewport({ width: 816, height: 1056, deviceScaleFactor: 1 });
+        await page.setViewport({
+            width: TEMPLATE_VIEWPORT_WIDTH,
+            height: TEMPLATE_VIEWPORT_HEIGHT,
+            deviceScaleFactor: RENDER_SCALE,
+        });
         await page.setContent(html, {
             waitUntil: 'load',
             baseURL: apiBaseUrl || 'http://localhost:3001',
@@ -184,12 +194,12 @@ async function runInWorker(payload) {
             new Promise((resolve) => setTimeout(resolve, 5000)),
         ]);
         await page.emulateMediaType('screen');
-        const pdf = await page.pdf({
-            format: format === 'Letter' ? 'Letter' : 'A4',
-            printBackground: true,
-            margin: { top: '0mm', right: '0mm', bottom: '0mm', left: '0mm' },
+        const screenshotBuffer = await page.screenshot({
+            type: 'png',
+            fullPage: true,
+            omitBackground: false,
         });
-        return Buffer.from(pdf);
+        return (0, templatePdfGenerator_1.createPdfFromScreenshotPng)(Buffer.from(screenshotBuffer));
     }
     finally {
         await browser.close();

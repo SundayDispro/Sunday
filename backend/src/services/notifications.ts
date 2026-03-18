@@ -8,6 +8,7 @@ export async function findManyByUserId(prisma: PrismaClient, userId: string) {
   return prisma.notification.findMany({
     where: { userId },
     orderBy: { createdAt: 'desc' },
+    take: 50,
     include: {
       item: {
         include: {
@@ -19,9 +20,10 @@ export async function findManyByUserId(prisma: PrismaClient, userId: string) {
   });
 }
 
-export async function markAsRead(prisma: PrismaClient, id: string) {
-  return prisma.notification.update({
-    where: { id },
+export async function markAsRead(prisma: PrismaClient, id: string, userId: string) {
+  // IDOR guard: esta operación debe estar acotada a un usuario.
+  return prisma.notification.updateMany({
+    where: { id, userId },
     data: { read: true },
   });
 }
