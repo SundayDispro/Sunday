@@ -160,6 +160,7 @@ export default function DocsExportPreviewPage({
         flexShrink: 0,
       }}
       data-export-ready={exportReady ? 'true' : undefined}
+      data-export-root="true"
     >
       <PdfTemplateEditor
         docType={docType}

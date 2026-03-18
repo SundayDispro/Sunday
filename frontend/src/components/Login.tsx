@@ -1,8 +1,33 @@
 import React, { useState } from 'react';
 import { useUser } from '../store/UserContext';
 import { ArrowRight } from 'lucide-react';
+import { AnimatedLogo } from './AnimatedLogo';
 
-export const Login: React.FC = () => {
+type LoginProps = {
+  theme: 'light' | 'dark' | 'night' | 'dawn' | 'fog' | 'plum' | 'ember';
+};
+
+const LOGIN_LOGO_COLORS: Record<LoginProps['theme'], string> = {
+  light: '#222221',
+  dark: '#f8fafc',
+  night: '#f8fafc',
+  dawn: '#23150a',
+  fog: '#111111',
+  plum: '#f3e9ff',
+  ember: '#23150a',
+};
+
+const LOGIN_CARD_CLASS: Record<LoginProps['theme'], string> = {
+  light: 'bg-white',
+  dark: 'bg-[#1f2937]',
+  night: 'bg-[#141414]',
+  dawn: 'bg-[#d4c4ab]',
+  fog: 'bg-[#a3a3a3]',
+  plum: 'bg-[#1b1026]',
+  ember: 'bg-[#ff8a00]',
+};
+
+export const Login: React.FC<LoginProps> = ({ theme }) => {
   const { login } = useUser();
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
@@ -26,57 +51,78 @@ export const Login: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen bg-monday-bg flex items-center justify-center p-4 font-sans">
-      <div className="max-w-[400px] w-full bg-white rounded-2xl shadow-monday-lg border border-monday-border p-8 fade-in">
-        <div className="flex flex-col items-center mb-8">
-          <img
-            src="/logo.png"
-            alt="Sunday"
-            className="w-20 h-20 mb-4 object-contain"
-          />
-          <h1 className="text-2xl font-bold text-monday-text text-center">Bienvenido a Sunday</h1>
-          <p className="text-[14px] text-monday-subtext text-center mt-2">Ingresa tus datos para continuar a tu espacio de trabajo.</p>
-        </div>
+    <div className="min-h-screen bg-[#1a0828] flex items-center justify-center p-4 font-sans overflow-hidden">
+      <div className="absolute inset-0 pointer-events-none bg-[radial-gradient(circle_at_20%_20%,rgba(255,255,255,0.05),transparent_30%),radial-gradient(circle_at_80%_80%,rgba(255,255,255,0.04),transparent_24%)]" />
 
-        <form onSubmit={handleSubmit} className="flex flex-col gap-4">
-          {error && (
-            <div className="p-3 rounded-lg bg-red-50 text-monday-red text-[13px] font-medium text-center">
-              {error}
+      <div className={`relative w-full max-w-[1120px] min-h-[520px] rounded-[30px] border border-white/10 bg-[#241036]/95 shadow-[0_30px_90px_rgba(0,0,0,0.4)] overflow-hidden ${LOGIN_CARD_CLASS[theme]}`}>
+        <div className="absolute inset-0 bg-[linear-gradient(180deg,rgba(255,255,255,0.04),transparent_28%)]" />
+        <div className="relative z-10 grid min-h-[520px] lg:grid-cols-[1.15fr_0.85fr]">
+          <div className="relative flex items-center justify-center px-8 py-10 lg:px-12">
+            <div className="w-full max-w-[390px]">
+              <div className="rounded-[26px] border border-white/10 bg-white/[0.03] px-8 py-9 shadow-[inset_0_1px_0_rgba(255,255,255,0.05)]">
+                <AnimatedLogo size={250} color={LOGIN_LOGO_COLORS[theme]} />
+              </div>
             </div>
-          )}
-          
-          <div className="flex flex-col gap-1.5">
-            <label className="text-[13px] font-semibold text-monday-text ml-1">Usuario</label>
-            <input
-              type="text"
-              autoFocus
-              value={username}
-              onChange={e => setUsername(e.target.value)}
-              placeholder="Ej. tu_usuario"
-              className="w-full h-10 px-3 py-2 text-[14px] border border-monday-border rounded-lg outline-none focus:border-monday-blue hover:border-monday-subtext transition-colors bg-monday-bg text-monday-text"
-            />
           </div>
 
-          <div className="flex flex-col gap-1.5 mb-2">
-            <label className="text-[13px] font-semibold text-monday-text ml-1">Contraseña</label>
-            <input
-              type="password"
-              value={password}
-              onChange={e => setPassword(e.target.value)}
-              placeholder="••••••••"
-              className="w-full h-10 px-3 py-2 text-[14px] border border-monday-border rounded-lg outline-none focus:border-monday-blue hover:border-monday-subtext transition-colors bg-monday-bg text-monday-text"
-            />
-          </div>
+          <div className="relative flex items-center px-7 py-8 lg:px-10">
+            <div className="w-full max-w-[390px]">
+              <span className="inline-flex items-center px-3 py-1 rounded-full text-[10px] font-semibold uppercase tracking-[0.28em] text-white/60 bg-white/5 border border-white/10">
+                Sunday
+              </span>
+              <h1 className="mt-4 text-[38px] leading-[1.05] font-medium tracking-tight text-white">
+                Bienvenido
+                <br />
+                a Sunday
+              </h1>
+              <p className="mt-4 max-w-[270px] text-[13px] leading-5 text-white/70">
+                Una ventana simple, horizontal y limpia. El logo vive a la izquierda y el acceso a la derecha.
+              </p>
 
-          <button
-            type="submit"
-            disabled={loading}
-            className="w-full h-10 flex items-center justify-center gap-2 bg-monday-blue text-white rounded-lg font-semibold hover:bg-blue-600 active:scale-[0.98] transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            {loading ? 'Entrando...' : 'Continuar'}
-            {!loading && <ArrowRight size={16} />}
-          </button>
-        </form>
+              <div className="mt-8 h-px w-full bg-white/10" />
+
+              <form onSubmit={handleSubmit} className="mt-6 flex flex-col gap-4">
+                {error && (
+                  <div className="rounded-lg border border-red-400/20 bg-red-500/10 px-3 py-2 text-[12px] text-red-100">
+                    {error}
+                  </div>
+                )}
+
+                <div className="space-y-1.5">
+                  <label className="text-[12px] text-white/80">usuario:</label>
+                  <input
+                    type="text"
+                    autoFocus
+                    value={username}
+                    onChange={e => setUsername(e.target.value)}
+                    placeholder="Ej. tu_usuario"
+                    className="h-11 w-full rounded-[10px] border border-white/10 bg-white text-[#2a1c33] px-3 text-[14px] outline-none focus:border-[#7d63ff]"
+                  />
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="text-[12px] text-white/80">contraseña</label>
+                  <input
+                    type="password"
+                    value={password}
+                    onChange={e => setPassword(e.target.value)}
+                    placeholder="••••••••"
+                    className="h-11 w-full rounded-[10px] border border-white/10 bg-white text-[#2a1c33] px-3 text-[14px] outline-none focus:border-[#7d63ff]"
+                  />
+                </div>
+
+                <button
+                  type="submit"
+                  disabled={loading}
+                  className="mt-2 h-11 w-full rounded-[10px] bg-[#2088ff] text-white font-medium hover:bg-[#1b78e8] transition-colors disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                >
+                  {loading ? 'Entrando...' : 'Continuar'}
+                  {!loading && <ArrowRight size={15} />}
+                </button>
+              </form>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   );

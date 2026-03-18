@@ -5,9 +5,12 @@ import BoardContainer from './components/Board/BoardContainer';
 import { ItemDetailsPanel } from './components/Board/ItemDetailsPanel';
 import {
   Home, Bell, Search, ChevronDown, ChevronRight,
-  Users, BookOpen, BarChart2, Inbox, Star, Plus, Receipt, Calendar, Folder, PieChart, FolderOpen, UserCheck, GanttChart, Check, AlertCircle, X, Sun, Moon, Sparkles, LayoutGrid, Menu, ChevronLeft, PenSquare,
+  Users, BookOpen, BarChart2, Inbox, Star, Plus, Receipt, Calendar, Folder, PieChart, FolderOpen, UserCheck, GanttChart, Check, AlertCircle, X, Sun, Moon, Sparkles, LayoutGrid, Menu, ChevronLeft, Globe,
 } from 'lucide-react';
-
+import { Item, Board, Workspace, User } from './types';
+import { useUser } from './store/UserContext';
+import { AnimatedLogo } from './components/AnimatedLogo';
+import { Login } from './components/Login';
 type AppTheme = 'light' | 'dark' | 'night' | 'dawn' | 'fog' | 'plum' | 'ember';
 const THEME_STORAGE_KEY = 'sunday-theme';
 const THEME_COLORS: Record<AppTheme, string> = {
@@ -19,9 +22,6 @@ const THEME_COLORS: Record<AppTheme, string> = {
   plum: '#1b1026',
   ember: '#ff9800',
 };
-import { Item, Board, Workspace, User } from './types';
-import { useUser } from './store/UserContext';
-import { Login } from './components/Login';
 import { AdminUsersPanel } from './components/AdminUsersPanel';
 import { UserPanel } from './components/UserPanel';
 import { InboxPage } from './components/pages/InboxPage';
@@ -30,11 +30,12 @@ import { BandejaUnificadaPage } from './components/pages/BandejaUnificadaPage';
 import { SearchPage } from './components/pages/SearchPage';
 import DocsPage from './components/pages/DocsPage';
 import DocsExportPreviewPage from './components/pages/docs/DocsExportPreviewPage';
+import DocsPdfPreviewPage from './components/pages/docs/DocsPdfPreviewPage';
 import { TeamPage } from './components/pages/TeamPage';
 import { FacturacionPage } from './components/pages/FacturacionPage';
 import { WorkspaceOverviewPage } from './components/pages/WorkspaceOverviewPage';
 import { MiTrabajoPage } from './components/pages/MiTrabajoPage';
-import DesignPage from './components/pages/DesignPage';
+import BrowserPage from './components/pages/BrowserPage';
 import { TodayPage } from './components/pages/TodayPage';
 import { BottomNav, type BottomNavPage } from './components/BottomNav';
 import { MobileBoardHeaderMinimal } from './components/MobileBoardHeaderMinimal';
@@ -253,6 +254,9 @@ function App() {
     }
   });
   const [themeSelectorOpen, setThemeSelectorOpen] = useState(false);
+  const [loginExitTransition, setLoginExitTransition] = useState(false);
+  const hasMountedRef = useRef(false);
+  const prevUserRef = useRef<User | null>(null);
 
   useEffect(() => {
     if (typeof document === 'undefined') return;
@@ -266,9 +270,36 @@ function App() {
     const meta = document.querySelector('meta[name="theme-color"]');
     if (meta) meta.setAttribute('content', THEME_COLORS[theme]);
   }, [theme]);
+
+  useEffect(() => {
+    if (!hasMountedRef.current) {
+      hasMountedRef.current = true;
+      prevUserRef.current = currentUser;
+      return;
+    }
+    if (!prevUserRef.current && currentUser) {
+      setLoginExitTransition(true);
+      const timer = window.setTimeout(() => setLoginExitTransition(false), 1250);
+      prevUserRef.current = currentUser;
+      return () => window.clearTimeout(timer);
+    }
+    prevUserRef.current = currentUser;
+  }, [currentUser]);
   
   // Navigation state
-  const [activePage, setActivePage] = useState<'home' | 'inbox' | 'notifications' | 'board' | 'calendar' | 'search' | 'docs' | 'estudio' | 'team' | 'facturacion' | 'miTrabajo'>('board');
+  const [activePage, setActivePage] = useState<
+    'home'
+    | 'inbox'
+    | 'notifications'
+    | 'board'
+    | 'calendar'
+    | 'search'
+    | 'docs'
+    | 'browser'
+    | 'team'
+    | 'facturacion'
+    | 'miTrabajo'
+  >('board');
   const [boards, setBoards] = useState<Board[]>([]);
   const [boardsLoaded, setBoardsLoaded] = useState(false);
   const [activeBoardId, setActiveBoardId] = useState<string | null>(null);
@@ -620,7 +651,7 @@ function App() {
   }, [currentUser, workspacesLoaded, boardsLoaded]);
 
   if (!currentUser) {
-    return <Login />;
+    return <Login theme={theme} />;
   }
 
   const activeWorkspaceName =
@@ -633,7 +664,7 @@ function App() {
     (activePage === 'miTrabajo' && activeBoardId !== null) ||
     activePage === 'calendar' ||
     activePage === 'docs' ||
-    activePage === 'estudio' ||
+    activePage === 'browser' ||
     ['search', 'team', 'notifications', 'facturacion', 'inbox'].includes(activePage);
 
   const navIconsAll = [
@@ -643,7 +674,7 @@ function App() {
     { id: 'notifications', icon: <Bell size={22} strokeWidth={2.25} />, label: 'Notificaciones' },
     { id: 'search', icon: <Search size={22} strokeWidth={2.25} />, label: 'Buscar' },
     { id: 'docs', icon: <BookOpen size={22} strokeWidth={2.25} />, label: 'Docs' },
-    { id: 'estudio', icon: <PenSquare size={22} strokeWidth={2.25} />, label: 'Estudio' },
+    { id: 'browser', icon: <Globe size={22} strokeWidth={2.25} />, label: 'Navegador' },
     { id: 'team', icon: <Users size={22} strokeWidth={2.25} />, label: 'Equipo' },
   ];
   const navIcons = isTaller ? navIconsAll.filter(n => n.id === 'board' || n.id === 'calendar') : navIconsAll;
@@ -858,6 +889,15 @@ function App() {
     }
   };
 
+  const isPdfPreviewRoute = typeof window !== 'undefined' && window.location.pathname === '/docs/pdf-preview';
+  if (isPdfPreviewRoute) {
+    return (
+      <div className="min-h-screen bg-gray-100" style={{ margin: 0, padding: 0 }}>
+        <DocsPdfPreviewPage />
+      </div>
+    );
+  }
+
   const exportRouteParams = (() => {
     if (typeof window === 'undefined') return null;
     if (window.location.pathname !== '/docs/export') return null;
@@ -885,6 +925,14 @@ function App() {
 
   return (
     <div className="flex min-h-[100dvh] h-screen max-h-[100dvh] bg-monday-bg overflow-hidden font-sans pt-[env(safe-area-inset-top)] pr-[env(safe-area-inset-right)] pb-[env(safe-area-inset-bottom)] pl-[env(safe-area-inset-left)]">
+      {loginExitTransition && (
+        <div className="fixed inset-0 z-[120] pointer-events-none bg-[#0e0816]/82 backdrop-blur-[26px] flex items-center justify-center">
+          <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(255,255,255,0.24),transparent_22%),radial-gradient(circle_at_top,rgba(255,255,255,0.1),transparent_18%),linear-gradient(180deg,rgba(255,255,255,0.03),transparent_36%)]" />
+          <div className="login-exit-logo-wrap">
+            <AnimatedLogo size={440} color={theme === 'light' ? '#222221' : '#f8fafc'} />
+          </div>
+        </div>
+      )}
       {/* Drawer "Más" en móvil (sustituye sidebar + rail) */}
       {isMobile && (
         <MobileMoreDrawer
@@ -952,23 +1000,28 @@ function App() {
       {!isMobile && (
       <aside className="w-[56px] min-w-[56px] bg-black flex flex-col items-center py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] gap-1 z-30">
         {/* Logo */}
-        <div className="w-14 h-14 rounded-xl flex items-center justify-center mb-3 overflow-hidden">
-          <img
-            src="/logo.png"
-            alt="Sunday"
-            className="w-full h-full object-contain"
-            style={{ filter: 'brightness(0) invert(1)' }}
-          />
+        <div className="w-10 h-10 rounded-xl flex items-center justify-center mb-3 overflow-hidden">
+          <AnimatedLogo size={40} color="#f8fafc" />
         </div>
+        <div className="w-8 h-px bg-white/10 mb-3" />
 
         {!isMobile && navIcons.map(({ id, icon, label }) => (
           <button
             key={id}
             title={label}
             onClick={() => {
-              const pageIds = ['board', 'calendar', 'inbox', 'search', 'docs', 'estudio', 'team', 'notifications'] as const;
-              if (pageIds.includes(id)) {
-                setActivePage(id as typeof activePage);
+              const pageIds = [
+                'board',
+                'calendar',
+                'inbox',
+                'search',
+                'docs',
+                'browser',
+                'team',
+                'notifications',
+              ] as const;
+              if (pageIds.includes(id as (typeof pageIds)[number])) {
+                setActivePage(id as (typeof pageIds)[number]);
                 if (id === 'notifications') fetchUnreadNotifications();
                 if (id === 'calendar' && boards.length > 0 && !activeBoardId) setActiveBoardId(boards[0].id);
               }
@@ -1649,6 +1702,7 @@ if (ok && data && typeof data.id === 'string') {
                     else if (activePage === 'miTrabajo' && activeBoardId !== null) setActiveBoardId(null);
                     else if (activePage === 'calendar') setActivePage('board');
                     else if (activePage === 'docs') setActivePage('board');
+                    else if (activePage === 'browser') setActivePage('board');
                     else if (['search', 'team', 'facturacion'].includes(activePage)) setActivePage('board');
                     else if (activePage === 'inbox' || activePage === 'notifications') setActivePage(lastMainTab === 'home' ? 'board' : lastMainTab);
                   }}
@@ -1693,7 +1747,9 @@ if (ok && data && typeof data.id === 'string') {
                         ? 'Buscar'
                         : activePage === 'docs'
                           ? 'Docs'
-                          : activePage === 'team'
+                          : activePage === 'browser'
+                            ? 'Navegador'
+                            : activePage === 'team'
                             ? 'Equipo'
                             : activePage === 'facturacion'
                               ? 'Facturación'
@@ -2173,8 +2229,8 @@ if (ok && data && typeof data.id === 'string') {
               onAddTaskList={addTaskWindow}
               onAddCalculatorWidget={ensureCalculatorVisible}
             />
-          ) : activePage === 'estudio' ? (
-            <DesignPage
+          ) : activePage === 'browser' ? (
+            <BrowserPage
               workspaceId={activeWorkspaceId ?? workspaces[0]?.id ?? null}
             />
           ) : activePage === 'team' ? (

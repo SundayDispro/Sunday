@@ -3119,69 +3119,31 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
 
   const canSaveTemplateConfig = isAdmin && !!pdfDocType && !!templateConfigByType[pdfDocType];
 
-  const [downloadingPdf, setDownloadingPdf] = useState(false);
-  const handleDownloadPdf = async () => {
+  /** Abre una ventana con la vista 1:1 del documento para que el usuario guarde como PDF (captura como imagen). */
+  const handleGeneratePdf = () => {
     if (!selectedDoc || !isPdfDocType(selectedDoc.type as DocType)) return;
-    setDownloadingPdf(true);
-    setError(null);
+    const docType = selectedDoc.type as 'cotizacion' | 'levantamiento' | 'hoja_trabajo';
+    const config = templateConfigByType[docType];
+    const { contentToSend } = buildPdfContent({
+      docType,
+      parsedContent: parsed as Record<string, unknown>,
+      pdfFormDraft,
+      templateConfig: config,
+      selectedDocId: selectedDoc.id,
+    });
+    const payload = {
+      docType,
+      content: contentToSend,
+      templateConfig: effectiveTemplateConfigForPdf ?? config ?? null,
+      documentTitle: selectedDoc?.title ?? docType,
+    };
     try {
-      const docType = selectedDoc.type as 'cotizacion' | 'levantamiento' | 'hoja_trabajo';
-      const config = templateConfigByType[docType];
-
-      const { contentToSend } = buildPdfContent({
-        docType,
-        parsedContent: parsed as Record<string, unknown>,
-        pdfFormDraft,
-        templateConfig: config,
-        selectedDocId: selectedDoc.id,
-      });
-
-      const res = await apiFetch(`${API_BASE}/api/templates/${docType}/generate`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          content: contentToSend,
-          ...(selectedDoc.id ? { docId: selectedDoc.id } : {}),
-        }),
-      });
-
-      if (!res.ok) {
-        const text = await res.text();
-        let errMsg = 'Error al generar PDF';
-        try {
-          const data = text ? JSON.parse(text) : {};
-          if (typeof (data as { error?: string }).error === 'string') {
-            errMsg = (data as { error: string }).error;
-          }
-        } catch {
-          if (res.status === 404) {
-            errMsg = 'Plantilla no encontrada. Revisa que exista el PDF en backend/templates.';
-          }
-        }
-        throw new Error(errMsg);
-      }
-
-      const methodHeader = res.headers.get('X-PDF-Method');
-      if (methodHeader && methodHeader !== 'capture' && methodHeader !== 'client-capture') {
-        toast(
-          'PDF generado desde plantilla. Si no coincide con el preview, usa \"Descargar vista actual\".',
-          'info'
-        );
-      }
-
-      const blob = await res.blob();
-      const url = URL.createObjectURL(blob);
-      // Usar navegación directa: maximiza compatibilidad y evita bloqueos de popups.
-      window.location.href = url;
-      // Dejar un margen amplio antes de revocar para no cortar la carga.
-      setTimeout(() => {
-        URL.revokeObjectURL(url);
-      }, 60000);
+      localStorage.setItem('sunday_pdf_preview', JSON.stringify(payload));
+      const url = `${window.location.origin}/docs/pdf-preview?t=${Date.now()}`;
+      window.open(url, '_blank', 'noopener,noreferrer,width=920,height=960,scrollbars=yes');
     } catch (e) {
-      console.error('PDF download error', e);
-      setError(e instanceof Error ? e.message : 'No se pudo descargar el PDF.');
-    } finally {
-      setDownloadingPdf(false);
+      console.error('PDF preview open error', e);
+      setError(e instanceof Error ? e.message : 'No se pudo abrir la vista para PDF.');
     }
   };
 
@@ -3959,94 +3921,36 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
                     <>
                       <button
                         type="button"
-                        onClick={handleDownloadPdf}
-                        disabled={downloadingPdf}
-                        className="hidden sm:inline-flex items-center gap-1.5 px-3 py-1.5 rounded-monday border border-monday-border text-[13px] font-medium text-monday-text hover:bg-monday-hover disabled:opacity-60"
+                        onClick={handleGeneratePdf}
+                        className="hidden sm:inline-flex items-center gap-1.5 px-3 py-1.5 rounded-monday border border-monday-border text-[13px] font-medium text-monday-text hover:bg-monday-hover"
                       >
                         <Download size={14} />
-                        {downloadingPdf ? 'Descargando…' : 'Descargar PDF'}
+                        Generar PDF
                       </button>
                       <button
                         type="button"
-                        onClick={handleDownloadPdf}
-                        disabled={downloadingPdf}
-                        title="Descargar PDF"
-                        className="sm:hidden inline-flex items-center justify-center w-10 h-10 min-h-[44px] min-w-[44px] rounded-monday border border-monday-border text-monday-text hover:bg-monday-hover disabled:opacity-60 touch-manipulation"
+                        onClick={handleGeneratePdf}
+                        title="Generar PDF"
+                        className="sm:hidden inline-flex items-center justify-center w-10 h-10 min-h-[44px] min-w-[44px] rounded-monday border border-monday-border text-monday-text hover:bg-monday-hover touch-manipulation"
                       >
                         <Download size={18} />
                       </button>
-                      <div className="hidden sm:flex items-center gap-2">
-                        <a
-                          href={`https://wa.me/?text=${encodeURIComponent((selectedDoc.title || 'Documento') + ' ' + window.location.href)}`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-monday border border-monday-border text-[13px] font-medium text-monday-text hover:bg-monday-hover"
-                        >
-                          <MessageCircle size={14} />
-                          <span>Enviar por WhatsApp</span>
-                        </a>
-                        <a
-                          href={`mailto:?subject=${encodeURIComponent(selectedDoc.title || 'Documento')}&body=${encodeURIComponent('Revisa este documento: ' + window.location.href)}`}
-                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-monday border border-monday-border text-[13px] font-medium text-monday-text hover:bg-monday-hover"
-                        >
-                          <Mail size={14} />
-                          <span>Enviar por correo</span>
-                        </a>
-                        <button
-                          type="button"
-                          onClick={() => setViewMode('overview')}
-                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-monday bg-monday-blue text-white text-[13px] font-medium hover:bg-monday-blue/90"
-                        >
-                          <Pencil size={14} />
-                          <span>Editar plantilla</span>
-                        </button>
-                      </div>
-                      <Popover.Root open={viewerActionsOpen} onOpenChange={setViewerActionsOpen}>
-                        <Popover.Trigger asChild>
-                          <button
-                            type="button"
-                            className="sm:hidden inline-flex items-center justify-center w-10 h-10 min-h-[44px] min-w-[44px] rounded-monday border border-monday-border text-monday-text hover:bg-monday-hover touch-manipulation"
-                            title="Más acciones"
-                          >
-                            <MoreVertical size={18} />
-                          </button>
-                        </Popover.Trigger>
-                        <Popover.Portal>
-                          <Popover.Content
-                            className="z-50 p-2 rounded-xl shadow-lg border border-monday-border bg-white w-56"
-                            sideOffset={6}
-                            align="end"
-                            onOpenAutoFocus={e => e.preventDefault()}
-                          >
-                            <a
-                              href={`https://wa.me/?text=${encodeURIComponent((selectedDoc.title || 'Documento') + ' ' + window.location.href)}`}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="flex items-center gap-2 w-full px-3 py-2.5 rounded-lg hover:bg-monday-hover text-[13px] text-monday-text"
-                              onClick={() => setViewerActionsOpen(false)}
-                            >
-                              <MessageCircle size={16} />
-                              Enviar por WhatsApp
-                            </a>
-                            <a
-                              href={`mailto:?subject=${encodeURIComponent(selectedDoc.title || 'Documento')}&body=${encodeURIComponent('Revisa este documento: ' + window.location.href)}`}
-                              className="flex items-center gap-2 w-full px-3 py-2.5 rounded-lg hover:bg-monday-hover text-[13px] text-monday-text"
-                              onClick={() => setViewerActionsOpen(false)}
-                            >
-                              <Mail size={16} />
-                              Enviar por correo
-                            </a>
-                            <button
-                              type="button"
-                              onClick={() => { setViewerActionsOpen(false); setViewMode('overview'); }}
-                              className="flex items-center gap-2 w-full px-3 py-2.5 rounded-lg hover:bg-monday-hover text-[13px] text-monday-text text-left"
-                            >
-                              <Pencil size={16} />
-                              Editar plantilla
-                            </button>
-                          </Popover.Content>
-                        </Popover.Portal>
-                      </Popover.Root>
+                      <button
+                        type="button"
+                        onClick={() => setViewMode('overview')}
+                        className="hidden sm:inline-flex items-center gap-1.5 px-3 py-1.5 rounded-monday bg-monday-blue text-white text-[13px] font-medium hover:bg-monday-blue/90"
+                      >
+                        <Pencil size={14} />
+                        <span>Editar plantilla</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setViewMode('overview')}
+                        title="Editar plantilla"
+                        className="sm:hidden inline-flex items-center justify-center w-10 h-10 min-h-[44px] min-w-[44px] rounded-monday bg-monday-blue text-white hover:bg-monday-blue/90 touch-manipulation"
+                      >
+                        <Pencil size={18} />
+                      </button>
                     </>
                   ) : (
                     <>

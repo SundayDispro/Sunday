@@ -8,34 +8,38 @@ datasource db {
 }
 
 model User {
-  id               String         @id @default(uuid())
-  username         String         @unique
-  name             String
-  initials         String
-  color            String
-  password         String
-  role             String         @default("USER") // 'ADMIN' | 'VENTAS' | 'DISENO' | 'TALLER' | 'USER'
-  status           String         @default("offline") // 'available' | 'busy' | 'offline'
-  createdAt        DateTime       @default(now())
-  notifications    Notification[]
-  feedPosts        FeedPost[]
-  pushSubscriptions PushSubscription[]
-  updates          Update[]
+  id                   String                @id @default(uuid())
+  username             String                @unique
+  name                 String
+  initials             String
+  color                String
+  password             String
+  role                 String                @default("USER") // 'ADMIN' | 'VENTAS' | 'DISENO' | 'TALLER' | 'USER'
+  status               String                @default("offline") // 'available' | 'busy' | 'offline'
+  createdAt            DateTime              @default(now())
+  notifications        Notification[]
+  feedPosts            FeedPost[]
+  pushSubscriptions    PushSubscription[]
+  updates              Update[]
+  browserHistory       BrowserHistoryEntry[]
+  browserFavorites     BrowserFavorite[]
 }
 
 model Workspace {
-  id          String   @id @default(uuid())
-  name        String
-  description String?
-  panelNotes     String? // JSON array (legacy string): [{ id, x, y, title, body }] para vista general de Docs
-  panelNotesJson Json?   // Sombra JSONB para Postgres
-  docGroups      String? // JSON por usuario (legacy string): { "userId": { groups: [{ id, name }], assignments: { docId: groupId } } }
-  docGroupsJson  Json?   // Sombra JSONB para Postgres
-  boards      Board[]
-  docs        Doc[]
-  designs     Design[]
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id               String   @id @default(uuid())
+  name             String
+  description      String?
+  panelNotes       String? // JSON array (legacy string): [{ id, x, y, title, body }] para vista general de Docs
+  panelNotesJson   Json?   // Sombra JSONB para Postgres
+  docGroups        String? // JSON por usuario (legacy string): { "userId": { groups: [{ id, name }], assignments: { docId: groupId } } }
+  docGroupsJson    Json?   // Sombra JSONB para Postgres
+  boards           Board[]
+  docs             Doc[]
+  designs          Design[]
+  browserHistory   BrowserHistoryEntry[]
+  browserFavorites BrowserFavorite[]
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
 }
 
 model Board {
@@ -173,14 +177,40 @@ model Design {
   workspaceId String
   workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   name        String
-  content     String   @default("{}")   // JSON string (Fabric canvas)
-  contentJson Json?                     // Sombra JSONB para Postgres
+  content     String   @default("{}")   // JSON string (Fabric canvas o estructura mixta)
+  contentJson Json?                     // Sombra JSONB para Postgres (json + svg)
   thumbnailUrl String?
   boardId     String?
   board       Board?   @relation(fields: [boardId], references: [id], onDelete: Cascade)
   createdBy   String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+}
+
+model BrowserHistoryEntry {
+  id          String    @id @default(uuid())
+  userId      String
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  workspaceId String?
+  workspace   Workspace? @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  url         String
+  title       String?
+  createdAt   DateTime  @default(now())
+
+  @@index([userId, createdAt(sort: Desc)])
+}
+
+model BrowserFavorite {
+  id          String    @id @default(uuid())
+  userId      String
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  workspaceId String?
+  workspace   Workspace? @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  url         String
+  title       String
+  createdAt   DateTime  @default(now())
+
+  @@index([userId, createdAt(sort: Desc)])
 }
 
 /// Configuración global de plantillas PDF (posiciones, fuente). Solo editable por ADMIN.

@@ -291,10 +291,10 @@ Cambios de hardening ya implementados en esta fase:
 
 - **Motor de PDF de cotizaciones vectoriales**  
   - El botón **“Descargar PDF”** de `DocsPage` para `cotizacion` ya no depende del HTML/WYSIWYG como ruta principal:  
-    - `POST /api/templates/:kind/generate` prioriza `generatePdfFromTemplate(kind, content)` con `pdf-lib`.  
-    - Si el render vectorial falla o no existe la plantilla, el backend cae al flujo HTML (`generatePdfFromDocument` / worker) como fallback.  
+    - `POST /api/templates/:kind/generate` prioriza ahora el flujo rasterizado (`generatePdfFromDocument` / worker) para producir una imagen de la página embebida en un PDF US Letter a 300 dpi efectivos.  
+    - Si la captura rasterizada falla, el backend cae al flujo vectorial (`generatePdfFromTemplate(kind, content)`) como fallback para no romper la descarga.  
   - Las fuentes `Averta Std` del flujo vectorial se cargan desde `backend/assets/fonts/AvertaStd` y se incrustan directamente en el PDF; esto explica que el resultado visual pueda diferir ligeramente del preview HTML aunque la tipografía sea la misma.  
-  - El flujo HTML/WYSIWYG sigue siendo útil como respaldo y para documentos sin plantilla vectorial, pero **no** es el camino dominante para cotización.
+  - El flujo HTML/WYSIWYG sigue siendo útil como respaldo y para documentos sin plantilla vectorial, pero **no** es el camino dominante para la descarga.
 
 - **Despliegue frontend y Nginx**  
 
@@ -588,9 +588,9 @@ sendNotificationToUser(userId, notif):
 
 Con esto se elimina el broadcast global innecesario y se reduce la presión sobre la red móvil.
 
-#### 4.2 Editor vectorial Estudio (Fabric.js)
+#### 4.2 Editor vectorial Estudio (Fabric.js) — pestaña retirada
 
-La app incorpora ahora una página **Estudio** (solo desktop) orientada a diseño vectorial para taller/señalética.
+La app incorporaba una página **Estudio** (solo desktop) orientada a diseño vectorial para taller/señalética. **En una actualización reciente la pestaña Estudio fue eliminada por completo de la navegación** por no cumplir con los estándares deseados. El modelo `Design`, los endpoints REST de diseños y el código del editor (Fabric.js, `DesignPage`, `VectorEditor`, etc.) pueden seguir presentes en el repositorio o en el backend, pero **ya no están accesibles desde la UI**: no hay icono ni ruta para Estudio en la barra lateral ni en el drawer móvil.
 
 - **Motor gráfico**:
   - Basado en **Fabric.js 6.x** sobre `<canvas>`, integrado en `VectorEditor`.
@@ -628,11 +628,27 @@ La app incorpora ahora una página **Estudio** (solo desktop) orientada a diseñ
   - Al pulsar **Guardar**, se llama a `canvas.toJSON()` y se envía vía `PATCH /api/designs/:id`.
   - El dirty flag se limpia al recibir respuesta correcta.
 
-Limitaciones actuales (respecto a Illustrator):
+Limitaciones que motivaron la retirada (respecto a estándares tipo Illustrator):
 
-- No hay todavía edición de nodos (subselección de puntos Bézier) ni operaciones booleanas avanzadas.
-- El snapping/guías y las unidades físicas (cm/m) aún no están implementados; el canvas trabaja esencialmente en px.
-- La integración con items de tablero (asociar un diseño a un `Item`) está pensada pero no cableada; se soporta relación opcional `boardId` pero no `itemId`.
+- No había edición de nodos (subselección de puntos Bézier) ni operaciones booleanas avanzadas.
+- El snapping/guías y las unidades físicas (cm/m) no estaban implementados; el canvas trabajaba en px.
+- La integración con items de tablero estaba pensada pero no cableada.
+
+#### 4.2.1 Pestaña Navegador (Browser) integrado
+
+Se añadió una **pestaña "Navegador"** en la barra lateral (desktop) y en el menú "Más" (móvil), con las siguientes características:
+
+- **Frontend** (`BrowserPage.tsx`):
+  - Barra de navegación con Atrás, Adelante, Recargar, campo de URL e iframe para mostrar la página.
+  - Panel lateral de favoritos (guardar/abrir/eliminar) y accesos rápidos (Google, Figma, YouTube, Wikipedia).
+  - URL por defecto: `https://www.google.com`; historial y favoritos cargados desde la API al montar.
+- **Backend**:
+  - Modelos Prisma `BrowserHistoryEntry` y `BrowserFavorite` (por usuario y opcionalmente por workspace).
+  - Endpoints: `GET/POST /api/browser/history`, `GET/POST /api/browser/favorites`, `DELETE /api/browser/favorites/:id`.
+  - Todas las rutas protegidas con `authenticateToken`.
+
+**Incidencia conocida (estado actual):**  
+Al entrar a la pestaña Navegador, **se muestra una pantalla vacía**: el área donde debería mostrarse el iframe con la página web aparece en negro/vacía. La barra superior (URL, botones) y el panel de favoritos son visibles, pero el contenido principal (iframe) no se renderiza correctamente o el contenedor no recibe altura suficiente en el layout. Este comportamiento está pendiente de resolución.
 
 #### 4.3 Generador de PDF (WYSIWYG)
 
@@ -689,9 +705,9 @@ PDF:
 
 Estado a marzo 2026 (actualizado tras integración de plantilla vectorial de cotización):
 
-- Para documentos de tipo **`cotizacion`**, el flujo principal de descarga usa la plantilla PDF vectorial (`backend/templates/cotizacion.pdf`) y el motor `generatePdfFromTemplate`, alimentado por `buildPdfContent` y `customBoxes` compartidos con el preview (`DocumentPageForPdf`).  
-- Las fuentes **Averta Std** se empaquetan en el backend en `backend/assets/fonts/AvertaStd` y se embeben mediante `pdf-lib`; en la práctica, la mayoría de visores muestran ya texto nítido y vectorial, aunque persisten pequeñas diferencias de “hinting”/renderizado frente al navegador (especialmente en tamaños pequeños, en el ajuste vertical de las cajas y en la lectura del total blanco sobre fondo oscuro).
-- El endpoint `POST /api/templates/:kind/generate` está configurado con una jerarquía clara: primero vectorial, luego fallback HTML worker si algo falla. La discrepancia visual entre preview y PDF final ya no debe interpretarse como falta de fuente, sino como una diferencia de métricas entre Chromium y pdf-lib.
+- Para documentos de tipo **`cotizacion`** (y el resto de plantillas), el flujo principal de descarga es **rasterizado a 300 dpi**: el endpoint `POST /api/templates/:kind/generate` llama a `generatePdfFromDocument` (worker en `pdfWorker.ts`), que renderiza el documento con el mismo HTML que el preview (`renderDocumentToHtml` / bundle CJS), captura una PNG a escala 300/96 y la embebe en un PDF US Letter con `createPdfFromScreenshotPng`. La plantilla PDF (`cotizacion.pdf`, etc.) se usa como imagen de fondo en ese render si existe. **Fallback**: si la generación rasterizada falla, se usa el motor vectorial `generatePdfFromTemplate` para no romper la descarga.  
+- Las fuentes **Averta Std** se cargan en el backend (`backend/assets/fonts/AvertaStd`) y se usan tanto en el bundle de render (worker) como en el flujo vectorial (`pdf-lib`); en la práctica, la mayoría de visores muestran ya texto nítido y vectorial, aunque persisten pequeñas diferencias de “hinting”/renderizado frente al navegador (especialmente en tamaños pequeños, en el ajuste vertical de las cajas y en la lectura del total blanco sobre fondo oscuro).
+- La cabecera de respuesta `X-PDF-Method` indica `raster-300dpi` o `vector-fallback` según el camino usado.
 
 #### 4.4 Reglas de negocio clave (Taller → Facturación)
 
@@ -778,10 +794,11 @@ Componentes clave:
 - `frontend/src/App.tsx`:
   - Orquestador general:
     - Estado de navegación (`activePage` virtual en lugar de `react-router`).
-    - Gestión de vistas (`table`, `kanban`, `calendar`, `facturacion`, `resumen`, `timeline`, **`estudio`**).
+    - Gestión de vistas (`table`, `kanban`, `calendar`, `facturacion`, `resumen`, `timeline`, **`browser`**).
+    - La pestaña **Estudio** fue eliminada; la pestaña **Navegador** (`browser`) está en la barra lateral y en el drawer.
     - Detección responsive (`matchMedia`, `ResizeObserver`).
     - Tema (`light` / `dark` / `night`) con persistencia en `localStorage` y sincronización con `<meta name="theme-color">`.
-  - Gestión de paneles móviles (bottom nav, sidebars) y drawer `MobileMoreDrawer` (donde **`Estudio` solo está disponible en desktop, no en móvil** para evitar complejidad de UX en pantallas pequeñas).
+  - Gestión de paneles móviles (bottom nav, sidebars) y drawer `MobileMoreDrawer` (incluye acceso a **Navegador**; Estudio ya no está en la app).
 
 - `frontend/src/store/socket.ts`:
   - Singleton de Socket.IO cliente.
@@ -797,12 +814,13 @@ Componentes clave:
   - Representación visual de tableros tipo Monday.com (grupos, items, columnas).
 
 - `frontend/src/components/pages/*`:
-  - `InboxPage`, `NotificationsPage`, `DocsPage`, `TeamPage`, `FacturacionPage`, `WorkspaceOverviewPage`, `MiTrabajoPage`, **`DesignPage` (Estudio)**.
-  - Cada página corresponde a una "vista" de datos de negocio específica.
+  - `InboxPage`, `NotificationsPage`, `DocsPage`, `TeamPage`, `FacturacionPage`, `WorkspaceOverviewPage`, `MiTrabajoPage`, **`BrowserPage` (Navegador)**.
+  - La página **DesignPage (Estudio)** fue retirada de la navegación; el código puede seguir en el repo pero no se monta desde `App.tsx`.
+  - Cada página corresponde a una "vista" de datos de negocio específica. **Incidencia conocida:** al entrar en la pestaña Navegador se muestra una pantalla vacía (el iframe/contenido principal no se ve).
 
 - `frontend/src/components/design/*`:
   - `VectorEditor`, `Toolbar`, `LayersPanel`, `PropertiesPanel`, `canvasSetup`, `designTypes`.
-  - Implementan el editor vectorial basado en Fabric.js para la página Estudio.
+  - Código del editor vectorial Fabric.js; ya no está expuesto en la UI al haberse eliminado la pestaña Estudio.
 
 Servicios:
 
@@ -921,9 +939,9 @@ Estado a marzo 2026 (actualizado):
   - Instrumentar tiempos de consulta de Prisma.
   - Medir número de conexiones Socket.IO activas.
 
-#### 6.4 Camino a un Estudio “tipo Illustrator”
+#### 6.4 Camino a un Estudio “tipo Illustrator” (en pausa)
 
-Además de las fases generales, el editor vectorial Estudio tiene su propia hoja de ruta específica:
+La pestaña **Estudio** fue eliminada de la aplicación por no cumplir con los estándares deseados. La siguiente hoja de ruta queda **en pausa**; si en el futuro se recupera un editor vectorial, podría retomarse:
 
 - **Fase E1 — Pluma y edición de nodos**  
   - Integrar `fabric-pen-tool` o un módulo equivalente sobre Fabric.js 6 para:
@@ -967,7 +985,7 @@ Además de las fases generales, el editor vectorial Estudio tiene su propia hoja
   - Botones desde columnas o panel de detalle de ítem: “Abrir en Estudio”.
   - Convenciones para exportar archivos listos para producción (nomenclatura, estructura de capas, tamaño físico).
 
-Estas fases, combinadas, acercan Estudio a una experiencia de trabajo **tipo Illustrator** pero centrada en los casos de uso del taller (rotulación, señalética, corte, etc.), manteniendo persistencia robusta en JSON/JSONB y un flujo de trabajo integrado con tableros y documentos de Sunday.
+Estas fases, combinadas, acercarían un futuro Estudio a una experiencia **tipo Illustrator** centrada en el taller. **Prioridad actual:** resolver la incidencia de la pestaña Navegador (pantalla vacía al entrar) antes de retomar funcionalidades de diseño vectorial.
 
 #### 6.5 Automatización ligera de despliegues (Git + script en servidor)
 
@@ -983,6 +1001,9 @@ Este enfoque mantiene un flujo sencillo (desarrollo en cualquier PC → `git pus
 ---
 
 ### 7. Edge Cases y Riesgos Remanentes
+
+- **Pestaña Navegador (Browser) — pantalla vacía**:
+  - Al entrar en la pestaña Navegador, el área principal donde debería mostrarse el iframe con la página web aparece vacía (pantalla oscura o en blanco). La barra de URL y el panel de favoritos son visibles; el fallo afecta al contenido embebido o al layout del contenedor del iframe. Pendiente de diagnóstico y corrección.
 
 - **Tokens expirados o inválidos**:
   - Si el frontend no captura correctamente todos los 401/403, pueden aparecer estados inconsistentes (UI que asume usuario logueado, pero backend lo rechaza).

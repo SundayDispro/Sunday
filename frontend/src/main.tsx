@@ -1,4 +1,4 @@
-import { StrictMode, useEffect } from 'react';
+import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import './index.css';
 import App from './App.tsx';
@@ -16,6 +16,21 @@ const enableServiceWorker = () => {
 };
 
 enableServiceWorker();
+
+// Evitar que errores de iframes de terceros (Google, etc.) disparen el overlay de error de React en desarrollo.
+// React Refresh se engancha a window.onerror; si dejamos pasar estos errores cross‑origin, tapa toda la UI con un screen morado.
+if (import.meta.env.DEV && typeof window !== 'undefined') {
+  window.addEventListener(
+    'error',
+    (event) => {
+      const target = event.target as EventTarget | null;
+      if (target instanceof HTMLIFrameElement) {
+        event.stopImmediatePropagation();
+      }
+    },
+    true,
+  );
+}
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

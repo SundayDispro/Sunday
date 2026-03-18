@@ -139,7 +139,11 @@ export const DesignPage: React.FC<DesignPageProps> = ({ workspaceId }) => {
           <VectorEditor
             designId={selectedDesign.id}
             initialName={selectedDesign.name}
-            initialContent={selectedDesign.contentJson ?? {}}
+            initialContent={
+              (selectedDesign.contentJson && typeof selectedDesign.contentJson === 'object' && (selectedDesign.contentJson as { json?: unknown }).json != null)
+                ? (selectedDesign.contentJson as { json: unknown }).json
+                : (selectedDesign.contentJson ?? {})
+            }
             onChangeName={(name) =>
               setDesigns((prev) =>
                 prev.map((d) => (d.id === selectedDesign.id ? { ...d, name } : d)),

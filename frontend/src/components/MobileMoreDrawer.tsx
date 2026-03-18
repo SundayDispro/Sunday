@@ -17,6 +17,7 @@ import {
   Sparkles,
   X,
   Inbox,
+  Globe,
 } from 'lucide-react';
 import * as Popover from '@radix-ui/react-popover';
 import { UserPanel } from './UserPanel';
@@ -36,7 +37,7 @@ interface MobileMoreDrawerProps {
   onBoardSearchChange: (value: string) => void;
   activeBoardId: string | null;
   onSelectBoard: (boardId: string | null) => void;
-  onNavigate: (page: 'notifications' | 'docs' | 'search' | 'team' | 'facturacion' | 'inbox') => void;
+  onNavigate: (page: 'notifications' | 'docs' | 'search' | 'team' | 'facturacion' | 'inbox' | 'browser') => void;
   theme: AppTheme;
   onThemeChange: (theme: AppTheme) => void;
   canSeeFacturacion: boolean;
@@ -84,7 +85,7 @@ export function MobileMoreDrawer({
     onOpenChange(false);
   };
 
-  const handleNav = (page: 'notifications' | 'docs' | 'search' | 'team' | 'facturacion' | 'inbox') => {
+  const handleNav = (page: 'notifications' | 'docs' | 'search' | 'team' | 'facturacion' | 'inbox' | 'browser') => {
     onNavigate(page);
     onOpenChange(false);
   };
@@ -297,6 +298,13 @@ export function MobileMoreDrawer({
                         Equipo
                       </button>
                     )}
+                    <button
+                      onClick={() => handleNav('browser')}
+                      className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-monday-text hover:bg-monday-hover transition-colors text-left text-[13px]"
+                    >
+                      <Globe size={18} className="text-monday-subtext shrink-0" />
+                      Navegador
+                    </button>
                     {canSeeFacturacion && (
                       <button
                         onClick={() => handleNav('facturacion')}

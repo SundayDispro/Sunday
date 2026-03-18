@@ -5,9 +5,10 @@ import type { DesignTool } from './designTypes';
 interface ToolbarProps {
   activeTool: DesignTool;
   onChangeTool: (tool: DesignTool) => void;
+  onImageClick?: () => void;
 }
 
-export const Toolbar: React.FC<ToolbarProps> = ({ activeTool, onChangeTool }) => {
+export const Toolbar: React.FC<ToolbarProps> = ({ activeTool, onChangeTool, onImageClick }) => {
   const buttonBase =
     'flex items-center justify-center w-9 h-9 rounded-xl border border-white/10 bg-white/5 text-white/80 hover:bg-white/10 hover:text-white transition-colors';
 
@@ -59,7 +60,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({ activeTool, onChangeTool }) =>
       <button
         type="button"
         className={`${buttonBase} ${isActive('image')}`}
-        onClick={() => onChangeTool('image')}
+        onClick={() => (onImageClick ? onImageClick() : onChangeTool('image'))}
         title="Imagen"
       >
         <ImageIcon size={18} />

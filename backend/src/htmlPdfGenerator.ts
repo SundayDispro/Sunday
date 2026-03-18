@@ -1,7 +1,9 @@
 import fs from 'fs';
 import path from 'path';
 import { Worker } from 'worker_threads';
+import { randomUUID } from 'crypto';
 import { buildDocumentWrapperHtml } from './documentHtmlBuilder';
+import { createPdfFromScreenshotPng } from './templatePdfGenerator';
 
 export interface HtmlPdfOptions {
   /**
@@ -91,6 +93,9 @@ function resolveImageUrlsToDataUrls(content: Record<string, unknown>): Record<st
 /** US Letter en px a 96 DPI: 612pt = 816px, 792pt = 1056px. Misma escala que el HTML de export. */
 const TEMPLATE_VIEWPORT_WIDTH = 816;
 const TEMPLATE_VIEWPORT_HEIGHT = 1056;
+const PDF_EXPORT_DPI = 300;
+const VIEWPORT_DPI = 96;
+const RASTER_SCALE = PDF_EXPORT_DPI / VIEWPORT_DPI;
 
 /**
  * Convierte la primera página del PDF de plantilla a imagen base64.
@@ -143,20 +148,21 @@ export async function generatePdfFromHtml(
 
   try {
     const page = await browser.newPage();
+    // Captura rasterizada a 300 dpi efectivos: 96 dpi de base * 3.125 = 300 dpi.
+    await page.setViewport({
+      width: TEMPLATE_VIEWPORT_WIDTH,
+      height: TEMPLATE_VIEWPORT_HEIGHT,
+      deviceScaleFactor: RASTER_SCALE,
+    });
     await page.setContent(html, { waitUntil: 'load', timeout: 60000 });
-
-    const pdf = await page.pdf({
-      format: options.format ?? 'Letter',
-      printBackground: true,
-      margin: {
-        top: '0mm',
-        right: '0mm',
-        bottom: '0mm',
-        left: '0mm',
-      },
+    await page.emulateMediaType('screen');
+    const screenshotBuffer = await page.screenshot({
+      type: 'png',
+      fullPage: true,
+      omitBackground: false,
     });
 
-    return Buffer.from(pdf);
+    return createPdfFromScreenshotPng(Buffer.from(screenshotBuffer as Buffer));
   } finally {
     await browser.close();
   }
@@ -245,5 +251,47 @@ export async function generatePdfFromDocument(
       reject(new Error(`PDF worker exited with code ${code}`));
     });
   });
+}
+
+export interface GeneratePdfFromExportPreviewOptions {
+  frontendUrl: string;
+  docId: string;
+  token: string;
+  contentKey?: string | null;
+  exportScale?: number;
+}
+
+export async function generatePdfFromExportPreview(
+  options: GeneratePdfFromExportPreviewOptions
+): Promise<Buffer> {
+  const { default: puppeteer } = await import('puppeteer');
+  const scale = options.exportScale && options.exportScale > 0 ? options.exportScale : RASTER_SCALE;
+  const url = new URL('/docs/export', options.frontendUrl);
+  url.searchParams.set('docId', options.docId);
+  url.searchParams.set('token', options.token);
+  if (options.contentKey) url.searchParams.set('contentKey', options.contentKey);
+  url.searchParams.set('scale', String(scale));
+
+  const browser = await puppeteer.launch({
+    headless: 'new',
+    args: ['--no-sandbox', '--disable-setuid-sandbox'],
+  });
+
+  try {
+    const page = await browser.newPage();
+    await page.setViewport({
+      width: TEMPLATE_VIEWPORT_WIDTH,
+      height: TEMPLATE_VIEWPORT_HEIGHT,
+      deviceScaleFactor: scale,
+    });
+    await page.goto(url.toString(), { waitUntil: 'networkidle0', timeout: 60000 });
+    await page.waitForSelector('[data-export-ready="true"]', { timeout: 60000 });
+    const root = await page.$('[data-export-root="true"]');
+    if (!root) throw new Error('No se encontró la vista de exportación');
+    const screenshotBuffer = await root.screenshot({ type: 'png' });
+    return createPdfFromScreenshotPng(Buffer.from(screenshotBuffer as Buffer));
+  } finally {
+    await browser.close();
+  }
 }
 

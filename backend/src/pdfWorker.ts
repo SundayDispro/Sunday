@@ -3,6 +3,7 @@ import path from 'path';
 import puppeteer from 'puppeteer';
 import { parentPort, workerData } from 'worker_threads';
 import { buildDocumentWrapperHtml } from './documentHtmlBuilder';
+import { createPdfFromScreenshotPng } from './templatePdfGenerator';
 
 type GeneratePdfFromDocumentOptions = {
   content: Record<string, unknown>;
@@ -74,8 +75,13 @@ function resolveImageUrlsToDataUrls(content: Record<string, unknown>): Record<st
   return { ...content, customBoxes: resolvedBoxes };
 }
 
+// US Letter a 96 DPI lógico: 612pt → 816px, 792pt → 1056px
 const TEMPLATE_VIEWPORT_WIDTH = 816;
 const TEMPLATE_VIEWPORT_HEIGHT = 1056;
+/** Escala para 300 dpi efectivos en la captura PNG (300/96 ≈ 3.125). */
+const PDF_EXPORT_DPI = 300;
+const VIEWPORT_DPI = 96;
+const RENDER_SCALE = PDF_EXPORT_DPI / VIEWPORT_DPI;
 
 async function getTemplatePdfFirstPageAsDataUrlWithBrowser(
   browser: Awaited<ReturnType<typeof puppeteer.launch>>,
@@ -158,7 +164,11 @@ async function runInWorker(payload: WorkerPayload): Promise<Buffer> {
           });
 
     const page = await browser.newPage();
-    await page.setViewport({ width: 816, height: 1056, deviceScaleFactor: 1 });
+    await page.setViewport({
+      width: TEMPLATE_VIEWPORT_WIDTH,
+      height: TEMPLATE_VIEWPORT_HEIGHT,
+      deviceScaleFactor: RENDER_SCALE,
+    });
     await page.setContent(html, {
       waitUntil: 'load',
       baseURL: apiBaseUrl || 'http://localhost:3001',
@@ -182,13 +192,13 @@ async function runInWorker(payload: WorkerPayload): Promise<Buffer> {
     ]);
 
     await page.emulateMediaType('screen');
-    const pdf = await page.pdf({
-      format: format === 'Letter' ? 'Letter' : 'A4',
-      printBackground: true,
-      margin: { top: '0mm', right: '0mm', bottom: '0mm', left: '0mm' },
+    const screenshotBuffer = await page.screenshot({
+      type: 'png',
+      fullPage: true,
+      omitBackground: false,
     });
 
-    return Buffer.from(pdf);
+    return createPdfFromScreenshotPng(Buffer.from(screenshotBuffer as Buffer));
   } finally {
     await browser.close();
   }

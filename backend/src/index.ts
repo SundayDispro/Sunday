@@ -10,7 +10,7 @@ import multer from 'multer';
 import { PrismaClient, Prisma } from '@prisma/client';
 import { attachUserFromJwt, authenticateToken, hashPassword, requireAdmin, requireAuth, verifyPassword, signJwt, verifyJwt, verifyExportToken, signExportToken, getExportDocIdFromToken } from './auth';
 import webpush from 'web-push';
-import { getTemplatePathIfExists, getTemplateImagePathIfExists, generateFilledPdf, generatePdfFromTemplate, getTemplatesDir, TemplateKind, createPdfFromScreenshotPng } from './templatePdfGenerator';
+import { getTemplatePathIfExists, getTemplateImagePathIfExists, generateFilledPdf, generatePdfFromTemplate, getTemplatesDir, TemplateKind } from './templatePdfGenerator';
 import * as notificationsService from './services/notifications';
 
 const prisma = new PrismaClient();
@@ -875,7 +875,12 @@ app.post('/api/login', async (req, res) => {
       return res.status(400).json({ error: 'Usuario y contraseña son obligatorios' });
     }
 
-    const user = await prisma.user.findUnique({ where: { username } });
+    const normalizedUsername = username.trim();
+    const user = await prisma.user.findFirst({
+      where: {
+        username: { equals: normalizedUsername, mode: 'insensitive' },
+      },
+    });
     if (!user) {
       return res.status(401).json({ error: 'Credenciales inválidas' });
     }
@@ -1610,12 +1615,19 @@ app.post('/api/designs', authenticateToken, async (req, res) => {
     }
     const name = (body.name && String(body.name).trim()) || 'Nuevo diseño';
     const rawContent = body.content ?? {};
-    const content =
-      typeof rawContent === 'string' ? rawContent : JSON.stringify(rawContent);
-    const contentJson =
-      typeof rawContent === 'string'
-        ? (JSON.parse(rawContent) as unknown as Prisma.JsonValue)
-        : (rawContent as unknown as Prisma.JsonValue);
+    let content: string;
+    let contentJson: Prisma.JsonValue | undefined;
+    if (typeof rawContent === 'string') {
+      content = rawContent;
+      try {
+        contentJson = JSON.parse(rawContent) as unknown as Prisma.JsonValue;
+      } catch {
+        contentJson = undefined;
+      }
+    } else {
+      content = JSON.stringify(rawContent);
+      contentJson = rawContent as unknown as Prisma.JsonValue;
+    }
     const design = await prisma.design.create({
       data: {
         name,
@@ -1660,12 +1672,17 @@ app.patch('/api/designs/:id', authenticateToken, async (req, res) => {
     if (body.name !== undefined) data.name = String(body.name).trim() || 'Sin título';
     if (body.content !== undefined) {
       const rawContent = body.content;
-      data.content =
-        typeof rawContent === 'string' ? rawContent : JSON.stringify(rawContent ?? {});
-      data.contentJson =
-        typeof rawContent === 'string'
-          ? (JSON.parse(rawContent) as unknown as Prisma.JsonValue)
-          : (rawContent as unknown as Prisma.JsonValue);
+      if (typeof rawContent === 'string') {
+        data.content = rawContent;
+        try {
+          data.contentJson = JSON.parse(rawContent) as unknown as Prisma.JsonValue;
+        } catch {
+          data.contentJson = undefined;
+        }
+      } else {
+        data.content = JSON.stringify(rawContent ?? {});
+        data.contentJson = rawContent as unknown as Prisma.JsonValue;
+      }
     }
     if (body.thumbnailUrl !== undefined) {
       data.thumbnailUrl = body.thumbnailUrl ? String(body.thumbnailUrl) : null;
@@ -1695,6 +1712,142 @@ app.delete('/api/designs/:id', authenticateToken, async (req, res) => {
       return res.status(404).json({ error: 'Design no encontrado' });
     }
     res.status(500).json({ error: 'Failed to delete design' });
+  }
+});
+
+// --- Browser integrated tab: history & favorites ---
+
+app.get('/api/browser/history', authenticateToken, async (req, res) => {
+  try {
+    const userId = req.authUser?.id;
+    if (!userId) {
+      return res.status(401).json({ error: 'No autenticado' });
+    }
+    const { workspaceId } = req.query as { workspaceId?: string };
+    const entries = await prisma.browserHistoryEntry.findMany({
+      where: {
+        userId,
+        ...(workspaceId ? { workspaceId } : {}),
+      },
+      orderBy: {
+        createdAt: 'desc',
+      },
+      take: 100,
+    });
+    res.json(entries);
+  } catch (e) {
+    console.error('Error fetching browser history:', e);
+    res.status(500).json({ error: 'Failed to fetch browser history' });
+  }
+});
+
+app.post('/api/browser/history', authenticateToken, async (req, res) => {
+  try {
+    const userId = req.authUser?.id;
+    if (!userId) {
+      return res.status(401).json({ error: 'No autenticado' });
+    }
+    const body = req.body ?? {};
+    const rawUrl = String(body.url || '').trim();
+    if (!rawUrl) {
+      return res.status(400).json({ error: 'url es obligatoria' });
+    }
+    const url = rawUrl;
+    const title = body.title ? String(body.title).slice(0, 200) : null;
+    const workspaceId =
+      body.workspaceId && String(body.workspaceId).trim()
+        ? String(body.workspaceId).trim()
+        : null;
+    const entry = await prisma.browserHistoryEntry.create({
+      data: {
+        userId,
+        url,
+        title,
+        workspaceId: workspaceId ?? undefined,
+      },
+    });
+    res.status(201).json(entry);
+  } catch (e) {
+    console.error('Error creating browser history entry:', e);
+    res.status(500).json({ error: 'Failed to create browser history entry' });
+  }
+});
+
+app.get('/api/browser/favorites', authenticateToken, async (req, res) => {
+  try {
+    const userId = req.authUser?.id;
+    if (!userId) {
+      return res.status(401).json({ error: 'No autenticado' });
+    }
+    const { workspaceId } = req.query as { workspaceId?: string };
+    const favorites = await prisma.browserFavorite.findMany({
+      where: {
+        userId,
+        ...(workspaceId ? { workspaceId } : {}),
+      },
+      orderBy: {
+        createdAt: 'desc',
+      },
+      take: 100,
+    });
+    res.json(favorites);
+  } catch (e) {
+    console.error('Error fetching browser favorites:', e);
+    res.status(500).json({ error: 'Failed to fetch browser favorites' });
+  }
+});
+
+app.post('/api/browser/favorites', authenticateToken, async (req, res) => {
+  try {
+    const userId = req.authUser?.id;
+    if (!userId) {
+      return res.status(401).json({ error: 'No autenticado' });
+    }
+    const body = req.body ?? {};
+    const rawUrl = String(body.url || '').trim();
+    if (!rawUrl) {
+      return res.status(400).json({ error: 'url es obligatoria' });
+    }
+    const url = rawUrl;
+    const title =
+      (body.title && String(body.title).trim()) ||
+      url;
+    const workspaceId =
+      body.workspaceId && String(body.workspaceId).trim()
+        ? String(body.workspaceId).trim()
+        : null;
+    const favorite = await prisma.browserFavorite.create({
+      data: {
+        userId,
+        url,
+        title: title.slice(0, 200),
+        workspaceId: workspaceId ?? undefined,
+      },
+    });
+    res.status(201).json(favorite);
+  } catch (e) {
+    console.error('Error creating browser favorite:', e);
+    res.status(500).json({ error: 'Failed to create browser favorite' });
+  }
+});
+
+app.delete('/api/browser/favorites/:id', authenticateToken, async (req, res) => {
+  try {
+    const userId = req.authUser?.id;
+    if (!userId) {
+      return res.status(401).json({ error: 'No autenticado' });
+    }
+    const { id } = req.params;
+    // Ensure the favorite belongs to the user
+    const fav = await prisma.browserFavorite.findUnique({ where: { id } });
+    if (!fav || fav.userId !== userId) {
+      return res.status(404).json({ error: 'Favorito no encontrado' });
+    }
+    await prisma.browserFavorite.delete({ where: { id } });
+    res.status(204).end();
+  } catch (e) {
+    console.error('Error deleting browser favorite:', e);
+    res.status(500).json({ error: 'Failed to delete browser favorite' });
   }
 });
 
@@ -1791,7 +1944,10 @@ app.post('/api/templates/:kind/fill', authenticateToken, async (req, res) => {
 
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
 
-// Generación PDF: con docId intentamos captura del preview (idéntico); si falla o no hay docId, pdf-lib o Puppeteer.
+// Generación PDF:
+// 1) Camino principal: captura 1:1 de la vista /docs/export (React + pdf.js + plantilla real) a 300 dpi.
+// 2) Fallback 1: worker interno (generatePdfFromDocument) rasterizado a 300 dpi sin depender del frontend.
+// 3) Fallback 2: PDF vectorial generatePdfFromTemplate para no romper la descarga.
 app.post('/api/templates/:kind/generate', authenticateToken, async (req, res) => {
   console.log(`[PDF] Generating ${req.params.kind}...`);
   try {
@@ -1799,39 +1955,66 @@ app.post('/api/templates/:kind/generate', authenticateToken, async (req, res) =>
     if (!TEMPLATE_KINDS.includes(kind as (typeof TEMPLATE_KINDS)[number])) {
       return res.status(400).json({ error: 'Tipo de plantilla no válido' });
     }
+
     const rawContent = req.body?.content;
     const content =
       rawContent && typeof rawContent === 'object' && !Array.isArray(rawContent)
         ? (rawContent as Record<string, unknown>)
         : {};
-    const imageDataUrl = typeof req.body?.imageDataUrl === 'string' ? String(req.body.imageDataUrl) : null;
     const docId = typeof req.body?.docId === 'string' ? req.body.docId.trim() : null;
-    const templatePdfPath = getTemplatePathIfExists(kind as (typeof TEMPLATE_KINDS)[number]);
 
-    // Plantilla PDF: rellenar con pdf-lib (misma plantilla + customBoxes que el preview).
-    // Para cotización priorizamos siempre la plantilla vectorial. Si algo falla, caemos
-    // automáticamente al flujo html-worker para no bloquear la descarga.
-    if (templatePdfPath) {
+    // Guardamos el contenido en caché para que la vista /docs/export lo use exactamente igual
+    // que el preview (buildPdfContent → customBoxes, etc.) y Puppeteer haga una captura 1:1.
+    const contentKey = crypto.randomUUID();
+    exportContentCache.set(contentKey, {
+      content,
+      docId: docId ?? '',
+      docType: kind,
+      expires: Date.now() + EXPORT_CONTENT_TTL_MS,
+    });
+
+    const exportToken = signExportToken({
+      userId: req.authUser!.id,
+      docId: docId ?? '',
+      purpose: 'export',
+    });
+
+    let buffer: Buffer;
+    let pdfMethod = 'client-capture';
+
+    try {
+      const { generatePdfFromExportPreview, generatePdfFromDocument } = await import('./htmlPdfGenerator');
+
+      // 1) Captura real del frontend (/docs/export) a escala 300/96 (300 dpi efectivos)
+      buffer = await generatePdfFromExportPreview({
+        frontendUrl: FRONTEND_URL,
+        docId: docId ?? '',
+        token: exportToken,
+        contentKey,
+        exportScale: 3.125,
+      });
+    } catch (clientCaptureError) {
+      console.warn('[PDF] Client capture failed, trying worker rasterization:', clientCaptureError);
       try {
-        const buffer = await generatePdfFromTemplate(kind as TemplateKind, content);
-        res.setHeader('X-PDF-Method', 'template');
-        res.setHeader('Content-Type', 'application/pdf');
-        res.setHeader('Content-Disposition', 'inline; filename="' + kind + '.pdf"');
-        return res.send(buffer);
-      } catch (err) {
-        console.error('[PDF] Error in generatePdfFromTemplate, falling back to html-worker:', err);
+        const { generatePdfFromDocument } = await import('./htmlPdfGenerator');
+        const templatePdfPath = getTemplatePathIfExists(kind as (typeof TEMPLATE_KINDS)[number]);
+        buffer = await generatePdfFromDocument({
+          content,
+          templatePdfPath: templatePdfPath ?? undefined,
+        });
+        pdfMethod = 'raster-300dpi';
+      } catch (workerError) {
+        console.warn('[PDF] Worker rasterization failed, falling back to vector PDF:', workerError);
+        buffer = await generatePdfFromTemplate(kind as TemplateKind, content);
+        pdfMethod = 'vector-fallback';
       }
+    } finally {
+      exportContentCache.delete(contentKey);
     }
 
-    const { generatePdfFromDocument } = await import('./htmlPdfGenerator');
-    const buffer = await generatePdfFromDocument({
-      content,
-      format: 'Letter',
-      templatePdfPath: templatePdfPath ?? undefined,
-    });
-    res.setHeader('X-PDF-Method', 'html-worker');
+    res.setHeader('X-PDF-Method', pdfMethod);
     res.setHeader('Content-Type', 'application/pdf');
-    res.setHeader('Content-Disposition', 'inline; filename="' + kind + '.pdf"');
+    res.setHeader('Content-Disposition', 'attachment; filename="' + kind + '.pdf"');
     res.send(buffer);
   } catch (e) {
     console.error('Error generating PDF:', e);
