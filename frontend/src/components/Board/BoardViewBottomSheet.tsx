@@ -10,8 +10,6 @@ import {
   PieChart,
   GanttChart,
   Check,
-  ChevronLeft,
-  ChevronRight,
 } from 'lucide-react';
 
 export type ViewMode = 'table' | 'kanban' | 'calendar' | 'facturacion' | 'resumen' | 'archivos' | 'miTrabajo' | 'timeline';
@@ -34,7 +32,6 @@ interface BoardViewBottomSheetProps {
   onChangeView: (view: ViewMode) => void;
   enabledViews: ViewMode[];
   onAddView: (view: ViewMode) => void;
-  onMoveView?: (view: ViewMode, direction: 'left' | 'right') => void;
   canSeeFacturacion: boolean;
   isTaller: boolean;
   onToggleStar?: () => void;
@@ -50,7 +47,6 @@ export function BoardViewBottomSheet({
   onChangeView,
   enabledViews,
   onAddView,
-  onMoveView,
   canSeeFacturacion,
   isTaller,
   onToggleStar,
@@ -133,28 +129,6 @@ export function BoardViewBottomSheet({
                       {currentView === tab.id ? <Check size={18} className="shrink-0 text-monday-blue" /> : <span className="w-[18px] shrink-0" />}
                       {tab.label}
                     </button>
-                    {!!onMoveView && viewTabs.length > 1 && (
-                      <div className="flex items-center gap-0.5 shrink-0">
-                        <button
-                          type="button"
-                          onClick={() => onMoveView(tab.id, 'left')}
-                          disabled={idx === 0}
-                          className="min-h-[40px] min-w-[36px] flex items-center justify-center rounded-md border border-monday-border text-monday-subtext hover:bg-monday-hover disabled:opacity-35 disabled:cursor-not-allowed"
-                          title="Mover a la izquierda"
-                        >
-                          <ChevronLeft size={16} />
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => onMoveView(tab.id, 'right')}
-                          disabled={idx === viewTabs.length - 1}
-                          className="min-h-[40px] min-w-[36px] flex items-center justify-center rounded-md border border-monday-border text-monday-subtext hover:bg-monday-hover disabled:opacity-35 disabled:cursor-not-allowed"
-                          title="Mover a la derecha"
-                        >
-                          <ChevronRight size={16} />
-                        </button>
-                      </div>
-                    )}
                   </div>
                 ))}
 

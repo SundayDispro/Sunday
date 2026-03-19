@@ -67,14 +67,36 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return outputArray;
   };
 
-  const ensurePushSubscription = async () => {
+  const ensurePushSubscription = async (opts?: { allowRequestPermission?: boolean }) => {
     try {
       if (!currentUser) return;
       if (!('serviceWorker' in navigator) || !('PushManager' in window) || typeof Notification === 'undefined') {
+        try {
+          localStorage.setItem('sunday_push_last_error', 'Push no soportado (serviceWorker/PushManager/Notification faltan).');
+        } catch {/* ignore */}
         return;
       }
-      const permission = await Notification.requestPermission();
-      if (permission !== 'granted') return;
+
+      const allowRequestPermission = opts?.allowRequestPermission ?? true;
+
+      // iOS Safari solo permite Web Push en contextos seguros (HTTPS) y con PWA instalada.
+      if (typeof window !== 'undefined' && !window.isSecureContext) {
+        try {
+          localStorage.setItem('sunday_push_last_error', 'Push requiere contexto seguro (HTTPS) y PWA instalada.');
+        } catch {/* ignore */}
+        console.warn('[push] isSecureContext=false; Web Push no funcionará en Safari.');
+        return;
+      }
+
+      // Verificamos el estado antes de pedir permiso: si ya está "granted", no re-preguntamos.
+      // Si está "default", solicitamos permiso solo cuando el usuario abre la app en modo PWA.
+      const permission = Notification.permission;
+      if (permission === 'denied') return;
+      if (permission === 'default' && allowRequestPermission) {
+        const next = await Notification.requestPermission();
+        if (next !== 'granted') return;
+      }
+      if (Notification.permission !== 'granted') return;
 
       const reg = await navigator.serviceWorker.ready;
       const existingSub = await reg.pushManager.getSubscription();
@@ -96,10 +118,40 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
           body: JSON.stringify({ userId: currentUser.id, subscription }),
         });
       }
+
+      // Depuración: confirmar que backend ve la suscripción.
+      try {
+        const statusRes = await apiFetch(`${API_BASE}/api/push/status`);
+        if (statusRes.ok) {
+          const status = await statusRes.json();
+          // eslint-disable-next-line no-console
+          console.log('[push] status', status);
+        }
+      } catch {
+        // ignore
+      }
     } catch (e) {
       console.error('Error asegurando suscripción push', e);
+      try {
+        localStorage.setItem('sunday_push_last_error', String(e));
+      } catch {/* ignore */}
     }
   };
+
+  // Al abrir la app como PWA (standalone), verificamos el estado de push y activamos suscripción si hace falta.
+  useEffect(() => {
+    const userId = currentUser?.id;
+    if (!userId) return;
+    try {
+      const standalone = window.matchMedia?.('(display-mode: standalone)')?.matches || (navigator as any).standalone === true;
+      if (!standalone) return;
+      // En PWA verificamos/actualizamos suscripción. Si falta permiso, intentamos solicitarlo.
+      ensurePushSubscription({ allowRequestPermission: true });
+    } catch {
+      // ignore
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentUser?.id]);
 
   const login = async (username: string, password: string) => {
     try {
@@ -115,7 +167,8 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
         localStorage.setItem('sunday_token', data.token);
         reconnectSocketWithAuth();
         await fetchUsers();
-        await ensurePushSubscription();
+        // Login sí cuenta como "gesto" para pedir permiso si hace falta.
+        await ensurePushSubscription({ allowRequestPermission: true });
       }
       // Si !res.ok, parseResponse ya lanzó con el mensaje de error
     } catch (e) {

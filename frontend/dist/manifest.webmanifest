@@ -1,21 +1,30 @@
 {
-  "name": "Sunday – Work OS",
-  "short_name": "Sunday",
-  "start_url": "/",
+  "name": "Sunday App V6",
+  "short_name": "SundayV6",
+  "start_url": "/?pwa=v6-home",
+  "id": "/?pwa=v6-home",
   "display": "standalone",
   "background_color": "#ffffff",
   "theme_color": "#0055ff",
   "lang": "es-ES",
   "icons": [
     {
-      "src": "/icon-192.png",
-      "sizes": "192x192",
-      "type": "image/png"
+      "src": "/icon-180.v6.png",
+      "sizes": "180x180",
+      "type": "image/png",
+      "purpose": "any maskable"
     },
     {
-      "src": "/icon-512.png",
+      "src": "/icon-192.v6.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/icon-512.v6.png",
       "sizes": "512x512",
-      "type": "image/png"
+      "type": "image/png",
+      "purpose": "any maskable"
     }
   ]
 }

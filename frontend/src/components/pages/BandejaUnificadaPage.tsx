@@ -37,7 +37,7 @@ export const BandejaUnificadaPage: React.FC<BandejaUnificadaPageProps> = ({
   };
 
   return (
-    <div className="flex flex-col h-full min-h-0">
+    <div className="flex flex-col min-h-0">
       <div className="shrink-0 flex border-b border-monday-border bg-white">
         <button
           type="button"

@@ -35,6 +35,28 @@ export const NotificationsPage: React.FC<NotificationsPageProps> = ({
   const [onlyUnread, setOnlyUnread] = useState(false);
   const [showRead, setShowRead] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  const [mentionsReadAt, setMentionsReadAt] = useState<number>(0);
+
+  const getMentionsReadAtKey = (userId: string) => `sunday_mentions_read_at_${userId}`;
+
+  const isMentionRead = (post: FeedPostMention) => {
+    const ts = new Date(post.createdAt).getTime();
+    if (!Number.isFinite(ts)) return true; // si no hay fecha válida, lo tratamos como "leído"
+    return ts <= mentionsReadAt;
+  };
+
+  const markMentionAsRead = (post: FeedPostMention) => {
+    if (!currentUser?.id) return;
+    const ts = new Date(post.createdAt).getTime();
+    if (!Number.isFinite(ts)) return;
+    const next = Math.max(mentionsReadAt, ts);
+    setMentionsReadAt(next);
+    try {
+      localStorage.setItem(getMentionsReadAtKey(currentUser.id), String(next));
+    } catch {
+      // ignore: localStorage puede fallar en algunos entornos
+    }
+  };
 
   const fetchNotifications = async () => {
     if (!currentUser?.id) return;
@@ -69,6 +91,18 @@ export const NotificationsPage: React.FC<NotificationsPageProps> = ({
     Promise.all([fetchNotifications(), fetchMentions()]).finally(() => setLoading(false));
   }, [currentUser?.id]);
 
+  // Cargar el "read cursor" local de menciones (bandeja móvil).
+  useEffect(() => {
+    if (!currentUser?.id) return;
+    try {
+      const raw = localStorage.getItem(getMentionsReadAtKey(currentUser.id));
+      const parsed = raw == null ? 0 : Number(raw);
+      setMentionsReadAt(Number.isFinite(parsed) ? parsed : 0);
+    } catch {
+      setMentionsReadAt(0);
+    }
+  }, [currentUser?.id]);
+
   const markAsRead = async (id: string) => {
     try {
       const res = await apiFetch(`${API_BASE}/api/notifications/${id}/read`, { method: 'PATCH' });
@@ -90,6 +124,14 @@ export const NotificationsPage: React.FC<NotificationsPageProps> = ({
       );
       if (res.ok) {
         setNotifications(prev => prev.map(n => ({ ...n, read: true })));
+        // Marca menciones como leídas localmente (no hay read/unread persistente para FeedPost).
+        const next = Date.now();
+        setMentionsReadAt(next);
+        try {
+          localStorage.setItem(getMentionsReadAtKey(currentUser.id), String(next));
+        } catch {
+          // ignore
+        }
         onNotificationsChange?.();
       }
     } catch (err) {
@@ -106,13 +148,12 @@ export const NotificationsPage: React.FC<NotificationsPageProps> = ({
     }
   };
 
-  const handleMentionClick = () => {
-    if (onOpenInbox) {
-      onOpenInbox();
-    }
+  const handleMentionClick = (post?: FeedPostMention) => {
+    if (post) markMentionAsRead(post);
+    onOpenInbox?.();
   };
 
-  const unreadCount = notifications.filter(n => !n.read).length;
+  const unreadAssignmentsCount = notifications.filter(n => !n.read && (n.type === 'assigned' || n.item)).length;
   const assignments = notifications.filter(n => n.type === 'assigned' || n.item);
   const q = searchQuery.trim().toLowerCase();
 
@@ -132,12 +173,16 @@ export const NotificationsPage: React.FC<NotificationsPageProps> = ({
       n.item?.name?.toLowerCase().includes(q) ||
       n.item?.group?.board?.name?.toLowerCase().includes(q)
   );
-  const filteredMentions = mentions.filter(
+  const mentionsByQuery = mentions.filter(
     m =>
       !q ||
       m.content?.toLowerCase().includes(q) ||
       m.author?.name?.toLowerCase().includes(q)
   );
+  const mentionsUnread = mentionsByQuery.filter(m => !isMentionRead(m));
+  const mentionsRead = mentionsByQuery.filter(m => isMentionRead(m));
+  const unreadMentionsCount = mentionsUnread.length;
+  const unreadCount = unreadAssignmentsCount + unreadMentionsCount;
 
   const showAssignments = tab === 'all' || tab === 'assignments';
   const showMentions = tab === 'all' || tab === 'mentions';
@@ -361,16 +406,17 @@ export const NotificationsPage: React.FC<NotificationsPageProps> = ({
                 <h2 className="text-[12px] font-semibold text-monday-subtext uppercase tracking-wider mb-2">
                   Menciones
                 </h2>
-                {filteredMentions.length === 0 ? (
+
+                {(!onlyUnread && mentionsUnread.length === 0) || (onlyUnread && mentionsUnread.length === 0) ? (
                   <p className="text-[13px] text-monday-subtext py-2">
-                    No hay menciones. Te avisaremos cuando alguien te @mencione.
+                    No hay menciones sin leer. Te avisaremos cuando alguien te @mencione.
                   </p>
                 ) : (
                   <ul className="divide-y divide-monday-border">
-                    {filteredMentions.map(post => (
+                    {(onlyUnread ? mentionsUnread : mentionsUnread).map(post => (
                       <li
                         key={post.id}
-                        className="py-3 flex items-start gap-3 hover:bg-monday-hover/50 transition-colors"
+                        className="py-3 flex items-start gap-3 bg-blue-50/50 hover:bg-blue-50/50 transition-colors"
                       >
                         <div
                           className="w-9 h-9 rounded-full flex items-center justify-center text-white text-xs font-semibold shrink-0"
@@ -381,7 +427,7 @@ export const NotificationsPage: React.FC<NotificationsPageProps> = ({
                         <div className="flex-1 min-w-0">
                           <button
                             type="button"
-                            onClick={handleMentionClick}
+                            onClick={() => handleMentionClick(post)}
                             className="text-left w-full"
                           >
                             <p className="text-[14px] text-monday-text font-medium">
@@ -400,22 +446,91 @@ export const NotificationsPage: React.FC<NotificationsPageProps> = ({
                             </p>
                           </button>
                         </div>
-                        <button
-                          type="button"
-                          onClick={handleMentionClick}
-                          className="p-2 min-h-[44px] min-w-[44px] flex items-center justify-center rounded-lg text-monday-subtext hover:bg-monday-hover hover:text-monday-blue transition-colors shrink-0 touch-manipulation"
-                          title="Ir a la bandeja"
-                        >
-                          <ExternalLink size={16} />
-                        </button>
+
+                        <div className="flex items-center gap-1 shrink-0">
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              markMentionAsRead(post);
+                              onNotificationsChange?.();
+                            }}
+                            className="p-2 min-h-[44px] min-w-[44px] flex items-center justify-center rounded-lg text-monday-subtext hover:bg-monday-hover hover:text-monday-blue transition-colors touch-manipulation"
+                            title="Marcar como leída"
+                          >
+                            <Check size={16} />
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => handleMentionClick(post)}
+                            className="p-2 min-h-[44px] min-w-[44px] flex items-center justify-center rounded-lg text-monday-subtext hover:bg-monday-hover hover:text-monday-blue transition-colors shrink-0 touch-manipulation"
+                            title="Ir a la bandeja"
+                          >
+                            <ExternalLink size={16} />
+                          </button>
+                        </div>
                       </li>
                     ))}
                   </ul>
                 )}
+
+                {showRead && mentionsRead.length > 0 && (
+                  <div className="mt-4 border-t border-monday-border pt-3">
+                    <h3 className="text-[12px] font-semibold text-monday-subtext uppercase tracking-wider mb-2">
+                      Leídas
+                    </h3>
+                    <ul className="divide-y divide-monday-border">
+                      {mentionsRead.map(post => (
+                        <li
+                          key={post.id}
+                          className="py-3 flex items-start gap-3 bg-monday-hover/30"
+                        >
+                          <div
+                            className="w-9 h-9 rounded-full flex items-center justify-center text-white text-xs font-semibold shrink-0"
+                            style={{ backgroundColor: post.author?.color || '#555' }}
+                          >
+                            {post.author?.initials || '?'}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <button
+                              type="button"
+                              onClick={() => handleMentionClick(post)}
+                              className="text-left w-full"
+                            >
+                              <p className="text-[14px] text-monday-text font-medium">
+                                {post.author?.name ?? 'Alguien'} te mencionó
+                              </p>
+                              <p className="text-[13px] text-monday-subtext mt-0.5 line-clamp-2">
+                                {post.content}
+                              </p>
+                              <p className="text-[12px] text-monday-subtext mt-1">
+                                {new Date(post.createdAt).toLocaleDateString('es', {
+                                  day: 'numeric',
+                                  month: 'short',
+                                  hour: '2-digit',
+                                  minute: '2-digit',
+                                })}
+                              </p>
+                            </button>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => handleMentionClick(post)}
+                            className="p-2 min-h-[44px] min-w-[44px] flex items-center justify-center rounded-lg text-monday-subtext hover:bg-monday-hover hover:text-monday-blue transition-colors shrink-0 touch-manipulation"
+                            title="Ir a la bandeja"
+                          >
+                            <ExternalLink size={16} />
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
               </section>
             )}
 
-            {!loading && tab === 'all' && assignments.length === 0 && filteredMentions.length === 0 && (
+            {!loading && tab === 'all' && assignments.length === 0 && mentionsByQuery.length === 0 && (
               <div className="flex flex-col items-center justify-center py-16 text-monday-subtext">
                 <div className="w-16 h-16 rounded-full bg-monday-hover flex items-center justify-center mb-4">
                   <Bell size={28} className="opacity-60" />

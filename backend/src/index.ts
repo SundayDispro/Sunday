@@ -65,9 +65,44 @@ const io = new Server(httpServer, {
 let socketConnectionCount = 0;
 
 // Configuración Web Push (VAPID)
-const VAPID_PUBLIC_KEY = process.env.VAPID_PUBLIC_KEY;
-const VAPID_PRIVATE_KEY = process.env.VAPID_PRIVATE_KEY;
+let VAPID_PUBLIC_KEY = process.env.VAPID_PUBLIC_KEY;
+let VAPID_PRIVATE_KEY = process.env.VAPID_PRIVATE_KEY;
 const VAPID_SUBJECT = process.env.VAPID_SUBJECT || 'mailto:admin@example.com';
+
+// Si falta configuración de VAPID (por ejemplo en tu entorno local),
+// generamos y persistimos claves para que Web Push funcione sin editar env manualmente.
+// Nota: si ya existían suscripciones con otras claves, habrá que re-suscribir.
+const VAPID_KEYS_PATH = path.join(process.cwd(), 'vapid-keys.json');
+(() => {
+  if (VAPID_PUBLIC_KEY && VAPID_PRIVATE_KEY) return;
+
+  try {
+    const raw = fs.readFileSync(VAPID_KEYS_PATH, 'utf8');
+    const parsed = JSON.parse(raw) as { publicKey?: string; privateKey?: string };
+    if (parsed?.publicKey && parsed?.privateKey) {
+      VAPID_PUBLIC_KEY = parsed.publicKey;
+      VAPID_PRIVATE_KEY = parsed.privateKey;
+      process.env.VAPID_PUBLIC_KEY = parsed.publicKey;
+      process.env.VAPID_PRIVATE_KEY = parsed.privateKey;
+      return;
+    }
+  } catch {
+    // ignore (archivo no existe o JSON inválido)
+  }
+
+  try {
+    const keys = webpush.generateVAPIDKeys();
+    if (keys?.publicKey && keys?.privateKey) {
+      fs.writeFileSync(VAPID_KEYS_PATH, JSON.stringify(keys, null, 2), 'utf8');
+      VAPID_PUBLIC_KEY = keys.publicKey;
+      VAPID_PRIVATE_KEY = keys.privateKey;
+      process.env.VAPID_PUBLIC_KEY = keys.publicKey;
+      process.env.VAPID_PRIVATE_KEY = keys.privateKey;
+    }
+  } catch (e) {
+    console.warn('No se pudieron generar/leer claves VAPID para Web Push:', e);
+  }
+})();
 
 if (VAPID_PUBLIC_KEY && VAPID_PRIVATE_KEY) {
   webpush.setVapidDetails(VAPID_SUBJECT, VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY);
@@ -81,7 +116,10 @@ async function sendWebPushToUser(
   if (!VAPID_PUBLIC_KEY || !VAPID_PRIVATE_KEY) return;
   try {
     const subs = await prisma.pushSubscription.findMany({ where: { userId } });
-    const data = JSON.stringify(payload);
+    // Badging API (si está disponible) necesita un número.
+    // Aquí contamos solo notificaciones persistidas en BD (asignaciones/actualizaciones con Notification en tabla).
+    const unreadCount = await prisma.notification.count({ where: { userId, read: false } }).catch(() => 0);
+    const data = JSON.stringify({ ...payload, badgeCount: unreadCount });
     await Promise.all(
       subs.map(async (sub) => {
         try {
@@ -924,7 +962,7 @@ app.post('/api/feed', authenticateToken, async (req, res) => {
               await sendWebPushToUser(mu.id, {
                 title: 'Te mencionaron en Sunday',
                 body: preview,
-                url: '/inbox',
+                url: '/?tab=notifications',
                 tag: `mention-${post.id}`,
               });
             }
@@ -1194,6 +1232,16 @@ app.patch('/api/notifications/read-all', authenticateToken, async (req, res) => 
 
 // --- Web Push API (suscripciones PWA) ---
 
+// Debug público: valida si el backend tiene configurado VAPID.
+// (No devuelve llaves, solo estado para ayudarte a depurar PWA/Web Push en móvil.)
+app.get('/api/push/config', (_req, res) => {
+  res.json({
+    vapidConfigured: Boolean(VAPID_PUBLIC_KEY && VAPID_PRIVATE_KEY),
+    hasVapidPublicKey: Boolean(VAPID_PUBLIC_KEY),
+    hasVapidPrivateKey: Boolean(VAPID_PRIVATE_KEY),
+  });
+});
+
 // Devuelve la clave pública VAPID para que el frontend pueda suscribirse
 app.get('/api/push/public-key', (_req, res) => {
   if (!VAPID_PUBLIC_KEY) {
@@ -1252,6 +1300,51 @@ app.post('/api/push/unsubscribe', authenticateToken, async (req, res) => {
   } catch (e) {
     console.error('Error eliminando suscripción push:', e);
     res.status(500).json({ error: 'Error al eliminar suscripción push' });
+  }
+});
+
+// Debug: enviar un Web Push de prueba al usuario autenticado
+app.post('/api/push/test', authenticateToken, async (req, res) => {
+  try {
+    const userId = req.authUser?.id;
+    if (!userId) return res.status(401).json({ error: 'No autenticado' });
+
+    await sendWebPushToUser(userId, {
+      title: 'Test push Sunday',
+      body: 'Si recibes esto en iPhone, Web Push está funcionando.',
+      url: '/?tab=notifications',
+      tag: 'push-test',
+    });
+
+    res.json({ ok: true });
+  } catch (e) {
+    console.error('Error enviando push test:', e);
+    res.status(500).json({ error: 'Failed to send push test' });
+  }
+});
+
+// Estado de suscripción (útil para depurar PWA/Web Push en móvil)
+app.get('/api/push/status', authenticateToken, async (req, res) => {
+  try {
+    const userId = req.authUser?.id;
+    if (!userId) return res.status(401).json({ error: 'No autenticado' });
+
+    const subs = await prisma.pushSubscription.findMany({
+      where: { userId },
+      select: { id: true, endpoint: true },
+      orderBy: { createdAt: 'desc' },
+      take: 20,
+    });
+
+    res.json({
+      vapidConfigured: Boolean(VAPID_PUBLIC_KEY && VAPID_PRIVATE_KEY),
+      subscriptions: subs,
+      count: subs.length,
+      hasSubscription: subs.length > 0,
+    });
+  } catch (e) {
+    console.error('Error en /api/push/status:', e);
+    res.status(500).json({ error: 'Failed to fetch push status' });
   }
 });
 
@@ -2774,7 +2867,7 @@ io.on('connection', (socket) => {
         await sendWebPushToUser(assignedUserId, {
           title: 'Te asignaron un elemento',
           body: 'Revisa tus notificaciones en Sunday.',
-          url: '/inbox',
+          url: '/?tab=notifications',
           tag: `assigned-${itemId}`,
         });
       }
@@ -3048,7 +3141,7 @@ io.on('connection', (socket) => {
             await sendWebPushToUser(au.id, {
               title: 'Nuevo comentario en un elemento asignado',
               body: preview,
-              url: '/inbox',
+              url: '/?tab=notifications',
               tag: `comment-${item.id}`,
             });
           }

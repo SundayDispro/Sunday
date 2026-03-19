@@ -322,17 +322,6 @@ function App() {
       .filter(v => (v === 'facturacion' ? canSeeFacturacionView : true));
   }, [enabledViews, isTaller, canSeeFacturacionView]);
 
-  const moveBoardView = (view: ViewMode, direction: 'left' | 'right') => {
-    setEnabledViews(prev => {
-      const idx = prev.indexOf(view);
-      if (idx === -1) return prev;
-      const target = direction === 'left' ? idx - 1 : idx + 1;
-      if (target < 0 || target >= prev.length) return prev;
-      const next = [...prev];
-      [next[idx], next[target]] = [next[target], next[idx]];
-      return next;
-    });
-  };
   const boardTabSensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } })
   );
@@ -485,9 +474,33 @@ function App() {
     | 'miTrabajo'
   >(() => {
     if (typeof window === 'undefined') return 'board';
+    try {
+      const url = new URL(window.location.href);
+      const tab = url.searchParams.get('tab');
+      if (tab === 'notifications') return 'notifications';
+      if (tab === 'inbox') return 'inbox';
+      if (tab === 'home') return 'home';
+    } catch {
+      // ignore
+    }
     const isMobileInitial = window.innerWidth <= 767 || (window.matchMedia?.('(orientation: landscape) and (max-height: 500px)')?.matches ?? false);
     return isMobileInitial ? 'home' : 'board';
   });
+
+  // Deep-link desde notificaciones push:
+  // `/?tab=notifications` / `/?tab=inbox` (limpiamos el query param tras cargar).
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    try {
+      const url = new URL(window.location.href);
+      const tab = url.searchParams.get('tab');
+      if (!tab) return;
+      url.searchParams.delete('tab');
+      window.history.replaceState({}, document.title, `${url.pathname}${url.search}${url.hash}`);
+    } catch {
+      // ignore
+    }
+  }, []);
 
   // Animación del logo:
   // - Al entrar a una pestaña, se asigna un par (sol/rayos).
@@ -642,11 +655,48 @@ function App() {
   const fetchUnreadNotifications = React.useCallback(async () => {
     if (!currentUser?.id) return;
     try {
-      const res = await apiFetch(`${API_BASE}/api/notifications?userId=${currentUser.id}`);
-      if (res.ok) {
-        const data = await res.json();
-        setUnreadNotifCount(data.filter((n: { read: boolean }) => !n.read).length);
+      const userId = currentUser.id;
+
+      const getMentionsReadAtKey = (uid: string) => `sunday_mentions_read_at_${uid}`;
+      const getMentionsReadAt = (uid: string) => {
+        try {
+          const raw = localStorage.getItem(getMentionsReadAtKey(uid));
+          const parsed = raw == null ? 0 : Number(raw);
+          return Number.isFinite(parsed) ? parsed : 0;
+        } catch {
+          return 0;
+        }
+      };
+
+      const mentionsReadAt = getMentionsReadAt(userId);
+      const isMentionRead = (createdAt: string) => {
+        const ts = new Date(createdAt).getTime();
+        if (!Number.isFinite(ts)) return true;
+        return ts <= mentionsReadAt;
+      };
+
+      const [notifRes, mentionsRes] = await Promise.all([
+        apiFetch(`${API_BASE}/api/notifications?userId=${userId}`),
+        apiFetch(`${API_BASE}/api/feed?filter=mentions&userId=${encodeURIComponent(userId)}`),
+      ]);
+
+      let unreadAssignments = 0;
+      if (notifRes.ok) {
+        const data = await notifRes.json();
+        unreadAssignments = data.filter((n: { read: boolean }) => !n.read).length;
       }
+
+      let unreadMentions = 0;
+      if (mentionsRes.ok) {
+        const data = await mentionsRes.json();
+        const mentions = Array.isArray(data) ? data : [];
+        unreadMentions = mentions.filter((m: { createdAt?: string }) => {
+          if (!m.createdAt) return false;
+          return !isMentionRead(m.createdAt);
+        }).length;
+      }
+
+      setUnreadNotifCount(unreadAssignments + unreadMentions);
     } catch {
       // ignore
     }
@@ -655,6 +705,27 @@ function App() {
   useEffect(() => {
     fetchUnreadNotifications();
   }, [fetchUnreadNotifications]);
+
+  // iOS/Android (cuando el navegador soporta Badging API):
+  // mostrar contador en el ícono de la app con notificaciones sin leer.
+  useEffect(() => {
+    if (typeof navigator === 'undefined') return;
+    const navAny = navigator as any;
+    const setAppBadge = typeof navAny.setAppBadge === 'function' ? navAny.setAppBadge : null;
+    const clearAppBadge = typeof navAny.clearAppBadge === 'function' ? navAny.clearAppBadge : null;
+    if (!setAppBadge && !clearAppBadge) return;
+
+    const count = Math.max(0, unreadNotifCount ?? 0);
+    try {
+      if (count === 0 && clearAppBadge) {
+        clearAppBadge.call(navAny).catch(() => {});
+      } else if (setAppBadge) {
+        Promise.resolve(setAppBadge.call(navAny, count)).catch(() => {});
+      }
+    } catch {
+      // ignore
+    }
+  }, [unreadNotifCount]);
 
   useEffect(() => {
     if (!currentUser?.id) return;
@@ -2386,7 +2457,6 @@ if (ok && data && typeof data.id === 'string') {
                     setCurrentView(view);
                   }
                 }}
-                onMoveView={moveBoardView}
                 canSeeFacturacion={!!canSeeFacturacionView}
                 isTaller={!!isTaller}
                 onToggleStar={undefined}
@@ -2599,28 +2669,6 @@ if (ok && data && typeof data.id === 'string') {
                             isActive={currentView === tabId}
                             onSelect={setCurrentView}
                           />
-                          {orderedBoardTabs.length > 1 && (
-                            <div className="flex items-center gap-0.5">
-                              <button
-                                type="button"
-                                onClick={() => moveBoardView(tabId, 'left')}
-                                disabled={idx === 0}
-                                className="h-7 w-7 rounded border border-monday-border text-monday-subtext hover:bg-monday-hover disabled:opacity-35 disabled:cursor-not-allowed flex items-center justify-center"
-                                title="Mover vista a la izquierda"
-                              >
-                                <ChevronLeft size={14} />
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => moveBoardView(tabId, 'right')}
-                                disabled={idx === orderedBoardTabs.length - 1}
-                                className="h-7 w-7 rounded border border-monday-border text-monday-subtext hover:bg-monday-hover disabled:opacity-35 disabled:cursor-not-allowed flex items-center justify-center"
-                                title="Mover vista a la derecha"
-                              >
-                                <ChevronRight size={14} />
-                              </button>
-                            </div>
-                          )}
                         </div>
                       ))}
                     </SortableContext>
