@@ -32,7 +32,7 @@
   - **Editor/PDF**: ~95% (flujo 1:1 de descarga consolidado; quedan detalles finos en edge cases).  
   - **Seguridad JWT**: middleware y manejo en frontend implementados; pendiente endurecer algunos valores por defecto (`JWT_SECRET`, rondas bcrypt).  
   - **PostgreSQL**: esquema y campos sombra en producción, con migración lógica desde strings; continúan tareas de eliminación de código puramente legacy.  
-  - **Modo móvil/PWA**: ~80%, con UX optimizada pero pendiente pulir modo offline.
+  - **Modo móvil/PWA**: ~82%, con micro-editor de plantillas PDF en drawer (focus mode, modo mapa, borrador de emergencia); pendiente pulir **legibilidad del texto al editar en focus mode** (referencia vs. blur del fondo), ejecutar QA en dispositivos reales y modo offline.
 
 #### 0.1.1 Línea de tiempo detallada (vista histórica)
 
@@ -734,6 +734,21 @@ Estado a marzo 2026 (actualizado tras flujo Generar PDF y descarga 1:1):
 - Las fuentes **Averta Std** se cargan en el backend (`backend/assets/fonts/AvertaStd`) y se usan tanto en el bundle de render (worker) como en el flujo vectorial (`pdf-lib`); en la práctica, la mayoría de visores muestran ya texto nítido y vectorial, aunque persisten pequeñas diferencias de “hinting”/renderizado frente al navegador (especialmente en tamaños pequeños, en el ajuste vertical de las cajas y en la lectura del total blanco sobre fondo oscuro).
 - La cabecera de respuesta `X-PDF-Method` indica `raster-300dpi` o `vector-fallback` según el camino usado.
 
+#### 4.3.1 Micro-editor móvil de plantillas (plan «mobile-micro-editor»)
+
+Implementación consolidada en frontend (marzo 2026):
+
+- **`frontend/src/components/pages/DocsPage.tsx`**: drawer móvil «Editar plantilla» con scroll lock de `body`; **focus mode** (`focusModeOpen`, `activeBoxId`, geometría en %); panel contextual fijo **keyboard-aware** (`window.visualViewport`, `bottom` + `translateY`, transición suave); **barra de formato en el padre** (`TextFormatBarForTemplate`) con `renderFormatBarExternally`; ADMIN con **`textStyleOnly`** y sanitización de cambios en `customBoxes` (solo estilo); auto-zoom (~×1.6) y scroll con «factor de aire»; botón **Modo mapa** (blueprint); **auto-activación del mapa** si se detecta jank de frames (rAF, tras ~1,6 s); **borrador de emergencia** `localStorage` clave `sunday_draft_<documentId>` (`frontend/src/utils/emergencyPdfTemplateDraft.ts`); recuperación con confirm al reabrir; limpieza al guardar PDF OK y al cerrar drawer (excepto transición al overlay Master).
+- **`frontend/src/components/pages/docs/PdfTemplateEditor.tsx`**: `onActiveBoxChange`, `renderFormatBarExternally`, `focusZoomScale`, `onScrollContainerReady`; **blueprint** (no render PDF.js mientras activo, rejilla + wireframe de cajas); **`touch-action: pan-y`** en wrapper cuando `canvasTouchPanY`; doble clic y **doble toque** en lienzo vacío (`touchend` no pasivo) para reset del zoom de foco; **`fieldKey === 'fecha'`** → `input type="date"` con DD/MM/YYYY en el borrador.
+- **`frontend/src/components/docs/TextFormatBar.tsx`**: `uiMode?: 'full' | 'textStyleOnly'`; captura de `mousedown` en la barra para limitar pérdida de foco del `contentEditable`.
+- **Documentación**: checklist manual `docs/MOBILE_MICRO_EDITOR_QA.md`; plan de trabajo Cursor `mobile-micro-editor_6a5cd465.plan.md` (todos m1–m7 en estado *completed*).
+
+**Hueco de producto/UX (siguiente fase recomendada):**
+
+- Al escribir en la plantilla en **móvil con focus mode**, la superposición de **dim + `backdrop-blur`** sobre el lienzo hace que **no haya una referencia visual clara** del documento (el fondo/PDF se percibe poco); el texto activo puede resultar **difícil de contextualizar** frente a la plantilla impresa esperada. **Debe idearse** un tratamiento visual explícito: p. ej. blur solo fuera de la caja activa, “isla” nítida tipo papel, intensidad de dim configurable, vista previa temporal sin blur, contorno/guía de la caja frente al PDF, o combinar modo mapa + foco de otra forma — sin romper scroll lock, `contentEditable` ni el gating ADMIN.
+
+**Backlog técnico alineado con el plan (no bloqueante):** bloqueo fino de **pinch-zoom** en focus mode (`touch-action` más estricto que `pan-y`), **`will-change`** en capas drag/resize, bottom sheets para **color** u otras semánticas (`nota_iva` / `notas`), **Deshacer** en la barra de foco, y ejecución del QA en **Chrome móvil + Safari iOS**.
+
 #### 4.4 Reglas de negocio clave (Taller → Facturación)
 
 Trigger automático implementado en el servidor (`update_column_value` en `index.ts`):
@@ -1076,6 +1091,9 @@ Este enfoque mantiene un flujo sencillo (desarrollo en cualquier PC → `git pus
 - **Zoom involuntario en móvil tras login (iOS/Safari)** — corregido:
   - Síntoma: al enfocar inputs con tipografía <16px, Safari aplica zoom; al hacer login, el zoom puede persistir en la siguiente vista.
   - Mitigación aplicada: inputs del login usan `text-[16px]` en móvil (con `sm:text-[14px]` para desktop) y se fuerza `blur()` del elemento activo al enviar el formulario.
+
+- **Edición de plantilla PDF en móvil (focus mode) — referencia visual al escribir** — abierto:
+  - Con el dim y el **blur** del lienzo, el usuario puede **perder la referencia** respecto al aspecto final del PDF mientras edita texto en una caja. No es un bug de datos sino de **diseño de experiencia**; la siguiente fase debe proponer alternativas de UI (ver §4.3.1) y validarlas en dispositivos reales.
 
 **Estado del plan RBAC (marzo 2026):**
 - **Fase 1 (REST brechas críticas):** Completa — `/api/my-work` y `/api/search` con `authenticateToken` y filtrado por usuario.
