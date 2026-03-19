@@ -40,15 +40,22 @@ import {
 } from './docs/docTypes';
 import { FONT_OPTIONS, FONT_SIZES } from '../docs/TextFormatBar';
 import type { TemplateConfigState, CustomBoxDef } from './docs/pdfTemplateConfig';
-import { PdfTemplateEditor, PAGE_ASPECT } from './docs/PdfTemplateEditor';
+import { PdfTemplateEditor, PAGE_ASPECT, PAGE_WIDTH_PX_96DPI, PAGE_HEIGHT_PX_96DPI } from './docs/PdfTemplateEditor';
 import { buildPdfContent } from './docs/buildPdfContent';
-import { TextFormatBarForEditor } from '../docs/TextFormatBar';
+import { TextFormatBarForEditor, TextFormatBarForTemplate } from '../docs/TextFormatBar';
 import { useUser } from '../../store/UserContext';
 import { useToast } from '../Toast';
 import { socket } from '../../store/socket';
 import * as XLSX from 'xlsx';
 import { apiFetch } from '../../api';
 import { useViewport } from '../../hooks/useViewport';
+import {
+  readEmergencyDraftFromStorage,
+  writeEmergencyDraftToStorage,
+  clearEmergencyDraftFromStorage,
+  EMERGENCY_PDF_DRAFT_TTL_MS,
+  deepCloneJson,
+} from '../../utils/emergencyPdfTemplateDraft';
 
 const API_BASE = import.meta.env.DEV ? '' : (import.meta.env.VITE_API_URL || 'http://localhost:3001');
 
@@ -2216,8 +2223,12 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
     (parsed.headerImageUrl as string | null) ?? null
   );
   const [pdfFormDraft, setPdfFormDraft] = useState<Record<string, unknown>>({});
+  const pdfFormDraftRef = useRef(pdfFormDraft);
+  pdfFormDraftRef.current = pdfFormDraft;
   const skipNextPdfDraftSyncFromParsed = useRef(false);
   const [templateConfigByType, setTemplateConfigByType] = useState<Record<string, TemplateConfigState>>({});
+  const templateConfigByTypeRef = useRef(templateConfigByType);
+  templateConfigByTypeRef.current = templateConfigByType;
   const [templateConfigLoading, setTemplateConfigLoading] = useState<boolean>(false);
   const [savingTemplateConfig, setSavingTemplateConfig] = useState(false);
   /** Evita auto-guardar justo después de cargar la config desde la API. */
@@ -2230,12 +2241,31 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
   }, [isMobile, selectedId]);
   // Drawer móvil para editar plantillas (evita “scroll dentro de scroll”).
   const [templateEditorMobileOpen, setTemplateEditorMobileOpen] = useState(false);
+  // Focus Mode (Micro-Editor) para edición contextual en móvil.
+  const [focusModeOpen, setFocusModeOpen] = useState(false);
+  const [activeBoxId, setActiveBoxId] = useState<string | null>(null);
+  const [activeBoxGeom, setActiveBoxGeom] = useState<{
+    xPct: number;
+    yPct: number;
+    wPct: number;
+    hPct: number;
+  } | null>(null);
+  // PR2: auto-zoom/auto-scroll (override scale del editor y desplazamiento del contenedor).
+  const [focusZoomScale, setFocusZoomScale] = useState<number | null>(null);
+  const pdfScrollContainerElRef = useRef<HTMLDivElement | null>(null);
+  const pendingAutoScrollTimeoutRef = useRef<number | null>(null);
+  // PR2: panel contextual sobre el teclado (visualViewport).
+  const [focusPanelKeyboardGapPx, setFocusPanelKeyboardGapPx] = useState(0);
+  const [focusPanelTranslateYPx, setFocusPanelTranslateYPx] = useState(0);
+  const pendingFocusClearTimeoutRef = useRef<number | null>(null);
   const templateEditorDraftSnapshotRef = useRef<Record<string, unknown> | null>(null);
   const templateEditorTemplateConfigSnapshotRef = useRef<TemplateConfigState | null>(null);
   const templateEditorCloseAfterSaveRef = useRef(false);
   const adminMasterSyncAppliedForDocIdRef = useRef<string | null>(null);
   /** Si el master se abrió desde el drawer normal, al cerrar/guardar volver a abrirlo. */
   const reopenNormalAfterMasterRef = useRef(false);
+  /** Doc cuyo borrador de emergencia debe limpiarse al cerrar el drawer (no al pasar por Master). */
+  const templateDrawerDocIdRef = useRef<string | null>(null);
 
   // Drawer de ADMIN para editar el master global (3 tipos).
   const [templateMasterEditorOpen, setTemplateMasterEditorOpen] = useState(false);
@@ -2256,6 +2286,29 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
     };
   }, [templateEditorMobileOpen]);
 
+  // m6: limpiar borrador de emergencia al cerrar el drawer (no si solo se oculta para el overlay Master).
+  useEffect(() => {
+    if (templateEditorMobileOpen) return;
+    if (reopenNormalAfterMasterRef.current) return;
+    const docId = templateDrawerDocIdRef.current;
+    if (docId) {
+      clearEmergencyDraftFromStorage(docId);
+      templateDrawerDocIdRef.current = null;
+    }
+  }, [templateEditorMobileOpen]);
+
+  useEffect(() => {
+    // Cerrar Focus Mode al salir del drawer de edición para evitar paneles “fantasma”.
+    if (!templateEditorMobileOpen) {
+      setFocusModeOpen(false);
+      setActiveBoxId(null);
+      setActiveBoxGeom(null);
+      setFocusZoomScale(null);
+      setFocusPanelKeyboardGapPx(0);
+      setFocusPanelTranslateYPx(0);
+    }
+  }, [templateEditorMobileOpen]);
+
   useEffect(() => {
     if (!templateMasterEditorOpen) return;
     const prevOverflow = document.body.style.overflow;
@@ -2268,6 +2321,145 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
       document.body.style.paddingRight = prevPaddingRight;
     };
   }, [templateMasterEditorOpen]);
+
+  useEffect(() => {
+    if (templateMasterEditorOpen) {
+      setFocusModeOpen(false);
+      setActiveBoxId(null);
+      setActiveBoxGeom(null);
+      setFocusZoomScale(null);
+      setFocusPanelKeyboardGapPx(0);
+      setFocusPanelTranslateYPx(0);
+    }
+  }, [templateMasterEditorOpen]);
+
+  const handleActiveBoxChange = useCallback(
+    (payload: {
+      boxId: string | null;
+      boxKind?: 'text' | 'image';
+      xPct?: number;
+      yPct?: number;
+      wPct?: number;
+      hPct?: number;
+    }) => {
+      if (!templateEditorMobileOpen) return;
+
+      if (pendingFocusClearTimeoutRef.current != null) {
+        window.clearTimeout(pendingFocusClearTimeoutRef.current);
+        pendingFocusClearTimeoutRef.current = null;
+      }
+
+      if (!payload || payload.boxId === null) {
+        pendingFocusClearTimeoutRef.current = window.setTimeout(() => {
+          setFocusModeOpen(false);
+          setActiveBoxId(null);
+          setActiveBoxGeom(null);
+          pendingFocusClearTimeoutRef.current = null;
+        }, 150);
+        return;
+      }
+
+      const boxKind = payload.boxKind ?? 'text';
+      setActiveBoxId(payload.boxId);
+      if (
+        typeof payload.xPct === 'number' &&
+        typeof payload.yPct === 'number' &&
+        typeof payload.wPct === 'number' &&
+        typeof payload.hPct === 'number'
+      ) {
+        setActiveBoxGeom({
+          xPct: payload.xPct,
+          yPct: payload.yPct,
+          wPct: payload.wPct,
+          hPct: payload.hPct,
+        });
+      } else {
+        setActiveBoxGeom(null);
+      }
+
+      // En PR1 abrimos Focus Mode solo para texto (contentEditable).
+      setFocusModeOpen(boxKind === 'text');
+    },
+    [templateEditorMobileOpen]
+  );
+
+  // PR2: Panel contextual "keyboard-aware" (visualViewport) en móvil.
+  useEffect(() => {
+    if (!templateEditorMobileOpen) return;
+    if (!focusModeOpen) return;
+
+    const vv = window.visualViewport;
+
+    const update = () => {
+      const v = window.visualViewport;
+      if (!v) return;
+      const kbGap = Math.max(0, window.innerHeight - (v.height ?? window.innerHeight));
+      setFocusPanelKeyboardGapPx(kbGap);
+      setFocusPanelTranslateYPx(v.offsetTop ?? 0);
+    };
+
+    update();
+
+    window.addEventListener('resize', update);
+    window.addEventListener('scroll', update, { passive: true });
+    vv?.addEventListener('resize', update);
+    vv?.addEventListener('scroll', update);
+
+    return () => {
+      window.removeEventListener('resize', update);
+      window.removeEventListener('scroll', update as any);
+      vv?.removeEventListener('resize', update);
+      vv?.removeEventListener('scroll', update as any);
+    };
+  }, [focusModeOpen, templateEditorMobileOpen]);
+
+  // PR2: reset de zoom/panel cuando cerramos Focus Mode.
+  useEffect(() => {
+    if (!focusModeOpen) {
+      setFocusZoomScale(null);
+      setFocusPanelKeyboardGapPx(0);
+      setFocusPanelTranslateYPx(0);
+    }
+  }, [focusModeOpen]);
+
+  // PR2: Auto-zoom/auto-scroll hacia el cuadro enfocado (usa coords en porcentajes).
+  useEffect(() => {
+    if (!templateEditorMobileOpen) return;
+    if (!focusModeOpen) return;
+    if (!activeBoxGeom) return;
+
+    const el = pdfScrollContainerElRef.current;
+    if (!el) return;
+
+    const baseScale = Math.max(0.25, Math.min(1, (el.clientWidth ?? 0) / PAGE_WIDTH_PX_96DPI));
+    const nextScale = Math.max(0.25, Math.min(1, baseScale * 1.6));
+    setFocusZoomScale(nextScale);
+
+    if (pendingAutoScrollTimeoutRef.current != null) {
+      window.clearTimeout(pendingAutoScrollTimeoutRef.current);
+      pendingAutoScrollTimeoutRef.current = null;
+    }
+
+    const yPx = activeBoxGeom.yPct * PAGE_HEIGHT_PX_96DPI * nextScale;
+    const xPx = activeBoxGeom.xPct * PAGE_WIDTH_PX_96DPI * nextScale;
+    const idealTop = yPx - el.clientHeight * 0.2;
+    const idealLeft = xPx - el.clientWidth * 0.1;
+
+    pendingAutoScrollTimeoutRef.current = window.setTimeout(() => {
+      // Casi obligatorio en móviles: evita que el "scroll into view" del browser sobreescriba.
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          const maxTop = Math.max(0, el.scrollHeight - el.clientHeight);
+          const maxLeft = Math.max(0, el.scrollWidth - el.clientWidth);
+          const nextTop = Math.max(0, Math.min(maxTop, idealTop));
+          const nextLeft = Math.max(0, Math.min(maxLeft, idealLeft));
+          el.scrollTo({ top: nextTop, left: nextLeft, behavior: 'auto' });
+          pendingAutoScrollTimeoutRef.current = null;
+        });
+      });
+    }, 0);
+  }, [focusModeOpen, activeBoxGeom, templateEditorMobileOpen]);
+
   const [deleteConfirm, setDeleteConfirm] = useState<{ docId: string } | null>(null);
   type PromptDialog =
     | { type: 'renameSubgroup'; docType: string; subgroupId: string; initialValue: string }
@@ -2783,6 +2975,82 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
     return { nextDraft, orphanCount };
   };
 
+  /** Abre el drawer móvil de plantilla: ofrece recuperar borrador de emergencia (m6) y aplica sync ADMIN. */
+  const openMobilePdfTemplateDrawer = () => {
+    if (!selectedDoc || !isPdfDocType(selectedDoc.type as DocType)) return;
+    if (templateConfigLoading) {
+      toast('Cargando plantilla…', 'info');
+      return;
+    }
+    const docPdfType = selectedDoc.type as 'cotizacion' | 'levantamiento' | 'hoja_trabajo';
+    const docId = selectedDoc.id;
+    templateDrawerDocIdRef.current = docId;
+
+    let draft: Record<string, unknown> = pdfFormDraft;
+    let master: TemplateConfigState | null = templateConfigByType[docPdfType] ?? null;
+
+    const emergency = readEmergencyDraftFromStorage(docId);
+    if (
+      emergency &&
+      emergency.pdfDocType === docPdfType &&
+      (emergency.userId == null || emergency.userId === currentUserId) &&
+      Date.now() - emergency.timestamp < EMERGENCY_PDF_DRAFT_TTL_MS
+    ) {
+      const mins = Math.max(1, Math.round((Date.now() - emergency.timestamp) / 60000));
+      if (
+        window.confirm(
+          `Hay un borrador de emergencia de esta plantilla (~${mins} min). ¿Recuperarlo?`
+        )
+      ) {
+        draft = deepCloneJson(emergency.content);
+        setPdfFormDraft(draft);
+        if (isAdmin && emergency.templateConfigSnapshot) {
+          master = emergency.templateConfigSnapshot;
+          setTemplateConfigByType((prev) => ({
+            ...prev,
+            [docPdfType]: emergency.templateConfigSnapshot as TemplateConfigState,
+          }));
+        }
+      }
+    }
+
+    if (isAdmin && master) {
+      const { nextDraft, orphanCount } = syncAdminDraftWithMaster(draft, master);
+      adminMasterSyncAppliedForDocIdRef.current = docId;
+      if (orphanCount > 0) {
+        toast('Algunas cajas del diseño anterior no existen en el master y fueron ignoradas.', 'info');
+      }
+      setPdfFormDraft(nextDraft);
+      templateEditorDraftSnapshotRef.current = deepCloneJson(nextDraft);
+      templateEditorTemplateConfigSnapshotRef.current = deepCloneJson(master);
+    } else {
+      templateEditorDraftSnapshotRef.current = deepCloneJson(draft);
+    }
+
+    setTemplateEditorMobileOpen(true);
+  };
+
+  // m6: autosave de emergencia mientras el drawer móvil está abierto.
+  useEffect(() => {
+    if (!templateEditorMobileOpen || !selectedDoc?.id) return;
+    if (!isPdfDocType(selectedDoc.type as DocType)) return;
+    const docId = selectedDoc.id;
+    const pdfKind = selectedDoc.type as 'cotizacion' | 'levantamiento' | 'hoja_trabajo';
+    const persist = () => {
+      writeEmergencyDraftToStorage({
+        documentId: docId,
+        userId: currentUserId,
+        timestamp: Date.now(),
+        content: deepCloneJson(pdfFormDraftRef.current),
+        pdfDocType: pdfKind,
+        ...(isAdmin ? { templateConfigSnapshot: templateConfigByTypeRef.current[pdfKind] ?? null } : {}),
+      });
+    };
+    persist();
+    const tick = window.setInterval(persist, 5000);
+    return () => window.clearInterval(tick);
+  }, [templateEditorMobileOpen, selectedDoc?.id, selectedDoc?.type, currentUserId, isAdmin]);
+
   useEffect(() => {
     if (!isAdmin) return;
     if (!selectedDoc) return;
@@ -3149,6 +3417,9 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
         setLinkToBoardItem(null);
       }
       toast('Documento guardado', 'success');
+      if (isPdfDocType(selectedDoc.type as DocType)) {
+        clearEmergencyDraftFromStorage(selectedDoc.id);
+      }
     } catch (e) {
       console.error('Error saving doc', e);
       setError(e instanceof Error ? e.message : 'No se pudo guardar el documento.');
@@ -4253,31 +4524,7 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
                         type="button"
                         onClick={() => {
                           if (isMobile) {
-                            if (templateConfigLoading) {
-                              toast('Cargando plantilla…', 'info');
-                              return;
-                            }
-                            if (isAdmin && effectiveTemplateConfigForPdf) {
-                              const { nextDraft, orphanCount } = syncAdminDraftWithMaster(pdfFormDraft, effectiveTemplateConfigForPdf);
-                              setPdfFormDraft(nextDraft);
-                              adminMasterSyncAppliedForDocIdRef.current = selectedDoc.id;
-                              if (orphanCount > 0) toast('Algunas cajas del diseño anterior no existen en el master y fueron ignoradas.', 'info');
-                              // Snapshot inicial del master para poder deshacer/cerrar sin guardar.
-                              templateEditorTemplateConfigSnapshotRef.current =
-                                typeof structuredClone === 'function'
-                                  ? structuredClone(effectiveTemplateConfigForPdf)
-                                  : JSON.parse(JSON.stringify(effectiveTemplateConfigForPdf));
-                              templateEditorDraftSnapshotRef.current =
-                                typeof structuredClone === 'function'
-                                  ? structuredClone(nextDraft)
-                                  : JSON.parse(JSON.stringify(nextDraft));
-                            } else {
-                              templateEditorDraftSnapshotRef.current =
-                                typeof structuredClone === 'function'
-                                  ? structuredClone(pdfFormDraft)
-                                  : JSON.parse(JSON.stringify(pdfFormDraft));
-                            }
-                            setTemplateEditorMobileOpen(true);
+                            openMobilePdfTemplateDrawer();
                           } else {
                             setViewMode('overview');
                           }
@@ -4291,31 +4538,7 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
                         type="button"
                         onClick={() => {
                           if (isMobile) {
-                            if (templateConfigLoading) {
-                              toast('Cargando plantilla…', 'info');
-                              return;
-                            }
-                            if (isAdmin && effectiveTemplateConfigForPdf) {
-                              const { nextDraft, orphanCount } = syncAdminDraftWithMaster(pdfFormDraft, effectiveTemplateConfigForPdf);
-                              setPdfFormDraft(nextDraft);
-                              adminMasterSyncAppliedForDocIdRef.current = selectedDoc.id;
-                              if (orphanCount > 0) toast('Algunas cajas del diseño anterior no existen en el master y fueron ignoradas.', 'info');
-                              // Snapshot inicial del master para poder deshacer/cerrar sin guardar.
-                              templateEditorTemplateConfigSnapshotRef.current =
-                                typeof structuredClone === 'function'
-                                  ? structuredClone(effectiveTemplateConfigForPdf)
-                                  : JSON.parse(JSON.stringify(effectiveTemplateConfigForPdf));
-                              templateEditorDraftSnapshotRef.current =
-                                typeof structuredClone === 'function'
-                                  ? structuredClone(nextDraft)
-                                  : JSON.parse(JSON.stringify(nextDraft));
-                            } else {
-                              templateEditorDraftSnapshotRef.current =
-                                typeof structuredClone === 'function'
-                                  ? structuredClone(pdfFormDraft)
-                                  : JSON.parse(JSON.stringify(pdfFormDraft));
-                            }
-                            setTemplateEditorMobileOpen(true);
+                            openMobilePdfTemplateDrawer();
                           } else {
                             setViewMode('overview');
                           }
@@ -4583,8 +4806,8 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
               </div>
             </div>
 
-            <div className="flex-1 min-h-0 overflow-hidden">
-              <div className="p-0">
+            <div className="flex-1 min-h-0 overflow-hidden relative">
+              <div className="p-0 relative h-full">
                 <PdfTemplateEditor
                   key={selectedDoc.id}
                   docType={selectedDoc.type as 'cotizacion' | 'levantamiento' | 'hoja_trabajo'}
@@ -4596,6 +4819,12 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
                   allowBoxEditing={!isAdmin}
                   lockedOutline={isAdmin}
                   compactPadding
+                  renderFormatBarExternally
+                  onActiveBoxChange={handleActiveBoxChange}
+                  focusZoomScale={focusZoomScale}
+                  onScrollContainerReady={(el) => {
+                    pdfScrollContainerElRef.current = el;
+                  }}
                   onTemplateConfigChange={
                     !isAdmin && pdfDocType
                       ? (config) => {
@@ -4639,6 +4868,123 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
                   onSaveTemplateConfig={undefined}
                   savingTemplateConfig={savingTemplateConfig}
                 />
+
+                {focusModeOpen && (
+                  <div className="absolute inset-0 z-[210] pointer-events-none bg-black/10 backdrop-blur-[4px]" />
+                )}
+
+                {focusModeOpen && activeBoxId && effectiveTemplateConfigForPdf && (
+                  <div
+                    className="fixed left-0 right-0 z-[220] bg-white/95 backdrop-blur-md border-t border-monday-border shadow-monday-xl"
+                    style={{
+                      bottom: `calc(${focusPanelKeyboardGapPx}px + env(safe-area-inset-bottom))`,
+                      transform: `translateY(${focusPanelTranslateYPx}px)`,
+                      transition: 'bottom 0.2s ease-out, transform 0.2s ease-out',
+                      paddingBottom: 'max(0.5rem, env(safe-area-inset-bottom))',
+                    }}
+                  >
+                    <TextFormatBarForTemplate
+                      uiMode={isAdmin ? 'textStyleOnly' : 'full'}
+                      templateConfig={{
+                        fontFamily: effectiveTemplateConfigForPdf.fontFamily,
+                        fontSize: effectiveTemplateConfigForPdf.fontSize,
+                        fontBold: effectiveTemplateConfigForPdf.fontBold,
+                        fontItalic: effectiveTemplateConfigForPdf.fontItalic,
+                        fontColor: effectiveTemplateConfigForPdf.fontColor,
+                        customBoxes: effectiveTemplateConfigForPdf.customBoxes ?? [],
+                      }}
+                      onTemplateConfigChange={(patch) => {
+                        // ADMIN: solo permitir cambios de estilo de texto permitidos.
+                        if (isAdmin) {
+                          if (!pdfDocType) return;
+                          const currentMaster = effectiveTemplateConfigForPdf;
+                          const currentBoxes = Array.isArray(currentMaster.customBoxes) ? currentMaster.customBoxes : [];
+                          const patchedBoxes = (patch as { customBoxes?: CustomBoxDef[] }).customBoxes;
+                          if (!Array.isArray(patchedBoxes)) return;
+                          if (patchedBoxes.length !== currentBoxes.length) return;
+                          const currentIds = new Set(currentBoxes.map((b) => b.id));
+                          if (patchedBoxes.some((b) => !currentIds.has(b.id))) return;
+
+                          const nextCustomBoxes = currentBoxes.map((curr) => {
+                            const patched = patchedBoxes.find((b) => b.id === curr.id);
+                            if (!patched) return curr;
+                            return {
+                              ...curr,
+                              ...(typeof patched.fontBold === 'boolean' ? { fontBold: patched.fontBold } : {}),
+                              ...(typeof patched.fontItalic === 'boolean' ? { fontItalic: patched.fontItalic } : {}),
+                              ...(typeof patched.fontColor === 'string' ? { fontColor: patched.fontColor } : {}),
+                            };
+                          });
+
+                          setTemplateConfigByType((prev) => ({
+                            ...prev,
+                            [pdfDocType]: {
+                              ...(prev[pdfDocType] ?? currentMaster),
+                              customBoxes: nextCustomBoxes,
+                            },
+                          }));
+
+                          // Mantener el draft del doc consistente para persistencia al guardar.
+                          setPdfFormDraft((prev) => {
+                            const docBoxes = Array.isArray(prev.customBoxes) ? (prev.customBoxes as CustomBoxDef[]) : [];
+                            if (docBoxes.length !== currentBoxes.length) return prev;
+                            const nextDocBoxes = docBoxes.map((curr) => {
+                              const patched = patchedBoxes.find((b) => b.id === curr.id);
+                              if (!patched) return curr;
+                              return {
+                                ...curr,
+                                ...(typeof patched.fontBold === 'boolean' ? { fontBold: patched.fontBold } : {}),
+                                ...(typeof patched.fontItalic === 'boolean' ? { fontItalic: patched.fontItalic } : {}),
+                                ...(typeof patched.fontColor === 'string' ? { fontColor: patched.fontColor } : {}),
+                              };
+                            });
+                            return { ...prev, customBoxes: nextDocBoxes };
+                          });
+
+                          return;
+                        }
+
+                        // No-admin: mantener la política existente (parche directo al draft del documento).
+                        setPdfFormDraft((prev) => {
+                          const prevFieldPositions =
+                            typeof prev.fieldPositions === 'object' && prev.fieldPositions != null && !Array.isArray(prev.fieldPositions)
+                              ? (prev.fieldPositions as Record<string, { x: number; y: number }>)
+                              : {};
+                          const prevBold = prev.globalFontBold === true || prev.globalFontBold === 'true';
+                          const prevItalic = prev.globalFontItalic === true || prev.globalFontItalic === 'true';
+                          return {
+                            ...prev,
+                            fieldPositions: (patch as any).fieldPositions ?? prevFieldPositions,
+                            globalFontColor:
+                              typeof (patch as any).fontColor === 'string'
+                                ? (patch as any).fontColor
+                                : typeof prev.globalFontColor === 'string'
+                                  ? prev.globalFontColor
+                                  : '#000000',
+                            globalFontFamily:
+                              typeof (patch as any).fontFamily === 'string'
+                                ? (patch as any).fontFamily
+                                : typeof prev.globalFontFamily === 'string'
+                                  ? prev.globalFontFamily
+                                  : 'Helvetica',
+                            globalFontSize:
+                              typeof (patch as any).fontSize === 'number'
+                                ? (patch as any).fontSize
+                                : typeof prev.globalFontSize === 'number'
+                                  ? prev.globalFontSize
+                                  : 11,
+                            globalFontBold: (patch as any).fontBold ?? prevBold,
+                            globalFontItalic: (patch as any).fontItalic ?? prevItalic,
+                            customBoxes:
+                              (patch as any).customBoxes ?? (Array.isArray(prev.customBoxes) ? prev.customBoxes : []),
+                          } as Record<string, unknown>;
+                        });
+                      }}
+                      selectedBoxId={activeBoxId}
+                      isAdmin={isAdmin}
+                    />
+                  </div>
+                )}
               </div>
             </div>
           </motion.div>
