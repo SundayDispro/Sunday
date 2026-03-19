@@ -832,6 +832,7 @@ Edge cases:
   - `set-admin.ts`: inicialización del usuario administrador.
 - `backend/templates/*`:
   - Plantillas base para PDFs u otros artefactos.
+  - Estado operativo actual: `cotizacion.pdf`, `levantamiento.pdf` y `hoja_trabajo.pdf` presentes en el servidor de proyecto; `levantamiento.pdf` actualizado con la plantilla real de levantamiento entregada por el usuario.
 
 Patrones:
 
