@@ -86,6 +86,30 @@ function getSemanticPlaceholder(box: import('./pdfTemplateConfig').CustomBoxDef)
   }
 }
 
+/** Valor guardado en el doc (DD/MM/YYYY, ISO o vacío) → yyyy-mm-dd para input[type=date]. */
+function fechaDraftToIso(s: string): string {
+  const t = String(s).trim();
+  if (!t) return '';
+  let m = t.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (m) return `${m[1]}-${m[2]}-${m[3]}`;
+  m = t.match(/^(\d{1,2})[/.-](\d{1,2})[/.-](\d{4})/);
+  if (m) {
+    const d = m[1].padStart(2, '0');
+    const mo = m[2].padStart(2, '0');
+    const y = m[3];
+    return `${y}-${mo}-${d}`;
+  }
+  return '';
+}
+
+/** yyyy-mm-dd → DD/MM/YYYY (alineado con formatDateForPdf del backend). */
+function isoToFechaDraft(iso: string): string {
+  if (!iso) return '';
+  const m = iso.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!m) return '';
+  return `${m[3]}/${m[2]}/${m[1]}`;
+}
+
 type ActiveBoxKind = 'text' | 'image';
 type ActiveBoxGeomPct = { xPct: number; yPct: number; wPct: number; hPct: number };
 type ActiveBoxChangePayload =
@@ -920,8 +944,52 @@ export const PdfTemplateEditor: React.FC<Props> = ({
                             boxVal || '\u00A0'
                           )}
                         </div>
+                      ) : box.fieldKey === 'fecha' ? (
+                        <input
+                          type="date"
+                          value={fechaDraftToIso(boxVal)}
+                          onChange={(e) => {
+                            const iso = e.target.value;
+                            update({ fecha: iso ? isoToFechaDraft(iso) : '' });
+                          }}
+                          onFocus={() => {
+                            setSelectedBoxId(box.id);
+                            onActiveBoxChange?.({
+                              boxId: box.id,
+                              boxKind: 'text',
+                              xPct: x,
+                              yPct: y,
+                              wPct: w,
+                              hPct: h,
+                            });
+                          }}
+                          onBlur={() => {
+                            onActiveBoxChange?.({ boxId: null });
+                          }}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            if (canFormatBox) setSelectedBoxId(box.id);
+                          }}
+                          onMouseDown={(e) => e.stopPropagation()}
+                          style={{
+                            ...boxTextStyle,
+                            backgroundColor: bp
+                              ? canMoveOrDelete || isLocked
+                                ? 'rgba(255,255,255,0.42)'
+                                : 'rgba(255,255,255,0.18)'
+                              : canMoveOrDelete
+                                ? 'rgba(255,255,255,0.95)'
+                                : isLocked
+                                  ? 'rgba(255,255,255,0.65)'
+                                  : 'rgba(255,255,255,0.92)',
+                          }}
+                          className={`w-full min-h-0 max-h-full border-0 outline-none focus:ring-0 px-1.5 box-border ${
+                            isFolio || isSingleLineOrFolio ? 'py-2' : 'py-1.5'
+                          } ${showFrame ? 'rounded' : ''}`}
+                          title="Fecha (selector nativo)"
+                        />
                       ) : (
-                <div
+                        <div
                           contentEditable
                           suppressContentEditableWarning
                           onInput={(e) => {

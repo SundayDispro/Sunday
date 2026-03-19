@@ -2244,6 +2244,8 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
   const [templateEditorMobileOpen, setTemplateEditorMobileOpen] = useState(false);
   /** m5: modo mapa (blueprint) en drawer móvil — menos peso del PDF al desplazar. */
   const [templateBlueprintMode, setTemplateBlueprintMode] = useState(false);
+  /** Tras un breve delay con el drawer abierto, escuchar jank de frames para auto-activar Mapa. */
+  const blueprintJankListenRef = useRef(false);
   // Focus Mode (Micro-Editor) para edición contextual en móvil.
   const [focusModeOpen, setFocusModeOpen] = useState(false);
   const [activeBoxId, setActiveBoxId] = useState<string | null>(null);
@@ -2312,6 +2314,44 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
       setTemplateBlueprintMode(false);
     }
   }, [templateEditorMobileOpen]);
+
+  // m5 backlog: auto-mod mapa si el hilo principal “se atasca” (evita pestañas en segundo plano).
+  useEffect(() => {
+    if (!templateEditorMobileOpen) {
+      blueprintJankListenRef.current = false;
+      return;
+    }
+    blueprintJankListenRef.current = false;
+    const armId = window.setTimeout(() => {
+      blueprintJankListenRef.current = true;
+    }, 1600);
+    return () => window.clearTimeout(armId);
+  }, [templateEditorMobileOpen]);
+
+  useEffect(() => {
+    if (!templateEditorMobileOpen || templateBlueprintMode) return;
+    let raf = 0;
+    let last = performance.now();
+    const JANK_MIN_MS = 96;
+    const JANK_MAX_MS = 480;
+    const loop = (now: number) => {
+      if (!blueprintJankListenRef.current || document.visibilityState !== 'visible') {
+        last = now;
+        raf = requestAnimationFrame(loop);
+        return;
+      }
+      const dt = now - last;
+      last = now;
+      if (dt > JANK_MIN_MS && dt < JANK_MAX_MS) {
+        toast('Modo mapa activado automáticamente para mejorar el scroll.', 'info');
+        setTemplateBlueprintMode(true);
+        return;
+      }
+      raf = requestAnimationFrame(loop);
+    };
+    raf = requestAnimationFrame(loop);
+    return () => cancelAnimationFrame(raf);
+  }, [templateEditorMobileOpen, templateBlueprintMode, toast]);
 
   useEffect(() => {
     if (!templateMasterEditorOpen) return;

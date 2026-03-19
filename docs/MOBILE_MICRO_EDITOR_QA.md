@@ -25,6 +25,12 @@ Checklist para validar **DocsPage** drawer «Editar plantilla» en **viewport m�
 - [ ] Botón **Mapa** (icono capas): al activar, el PDF de fondo **no** debe verse y el scroll debe sentirse más fluido.
 - [ ] Al desactivar Mapa, el PDF **vuelve** a renderizarse.
 - [ ] Al **cerrar** el drawer, Mapa queda desactivado la próxima vez que se abre.
+- [ ] Tras ~1,6 s con el drawer abierto, si el hilo principal congela un frame (~96–480 ms), puede aparecer toast y **Mapa** activarse solo (probar con CPU throttling en DevTools).
+
+## Campo fecha (overlay nativo)
+
+- [ ] Cuadro con `fieldKey === 'fecha'`: debe mostrarse **input type="date"** (selector nativo); al elegir fecha se guarda en el borrador como **DD/MM/YYYY**.
+- [ ] Focus mode / barra externa siguen al enfocar el campo fecha.
 
 ## Zoom de foco + doble gesto
 
