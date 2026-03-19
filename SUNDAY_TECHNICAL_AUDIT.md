@@ -33,6 +33,11 @@
   - **Seguridad JWT**: middleware y manejo en frontend implementados; pendiente endurecer algunos valores por defecto (`JWT_SECRET`, rondas bcrypt).  
   - **PostgreSQL**: esquema y campos sombra en producción, con migración lógica desde strings; continúan tareas de eliminación de código puramente legacy.  
 - **Modo móvil/PWA**: ~88%, con micro-editor de plantillas PDF integrado como subvista embebida en Docs (sin modal superpuesto), foco de edición estabilizado, borrador de emergencia, cajas single-line reforzadas y mejor legibilidad de texto blanco; pendiente QA de campo en dispositivos reales y modo offline.
+  - **Web Push + bandeja**: menciones/asignaciones sin leer unificadas en la bandeja móvil; deep-link desde push hacia la pestaña de `Notificaciones`; contador de badge sincronizado con notificaciones sin leer (cuando soportado por el navegador).
+  - **PWA icon assets (iOS) — cierre operativo**: además del set inicial (`icon-180/192/512.v2`), se incorporaron generaciones `v5`/`v6`, `apple-touch-icon` en variantes canónicas (`apple-touch-icon*.png`) y `favicon.ico` real generado desde el logo de app para cortar fallback legacy.
+  - **Estado final del ícono en iPhone**: validado funcional al instalar desde URL pública HTTPS de **Cloudflare Tunnel** (quick tunnel) con origen nuevo; iOS dejó de mostrar la “S” azul y tomó el icono correcto de la app.
+  - **Residuo conocido en iOS**: al cambiar de origen (IP LAN/puerto/URL temporal/dominio fijo), iOS no migra el WebClip existente; requiere eliminar acceso directo previo y reinstalar “Agregar a inicio”.
+  - **Ajustes UX móviles**: header/banners estilo login en Inicio móvil y correcciones de layout en `BandejaUnificadaPage` para estabilizar el desplazamiento al alternar pestañas.
 
 #### 0.1.1 Línea de tiempo detallada (vista histórica)
 
@@ -801,6 +806,9 @@ Edge cases:
     - Recupera todas las suscripciones del usuario.
     - Envía la notificación Web Push.
     - Si encuentra suscripciones inválidas (`410`, `404`), las elimina.
+  - En el cliente:
+    - El service worker muestra la notificación y, cuando está soportado, aplica `setAppBadge` con el contador de no-leídas.
+    - El payload incluye un `url` que deep-linkea a `/?tab=notifications` para abrir directamente la pestaña `Notificaciones` dentro de la app.
   - Integración con reglas de negocio:
     - Asignación de persona (`column.type === 'person'`) dispara notificación de tipo `'assigned'` y Web Push.
     - Nuevos comentarios (`add_update`) envían Web Push a usuarios asignados (excepto el autor).
@@ -1088,6 +1096,28 @@ Como mejora operativa inmediata, se implementará en breve un **script de despli
 - Reiniciará los procesos de backend/frontend de forma controlada.
 
 Este enfoque mantiene un flujo sencillo (desarrollo en cualquier PC → `git push` → ejecución manual del script en el servidor), pero reduce drásticamente el riesgo de errores humanos durante las actualizaciones.
+
+#### 6.6 Checklist recomendado (sábado, PC servidor)
+
+Checklist operativo para dejar la app estable en el equipo que actuará como servidor:
+
+1. **Preparación del servidor**
+   - Instalar Node.js LTS y dependencias del repo (`npm install` en backend/frontend).
+   - Instalar `cloudflared` y validar versión (`cloudflared --version`).
+2. **Arranque local de servicios**
+   - Backend en `3001` y frontend en `517x` (con HTTPS dev si aplica).
+   - Verificar rutas críticas: `/api/health` (o endpoint equivalente), carga de app y socket.
+3. **Cloudflare Tunnel (dominio fijo)**
+   - Completar `cloudflared tunnel login` (requiere zona Cloudflare en estado **Active**).
+   - Crear túnel nombrado, enrutar DNS (`sunday.<dominio>`) y apuntar a frontend local.
+   - Confirmar acceso público desde red externa (móvil con datos).
+4. **PWA / iOS**
+   - Instalar PWA **solo** desde el dominio fijo (evitar IP LAN o URLs temporales para instalación final).
+   - Si existían instalaciones previas con otro origen: eliminar acceso directo y reinstalar.
+   - Verificar icono correcto, apertura standalone y deep-link de notificaciones.
+5. **Persistencia y operación**
+   - Dejar backend, frontend y túnel como procesos persistentes (servicio/tarea programada/PM2).
+   - Documentar comandos de reinicio y contingencia (caída de túnel, cambio de IP local, reinicio de host).
 
 ---
 
