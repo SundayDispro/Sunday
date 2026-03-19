@@ -380,9 +380,9 @@
   --logo-enter-ease: cubic-bezier(0.25, 0.46, 0.45, 0.94);
   --logo-idle-ease: cubic-bezier(0.4, 0, 0.6, 1);
   --logo-sync-delay: 1s;
-  --logo-anim-duration: 5.2s;
+  --logo-anim-duration: 7s;
   --logo-anim-ease: cubic-bezier(0.4, 0, 0.6, 1);
-  --logo-rays-anim-delay: 0.35s;
+  --logo-rays-anim-delay: 0.45s;
 }
 
 /* ÚNICA animación: sol orgánico + rotación (pulsación elegante con deformación) */
@@ -398,49 +398,120 @@
 
 /* Keyframes para el grupo rotante del logo (sol y rayos) */
 @keyframes sun-pulse {
-  0%, 100% { transform: rotate(0deg) scaleX(1.02) scaleY(1.01); }
-  40% { transform: rotate(22deg) scaleX(0.98) scaleY(1.04); }
-  70% { transform: rotate(-16deg) scaleX(1.03) scaleY(0.99); }
+  0%, 100% {
+    transform: rotate(0deg) scaleX(1.01) scaleY(1.01) translateY(0px);
+    filter: drop-shadow(0 0 0 rgba(255, 255, 255, 0));
+  }
+  35% {
+    transform: rotate(12deg) scaleX(0.995) scaleY(1.03) translateY(-2px);
+    filter: drop-shadow(0 10px 18px rgba(255, 255, 255, 0.12));
+  }
+  65% {
+    transform: rotate(-10deg) scaleX(1.02) scaleY(0.998) translateY(1.5px);
+    filter: drop-shadow(0 7px 14px rgba(255, 255, 255, 0.10));
+  }
 }
 
 @keyframes sun-spin {
-  0% { transform: rotate(0deg) scaleX(1.01) scaleY(1.01); }
-  100% { transform: rotate(360deg) scaleX(1.01) scaleY(1.01); }
+  0% {
+    transform: rotate(0deg) scaleX(1.01) scaleY(1.01) translateY(0px);
+    filter: drop-shadow(0 0 0 rgba(255, 255, 255, 0));
+  }
+  25% {
+    transform: rotate(90deg) scaleX(1.012) scaleY(1.008) translateY(-1px);
+    filter: drop-shadow(0 10px 18px rgba(255, 255, 255, 0.10));
+  }
+  50% {
+    transform: rotate(180deg) scaleX(0.998) scaleY(1.02) translateY(2px);
+    filter: drop-shadow(0 14px 26px rgba(255, 255, 255, 0.14));
+  }
+  75% {
+    transform: rotate(270deg) scaleX(1.008) scaleY(0.995) translateY(-1.5px);
+    filter: drop-shadow(0 10px 18px rgba(255, 255, 255, 0.10));
+  }
+  100% {
+    transform: rotate(360deg) scaleX(1.01) scaleY(1.01) translateY(0px);
+    filter: drop-shadow(0 0 0 rgba(255, 255, 255, 0));
+  }
 }
 
 @keyframes sun-shimmer {
-  0%, 100% { transform: rotate(0deg) scaleX(1.01) scaleY(1.01); filter: drop-shadow(0 0 0 rgba(255,255,255,0)); }
-  50% { transform: rotate(90deg) scaleX(1.03) scaleY(0.99); filter: drop-shadow(0 10px 18px rgba(255,255,255,0.10)); }
+  0%, 100% {
+    transform: rotate(0deg) scaleX(1.01) scaleY(1.01) translateY(0px);
+    filter: drop-shadow(0 0 0 rgba(255,255,255,0));
+  }
+  50% {
+    transform: rotate(45deg) scaleX(1.025) scaleY(0.99) translateY(-2px);
+    filter: drop-shadow(0 14px 26px rgba(255,255,255,0.16));
+  }
 }
 
 @keyframes sun-morph {
-  0% { transform: rotate(0deg) scaleX(1.02) scaleY(1.01); }
-  25% { transform: rotate(35deg) scaleX(0.96) scaleY(1.05); }
-  55% { transform: rotate(110deg) scaleX(1.06) scaleY(0.98); }
-  100% { transform: rotate(360deg) scaleX(1.02) scaleY(1.01); }
+  0% {
+    transform: rotate(0deg) scaleX(1.01) scaleY(1.01) translateY(0px);
+    filter: drop-shadow(0 0 0 rgba(255,255,255,0));
+  }
+  25% {
+    transform: rotate(22deg) scaleX(0.99) scaleY(1.035) translateY(-1.5px);
+    filter: drop-shadow(0 12px 22px rgba(255,255,255,0.14));
+  }
+  50% {
+    transform: rotate(58deg) scaleX(1.01) scaleY(0.995) translateY(2px);
+    filter: drop-shadow(0 14px 26px rgba(255,255,255,0.16));
+  }
+  75% {
+    transform: rotate(132deg) scaleX(1.03) scaleY(0.99) translateY(-1px);
+    filter: drop-shadow(0 12px 22px rgba(255,255,255,0.14));
+  }
+  100% {
+    transform: rotate(360deg) scaleX(1.01) scaleY(1.01) translateY(0px);
+    filter: drop-shadow(0 0 0 rgba(255,255,255,0));
+  }
 }
 
 @keyframes sun-drift {
-  0% { transform: rotate(0deg) scaleX(1.01) scaleY(1.01); }
-  20% { transform: rotate(55deg) scaleX(0.99) scaleY(1.03); }
-  45% { transform: rotate(135deg) scaleX(1.04) scaleY(0.985); }
-  70% { transform: rotate(230deg) scaleX(0.98) scaleY(1.02); }
-  100% { transform: rotate(360deg) scaleX(1.01) scaleY(1.01); }
+  0% {
+    transform: rotate(0deg) scaleX(1.01) scaleY(1.01) translateY(0px);
+    filter: drop-shadow(0 0 0 rgba(255, 255, 255, 0));
+  }
+  18% {
+    transform: rotate(34deg) scaleX(0.995) scaleY(1.02) translateY(-2px);
+    filter: drop-shadow(0 12px 22px rgba(255, 255, 255, 0.12));
+  }
+  45% {
+    transform: rotate(92deg) scaleX(1.02) scaleY(0.99) translateY(2px);
+    filter: drop-shadow(0 16px 30px rgba(255, 255, 255, 0.16));
+  }
+  72% {
+    transform: rotate(162deg) scaleX(0.99) scaleY(1.007) translateY(-1px);
+    filter: drop-shadow(0 12px 22px rgba(255, 255, 255, 0.12));
+  }
+  100% {
+    transform: rotate(360deg) scaleX(1.01) scaleY(1.01) translateY(0px);
+    filter: drop-shadow(0 0 0 rgba(255, 255, 255, 0));
+  }
 }
 
 @keyframes sun-bloom {
   0%, 100% {
-    transform: rotate(0deg) scaleX(1.01) scaleY(1.01);
+    transform: rotate(0deg) scaleX(1.01) scaleY(1.01) translateY(0px);
     filter: drop-shadow(0 0 0 rgba(255,255,255,0));
   }
   30% {
-    transform: rotate(120deg) scaleX(1.045) scaleY(0.98);
+    transform: rotate(70deg) scaleX(1.03) scaleY(0.99) translateY(-2px);
     filter: drop-shadow(0 12px 22px rgba(255,255,255,0.12));
   }
   60% {
-    transform: rotate(235deg) scaleX(0.985) scaleY(1.055);
+    transform: rotate(140deg) scaleX(0.99) scaleY(1.03) translateY(2px);
     filter: drop-shadow(0 20px 38px rgba(255,255,255,0.08));
   }
+}
+
+@keyframes sun-breathe {
+  0%, 100% { transform: rotate(0deg) translateY(0px) scaleX(1.01) scaleY(1.01); }
+  28% { transform: rotate(0deg) translateY(-2px) scaleX(1.035) scaleY(0.995); }
+  55% { transform: rotate(0deg) translateY(1px) scaleX(0.99) scaleY(1.02); }
+  78% { transform: rotate(0deg) translateY(-1px) scaleX(1.02) scaleY(0.998); }
 }
 
 .animated-logo {
@@ -463,6 +534,7 @@ html[data-logo-sun-anim="sun-shimmer"] .animated-logo-sun { animation-name: sun-
 html[data-logo-sun-anim="sun-morph"] .animated-logo-sun { animation-name: sun-morph; }
 html[data-logo-sun-anim="sun-drift"] .animated-logo-sun { animation-name: sun-drift; }
 html[data-logo-sun-anim="sun-bloom"] .animated-logo-sun { animation-name: sun-bloom; }
+html[data-logo-sun-anim="sun-breathe"] .animated-logo-sun { animation-name: sun-breathe; }
 html[data-logo-sun-anim="logo-sun-hero"] .animated-logo-sun { animation-name: logo-sun-hero; }
 
 .animated-logo-rays {
@@ -477,6 +549,7 @@ html[data-logo-rays-anim="sun-shimmer"] .animated-logo-rays { animation-name: su
 html[data-logo-rays-anim="sun-morph"] .animated-logo-rays { animation-name: sun-morph; }
 html[data-logo-rays-anim="sun-drift"] .animated-logo-rays { animation-name: sun-drift; }
 html[data-logo-rays-anim="sun-bloom"] .animated-logo-rays { animation-name: sun-bloom; }
+html[data-logo-rays-anim="sun-breathe"] .animated-logo-rays { animation-name: sun-breathe; }
 html[data-logo-rays-anim="logo-sun-hero"] .animated-logo-rays { animation-name: logo-sun-hero; }
 
 .animated-logo-waves {

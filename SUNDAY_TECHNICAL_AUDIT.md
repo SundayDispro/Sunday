@@ -837,7 +837,10 @@ Componentes clave:
 - `frontend/src/components/Login.tsx`:
   - Pantalla de login (skin vertical principal):
     - Encabezado del hero con **“Bienvenido / a Sunday”** alineado a la izquierda en dos renglones.
-    - `AnimatedLogo` pequeño: render SVG por capas (sol + rayos) con animaciones sincronizadas y color que se adapta al tema vía `currentColor`.
+    - `AnimatedLogo` pequeño: render SVG por capas (sol + rayos) usando un “grupo rotante” de keyframes.
+      - El par activo (una variante para sol y otra para rayos) se asigna al entrar a una pestaña y se mantiene hasta cambiar a otra (`activePage`).
+      - Se evita desincronía rígida aplicando desfase entre sol/rayos, manteniendo el mismo eje centrado.
+      - Los keyframes incluyen efectos de brillo (`drop-shadow`), wobble suave (micro-deformaciones con `scale`) y respiración (pequeño `translateY`); el color base sigue adaptándose al tema mediante `currentColor`.
 
 - `frontend/src/components/Board/*`:
   - `BoardContainer`, `ItemDetailsPanel`, etc.

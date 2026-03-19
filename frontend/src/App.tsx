@@ -378,40 +378,60 @@ function App() {
     return isMobileInitial ? 'home' : 'board';
   });
 
-  // Animación del logo: grupo rotante entre varias keyframes (sol y rayos desfasados).
+  // Animación del logo:
+  // - Al entrar a una pestaña, se asigna un par (sol/rayos).
+  // - Se mantiene hasta que se cambie de pestaña (activePage).
+  // Nota: usamos sessionStorage para evitar el "doble effect" de React StrictMode en DEV.
   useEffect(() => {
     if (typeof document === 'undefined') return;
-    const root = document.documentElement;
 
     const prefersReduced =
       window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches ?? false;
     if (prefersReduced) return;
 
+    const root = document.documentElement;
     const sunAnims: string[] = [
       'sun-pulse',
       'sun-spin',
       'sun-shimmer',
       'sun-morph',
-      'logo-sun-hero',
       'sun-drift',
       'sun-bloom',
+      'sun-breathe',
     ];
 
-    // Debe coincidir con `--logo-anim-duration` de `index.css`.
-    const stepMs = 5200;
+    const pairIndexKey = 'sunday-logo-pair-index';
+    const lastPageKey = 'sunday-logo-last-active-page';
+
+    let lastPage: string | null = null;
+    try {
+      lastPage = sessionStorage.getItem(lastPageKey);
+    } catch {
+      // ignore
+    }
+
+    // Si StrictMode dispara el effect dos veces con el mismo activePage en DEV,
+    // evitamos reasignar el par y generar un "salto" perceptible.
+    if (lastPage === activePage) return;
 
     let i = 0;
-    const setStep = () => {
-      root.setAttribute('data-logo-sun-anim', sunAnims[i % sunAnims.length]);
-      // Rayos con desfase para no tener sincronización rígida.
-      root.setAttribute('data-logo-rays-anim', sunAnims[(i + 2) % sunAnims.length]);
-      i += 1;
-    };
+    try {
+      i = Number(sessionStorage.getItem(pairIndexKey) ?? '0');
+      if (!Number.isFinite(i) || i < 0) i = 0;
+    } catch {
+      // ignore
+    }
 
-    setStep();
-    const intervalId = window.setInterval(setStep, stepMs);
-    return () => window.clearInterval(intervalId);
-  }, []);
+    root.setAttribute('data-logo-sun-anim', sunAnims[i % sunAnims.length]);
+    root.setAttribute('data-logo-rays-anim', sunAnims[(i + 2) % sunAnims.length]);
+
+    try {
+      sessionStorage.setItem(pairIndexKey, String(i + 1));
+      sessionStorage.setItem(lastPageKey, activePage);
+    } catch {
+      // ignore
+    }
+  }, [activePage]);
   const [boards, setBoards] = useState<Board[]>([]);
   const [boardsLoaded, setBoardsLoaded] = useState(false);
   const [activeBoardId, setActiveBoardId] = useState<string | null>(null);
