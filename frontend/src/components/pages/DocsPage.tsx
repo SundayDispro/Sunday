@@ -22,10 +22,13 @@ import {
   Upload,
   Loader2,
   Pencil,
-  Layers,
   MessageCircle,
   Mail,
   MoreVertical,
+  Filter,
+  BellRing,
+  AlarmClock,
+  Clock3,
 } from 'lucide-react';
 import { GROUP_PALETTE } from '../Board/GroupColorPicker';
 import * as Popover from '@radix-ui/react-popover';
@@ -72,8 +75,12 @@ interface Props {
   onConsumeInitialCreateFromBoard?: () => void;
   initialOpenDocId?: string | null;
   onConsumeInitialOpenDocId?: () => void;
+  initialCreateDocType?: DocType | null;
+  onConsumeInitialCreateDocType?: () => void;
   onAddTaskList?: () => void;
   onAddCalculatorWidget?: () => void;
+  onAddReminderWidget?: () => void;
+  mobileLayout?: boolean;
   /** En móvil hub: el scroll lo hace el contenedor padre; la lista no debe tener overflow propio (arregla iOS Safari). */
   scrollListInParent?: boolean;
 }
@@ -148,6 +155,48 @@ type DocContent = {
   headerImageUrl?: string | null;
   [key: string]: unknown;
 };
+
+type WorkflowStatus = 'por_hacer' | 'en_progreso' | 'listo_pdf';
+type SavedDocsFilterId = 'all' | 'pending' | 'pdf' | 'updated_7d' | 'mine';
+type ReminderRepeat = 'none' | 'daily' | 'weekly';
+type ReminderSound = 'none' | 'beep' | 'chime';
+type DocReminder = {
+  id: string;
+  title: string;
+  dueAt: string;
+  docId: string | null;
+  repeat?: ReminderRepeat;
+  sound?: ReminderSound;
+  done?: boolean;
+  notifiedAt?: string | null;
+  snoozedUntil?: string | null;
+};
+
+const WORKFLOW_STATUS_META: Record<WorkflowStatus, { label: string; badgeClass: string }> = {
+  por_hacer: { label: 'Por hacer', badgeClass: 'bg-slate-100 text-slate-700 border-slate-200' },
+  en_progreso: { label: 'En progreso', badgeClass: 'bg-amber-100 text-amber-800 border-amber-200' },
+  listo_pdf: { label: 'Listo para PDF', badgeClass: 'bg-emerald-100 text-emerald-800 border-emerald-200' },
+};
+
+const DOCS_FILTER_OPTIONS: Array<{ id: SavedDocsFilterId; label: string }> = [
+  { id: 'all', label: 'Todos' },
+  { id: 'pending', label: 'Pendientes' },
+  { id: 'pdf', label: 'Solo PDF' },
+  { id: 'updated_7d', label: 'Actualizados 7d' },
+  { id: 'mine', label: 'Creados por mí' },
+];
+
+const REMINDER_REPEAT_OPTIONS: Array<{ id: ReminderRepeat; label: string }> = [
+  { id: 'none', label: 'Sin repetir' },
+  { id: 'daily', label: 'Diario' },
+  { id: 'weekly', label: 'Semanal' },
+];
+
+const REMINDER_SOUND_OPTIONS: Array<{ id: ReminderSound; label: string }> = [
+  { id: 'none', label: 'Sin sonido' },
+  { id: 'beep', label: 'Beep corto' },
+  { id: 'chime', label: 'Chime suave' },
+];
 
 function parseContent(doc: Doc | null): DocContent {
   if (!doc?.content) return {};
@@ -845,7 +894,7 @@ function DocGroupSection({
       : docs.filter((d) => subgroupAssignments[d.id] === subgroupId);
   return (
     <section className="mb-6 rounded-lg border border-monday-border bg-white shadow-[0_2px_6px_0_rgba(0,0,0,0.08)] overflow-hidden min-h-0">
-      {/* Cabecera tipo BoardGroup: chevron, color, nombre, contador, añadir subgrupo, eliminar */}
+      {/* Cabecera tipo BoardGroup: chevron, color, nombre, contador y acciones */}
       <div
         className="flex items-center gap-1.5 py-1.5 pt-2 pb-2 px-3 border-b border-monday-border bg-white"
         style={{ boxShadow: '0 2px 6px 0 rgba(0,0,0,0.08)' }}
@@ -867,30 +916,25 @@ function DocGroupSection({
           style={{ backgroundColor: color }}
           aria-hidden
         />
-        <h3 className="text-[26px] font-normal leading-tight font-averta truncate min-w-0" style={{ color }}>
-          {title}
-        </h3>
-        <span className="text-[14px] text-monday-subtext font-normal whitespace-nowrap">
-          {docs.length} {docs.length === 1 ? 'elemento' : 'elementos'}
-        </span>
+        <div className="min-w-0 flex-1 flex flex-col">
+          <h3 className="text-[18px] sm:text-[26px] font-normal leading-tight font-averta truncate min-w-0" style={{ color }}>
+            {title}
+          </h3>
+          <span className="text-[10px] sm:text-[14px] leading-none text-monday-subtext font-normal whitespace-nowrap mt-0.5">
+            {docs.length} {docs.length === 1 ? 'elemento' : 'elementos'}
+          </span>
+        </div>
         {showSubgroups && docType && (
           <div className="flex items-center gap-1">
-            <button
-              type="button"
-              onClick={() => onAddSubgroup(docType)}
-              className="flex items-center gap-1 px-2 py-1 rounded-monday border border-dashed border-monday-border text-[12px] text-monday-subtext hover:text-monday-blue hover:border-monday-blue transition-colors"
-            >
-              <Plus size={14} />
-              Añadir subgrupo
-            </button>
             {subgroups.length > 0 && (
               <Popover.Root>
                 <Popover.Trigger asChild>
                   <button
                     type="button"
-                    className="flex items-center gap-1 px-2 py-1 rounded-monday border border-monday-border text-[12px] text-monday-subtext hover:bg-monday-hover"
+                    className="flex items-center gap-1 px-1.5 sm:px-2 py-1 rounded-monday border border-monday-border text-[11px] sm:text-[12px] text-monday-subtext hover:bg-monday-hover"
                   >
-                    <span>Subgrupos ({subgroups.length})</span>
+                    <span className="hidden sm:inline">Subgrupos ({subgroups.length})</span>
+                    <span className="sm:hidden">Sub ({subgroups.length})</span>
                     <ChevronDown size={12} />
                   </button>
                 </Popover.Trigger>
@@ -2107,7 +2151,8 @@ function ExcelLikeSheet({
         </div>
       )}
       <div className="flex-1 min-h-0 overflow-auto scroll-touch custom-scrollbar p-4" ref={gridContainerRef} onPaste={e => { if (!readOnly && focusedCell != null) { e.preventDefault(); handlePaste(e, focusedCell.r, focusedCell.c); } }}>
-        <div className="inline-block bg-white rounded-lg border border-monday-border shadow-monday-lg overflow-hidden">
+        <div className="mx-auto w-[816px] max-w-full min-h-[1056px] bg-white rounded-lg border border-monday-border shadow-monday-lg p-6">
+          <div className="w-full h-full overflow-auto">
           <table className="border-collapse">
             <thead>
               <tr>
@@ -2183,6 +2228,7 @@ function ExcelLikeSheet({
               ))}
             </tbody>
           </table>
+          </div>
         </div>
         <p className="mt-2 text-[11px] text-monday-subtext">Haz clic en una celda para editar. Fórmulas: =A1+B1, =A1*B2, =SUM(A1:A5). Usa + Fila / + Columna para ampliar.</p>
       </div>
@@ -2190,7 +2236,7 @@ function ExcelLikeSheet({
   );
 }
 
-export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFromBoard, onConsumeInitialCreateFromBoard, initialOpenDocId, onConsumeInitialOpenDocId, onAddTaskList, onAddCalculatorWidget, scrollListInParent = false }) => {
+export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFromBoard, onConsumeInitialCreateFromBoard, initialOpenDocId, onConsumeInitialOpenDocId, initialCreateDocType, onConsumeInitialCreateDocType, onAddTaskList, onAddCalculatorWidget, onAddReminderWidget, mobileLayout = false, scrollListInParent = false }) => {
   const { currentUser } = useUser();
   const currentUserId = currentUser?.id ?? null;
   const isAdmin = !!(currentUser && String(currentUser.role || '').toUpperCase() === 'ADMIN');
@@ -2202,6 +2248,14 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [viewerActionsOpen, setViewerActionsOpen] = useState(false);
+  const [workflowStatusByDocId, setWorkflowStatusByDocId] = useState<Record<string, WorkflowStatus>>({});
+  const [activeSavedFilter, setActiveSavedFilter] = useState<SavedDocsFilterId>('all');
+  const [reminders, setReminders] = useState<DocReminder[]>([]);
+  const [reminderDraftTitle, setReminderDraftTitle] = useState('');
+  const [reminderDraftDueAt, setReminderDraftDueAt] = useState('');
+  const [reminderDraftDocId, setReminderDraftDocId] = useState<string>('none');
+  const [reminderDraftRepeat, setReminderDraftRepeat] = useState<ReminderRepeat>('none');
+  const [reminderDraftSound, setReminderDraftSound] = useState<ReminderSound>('beep');
 
   const { isMobile } = useViewport();
 
@@ -2209,6 +2263,54 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
     () => docs.find(d => d.id === selectedId) ?? null,
     [docs, selectedId]
   );
+  const docsWorkflowStorageKey = useMemo(
+    () => (workspaceId && currentUserId ? `sunday_docs_workflow_status_${workspaceId}_${currentUserId}` : null),
+    [workspaceId, currentUserId]
+  );
+  const docsFilterStorageKey = useMemo(
+    () => (workspaceId && currentUserId ? `sunday_docs_saved_filter_${workspaceId}_${currentUserId}` : null),
+    [workspaceId, currentUserId]
+  );
+  const docsReminderStorageKey = useMemo(
+    () => (workspaceId && currentUserId ? `sunday_docs_reminders_${workspaceId}_${currentUserId}` : null),
+    [workspaceId, currentUserId]
+  );
+  const getDocWorkflowStatus = useCallback(
+    (doc: Doc): WorkflowStatus => workflowStatusByDocId[doc.id] ?? 'por_hacer',
+    [workflowStatusByDocId]
+  );
+  const docsForDisplay = useMemo(() => {
+    const now = Date.now();
+    const sevenDaysMs = 7 * 24 * 60 * 60 * 1000;
+    return docs.filter((doc) => {
+      if (activeSavedFilter === 'all') return true;
+      if (activeSavedFilter === 'pending') return getDocWorkflowStatus(doc) !== 'listo_pdf';
+      if (activeSavedFilter === 'pdf') return isPdfDocType(doc.type as DocType);
+      if (activeSavedFilter === 'updated_7d') {
+        const updatedTs = new Date(doc.updatedAt).getTime();
+        return Number.isFinite(updatedTs) && now - updatedTs <= sevenDaysMs;
+      }
+      if (activeSavedFilter === 'mine') return !!currentUserId && doc.createdBy === currentUserId;
+      return true;
+    });
+  }, [docs, activeSavedFilter, getDocWorkflowStatus, currentUserId]);
+  const workflowCounts = useMemo(() => {
+    const base = { por_hacer: 0, en_progreso: 0, listo_pdf: 0 };
+    for (const doc of docsForDisplay) {
+      const st = getDocWorkflowStatus(doc);
+      base[st] += 1;
+    }
+    return base;
+  }, [docsForDisplay, getDocWorkflowStatus]);
+  const pendingTotal = workflowCounts.por_hacer + workflowCounts.en_progreso;
+  const upcomingReminderCount = useMemo(() => {
+    const now = Date.now();
+    return reminders.filter((r) => !r.done && new Date(r.snoozedUntil || r.dueAt).getTime() >= now).length;
+  }, [reminders]);
+  const overdueReminderCount = useMemo(() => {
+    const now = Date.now();
+    return reminders.filter((r) => !r.done && new Date(r.snoozedUntil || r.dueAt).getTime() < now).length;
+  }, [reminders]);
   const parsed = useMemo(() => parseContent(selectedDoc), [selectedDoc]);
   const [textDraft, setTextDraft] = useState(() => getInitialHtml(parsed.text ?? ''));
   const [tableDraft, setTableDraft] = useState<string[][]>(parsed.table ?? [['']]);
@@ -2240,12 +2342,34 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
   useEffect(() => {
     if (isMobile && selectedId === null) setMobileDocOpen(false);
   }, [isMobile, selectedId]);
+  const beginNewDocDraft = useCallback((type: DocType) => {
+    setViewMode('overview');
+    setSelectedId(null);
+    if (isMobile) setMobileDocOpen(true);
+    setNewDocDraft({
+      type,
+      title: type === 'sheet' ? 'Nueva hoja' : getDocTypeTitle(type),
+    });
+  }, [isMobile]);
+
+  const openTemplateInNewTab = useCallback((type: DocType) => {
+    const url = new URL(window.location.href);
+    url.searchParams.set('docsCreate', type);
+    const opened = window.open(url.toString(), '_blank', 'noopener,noreferrer');
+    if (!opened) {
+      // Fallback cuando el navegador bloquea popups.
+      beginNewDocDraft(type);
+    }
+  }, [beginNewDocDraft]);
+  const createFromExploreFlow = useCallback((type: DocType) => {
+    setViewMode('docs');
+    setSelectedId(null);
+    setNewDocDraft(null);
+    if (isMobile) setMobileDocOpen(false);
+    void handleCreate(type);
+  }, [isMobile]);
   // Drawer móvil para editar plantillas (evita “scroll dentro de scroll”).
   const [templateEditorMobileOpen, setTemplateEditorMobileOpen] = useState(false);
-  /** m5: modo mapa (blueprint) en drawer móvil — menos peso del PDF al desplazar. */
-  const [templateBlueprintMode, setTemplateBlueprintMode] = useState(false);
-  /** Tras un breve delay con el drawer abierto, escuchar jank de frames para auto-activar Mapa. */
-  const blueprintJankListenRef = useRef(false);
   // Focus Mode (Micro-Editor) para edición contextual en móvil.
   const [focusModeOpen, setFocusModeOpen] = useState(false);
   const [activeBoxId, setActiveBoxId] = useState<string | null>(null);
@@ -2262,10 +2386,21 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
   // PR2: panel contextual sobre el teclado (visualViewport).
   const [focusPanelKeyboardGapPx, setFocusPanelKeyboardGapPx] = useState(0);
   const [focusPanelTranslateYPx, setFocusPanelTranslateYPx] = useState(0);
+  const [focusPanelMeasuredHeightPx, setFocusPanelMeasuredHeightPx] = useState(0);
+  const [focusSpotlightRect, setFocusSpotlightRect] = useState<{
+    left: number;
+    top: number;
+    width: number;
+    height: number;
+  } | null>(null);
+  const [focusVisualAid, setFocusVisualAid] = useState<'soft' | 'clear'>('soft');
+  const focusPanelRef = useRef<HTMLDivElement | null>(null);
   const pendingFocusClearTimeoutRef = useRef<number | null>(null);
   const templateEditorDraftSnapshotRef = useRef<Record<string, unknown> | null>(null);
   const templateEditorTemplateConfigSnapshotRef = useRef<TemplateConfigState | null>(null);
   const templateEditorCloseAfterSaveRef = useRef(false);
+  const templateEditorDialogRef = useRef<HTMLDivElement | null>(null);
+  const templateEditorReturnToDocOpenRef = useRef<boolean>(true);
   const adminMasterSyncAppliedForDocIdRef = useRef<string | null>(null);
   /** Si el master se abrió desde el drawer normal, al cerrar/guardar volver a abrirlo. */
   const reopenNormalAfterMasterRef = useRef(false);
@@ -2277,6 +2412,176 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
   const [templateMasterDocType, setTemplateMasterDocType] = useState<'cotizacion' | 'levantamiento' | 'hoja_trabajo'>('cotizacion');
   const [templateMasterDraft, setTemplateMasterDraft] = useState<TemplateConfigState | null>(null);
   const [templateMasterValue, setTemplateMasterValue] = useState<Record<string, unknown>>({});
+
+  useEffect(() => {
+    if (!docsWorkflowStorageKey) {
+      setWorkflowStatusByDocId({});
+      return;
+    }
+    try {
+      const raw = localStorage.getItem(docsWorkflowStorageKey);
+      if (!raw) {
+        setWorkflowStatusByDocId({});
+        return;
+      }
+      const parsedRaw = JSON.parse(raw) as Record<string, unknown>;
+      const next: Record<string, WorkflowStatus> = {};
+      for (const [docId, status] of Object.entries(parsedRaw)) {
+        if (status === 'por_hacer' || status === 'en_progreso' || status === 'listo_pdf') {
+          next[docId] = status;
+        }
+      }
+      setWorkflowStatusByDocId(next);
+    } catch {
+      setWorkflowStatusByDocId({});
+    }
+  }, [docsWorkflowStorageKey]);
+
+  useEffect(() => {
+    if (!docsFilterStorageKey) {
+      setActiveSavedFilter('all');
+      return;
+    }
+    const raw = localStorage.getItem(docsFilterStorageKey);
+    if (raw === 'all' || raw === 'pending' || raw === 'pdf' || raw === 'updated_7d' || raw === 'mine') {
+      setActiveSavedFilter(raw);
+    } else {
+      setActiveSavedFilter('all');
+    }
+  }, [docsFilterStorageKey]);
+
+  useEffect(() => {
+    if (!docsReminderStorageKey) {
+      setReminders([]);
+      return;
+    }
+    try {
+      const raw = localStorage.getItem(docsReminderStorageKey);
+      if (!raw) {
+        setReminders([]);
+        return;
+      }
+      const parsedRaw = JSON.parse(raw);
+      if (!Array.isArray(parsedRaw)) {
+        setReminders([]);
+        return;
+      }
+      const next: DocReminder[] = parsedRaw
+        .filter((r) => r && typeof r === 'object')
+        .map((r) => ({
+          id: typeof r.id === 'string' ? r.id : crypto.randomUUID(),
+          title: typeof r.title === 'string' ? r.title : 'Recordatorio',
+          dueAt: typeof r.dueAt === 'string' ? r.dueAt : '',
+          docId: typeof r.docId === 'string' ? r.docId : null,
+          repeat: r.repeat === 'daily' || r.repeat === 'weekly' ? r.repeat : 'none',
+          sound: r.sound === 'none' || r.sound === 'chime' ? r.sound : 'beep',
+          done: r.done === true,
+          notifiedAt: typeof r.notifiedAt === 'string' ? r.notifiedAt : null,
+          snoozedUntil: typeof r.snoozedUntil === 'string' ? r.snoozedUntil : null,
+        }))
+        .filter((r) => !!r.dueAt);
+      setReminders(next);
+    } catch {
+      setReminders([]);
+    }
+  }, [docsReminderStorageKey]);
+
+  useEffect(() => {
+    if (!docsWorkflowStorageKey) return;
+    localStorage.setItem(docsWorkflowStorageKey, JSON.stringify(workflowStatusByDocId));
+  }, [docsWorkflowStorageKey, workflowStatusByDocId]);
+
+  useEffect(() => {
+    if (!docsFilterStorageKey) return;
+    localStorage.setItem(docsFilterStorageKey, activeSavedFilter);
+  }, [docsFilterStorageKey, activeSavedFilter]);
+
+  useEffect(() => {
+    if (!docsReminderStorageKey) return;
+    localStorage.setItem(docsReminderStorageKey, JSON.stringify(reminders));
+  }, [docsReminderStorageKey, reminders]);
+
+  const playReminderSound = useCallback((sound: ReminderSound | undefined) => {
+    if (!sound || sound === 'none') return;
+    try {
+      const AudioCtx =
+        (window as Window & { AudioContext?: typeof AudioContext; webkitAudioContext?: typeof AudioContext }).AudioContext ||
+        (window as Window & { AudioContext?: typeof AudioContext; webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+      if (!AudioCtx) return;
+      const ctx = new AudioCtx();
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.value = sound === 'chime' ? 880 : 660;
+      gain.gain.value = sound === 'chime' ? 0.05 : 0.035;
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      const now = ctx.currentTime;
+      osc.start(now);
+      if (sound === 'chime') {
+        osc.frequency.setValueAtTime(660, now + 0.18);
+        osc.frequency.setValueAtTime(990, now + 0.36);
+        osc.stop(now + 0.5);
+      } else {
+        osc.stop(now + 0.22);
+      }
+      window.setTimeout(() => {
+        ctx.close().catch(() => {});
+      }, 700);
+    } catch {
+      // noop
+    }
+  }, []);
+
+  useEffect(() => {
+    const tick = window.setInterval(() => {
+      const now = Date.now();
+      setReminders((prev) => {
+        let changed = false;
+        const next = prev.map((reminder) => {
+          if (reminder.done) return reminder;
+          const dueSource = reminder.snoozedUntil || reminder.dueAt;
+          const dueTs = new Date(dueSource).getTime();
+          if (!Number.isFinite(dueTs) || dueTs > now || reminder.notifiedAt) return reminder;
+          changed = true;
+          const linkedDoc = reminder.docId ? docs.find((d) => d.id === reminder.docId) : null;
+          const msg = linkedDoc
+            ? `Recordatorio: ${reminder.title} (${linkedDoc.title})`
+            : `Recordatorio: ${reminder.title}`;
+          playReminderSound(reminder.sound);
+          if (typeof window !== 'undefined' && 'Notification' in window) {
+            if (window.Notification.permission === 'granted') {
+              new window.Notification('Sunday Docs', { body: msg });
+            } else if (window.Notification.permission === 'default') {
+              window.Notification.requestPermission().catch(() => {});
+              toast(msg, 'info');
+            } else {
+              toast(msg, 'info');
+            }
+          } else {
+            toast(msg, 'info');
+          }
+          if (reminder.repeat === 'daily' || reminder.repeat === 'weekly') {
+            const base = new Date(reminder.dueAt).getTime();
+            const stepMs = reminder.repeat === 'daily' ? 24 * 60 * 60 * 1000 : 7 * 24 * 60 * 60 * 1000;
+            const safeBase = Number.isFinite(base) ? base : now;
+            let nextDue = safeBase + stepMs;
+            while (nextDue <= now) nextDue += stepMs;
+            return {
+              ...reminder,
+              dueAt: new Date(nextDue).toISOString(),
+              notifiedAt: null,
+              snoozedUntil: null,
+            };
+          }
+          return { ...reminder, notifiedAt: new Date().toISOString(), snoozedUntil: null };
+        });
+        return changed ? next : prev;
+      });
+    }, 30000);
+    return () => window.clearInterval(tick);
+  }, [docs, toast, playReminderSound]);
+
   useEffect(() => {
     if (!templateEditorMobileOpen) return;
     const prevOverflow = document.body.style.overflow;
@@ -2288,6 +2593,25 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
     return () => {
       document.body.style.overflow = prevOverflow;
       document.body.style.paddingRight = prevPaddingRight;
+    };
+  }, [templateEditorMobileOpen]);
+
+  // Evita que la bottom nav global tape la edición en el drawer de plantilla.
+  useEffect(() => {
+    const mobileNav = document.querySelector('nav[aria-label="Navegación principal"]') as HTMLElement | null;
+    if (!mobileNav) return;
+    if (!templateEditorMobileOpen) {
+      mobileNav.style.visibility = '';
+      mobileNav.style.pointerEvents = '';
+      return;
+    }
+    const prevVisibility = mobileNav.style.visibility;
+    const prevPointerEvents = mobileNav.style.pointerEvents;
+    mobileNav.style.visibility = 'hidden';
+    mobileNav.style.pointerEvents = 'none';
+    return () => {
+      mobileNav.style.visibility = prevVisibility;
+      mobileNav.style.pointerEvents = prevPointerEvents;
     };
   }, [templateEditorMobileOpen]);
 
@@ -2311,47 +2635,8 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
       setFocusZoomScale(null);
       setFocusPanelKeyboardGapPx(0);
       setFocusPanelTranslateYPx(0);
-      setTemplateBlueprintMode(false);
     }
   }, [templateEditorMobileOpen]);
-
-  // m5 backlog: auto-mod mapa si el hilo principal “se atasca” (evita pestañas en segundo plano).
-  useEffect(() => {
-    if (!templateEditorMobileOpen) {
-      blueprintJankListenRef.current = false;
-      return;
-    }
-    blueprintJankListenRef.current = false;
-    const armId = window.setTimeout(() => {
-      blueprintJankListenRef.current = true;
-    }, 1600);
-    return () => window.clearTimeout(armId);
-  }, [templateEditorMobileOpen]);
-
-  useEffect(() => {
-    if (!templateEditorMobileOpen || templateBlueprintMode) return;
-    let raf = 0;
-    let last = performance.now();
-    const JANK_MIN_MS = 96;
-    const JANK_MAX_MS = 480;
-    const loop = (now: number) => {
-      if (!blueprintJankListenRef.current || document.visibilityState !== 'visible') {
-        last = now;
-        raf = requestAnimationFrame(loop);
-        return;
-      }
-      const dt = now - last;
-      last = now;
-      if (dt > JANK_MIN_MS && dt < JANK_MAX_MS) {
-        toast('Modo mapa activado automáticamente para mejorar el scroll.', 'info');
-        setTemplateBlueprintMode(true);
-        return;
-      }
-      raf = requestAnimationFrame(loop);
-    };
-    raf = requestAnimationFrame(loop);
-    return () => cancelAnimationFrame(raf);
-  }, [templateEditorMobileOpen, templateBlueprintMode, toast]);
 
   useEffect(() => {
     if (!templateMasterEditorOpen) return;
@@ -2463,8 +2748,70 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
       setFocusZoomScale(null);
       setFocusPanelKeyboardGapPx(0);
       setFocusPanelTranslateYPx(0);
+      setFocusPanelMeasuredHeightPx(0);
+      setFocusSpotlightRect(null);
+      setFocusVisualAid('soft');
     }
   }, [focusModeOpen]);
+
+  // Mide la altura real de la barra de foco para reservar espacio al auto-scroll.
+  useEffect(() => {
+    if (!focusModeOpen) return;
+    const el = focusPanelRef.current;
+    if (!el) return;
+    const update = () => setFocusPanelMeasuredHeightPx(el.getBoundingClientRect().height || 0);
+    update();
+    const ro = new ResizeObserver(update);
+    ro.observe(el);
+    window.addEventListener('resize', update);
+    return () => {
+      ro.disconnect();
+      window.removeEventListener('resize', update);
+    };
+  }, [focusModeOpen, activeBoxId, focusPanelKeyboardGapPx]);
+
+  // PR8 backlog: mitigar pinch-zoom en focus mode sin romper scroll vertical del drawer.
+  useEffect(() => {
+    if (!templateEditorMobileOpen || !focusModeOpen) return;
+    const root = templateEditorDialogRef.current;
+    if (!root) return;
+
+    const preventPinch = (e: TouchEvent) => {
+      if (!root.contains(e.target as Node)) return;
+      if (e.touches.length > 1) e.preventDefault();
+    };
+    const preventGesture = (e: Event) => {
+      if (!root.contains(e.target as Node)) return;
+      e.preventDefault();
+    };
+
+    root.addEventListener('touchstart', preventPinch, { passive: false });
+    root.addEventListener('touchmove', preventPinch, { passive: false });
+
+    // iOS Safari expone gesture* para pinch/zoom en algunas versiones.
+    const docWithGesture = document as Document & {
+      addEventListener: (
+        type: 'gesturestart' | 'gesturechange' | 'gestureend',
+        listener: (ev: Event) => void,
+        options?: boolean | AddEventListenerOptions
+      ) => void;
+      removeEventListener: (
+        type: 'gesturestart' | 'gesturechange' | 'gestureend',
+        listener: (ev: Event) => void
+      ) => void;
+    };
+    docWithGesture.addEventListener('gesturestart', preventGesture, { passive: false });
+    docWithGesture.addEventListener('gesturechange', preventGesture, { passive: false });
+    docWithGesture.addEventListener('gestureend', preventGesture, { passive: false });
+
+    return () => {
+      root.removeEventListener('touchstart', preventPinch);
+      root.removeEventListener('touchmove', preventPinch);
+      docWithGesture.removeEventListener('gesturestart', preventGesture);
+      docWithGesture.removeEventListener('gesturechange', preventGesture);
+      docWithGesture.removeEventListener('gestureend', preventGesture);
+    };
+  }, [templateEditorMobileOpen, focusModeOpen]);
 
   // PR2: Auto-zoom/auto-scroll hacia el cuadro enfocado (usa coords en porcentajes).
   useEffect(() => {
@@ -2485,8 +2832,21 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
     }
 
     const yPx = activeBoxGeom.yPct * PAGE_HEIGHT_PX_96DPI * nextScale;
+    const boxBottomPx = (activeBoxGeom.yPct + activeBoxGeom.hPct) * PAGE_HEIGHT_PX_96DPI * nextScale;
     const xPx = activeBoxGeom.xPct * PAGE_WIDTH_PX_96DPI * nextScale;
-    const idealTop = yPx - el.clientHeight * 0.2;
+    // Reserva inferior: barra de foco + navegación inferior + pequeño margen de aire.
+    const bottomNavReservePx = 96;
+    const focusPanelReservePx = Math.max(132, focusPanelMeasuredHeightPx + 24);
+    const keyboardReservePx =
+      focusPanelKeyboardGapPx > 0 ? Math.min(focusPanelKeyboardGapPx, el.clientHeight * 0.4) : 0;
+    const blockedBottomPx = Math.min(
+      el.clientHeight * 0.75,
+      focusPanelReservePx + bottomNavReservePx + keyboardReservePx
+    );
+    const visibleHeightPx = Math.max(120, el.clientHeight - blockedBottomPx);
+    const idealTopFromTop = yPx - el.clientHeight * 0.22;
+    const idealTopFromBottom = boxBottomPx - visibleHeightPx;
+    const idealTop = Math.max(idealTopFromTop, idealTopFromBottom);
     const idealLeft = xPx - el.clientWidth * 0.1;
 
     pendingAutoScrollTimeoutRef.current = window.setTimeout(() => {
@@ -2502,7 +2862,87 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
         });
       });
     }, 0);
-  }, [focusModeOpen, activeBoxGeom, templateEditorMobileOpen]);
+  }, [
+    focusModeOpen,
+    activeBoxGeom,
+    templateEditorMobileOpen,
+    focusPanelMeasuredHeightPx,
+    focusPanelKeyboardGapPx,
+  ]);
+
+  // Reserva "runway" de scroll al fondo para que cajas bajas (ej. total) no queden ocultas.
+  useEffect(() => {
+    const el = pdfScrollContainerElRef.current;
+    if (!el) return;
+    if (!templateEditorMobileOpen || !focusModeOpen) {
+      el.style.paddingBottom = '';
+      return;
+    }
+    const bottomNavReservePx = 96;
+    const focusPanelReservePx = Math.max(132, focusPanelMeasuredHeightPx + 24);
+    const keyboardReservePx = focusPanelKeyboardGapPx > 0 ? Math.min(focusPanelKeyboardGapPx, 260) : 0;
+    const totalReservePx = focusPanelReservePx + bottomNavReservePx + keyboardReservePx;
+    el.style.paddingBottom = `${totalReservePx}px`;
+    return () => {
+      el.style.paddingBottom = '';
+    };
+  }, [templateEditorMobileOpen, focusModeOpen, focusPanelMeasuredHeightPx, focusPanelKeyboardGapPx]);
+
+  // PR8: Spotlight en focus mode: blur/overlay solo fuera del cuadro activo.
+  useEffect(() => {
+    if (!templateEditorMobileOpen || !focusModeOpen || !activeBoxGeom) {
+      setFocusSpotlightRect(null);
+      return;
+    }
+    const el = pdfScrollContainerElRef.current;
+    if (!el) {
+      setFocusSpotlightRect(null);
+      return;
+    }
+
+    const updateSpotlight = () => {
+      const width = el.clientWidth;
+      const height = el.clientHeight;
+      if (width <= 0 || height <= 0) {
+        setFocusSpotlightRect(null);
+        return;
+      }
+
+      const autoFitScale = Math.max(0.25, Math.min(1, width / PAGE_WIDTH_PX_96DPI));
+      const scale = focusZoomScale ?? autoFitScale;
+      const pad = 10;
+      const leftRaw = activeBoxGeom.xPct * PAGE_WIDTH_PX_96DPI * scale - el.scrollLeft - pad;
+      const topRaw = activeBoxGeom.yPct * PAGE_HEIGHT_PX_96DPI * scale - el.scrollTop - pad;
+      const boxWidthRaw = activeBoxGeom.wPct * PAGE_WIDTH_PX_96DPI * scale + pad * 2;
+      const boxHeightRaw = activeBoxGeom.hPct * PAGE_HEIGHT_PX_96DPI * scale + pad * 2;
+
+      const minWidth = Math.max(56, Math.min(boxWidthRaw, width));
+      const minHeight = Math.max(40, Math.min(boxHeightRaw, height));
+      const left = Math.max(0, Math.min(width - minWidth, leftRaw));
+      const top = Math.max(0, Math.min(height - minHeight, topRaw));
+
+      setFocusSpotlightRect({
+        left,
+        top,
+        width: minWidth,
+        height: minHeight,
+      });
+    };
+
+    updateSpotlight();
+    const onScroll = () => updateSpotlight();
+    const onResize = () => updateSpotlight();
+    el.addEventListener('scroll', onScroll, { passive: true });
+    window.addEventListener('resize', onResize);
+    const ro = new ResizeObserver(updateSpotlight);
+    ro.observe(el);
+
+    return () => {
+      el.removeEventListener('scroll', onScroll);
+      window.removeEventListener('resize', onResize);
+      ro.disconnect();
+    };
+  }, [templateEditorMobileOpen, focusModeOpen, activeBoxGeom, focusZoomScale]);
 
   const [deleteConfirm, setDeleteConfirm] = useState<{ docId: string } | null>(null);
   type PromptDialog =
@@ -2633,7 +3073,13 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
 
   // En móvil preferimos la vista "docs" (lista + visor), pero permitimos "overview"
   // cuando el usuario lo solicita (ej. "Editar plantilla" para PDFs).
-  const effectiveViewMode: 'docs' | 'overview' = viewMode;
+  // Si hay borrador nuevo activo, forzamos la vista de edición para evitar volver a "Explorar" por cambios de estado laterales.
+  const effectiveViewMode: 'docs' | 'overview' = newDocDraft ? 'overview' : viewMode;
+  const useEmbeddedTemplateEditor =
+    isMobile &&
+    templateEditorMobileOpen &&
+    !!selectedDoc &&
+    isPdfDocType(selectedDoc.type as DocType);
 
   // Solo una vez al montar en móvil: arrancar en lista. No volver a forzar 'docs'
   // o al tocar "Editar plantilla" el efecto nos devolvería a lista.
@@ -3029,6 +3475,7 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
     const docPdfType = selectedDoc.type as 'cotizacion' | 'levantamiento' | 'hoja_trabajo';
     const docId = selectedDoc.id;
     templateDrawerDocIdRef.current = docId;
+    templateEditorReturnToDocOpenRef.current = mobileDocOpen;
 
     let draft: Record<string, unknown> = pdfFormDraft;
     let master: TemplateConfigState | null = templateConfigByType[docPdfType] ?? null;
@@ -3073,6 +3520,54 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
 
     setTemplateEditorMobileOpen(true);
   };
+
+  const closeEmbeddedTemplateEditor = useCallback(() => {
+    templateEditorCloseAfterSaveRef.current = false;
+    setTemplateEditorMobileOpen(false);
+    if (isMobile) setMobileDocOpen(templateEditorReturnToDocOpenRef.current);
+  }, [isMobile]);
+
+  const setDocWorkflowStatus = useCallback((docId: string, status: WorkflowStatus) => {
+    setWorkflowStatusByDocId((prev) => ({ ...prev, [docId]: status }));
+  }, []);
+
+  const handleAddReminder = useCallback(() => {
+    const title = reminderDraftTitle.trim();
+    const dueAt = reminderDraftDueAt.trim();
+    if (!title) {
+      toast('Escribe un título para el recordatorio.', 'error');
+      return;
+    }
+    if (!dueAt) {
+      toast('Selecciona fecha y hora para la alarma.', 'error');
+      return;
+    }
+    const dueTs = new Date(dueAt).getTime();
+    if (!Number.isFinite(dueTs)) {
+      toast('Fecha/hora inválida para el recordatorio.', 'error');
+      return;
+    }
+    setReminders((prev) => [
+      {
+        id: crypto.randomUUID(),
+        title,
+        dueAt: new Date(dueTs).toISOString(),
+        docId: reminderDraftDocId === 'none' ? null : reminderDraftDocId,
+        repeat: reminderDraftRepeat,
+        sound: reminderDraftSound,
+        done: false,
+        notifiedAt: null,
+        snoozedUntil: null,
+      },
+      ...prev,
+    ]);
+    setReminderDraftTitle('');
+    setReminderDraftDueAt('');
+    setReminderDraftDocId('none');
+    setReminderDraftRepeat('none');
+    setReminderDraftSound('beep');
+    toast('Recordatorio programado.', 'success');
+  }, [reminderDraftTitle, reminderDraftDueAt, reminderDraftDocId, reminderDraftRepeat, reminderDraftSound, toast]);
 
   // m6: autosave de emergencia mientras el drawer móvil está abierto.
   useEffect(() => {
@@ -3188,12 +3683,6 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
     return () => { cancelled = true; };
   }, [pdfDocType]);
 
-  // Importante: no guardamos automáticamente la configuración global de plantilla al editar
-  // un documento. Las cajas (incluidas imágenes) deben quedar guardadas en el documento.
-  useEffect(() => {
-    // no-op
-  }, []);
-
   async function handleCreate(
     type: DocType,
     subgroupId?: string,
@@ -3232,6 +3721,7 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
       const created = data as Doc;
       setDocs(prev => [created, ...prev]);
       setSelectedId(created.id);
+      if (isMobile) setMobileDocOpen(true);
       setNewDocDraft(null);
       if (subgroupId) {
         setSubgroupAssignments((prev) => ({ ...prev, [created.id]: subgroupId }));
@@ -3353,7 +3843,7 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
       }
       // No crear documento en el servidor: solo abrir borrador. El doc se crea al hacer clic en Guardar
       const initialContent = initialContentOverride ?? getInitialContentForType(type);
-      setNewDocDraft({ type, title: type === 'sheet' ? 'Nueva hoja' : getDocTypeTitle(type) });
+      beginNewDocDraft(type);
       setPdfFormDraft(initialContent as Record<string, unknown>);
       if (type === 'sheet') {
         const table = (initialContent as { table?: string[][] }).table;
@@ -3377,6 +3867,12 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
     onConsumeInitialOpenDocId?.();
   }, [initialOpenDocId, onConsumeInitialOpenDocId]);
 
+  useEffect(() => {
+    if (!initialCreateDocType) return;
+    createFromExploreFlow(initialCreateDocType);
+    onConsumeInitialCreateDocType?.();
+  }, [initialCreateDocType, onConsumeInitialCreateDocType, createFromExploreFlow]);
+
   const [overwriteDialog, setOverwriteDialog] = useState<{
     mode: 'update' | 'create';
     title: string;
@@ -3384,7 +3880,6 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
     action: 'saveExisting' | 'saveNew';
   } | null>(null);
   const overwriteActionRef = useRef<(() => Promise<void> | void) | null>(null);
-  const previewWrapperRef = useRef<HTMLDivElement>(null);
 
   const runOverwriteAction = async () => {
     const fn = overwriteActionRef.current;
@@ -3395,7 +3890,7 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
     }
     if (templateEditorCloseAfterSaveRef.current) {
       templateEditorCloseAfterSaveRef.current = false;
-      setTemplateEditorMobileOpen(false);
+      closeEmbeddedTemplateEditor();
     }
   };
 
@@ -3726,11 +4221,17 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
 
   const handleDeleteClick = (id: string) => setDeleteConfirm({ docId: id });
 
-  /** En vista Lista: al seleccionar un doc en móvil también abre el viewer (master-detail). */
-  const handleSelectDocInList = useCallback((id: string) => {
+  /** Seleccionar documento existente desde lista siempre limpia borrador nuevo. */
+  const handleOpenExistingDoc = useCallback((id: string) => {
+    setNewDocDraft(null);
     setSelectedId(id);
     if (isMobile) setMobileDocOpen(true);
   }, [isMobile]);
+
+  /** En vista Lista: alias semántico para selección desde la tabla/listado. */
+  const handleSelectDocInList = useCallback((id: string) => {
+    handleOpenExistingDoc(id);
+  }, [handleOpenExistingDoc]);
 
   const handleDeleteConfirm = async () => {
     const id = deleteConfirm?.docId;
@@ -3854,6 +4355,7 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
       const created = data as Doc;
       setDocs(prev => [created, ...prev]);
       setSelectedId(created.id);
+      if (isMobile) setMobileDocOpen(true);
       setNewDocDraft(null);
       setSaveModal(null);
       const link = linkToBoardItemRef.current;
@@ -4164,96 +4666,107 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
 
       {effectiveViewMode === 'overview' ? (
         <div className="flex-1 flex flex-col min-h-0 overflow-hidden bg-monday-bg">
-          {/* Menús superiores: en móvil grid más compacto */}
-          <div className="p-4 sm:p-6 pb-2 shrink-0">
-            <div className="flex flex-wrap gap-3 sm:gap-4 justify-center sm:justify-start">
-              {DOC_TYPE_OPTIONS.map(opt => (
-                <button
-                  key={opt.id}
-                  type="button"
-                  disabled={!workspaceId}
-                  onClick={() => {
-                    setNewDocDraft({ type: opt.id, title: getDocTypeTitle(opt.id) });
-                  }}
-                  className="flex flex-col items-start justify-between w-full min-[400px]:w-64 p-3 sm:p-4 rounded-xl sm:rounded-2xl bg-white border border-monday-border shadow-md hover:shadow-lg hover:border-monday-blue/50 transition-all text-left disabled:opacity-60"
-                >
-                  <div className="flex items-center gap-3 mb-2">
-                    {opt.id === 'sheet' ? (
-                      <Table2 size={26} className="text-monday-blue shrink-0" />
-                    ) : isPdfDocType(opt.id) ? (
-                      <FileCheck size={26} className="text-monday-blue shrink-0" />
-                    ) : (
-                      <FileText size={26} className="text-monday-blue shrink-0" />
-                    )}
-                    <div className="min-w-0 flex-1">
-                      <p className="font-semibold text-monday-text text-[14px] truncate">
-                        {opt.title}
-                      </p>
-                      <p className="text-[11px] text-monday-subtext">{opt.label}</p>
+          {/* Menús superiores: ocultos cuando ya hay doc/borrador abierto para evitar solaparse con el editor */}
+          {!selectedDoc && !newDocDraft && (
+            <div className="p-4 sm:p-6 pb-2 shrink-0">
+              <div className="flex flex-wrap gap-3 sm:gap-4 justify-center sm:justify-start">
+                {DOC_TYPE_OPTIONS.map(opt => (
+                  <button
+                    key={opt.id}
+                    type="button"
+                    disabled={!workspaceId}
+                    onClick={() => {
+                      createFromExploreFlow(opt.id);
+                    }}
+                    className="flex flex-col items-start justify-between w-full min-[400px]:w-64 p-3 sm:p-4 rounded-xl sm:rounded-2xl bg-white border border-monday-border shadow-md hover:shadow-lg hover:border-monday-blue/50 transition-all text-left disabled:opacity-60"
+                  >
+                    <div className="flex items-center gap-3 mb-2">
+                      {opt.id === 'sheet' ? (
+                        <Table2 size={26} className="text-monday-blue shrink-0" />
+                      ) : isPdfDocType(opt.id) ? (
+                        <FileCheck size={26} className="text-monday-blue shrink-0" />
+                      ) : (
+                        <FileText size={26} className="text-monday-blue shrink-0" />
+                      )}
+                      <div className="min-w-0 flex-1">
+                        <p className="font-semibold text-monday-text text-[14px] truncate">
+                          {opt.title}
+                        </p>
+                        <p className="text-[11px] text-monday-subtext">{opt.label}</p>
+                      </div>
                     </div>
-                  </div>
-                  <span className="text-[11px] text-monday-blue font-medium">
-                    Crear {opt.label.toLowerCase()}
-                  </span>
-                </button>
-              ))}
-              {!isMobile && onAddTaskList && (
-                <Popover.Root>
-                  <Popover.Trigger asChild>
-                    <button
-                      type="button"
-                      disabled={!workspaceId}
-                      className="flex flex-col items-start justify-between w-64 p-4 rounded-2xl bg-[#5034ff] text-white border border-[#5034ff] shadow-md hover:shadow-lg hover:border-white/70 transition-all text-left disabled:opacity-60"
-                    >
-                      <div className="flex items-center gap-3 mb-2">
-                        <div className="w-9 h-9 rounded-xl bg-white/15 flex items-center justify-center">
-                          <Calculator size={22} className="text-white" />
+                    <span className="text-[11px] text-monday-blue font-medium">
+                      Crear {opt.label.toLowerCase()}
+                    </span>
+                  </button>
+                ))}
+                {!isMobile && onAddTaskList && (
+                  <Popover.Root>
+                    <Popover.Trigger asChild>
+                      <button
+                        type="button"
+                        disabled={!workspaceId}
+                        className="flex flex-col items-start justify-between w-64 p-4 rounded-2xl bg-[#5034ff] text-white border border-[#5034ff] shadow-md hover:shadow-lg hover:border-white/70 transition-all text-left disabled:opacity-60"
+                      >
+                        <div className="flex items-center gap-3 mb-2">
+                          <div className="w-9 h-9 rounded-xl bg-white/15 flex items-center justify-center">
+                            <Calculator size={22} className="text-white" />
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <p className="font-semibold text-[14px] truncate">
+                              Añadir widget
+                            </p>
+                            <p className="text-[11px] text-white/90">
+                              Se añade al panel lateral de Docs.
+                            </p>
+                          </div>
                         </div>
-                        <div className="min-w-0 flex-1">
-                          <p className="font-semibold text-[14px] truncate">
-                            Añadir widget
-                          </p>
-                          <p className="text-[11px] text-white/90">
-                            Crea elementos extra como tareas o utilidades.
-                          </p>
+                        <span className="text-[11px] font-medium flex items-center gap-1">
+                          <Plus size={12} />
+                          Nuevo widget
+                        </span>
+                      </button>
+                    </Popover.Trigger>
+                    <Popover.Portal>
+                      <Popover.Content
+                        className="z-50 p-2 rounded-xl shadow-lg border border-monday-border bg-white w-56"
+                        sideOffset={6}
+                      >
+                        <div className="flex flex-col gap-1">
+                          <button
+                            type="button"
+                            className="w-full flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-monday-hover text-[13px] text-monday-text"
+                            onClick={onAddTaskList}
+                          >
+                            <CheckSquare size={16} className="text-monday-blue" />
+                            <span>Añadir tareas</span>
+                          </button>
+                          <button
+                            type="button"
+                            className="w-full flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-monday-hover text-[13px] text-monday-text"
+                            onClick={onAddCalculatorWidget}
+                            disabled={!onAddCalculatorWidget}
+                          >
+                            <span className="w-4 h-4 rounded bg-monday-blue text-white flex items-center justify-center text-[11px]">≡</span>
+                            <span>Calculadora</span>
+                          </button>
+                          <button
+                            type="button"
+                            className="w-full flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-monday-hover text-[13px] text-monday-text"
+                            onClick={onAddReminderWidget}
+                            disabled={!onAddReminderWidget}
+                          >
+                            <BellRing size={16} className="text-monday-blue" />
+                            <span>Recordatorios</span>
+                          </button>
                         </div>
-                      </div>
-                      <span className="text-[11px] font-medium flex items-center gap-1">
-                        <Plus size={12} />
-                        Nuevo widget
-                      </span>
-                    </button>
-                  </Popover.Trigger>
-                  <Popover.Portal>
-                    <Popover.Content
-                      className="z-50 p-2 rounded-xl shadow-lg border border-monday-border bg-white w-56"
-                      sideOffset={6}
-                    >
-                      <div className="flex flex-col gap-1">
-                        <button
-                          type="button"
-                          className="w-full flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-monday-hover text-[13px] text-monday-text"
-                          onClick={onAddTaskList}
-                        >
-                          <CheckSquare size={16} className="text-monday-blue" />
-                          <span>Añadir tareas</span>
-                        </button>
-                        <button
-                          type="button"
-                          className="w-full flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-monday-hover text-[13px] text-monday-text"
-                          onClick={onAddCalculatorWidget}
-                          disabled={!onAddCalculatorWidget}
-                        >
-                          <span className="w-4 h-4 rounded bg-monday-blue text-white flex items-center justify-center text-[11px]">≡</span>
-                          <span>Calculadora</span>
-                        </button>
-                      </div>
-                    </Popover.Content>
-                  </Popover.Portal>
-                </Popover.Root>
-              )}
+                      </Popover.Content>
+                    </Popover.Portal>
+                  </Popover.Root>
+                )}
+              </div>
             </div>
-          </div>
+          )}
 
           {/* Editor debajo de los menús */}
           <div className="flex-1 flex min-h-0 overflow-hidden px-4 sm:px-6 pb-4 sm:pb-6">
@@ -4423,6 +4936,132 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
             </section>
           </div>
         </div>
+      ) : useEmbeddedTemplateEditor && selectedDoc ? (
+        <div ref={templateEditorDialogRef} className="flex-1 flex flex-col min-h-0 bg-monday-bg overflow-hidden">
+          <div className="shrink-0 flex flex-col gap-2 px-4 py-2 border-b border-monday-border bg-white">
+            <div className="min-w-0 flex items-center justify-between">
+              <div className="min-w-0">
+                <div className="text-[11px] leading-4 text-monday-subtext truncate">Documentos / Editar plantilla</div>
+                <div className="text-[15px] font-semibold text-monday-text truncate">Editar plantilla</div>
+              </div>
+            </div>
+            <div className="grid grid-cols-1 min-[360px]:grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  if (templateEditorDraftSnapshotRef.current) {
+                    setPdfFormDraft(templateEditorDraftSnapshotRef.current);
+                  }
+                  if (templateEditorTemplateConfigSnapshotRef.current && isAdmin && pdfDocType) {
+                    setTemplateConfigByType((prev) => ({
+                      ...prev,
+                      [pdfDocType]: templateEditorTemplateConfigSnapshotRef.current as TemplateConfigState,
+                    }));
+                  }
+                }}
+                className="min-h-[44px] px-2.5 rounded-lg border border-monday-border bg-white text-[12px] sm:text-[13px] text-monday-text hover:bg-monday-hover touch-manipulation w-full"
+              >
+                Deshacer
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  if (templateEditorDraftSnapshotRef.current) {
+                    setPdfFormDraft(templateEditorDraftSnapshotRef.current);
+                  }
+                  if (templateEditorTemplateConfigSnapshotRef.current && isAdmin && pdfDocType) {
+                    setTemplateConfigByType((prev) => ({
+                      ...prev,
+                      [pdfDocType]: templateEditorTemplateConfigSnapshotRef.current as TemplateConfigState,
+                    }));
+                  }
+                  closeEmbeddedTemplateEditor();
+                }}
+                className="min-h-[44px] px-2.5 rounded-lg border border-monday-border bg-white text-[12px] sm:text-[13px] text-monday-text hover:bg-monday-hover touch-manipulation w-full"
+              >
+                Cerrar
+              </button>
+              <button
+                type="button"
+                onClick={() => handleGeneratePdf()}
+                disabled={!selectedDoc || !isPdfDocType(selectedDoc.type as DocType)}
+                className="min-h-[44px] px-2.5 rounded-lg border border-monday-border bg-white text-[12px] sm:text-[13px] text-monday-text hover:bg-monday-hover disabled:opacity-60 touch-manipulation w-full"
+              >
+                Generar PDF
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  templateEditorCloseAfterSaveRef.current = true;
+                  handleSave();
+                }}
+                className="min-h-[44px] px-2.5 rounded-lg bg-monday-blue text-white text-[12px] sm:text-[13px] font-medium hover:bg-monday-blue/90 disabled:opacity-60 touch-manipulation w-full"
+                disabled={saving}
+              >
+                {saving ? 'Guardando…' : 'Guardar'}
+              </button>
+            </div>
+          </div>
+          <div className="flex-1 min-h-0 overflow-hidden relative pb-3">
+            <div className="p-0 relative h-full">
+              <PdfTemplateEditor
+                key={selectedDoc.id}
+                docType={selectedDoc.type as 'cotizacion' | 'levantamiento' | 'hoja_trabajo'}
+                value={pdfFormDraft}
+                onChange={setPdfFormDraft}
+                docId={selectedDoc.id}
+                templateConfig={effectiveTemplateConfigForPdf}
+                isAdmin={isAdmin}
+                allowBoxEditing={!isAdmin}
+                lockedOutline={isAdmin}
+                compactPadding
+                renderFormatBarExternally={false}
+                blueprintMode={false}
+                onTemplateConfigChange={
+                  !isAdmin && pdfDocType
+                    ? (config) => {
+                        setPdfFormDraft((prev) => {
+                          const prevFieldPositions =
+                            typeof prev.fieldPositions === 'object' && prev.fieldPositions != null && !Array.isArray(prev.fieldPositions)
+                              ? (prev.fieldPositions as Record<string, { x: number; y: number }>)
+                              : {};
+                          const prevBold = prev.globalFontBold === true || prev.globalFontBold === 'true';
+                          const prevItalic = prev.globalFontItalic === true || prev.globalFontItalic === 'true';
+                          return {
+                            ...prev,
+                            fieldPositions: config.fieldPositions ?? prevFieldPositions,
+                            globalFontColor:
+                              typeof config.fontColor === 'string'
+                                ? config.fontColor
+                                : typeof prev.globalFontColor === 'string'
+                                  ? prev.globalFontColor
+                                  : '#000000',
+                            globalFontFamily:
+                              typeof config.fontFamily === 'string'
+                                ? config.fontFamily
+                                : typeof prev.globalFontFamily === 'string'
+                                  ? prev.globalFontFamily
+                                  : 'Helvetica',
+                            globalFontSize:
+                              typeof config.fontSize === 'number'
+                                ? config.fontSize
+                                : typeof prev.globalFontSize === 'number'
+                                  ? prev.globalFontSize
+                                  : 11,
+                            globalFontBold: config.fontBold ?? prevBold,
+                            globalFontItalic: config.fontItalic ?? prevItalic,
+                            customBoxes: config.customBoxes ?? (Array.isArray(prev.customBoxes) ? prev.customBoxes : []),
+                          } as Record<string, unknown>;
+                        });
+                      }
+                    : undefined
+                }
+                onSaveTemplateConfig={undefined}
+                savingTemplateConfig={savingTemplateConfig}
+              />
+            </div>
+          </div>
+        </div>
       ) : (
       <div className={`flex-1 flex flex-col md:flex-row bg-monday-bg min-h-0 ${scrollListInParent ? 'overflow-visible min-h-min' : 'overflow-hidden'}`}>
         {/* Panel izquierdo: lista de docs. En móvil solo visible cuando mobileDocOpen === false. */}
@@ -4441,8 +5080,10 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
           )}
           {workspaceId && !loading && (
             <>
+              {/* Widgets visibles solo en panel lateral de Docs (no en contenido principal). */}
+
               {DOC_TYPE_OPTIONS.map((opt) => {
-                const groupDocs = docs.filter((d) => d.type === opt.id);
+                const groupDocs = docsForDisplay.filter((d) => d.type === opt.id);
                 const typeGroupTitle = opt.id === 'text' ? 'Documentos de texto' : opt.id === 'sheet' ? 'Hojas' : getDocTypeLabel(opt.id as DocType);
                 const groupKey = `type:${opt.id}`;
                 const typeSubgroups = subgroupsByType[opt.id] ?? [];
@@ -4456,7 +5097,7 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
                     onToggleCollapse={() => toggleDocGroupCollapse(groupKey)}
                     docs={groupDocs}
                     selectedId={selectedId}
-                    onSelectDoc={isMobile ? handleSelectDocInList : setSelectedId}
+                    onSelectDoc={handleOpenExistingDoc}
                     onDeleteDoc={(id) => handleDeleteClick(id)}
                     customGroups={customGroups}
                     assignments={assignments}
@@ -4475,7 +5116,7 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
                 );
               })}
               {customGroups.map((grp) => {
-                const groupDocs = docs.filter((d) => assignments[d.id] === grp.id);
+                const groupDocs = docsForDisplay.filter((d) => assignments[d.id] === grp.id);
                 const groupKey = `custom:${grp.id}`;
                 const color = GROUP_PALETTE[customGroups.indexOf(grp) % GROUP_PALETTE.length];
                 return (
@@ -4489,7 +5130,7 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
                     onRemove={() => removeCustomGroup(grp.id)}
                     docs={groupDocs}
                     selectedId={selectedId}
-                    onSelectDoc={isMobile ? handleSelectDocInList : setSelectedId}
+                    onSelectDoc={handleOpenExistingDoc}
                     onDeleteDoc={(id) => handleDeleteClick(id)}
                     customGroups={customGroups}
                     assignments={assignments}
@@ -4538,6 +5179,16 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
                   {selectedDoc.title || 'Sin título'}
                 </h2>
                 <div className="flex items-center gap-1.5 sm:gap-2 flex-shrink-0">
+                  <select
+                    value={getDocWorkflowStatus(selectedDoc)}
+                    onChange={(e) => setDocWorkflowStatus(selectedDoc.id, e.target.value as WorkflowStatus)}
+                    className="px-2 py-1.5 min-h-[44px] sm:min-h-0 rounded-monday border border-monday-border text-[12px] text-monday-subtext bg-white touch-manipulation"
+                    title="Estado de flujo del documento"
+                  >
+                    <option value="por_hacer">Por hacer</option>
+                    <option value="en_progreso">En progreso</option>
+                    <option value="listo_pdf">Listo para PDF</option>
+                  </select>
                   <button
                     type="button"
                     onClick={() => { setSelectedId(null); if (isMobile) setMobileDocOpen(false); }}
@@ -4668,7 +5319,7 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
               </div>
 
               {selectedDoc && isPdfDocType(selectedDoc.type as DocType) ? (
-                <div className="flex-1 min-h-0 min-w-0 overflow-auto scroll-touch custom-scrollbar bg-white flex justify-center p-2 sm:p-0">
+                <div className="flex-1 min-h-0 min-w-0 overflow-auto scroll-touch custom-scrollbar bg-white p-2 sm:p-0">
                   {templateConfigLoading && !(effectiveTemplateConfigForPdf?.customBoxes?.length) ? (
                     <div className="flex items-center justify-center h-full">
                       <span className="text-sm text-gray-400">
@@ -4676,22 +5327,17 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
                       </span>
                     </div>
                   ) : (
-                    <div
-                      ref={previewWrapperRef}
-                      className="flex flex-col shrink-0 bg-white self-start"
-                      style={{ width: '816px', height: '1056px', minWidth: '816px', minHeight: '1056px' }}
-                    >
-                      <PdfTemplateEditor
-                        key={selectedDoc.id}
-                        docType={selectedDoc.type as 'cotizacion' | 'levantamiento' | 'hoja_trabajo'}
-                        value={pdfFormDraft}
-                        onChange={setPdfFormDraft}
-                        docId={selectedDoc.id}
-                        templateConfig={effectiveTemplateConfigForPdf}
-                        isAdmin={isAdmin}
-                        viewerOnly
-                      />
-                    </div>
+                    <PdfTemplateEditor
+                      key={selectedDoc.id}
+                      docType={selectedDoc.type as 'cotizacion' | 'levantamiento' | 'hoja_trabajo'}
+                      value={pdfFormDraft}
+                      onChange={setPdfFormDraft}
+                      docId={selectedDoc.id}
+                      templateConfig={effectiveTemplateConfigForPdf}
+                      isAdmin={isAdmin}
+                      viewerOnly
+                      compactPadding
+                    />
                   )}
                 </div>
               ) : selectedDoc?.type === 'sheet' ? (
@@ -4718,346 +5364,6 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
       </div>
       )}
     </div>
-    <AnimatePresence>
-      {templateEditorMobileOpen && selectedDoc && isPdfDocType(selectedDoc.type as DocType) && (
-        <>
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: 0.18 }}
-            className="fixed inset-0 z-[200] bg-black/30"
-            aria-hidden
-            onClick={() => {
-              if (templateEditorDraftSnapshotRef.current) {
-                setPdfFormDraft(templateEditorDraftSnapshotRef.current);
-              }
-              if (templateEditorTemplateConfigSnapshotRef.current && isAdmin && pdfDocType) {
-                setTemplateConfigByType((prev) => ({
-                  ...prev,
-                  [pdfDocType]: templateEditorTemplateConfigSnapshotRef.current as TemplateConfigState,
-                }));
-              }
-              templateEditorCloseAfterSaveRef.current = false;
-              setTemplateEditorMobileOpen(false);
-            }}
-          />
-          <motion.div
-            initial={{ y: '100%' }}
-            animate={{ y: 0 }}
-            exit={{ y: '100%' }}
-            transition={{ type: 'tween', duration: 0.25, ease: [0.22, 1, 0.36, 1] }}
-            className="fixed left-0 right-0 bottom-0 z-[201] bg-white rounded-t-2xl shadow-monday-xl border-t border-monday-border flex flex-col max-h-[95dvh]"
-            style={{ paddingBottom: 'max(0.5rem, env(safe-area-inset-bottom))' }}
-            role="dialog"
-            aria-label="Editar plantilla"
-          >
-            <div className="shrink-0 flex items-center justify-between min-h-[52px] px-4 border-b border-monday-border">
-              <div className="min-w-0">
-                <div className="text-[15px] font-semibold text-monday-text truncate">Editar plantilla</div>
-              </div>
-              <div className="flex items-center gap-2 shrink-0 flex-wrap justify-end">
-                <button
-                  type="button"
-                  onClick={() => setTemplateBlueprintMode((v) => !v)}
-                  className={`min-h-[44px] min-w-[44px] px-2 rounded-lg border text-[13px] touch-manipulation inline-flex items-center justify-center gap-1 ${
-                    templateBlueprintMode
-                      ? 'border-monday-blue bg-monday-blue/10 text-monday-blue'
-                      : 'border-monday-border bg-white text-monday-text hover:bg-monday-hover'
-                  }`}
-                  title={
-                    templateBlueprintMode
-                      ? 'Modo mapa activo: PDF oculto (mejor scroll). Toca de nuevo para ver la plantilla.'
-                      : 'Modo mapa: oculta el PDF de fondo para desplazar con más fluidez'
-                  }
-                  aria-pressed={templateBlueprintMode}
-                >
-                  <Layers size={18} aria-hidden />
-                  <span className="sr-only">
-                    {templateBlueprintMode ? 'Desactivar modo mapa' : 'Activar modo mapa'}
-                  </span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (templateEditorDraftSnapshotRef.current) {
-                      setPdfFormDraft(templateEditorDraftSnapshotRef.current);
-                    }
-                    if (templateEditorTemplateConfigSnapshotRef.current && isAdmin && pdfDocType) {
-                      setTemplateConfigByType((prev) => ({
-                        ...prev,
-                        [pdfDocType]: templateEditorTemplateConfigSnapshotRef.current as TemplateConfigState,
-                      }));
-                    }
-                  }}
-                  className="min-h-[44px] px-3 rounded-lg border border-monday-border bg-white text-[13px] text-monday-text hover:bg-monday-hover touch-manipulation"
-                  title="Deshacer cambios (un nivel)"
-                >
-                  Deshacer
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (templateEditorDraftSnapshotRef.current) {
-                      setPdfFormDraft(templateEditorDraftSnapshotRef.current);
-                    }
-                    if (templateEditorTemplateConfigSnapshotRef.current && isAdmin && pdfDocType) {
-                      setTemplateConfigByType((prev) => ({
-                        ...prev,
-                        [pdfDocType]: templateEditorTemplateConfigSnapshotRef.current as TemplateConfigState,
-                      }));
-                    }
-                    templateEditorCloseAfterSaveRef.current = false;
-                    setTemplateEditorMobileOpen(false);
-                  }}
-                  className="min-h-[44px] px-3 rounded-lg border border-monday-border bg-white text-[13px] text-monday-text hover:bg-monday-hover touch-manipulation"
-                  title="Cerrar sin guardar"
-                >
-                  Cerrar
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleGeneratePdf()}
-                  disabled={!selectedDoc || !isPdfDocType(selectedDoc.type as DocType)}
-                  className="min-h-[44px] px-3 rounded-lg border border-monday-border bg-white text-[13px] text-monday-text hover:bg-monday-hover disabled:opacity-60 touch-manipulation"
-                  title="Generar PDF"
-                >
-                  Generar PDF
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    templateEditorCloseAfterSaveRef.current = true;
-                    handleSave();
-                  }}
-                  className="min-h-[44px] px-3 rounded-lg bg-monday-blue text-white text-[13px] font-medium hover:bg-monday-blue/90 disabled:opacity-60 touch-manipulation"
-                  disabled={saving}
-                  title="Guardar documento"
-                >
-                  {saving ? 'Guardando…' : 'Guardar'}
-                </button>
-                {isAdmin && (
-                  <button
-                    type="button"
-                    onClick={async () => {
-                      if (templateConfigLoading) {
-                        toast('Cargando master…', 'info');
-                        return;
-                      }
-                      reopenNormalAfterMasterRef.current = true;
-                      const kind = (pdfDocType ?? 'cotizacion') as 'cotizacion' | 'levantamiento' | 'hoja_trabajo';
-                      await loadTemplateMasterDraftForKind(kind);
-                      // Cancelar cambios del drawer actual (equivalente a "Cerrar sin guardar")
-                      if (templateEditorDraftSnapshotRef.current) {
-                        setPdfFormDraft(templateEditorDraftSnapshotRef.current);
-                      }
-                      if (templateEditorTemplateConfigSnapshotRef.current && isAdmin && pdfDocType) {
-                        setTemplateConfigByType((prev) => ({
-                          ...prev,
-                          [pdfDocType]: templateEditorTemplateConfigSnapshotRef.current as TemplateConfigState,
-                        }));
-                      }
-                      templateEditorCloseAfterSaveRef.current = false;
-                      setTemplateEditorMobileOpen(false);
-                      setTemplateMasterEditorOpen(true);
-                    }}
-                    className="min-h-[44px] px-3 rounded-lg border border-monday-border bg-white text-[13px] text-monday-text hover:bg-monday-hover disabled:opacity-60 touch-manipulation"
-                    title="Editar master global (3 tipos)"
-                  >
-                    Master de plantillas
-                  </button>
-                )}
-              </div>
-            </div>
-
-            <div className="flex-1 min-h-0 overflow-hidden relative">
-              <div className="p-0 relative h-full">
-                <PdfTemplateEditor
-                  key={selectedDoc.id}
-                  docType={selectedDoc.type as 'cotizacion' | 'levantamiento' | 'hoja_trabajo'}
-                  value={pdfFormDraft}
-                  onChange={setPdfFormDraft}
-                  docId={selectedDoc.id}
-                  templateConfig={effectiveTemplateConfigForPdf}
-                  isAdmin={isAdmin}
-                  allowBoxEditing={!isAdmin}
-                  lockedOutline={isAdmin}
-                  compactPadding
-                  renderFormatBarExternally
-                  onActiveBoxChange={handleActiveBoxChange}
-                  focusZoomScale={focusZoomScale}
-                  onScrollContainerReady={(el) => {
-                    pdfScrollContainerElRef.current = el;
-                  }}
-                  blueprintMode={templateBlueprintMode}
-                  onCanvasDoubleTap={() => setFocusZoomScale(null)}
-                  canvasTouchPanY={focusModeOpen}
-                  onTemplateConfigChange={
-                    !isAdmin && pdfDocType
-                      ? (config) => {
-                          // No-admin: solo ajustar layout/draft para el documento actual.
-                          setPdfFormDraft((prev) => {
-                            const prevFieldPositions =
-                              typeof prev.fieldPositions === 'object' && prev.fieldPositions != null && !Array.isArray(prev.fieldPositions)
-                                ? (prev.fieldPositions as Record<string, { x: number; y: number }>)
-                                : {};
-                            const prevBold = prev.globalFontBold === true || prev.globalFontBold === 'true';
-                            const prevItalic = prev.globalFontItalic === true || prev.globalFontItalic === 'true';
-                            return {
-                              ...prev,
-                              fieldPositions: config.fieldPositions ?? prevFieldPositions,
-                              globalFontColor:
-                                typeof config.fontColor === 'string'
-                                  ? config.fontColor
-                                  : typeof prev.globalFontColor === 'string'
-                                    ? prev.globalFontColor
-                                    : '#000000',
-                              globalFontFamily:
-                                typeof config.fontFamily === 'string'
-                                  ? config.fontFamily
-                                  : typeof prev.globalFontFamily === 'string'
-                                    ? prev.globalFontFamily
-                                    : 'Helvetica',
-                              globalFontSize:
-                                typeof config.fontSize === 'number'
-                                  ? config.fontSize
-                                  : typeof prev.globalFontSize === 'number'
-                                    ? prev.globalFontSize
-                                    : 11,
-                              globalFontBold: config.fontBold ?? prevBold,
-                              globalFontItalic: config.fontItalic ?? prevItalic,
-                              customBoxes: config.customBoxes ?? (Array.isArray(prev.customBoxes) ? prev.customBoxes : []),
-                            } as Record<string, unknown>;
-                          });
-                        }
-                      : undefined
-                  }
-                  onSaveTemplateConfig={undefined}
-                  savingTemplateConfig={savingTemplateConfig}
-                />
-
-                {focusModeOpen && (
-                  <div className="absolute inset-0 z-[210] pointer-events-none bg-black/10 backdrop-blur-[4px]" />
-                )}
-
-                {focusModeOpen && activeBoxId && effectiveTemplateConfigForPdf && (
-                  <div
-                    className="fixed left-0 right-0 z-[220] bg-white/95 backdrop-blur-md border-t border-monday-border shadow-monday-xl"
-                    style={{
-                      bottom: `calc(${focusPanelKeyboardGapPx}px + env(safe-area-inset-bottom))`,
-                      transform: `translateY(${focusPanelTranslateYPx}px)`,
-                      transition: 'bottom 0.2s ease-out, transform 0.2s ease-out',
-                      paddingBottom: 'max(0.5rem, env(safe-area-inset-bottom))',
-                    }}
-                  >
-                    <TextFormatBarForTemplate
-                      uiMode={isAdmin ? 'textStyleOnly' : 'full'}
-                      templateConfig={{
-                        fontFamily: effectiveTemplateConfigForPdf.fontFamily,
-                        fontSize: effectiveTemplateConfigForPdf.fontSize,
-                        fontBold: effectiveTemplateConfigForPdf.fontBold,
-                        fontItalic: effectiveTemplateConfigForPdf.fontItalic,
-                        fontColor: effectiveTemplateConfigForPdf.fontColor,
-                        customBoxes: effectiveTemplateConfigForPdf.customBoxes ?? [],
-                      }}
-                      onTemplateConfigChange={(patch) => {
-                        // ADMIN: solo permitir cambios de estilo de texto permitidos.
-                        if (isAdmin) {
-                          if (!pdfDocType) return;
-                          const currentMaster = effectiveTemplateConfigForPdf;
-                          const currentBoxes = Array.isArray(currentMaster.customBoxes) ? currentMaster.customBoxes : [];
-                          const patchedBoxes = (patch as { customBoxes?: CustomBoxDef[] }).customBoxes;
-                          if (!Array.isArray(patchedBoxes)) return;
-                          if (patchedBoxes.length !== currentBoxes.length) return;
-                          const currentIds = new Set(currentBoxes.map((b) => b.id));
-                          if (patchedBoxes.some((b) => !currentIds.has(b.id))) return;
-
-                          const nextCustomBoxes = currentBoxes.map((curr) => {
-                            const patched = patchedBoxes.find((b) => b.id === curr.id);
-                            if (!patched) return curr;
-                            return {
-                              ...curr,
-                              ...(typeof patched.fontBold === 'boolean' ? { fontBold: patched.fontBold } : {}),
-                              ...(typeof patched.fontItalic === 'boolean' ? { fontItalic: patched.fontItalic } : {}),
-                              ...(typeof patched.fontColor === 'string' ? { fontColor: patched.fontColor } : {}),
-                            };
-                          });
-
-                          setTemplateConfigByType((prev) => ({
-                            ...prev,
-                            [pdfDocType]: {
-                              ...(prev[pdfDocType] ?? currentMaster),
-                              customBoxes: nextCustomBoxes,
-                            },
-                          }));
-
-                          // Mantener el draft del doc consistente para persistencia al guardar.
-                          setPdfFormDraft((prev) => {
-                            const docBoxes = Array.isArray(prev.customBoxes) ? (prev.customBoxes as CustomBoxDef[]) : [];
-                            if (docBoxes.length !== currentBoxes.length) return prev;
-                            const nextDocBoxes = docBoxes.map((curr) => {
-                              const patched = patchedBoxes.find((b) => b.id === curr.id);
-                              if (!patched) return curr;
-                              return {
-                                ...curr,
-                                ...(typeof patched.fontBold === 'boolean' ? { fontBold: patched.fontBold } : {}),
-                                ...(typeof patched.fontItalic === 'boolean' ? { fontItalic: patched.fontItalic } : {}),
-                                ...(typeof patched.fontColor === 'string' ? { fontColor: patched.fontColor } : {}),
-                              };
-                            });
-                            return { ...prev, customBoxes: nextDocBoxes };
-                          });
-
-                          return;
-                        }
-
-                        // No-admin: mantener la política existente (parche directo al draft del documento).
-                        setPdfFormDraft((prev) => {
-                          const prevFieldPositions =
-                            typeof prev.fieldPositions === 'object' && prev.fieldPositions != null && !Array.isArray(prev.fieldPositions)
-                              ? (prev.fieldPositions as Record<string, { x: number; y: number }>)
-                              : {};
-                          const prevBold = prev.globalFontBold === true || prev.globalFontBold === 'true';
-                          const prevItalic = prev.globalFontItalic === true || prev.globalFontItalic === 'true';
-                          return {
-                            ...prev,
-                            fieldPositions: (patch as any).fieldPositions ?? prevFieldPositions,
-                            globalFontColor:
-                              typeof (patch as any).fontColor === 'string'
-                                ? (patch as any).fontColor
-                                : typeof prev.globalFontColor === 'string'
-                                  ? prev.globalFontColor
-                                  : '#000000',
-                            globalFontFamily:
-                              typeof (patch as any).fontFamily === 'string'
-                                ? (patch as any).fontFamily
-                                : typeof prev.globalFontFamily === 'string'
-                                  ? prev.globalFontFamily
-                                  : 'Helvetica',
-                            globalFontSize:
-                              typeof (patch as any).fontSize === 'number'
-                                ? (patch as any).fontSize
-                                : typeof prev.globalFontSize === 'number'
-                                  ? prev.globalFontSize
-                                  : 11,
-                            globalFontBold: (patch as any).fontBold ?? prevBold,
-                            globalFontItalic: (patch as any).fontItalic ?? prevItalic,
-                            customBoxes:
-                              (patch as any).customBoxes ?? (Array.isArray(prev.customBoxes) ? prev.customBoxes : []),
-                          } as Record<string, unknown>;
-                        });
-                      }}
-                      selectedBoxId={activeBoxId}
-                      isAdmin={isAdmin}
-                    />
-                  </div>
-                )}
-              </div>
-            </div>
-          </motion.div>
-        </>
-      )}
-    </AnimatePresence>
     <AnimatePresence>
       {templateMasterEditorOpen && isAdmin && (
         <>

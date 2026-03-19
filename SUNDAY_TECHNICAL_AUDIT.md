@@ -27,12 +27,12 @@
   - Implementación del generador de PDF WYSIWYG compartiendo el árbol de componentes React (`renderDocumentToHtml.tsx` → bundle CJS).  
   - Introducción de Web Push (`PushSubscription`, `sendWebPushToUser`) ligado a reglas de negocio (asignaciones, comentarios).
 
-- **Estado a marzo 2026 (según manifiesto)**  
+- **Estado a marzo 2026 (según manifiesto, actualizado)**  
   - **Tableros en tiempo real**: 100% funcionales, pendiente seguir refinando rooms por usuario.  
   - **Editor/PDF**: ~95% (flujo 1:1 de descarga consolidado; quedan detalles finos en edge cases).  
   - **Seguridad JWT**: middleware y manejo en frontend implementados; pendiente endurecer algunos valores por defecto (`JWT_SECRET`, rondas bcrypt).  
   - **PostgreSQL**: esquema y campos sombra en producción, con migración lógica desde strings; continúan tareas de eliminación de código puramente legacy.  
-  - **Modo móvil/PWA**: ~82%, con micro-editor de plantillas PDF en drawer (focus mode, modo mapa, borrador de emergencia); pendiente pulir **legibilidad del texto al editar en focus mode** (referencia vs. blur del fondo), ejecutar QA en dispositivos reales y modo offline.
+- **Modo móvil/PWA**: ~88%, con micro-editor de plantillas PDF integrado como subvista embebida en Docs (sin modal superpuesto), foco de edición estabilizado, borrador de emergencia, cajas single-line reforzadas y mejor legibilidad de texto blanco; pendiente QA de campo en dispositivos reales y modo offline.
 
 #### 0.1.1 Línea de tiempo detallada (vista histórica)
 
@@ -738,16 +738,22 @@ Estado a marzo 2026 (actualizado tras flujo Generar PDF y descarga 1:1):
 
 Implementación consolidada en frontend (marzo 2026):
 
-- **`frontend/src/components/pages/DocsPage.tsx`**: drawer móvil «Editar plantilla» con scroll lock de `body`; **focus mode** (`focusModeOpen`, `activeBoxId`, geometría en %); panel contextual fijo **keyboard-aware** (`window.visualViewport`, `bottom` + `translateY`, transición suave); **barra de formato en el padre** (`TextFormatBarForTemplate`) con `renderFormatBarExternally`; ADMIN con **`textStyleOnly`** y sanitización de cambios en `customBoxes` (solo estilo); auto-zoom (~×1.6) y scroll con «factor de aire»; botón **Modo mapa** (blueprint); **auto-activación del mapa** si se detecta jank de frames (rAF, tras ~1,6 s); **borrador de emergencia** `localStorage` clave `sunday_draft_<documentId>` (`frontend/src/utils/emergencyPdfTemplateDraft.ts`); recuperación con confirm al reabrir; limpieza al guardar PDF OK y al cerrar drawer (excepto transición al overlay Master).
-- **`frontend/src/components/pages/docs/PdfTemplateEditor.tsx`**: `onActiveBoxChange`, `renderFormatBarExternally`, `focusZoomScale`, `onScrollContainerReady`; **blueprint** (no render PDF.js mientras activo, rejilla + wireframe de cajas); **`touch-action: pan-y`** en wrapper cuando `canvasTouchPanY`; doble clic y **doble toque** en lienzo vacío (`touchend` no pasivo) para reset del zoom de foco; **`fieldKey === 'fecha'`** → `input type="date"` con DD/MM/YYYY en el borrador.
-- **`frontend/src/components/docs/TextFormatBar.tsx`**: `uiMode?: 'full' | 'textStyleOnly'`; captura de `mousedown` en la barra para limitar pérdida de foco del `contentEditable`.
+- **`frontend/src/components/pages/DocsPage.tsx`**: el flujo móvil de «Editar plantilla» migró de drawer/modal superpuesto a **subvista embebida dentro de Docs** (con breadcrumb contextual `Documentos / Editar plantilla` y botón **Cerrar** con retorno al estado correcto lista/visor); se eliminó `Modo mapa` y la botonera superior se normalizó en 4 acciones principales (Deshacer/Cerrar/Generar PDF/Guardar), con layout adaptativo para evitar recortes en pantallas estrechas; se mantiene el guardado de emergencia en `localStorage` (`sunday_draft_<documentId>`), con recuperación al reabrir y limpieza al guardar/cerrar.
+- **`frontend/src/components/pages/docs/PdfTemplateEditor.tsx`**: mejora de edición `contentEditable` sin borrado al enfocar (sin inyectar `children` en el cuadro activo), saneamiento de cajas de una línea (`singleLine`/`folio` sin saltos de línea en Enter/paste/input), soporte visual para texto blanco durante edición (`textShadow` + `caretColor`) y `will-change` temporal en drag/resize.
+- **`frontend/src/components/docs/TextFormatBar.tsx`**: continúa `uiMode?: 'full' | 'textStyleOnly'` para respetar gating ADMIN en estilos.
 - **Documentación**: checklist manual `docs/MOBILE_MICRO_EDITOR_QA.md`; plan de trabajo Cursor `mobile-micro-editor_6a5cd465.plan.md` (todos m1–m7 en estado *completed*).
 
 **Hueco de producto/UX (siguiente fase recomendada):**
 
-- Al escribir en la plantilla en **móvil con focus mode**, la superposición de **dim + `backdrop-blur`** sobre el lienzo hace que **no haya una referencia visual clara** del documento (el fondo/PDF se percibe poco); el texto activo puede resultar **difícil de contextualizar** frente a la plantilla impresa esperada. **Debe idearse** un tratamiento visual explícito: p. ej. blur solo fuera de la caja activa, “isla” nítida tipo papel, intensidad de dim configurable, vista previa temporal sin blur, contorno/guía de la caja frente al PDF, o combinar modo mapa + foco de otra forma — sin romper scroll lock, `contentEditable` ni el gating ADMIN.
+- El problema de referencia visual y usabilidad en móvil pasó de **abierto crítico** a **mitigado** con edición embebida, escala consistente entre Explorar/Crear y eliminación de solapamientos con navegación inferior durante edición.  
+  Pendiente: validar en QA de campo (iOS/Android reales) el confort de lectura en plantillas con fondos claros/oscuros y la ergonomía del flujo en sesiones largas.
 
-**Backlog técnico alineado con el plan (no bloqueante):** bloqueo fino de **pinch-zoom** en focus mode (`touch-action` más estricto que `pan-y`), **`will-change`** en capas drag/resize, bottom sheets para **color** u otras semánticas (`nota_iva` / `notas`), **Deshacer** en la barra de foco, y ejecución del QA en **Chrome móvil + Safari iOS**.
+**Backlog técnico alineado con el plan (no bloqueante):** unificar definitivamente código legacy del flujo overlay (si queda rastro), evaluar bottom sheets para color/semánticas (`nota_iva` / `notas`), y ejecutar QA de campo en **Safari iOS + Chrome Android** con checklist final sobre dispositivos físicos.
+
+**Estado de cierre del plan (marzo 2026):**
+
+- **Cerrado en ingeniería:** migración a subvista embebida, estabilidad de edición (`contentEditable`), legibilidad de texto blanco, enforcement de cajas de una línea, mitigación de solapamiento en `total`, borrador de emergencia y limpieza documental.
+- **Criterio pendiente para cierre total:** pasada final en dispositivos físicos (**iOS Safari + Android Chrome**) y registro de evidencias del checklist QA.
 
 #### 4.4 Reglas de negocio clave (Taller → Facturación)
 
@@ -835,9 +841,14 @@ Componentes clave:
   - Orquestador general:
     - Estado de navegación (`activePage` virtual en lugar de `react-router`).
     - Gestión de vistas (`table`, `kanban`, `calendar`, `facturacion`, `resumen`, `timeline`).
+    - Reordenamiento de tabs de vistas del tablero mediante **drag & drop** (con persistencia en `localStorage` y controles de flecha como respaldo).
     - La pestaña **Estudio** fue eliminada; la pestaña **Navegador** fue retirada por no ser viable como iframe.
     - Detección responsive (`matchMedia`, `ResizeObserver`).
     - Tema (`light` / `dark` / `night`) con persistencia en `localStorage` y sincronización con `<meta name="theme-color">`.
+  - Sidebar de Docs (desktop) actualizado:
+    - Sistema de widgets persistentes por usuario/workspace (`panel-notes`) con orden arrastrable.
+    - Widgets activos: **Tareas**, **Calculadora** y **Recordatorios**.
+    - Rediseño visual unificado de widgets con estilo glass sutil, bordes de bajo contraste y separación por sombras para mejor integración con temas.
   - Gestión de paneles móviles (bottom nav, sidebars) y drawer `MobileMoreDrawer`.
 
 - `frontend/src/store/socket.ts`:
@@ -856,6 +867,8 @@ Componentes clave:
       - El par activo (una variante para sol y otra para rayos) se asigna al entrar a una pestaña y se mantiene hasta cambiar a otra (`activePage`).
       - Se evita desincronía rígida aplicando desfase entre sol/rayos, manteniendo el mismo eje centrado.
       - Los keyframes incluyen efectos de brillo (`drop-shadow`), wobble suave (micro-deformaciones con `scale`) y respiración (pequeño `translateY`); el color base sigue adaptándose al tema mediante `currentColor`.
+    - Ajuste visual reciente:
+      - El botón principal **“Continuar”** quedó unificado en ambos layouts (vertical y horizontal) usando una única clase de estilo primario (`bg-monday-blue`, hover consistente y mismos estados `disabled`/sombra), eliminando discrepancias de color entre variantes del login.
 
 - `frontend/src/components/Board/*`:
   - `BoardContainer`, `ItemDetailsPanel`, etc.
@@ -864,12 +877,28 @@ Componentes clave:
     - Cambios realizados:
       - Se reforzó la deduplicación de enlaces en la pestaña `Archivos` (Drive) usando normalización de URL y extracción del ID de Drive para evitar duplicados.
       - Se mejoró el renderizado en la pestaña `Info` evitando que IDs/valores “en código” (UUIDs o JSON double-encoded) se muestren como texto crudo.
-    - Estado (bugs aún presentes):
-      - `Info`: siguen apareciendo UUIDs/valores crudos en campos como `Folio`, `Fecha`, `Enlace a Drive` y `colocación` (y al menos otro renglón cuyo contenido está en formato “código”).
-      - `Archivos`: persiste el enlace repetido de Drive (aunque ya se intentó deduplicar), por lo que hay que corregir ambos issues de forma definitiva.
+      - Ajuste adicional: para columnas `person` sin usuario resoluble se muestra `Usuario asignado` en lugar de IDs internos.
+      - Fallback de columnas sin metadata endurecido para ocultar valores técnicos (UUID/JSON) con placeholder visual (`—`) y etiqueta neutral (`Campo`).
+    - Estado:
+      - `Info`: mitigado de forma importante; se mantiene monitoreo de edge cases de datos legacy extremadamente malformados.
+      - `Archivos`: deduplicación operativa; mantener QA sobre enlaces históricos duplicados en datos antiguos.
+
+- `frontend/src/components/mobile/*` y navegación móvil:
+  - Ajustes visuales de consistencia de tema (menos fondos `bg-white` rígidos en overlays/drawers; mayor uso de tokens de superficie).
+  - `MobileBottomNav`: feedback táctil y transición de estado activo refinados para mejorar legibilidad del tab seleccionado.
+  - `TodayPage`: cards y barra de búsqueda con jerarquía visual más limpia y consistente entre temas.
+  - `MobileMoreDrawer`: inputs/popovers de workspace y tema migrados a superficies temáticas para evitar “parches blancos” en temas oscuros.
 
 - `frontend/src/components/pages/*`:
   - `InboxPage`, `NotificationsPage`, `DocsPage`, `TeamPage`, `FacturacionPage`, `WorkspaceOverviewPage`, `MiTrabajoPage`.
+  - `DocsPage` (actualización marzo 2026):
+    - El menú **Añadir widget** agrega elementos al ecosistema de Docs y se alineó con widgets operativos del panel de exploración.
+    - Widgets operativos actuales en exploración móvil: **Pendientes por estado**, **Atajos por tipo**, **Filtros guardados** y **Recordatorios v2** (con repetición diaria/semanal, sonido y snooze).
+    - Ajustes UX recientes:
+      - Flujo móvil de **Crear** unificado para abrir el documento recién creado en el mismo contexto de Docs (sin rebotes al menú de creación).
+      - En **overview**, el bloque superior de creación se oculta cuando hay documento/borrador activo para evitar que el editor quede “debajo” y requiera scroll.
+      - Cabeceras de grupo en **Explorar móvil** optimizadas: contador de elementos más pequeño y reposicionado bajo el título; se eliminó el botón **Añadir subgrupo** para priorizar visibilidad del nombre completo del grupo.
+      - La hoja nueva (`sheet`) se presenta en formato visual **US Letter** para una edición más controlada.
   - La página **DesignPage (Estudio)** fue retirada de la navegación; el código puede seguir en el repo pero no se monta desde `App.tsx`.
   - Cada página corresponde a una "vista" de datos de negocio específica.
 
@@ -1092,8 +1121,9 @@ Este enfoque mantiene un flujo sencillo (desarrollo en cualquier PC → `git pus
   - Síntoma: al enfocar inputs con tipografía <16px, Safari aplica zoom; al hacer login, el zoom puede persistir en la siguiente vista.
   - Mitigación aplicada: inputs del login usan `text-[16px]` en móvil (con `sm:text-[14px]` para desktop) y se fuerza `blur()` del elemento activo al enviar el formulario.
 
-- **Edición de plantilla PDF en móvil (focus mode) — referencia visual al escribir** — abierto:
-  - Con el dim y el **blur** del lienzo, el usuario puede **perder la referencia** respecto al aspecto final del PDF mientras edita texto en una caja. No es un bug de datos sino de **diseño de experiencia**; la siguiente fase debe proponer alternativas de UI (ver §4.3.1) y validarlas en dispositivos reales.
+- **Edición de plantilla PDF en móvil (subvista embebida en Docs) — legibilidad y flujo** — mitigado:
+  - Se eliminó el modal/drawer superpuesto y se movió la edición a una subvista interna de Docs con botón de cierre explícito; además, se ajustó el tamaño de preview en Explorar para coincidir con Crear.
+  - Riesgo remanente: completar QA en dispositivos físicos (iOS Safari / Android Chrome) para confirmar confort en sesiones largas y descartar edge cases de teclado/safe-area en barras del sistema atípicas.
 
 **Estado del plan RBAC (marzo 2026):**
 - **Fase 1 (REST brechas críticas):** Completa — `/api/my-work` y `/api/search` con `authenticateToken` y filtrado por usuario.
