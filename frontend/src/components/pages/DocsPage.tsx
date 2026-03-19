@@ -22,6 +22,7 @@ import {
   Upload,
   Loader2,
   Pencil,
+  Layers,
   MessageCircle,
   Mail,
   MoreVertical,
@@ -2241,6 +2242,8 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
   }, [isMobile, selectedId]);
   // Drawer móvil para editar plantillas (evita “scroll dentro de scroll”).
   const [templateEditorMobileOpen, setTemplateEditorMobileOpen] = useState(false);
+  /** m5: modo mapa (blueprint) en drawer móvil — menos peso del PDF al desplazar. */
+  const [templateBlueprintMode, setTemplateBlueprintMode] = useState(false);
   // Focus Mode (Micro-Editor) para edición contextual en móvil.
   const [focusModeOpen, setFocusModeOpen] = useState(false);
   const [activeBoxId, setActiveBoxId] = useState<string | null>(null);
@@ -2306,6 +2309,7 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
       setFocusZoomScale(null);
       setFocusPanelKeyboardGapPx(0);
       setFocusPanelTranslateYPx(0);
+      setTemplateBlueprintMode(false);
     }
   }, [templateEditorMobileOpen]);
 
@@ -4712,7 +4716,27 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
               <div className="min-w-0">
                 <div className="text-[15px] font-semibold text-monday-text truncate">Editar plantilla</div>
               </div>
-              <div className="flex items-center gap-2 shrink-0">
+              <div className="flex items-center gap-2 shrink-0 flex-wrap justify-end">
+                <button
+                  type="button"
+                  onClick={() => setTemplateBlueprintMode((v) => !v)}
+                  className={`min-h-[44px] min-w-[44px] px-2 rounded-lg border text-[13px] touch-manipulation inline-flex items-center justify-center gap-1 ${
+                    templateBlueprintMode
+                      ? 'border-monday-blue bg-monday-blue/10 text-monday-blue'
+                      : 'border-monday-border bg-white text-monday-text hover:bg-monday-hover'
+                  }`}
+                  title={
+                    templateBlueprintMode
+                      ? 'Modo mapa activo: PDF oculto (mejor scroll). Toca de nuevo para ver la plantilla.'
+                      : 'Modo mapa: oculta el PDF de fondo para desplazar con más fluidez'
+                  }
+                  aria-pressed={templateBlueprintMode}
+                >
+                  <Layers size={18} aria-hidden />
+                  <span className="sr-only">
+                    {templateBlueprintMode ? 'Desactivar modo mapa' : 'Activar modo mapa'}
+                  </span>
+                </button>
                 <button
                   type="button"
                   onClick={() => {
@@ -4825,6 +4849,9 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
                   onScrollContainerReady={(el) => {
                     pdfScrollContainerElRef.current = el;
                   }}
+                  blueprintMode={templateBlueprintMode}
+                  onCanvasDoubleTap={() => setFocusZoomScale(null)}
+                  canvasTouchPanY={focusModeOpen}
                   onTemplateConfigChange={
                     !isAdmin && pdfDocType
                       ? (config) => {

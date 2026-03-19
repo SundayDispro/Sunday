@@ -29,6 +29,20 @@ interface Props {
   templateConfig?: TemplateConfigState | null;
   isAdmin?: boolean;
   onTemplateConfigChange?: (config: TemplateConfigState) => void;
+  /** Señal al padre: caja enfocada y su geometría (porcentajes del canvas). */
+  onActiveBoxChange?: (payload: ActiveBoxChangePayload) => void;
+  /** Si true: no renderiza TextFormatBarForTemplate dentro del editor. */
+  renderFormatBarExternally?: boolean;
+  /** Scale override (PR2) para Focus Mode. Si es null/undefined, se calcula auto-fit. */
+  focusZoomScale?: number | null;
+  /** Exponer el contenedor con `overflow: auto` para auto-scroll/zoom desde el padre (PR2). */
+  onScrollContainerReady?: (el: HTMLDivElement | null) => void;
+  /** m5: oculta el PDF de fondo (rejilla + wireframe) para scroll más fluido en móvil. */
+  blueprintMode?: boolean;
+  /** m5: doble clic en el lienzo vacío (fuera de cajas), p. ej. quitar zoom de focus mode. */
+  onCanvasDoubleTap?: () => void;
+  /** m5: `touch-action: pan-y` en el lienzo (focus mode / gestos). */
+  canvasTouchPanY?: boolean;
   onSaveTemplateConfig?: (configOverride?: TemplateConfigState) => void | Promise<void>;
   savingTemplateConfig?: boolean;
   /** Solo visualización: sin barra de formato, sin menú admin y cuadros de solo lectura */
@@ -72,6 +86,12 @@ function getSemanticPlaceholder(box: import('./pdfTemplateConfig').CustomBoxDef)
   }
 }
 
+type ActiveBoxKind = 'text' | 'image';
+type ActiveBoxGeomPct = { xPct: number; yPct: number; wPct: number; hPct: number };
+type ActiveBoxChangePayload =
+  | ({ boxId: string; boxKind: ActiveBoxKind } & ActiveBoxGeomPct)
+  | { boxId: null };
+
 const DEFAULT_TEMPLATE_CONFIG: TemplateConfigState = {
   fieldPositions: {},
   fontColor: '#000000',
@@ -91,6 +111,13 @@ export const PdfTemplateEditor: React.FC<Props> = ({
   templateConfig = null,
   isAdmin = false,
   onTemplateConfigChange,
+  onActiveBoxChange,
+  renderFormatBarExternally = false,
+  focusZoomScale = null,
+  onScrollContainerReady,
+  blueprintMode = false,
+  onCanvasDoubleTap,
+  canvasTouchPanY = false,
   onSaveTemplateConfig,
   savingTemplateConfig = false,
   viewerOnly = false,
@@ -117,6 +144,7 @@ export const PdfTemplateEditor: React.FC<Props> = ({
   const [resizePreview, setResizePreview] = useState<{ width: number; height: number } | null>(null);
   const [adminMenuOpen, setAdminMenuOpen] = useState(false);
   const [selectedBoxId, setSelectedBoxId] = useState<string | null>(null);
+  const prevSelectedBoxIdRef = useRef<string | null>(null);
   const [imageDialogOpen, setImageDialogOpen] = useState(false);
   const [imageDialogMode, setImageDialogMode] = useState<'add' | 'edit'>('add');
   const [imageDialogBoxId, setImageDialogBoxId] = useState<string | null>(null);
@@ -175,6 +203,8 @@ export const PdfTemplateEditor: React.FC<Props> = ({
 
   useEffect(() => {
     if (exportPixelScale) return;
+    // PR2: si el padre fija zoom, no recalculamos auto-fit por resize.
+    if (focusZoomScale != null) return;
     const el = wrapperRef.current;
     if (!el) return;
     const calcScale = () => {
@@ -188,9 +218,26 @@ export const PdfTemplateEditor: React.FC<Props> = ({
     const ro = new ResizeObserver(calcScale);
     ro.observe(el);
     return () => ro.disconnect();
-  }, [exportPixelScale]);
+  }, [exportPixelScale, focusZoomScale]);
 
   useEffect(() => {
+    // PR2: aplicar override si existe.
+    if (exportPixelScale) return;
+    if (focusZoomScale == null) return;
+    const next = Math.max(0.25, Math.min(1, focusZoomScale));
+    setScale(next);
+  }, [focusZoomScale, exportPixelScale]);
+
+  useEffect(() => {
+    if (blueprintMode) {
+      setPdfRenderError(null);
+      const c = canvasRef.current;
+      if (c) {
+        const ctx = c.getContext('2d');
+        if (ctx) ctx.clearRect(0, 0, c.width || 0, c.height || 0);
+      }
+      return;
+    }
     if (!templatePdfUrl || !canvasRef.current) {
       setPdfRenderError(null);
       return;
@@ -237,7 +284,7 @@ export const PdfTemplateEditor: React.FC<Props> = ({
     return () => {
       cancelled = true;
     };
-  }, [templatePdfUrl, onExportReady, pixelScale]);
+  }, [templatePdfUrl, onExportReady, pixelScale, blueprintMode]);
 
   const handleCustomBoxMouseDown = useCallback((e: React.MouseEvent, box: CustomBoxDef) => {
     e.preventDefault();
@@ -466,6 +513,15 @@ export const PdfTemplateEditor: React.FC<Props> = ({
     if (selectedBoxId && !customBoxes.some((b) => b.id === selectedBoxId)) setSelectedBoxId(null);
   }, [selectedBoxId, customBoxes]);
 
+  useEffect(() => {
+    // Mecanismo seguro: si por cualquier razón el estado interno pasa a null,
+    // notificamos al padre para que cierre Focus Mode.
+    if (prevSelectedBoxIdRef.current && selectedBoxId === null) {
+      onActiveBoxChange?.({ boxId: null });
+    }
+    prevSelectedBoxIdRef.current = selectedBoxId;
+  }, [selectedBoxId, onActiveBoxChange]);
+
   const previewImageUrl = imageDialogUrl.trim().startsWith('/') ? `${API_BASE}${imageDialogUrl}` : imageDialogUrl;
 
   return (
@@ -585,7 +641,7 @@ export const PdfTemplateEditor: React.FC<Props> = ({
           )}
         </div>
       )}
-      {onTemplateConfigChange && !viewerOnly && (
+      {!renderFormatBarExternally && onTemplateConfigChange && !viewerOnly && (
         <TextFormatBarForTemplate
           templateConfig={{
             fontFamily: effectiveConfig.fontFamily,
@@ -607,7 +663,10 @@ export const PdfTemplateEditor: React.FC<Props> = ({
           isAdmin={isAdmin}
         />
       )}
-      <div className={`flex-1 flex min-h-0 ${viewerOnly ? 'items-stretch justify-center overflow-auto p-0' : compactPadding ? 'items-center justify-center p-0 overflow-auto' : 'items-center justify-center p-2 sm:p-4 overflow-auto'}`}>
+      <div
+        className={`flex-1 flex min-h-0 ${viewerOnly ? 'items-stretch justify-center overflow-auto p-0' : compactPadding ? 'items-center justify-center p-0 overflow-auto' : 'items-center justify-center p-2 sm:p-4 overflow-auto'}`}
+        ref={(el) => onScrollContainerReady?.(el)}
+      >
         {!viewerOnly && scale === 1 && (
           <div className="absolute top-14 left-4 z-20 text-[10px] text-monday-subtext bg-white/90 px-1.5 py-0.5 rounded border border-monday-border/60">
             1:1 @ 96 DPI (816×1056 px)
@@ -629,6 +688,7 @@ export const PdfTemplateEditor: React.FC<Props> = ({
                         overflow: 'hidden' as const,
                       }),
                 }),
+            ...(!exportPixelScale && canvasTouchPanY ? { touchAction: 'pan-y' as const } : {}),
           }}
         >
           <div
@@ -649,13 +709,26 @@ export const PdfTemplateEditor: React.FC<Props> = ({
           >
           {/* Capa 1: Fondo (PDF renderizado con PDF.js a 96 DPI o blanco). */}
           <div
-            className={`absolute inset-0 z-0 bg-white ${viewerOnly ? 'overflow-visible' : 'overflow-hidden'}`}
+            className={`absolute inset-0 z-0 ${viewerOnly ? 'overflow-visible' : 'overflow-hidden'} ${
+              blueprintMode && !viewerOnly ? 'bg-slate-100' : 'bg-white'
+            }`}
+            style={
+              blueprintMode && !viewerOnly
+                ? {
+                    backgroundImage:
+                      'linear-gradient(rgba(15,23,42,0.06) 1px, transparent 1px), linear-gradient(90deg, rgba(15,23,42,0.06) 1px, transparent 1px)',
+                    backgroundSize: '18px 18px',
+                  }
+                : undefined
+            }
           >
             {templatePdfUrl ? (
               <>
                 <canvas
                   ref={canvasRef}
-                  className="w-full h-full block pointer-events-none select-none"
+                  className={`w-full h-full block pointer-events-none select-none transition-opacity duration-200 ${
+                    blueprintMode && !viewerOnly ? 'opacity-0' : 'opacity-100'
+                  }`}
                   style={{ width: PAGE_WIDTH_PX, height: PAGE_HEIGHT_PX }}
                   width={PAGE_WIDTH_PX}
                   height={PAGE_HEIGHT_PX}
@@ -675,8 +748,16 @@ export const PdfTemplateEditor: React.FC<Props> = ({
           </div>
           {/* Capa 2: cuadros que ADMIN agrega/modifica (customBoxes). En viewerOnly sin overflow-hidden para no recortar. */}
           <div className={`absolute inset-0 z-20 ${viewerOnly ? 'pointer-events-none overflow-visible' : 'overflow-hidden'}`}>
-            <div className={`absolute inset-0 ${viewerOnly ? '' : 'pointer-events-auto'}`}>
+            <div
+              className={`absolute inset-0 ${viewerOnly ? '' : 'pointer-events-auto'}`}
+              onDoubleClick={(e) => {
+                if (viewerOnly || exportPixelScale || !onCanvasDoubleTap) return;
+                if (e.target !== e.currentTarget) return;
+                onCanvasDoubleTap();
+              }}
+            >
               {customBoxes.map((box) => {
+                const bp = blueprintMode && !viewerOnly;
                 const canMoveOrDelete = !viewerOnly && allowBoxEditing && (isAdmin || (currentUser?.id && box.ownerId === currentUser.id));
                 const isLocked = !viewerOnly && lockedOutline && !allowBoxEditing;
                 // Para usuarios no admin y que no son dueños del cuadro: solo mostrar texto “plano” sin marco.
@@ -724,31 +805,53 @@ export const PdfTemplateEditor: React.FC<Props> = ({
                         showFrame
                           ? canMoveOrDelete
                             ? isSelected
-                              ? 'rounded border border-monday-blue ring-2 ring-monday-blue/30 bg-white shadow-md'
-                              : 'rounded border border-monday-border bg-white/95 hover:bg-white'
+                              ? bp
+                                ? 'rounded border-2 border-dashed border-monday-blue bg-white/40 shadow-none ring-0'
+                                : 'rounded border border-monday-blue ring-2 ring-monday-blue/30 bg-white shadow-md'
+                              : bp
+                                ? 'rounded border-2 border-dashed border-slate-400 bg-white/30 hover:bg-white/45'
+                                : 'rounded border border-monday-border bg-white/95 hover:bg-white'
                             : isSelected
-                              ? 'rounded border-2 border-monday-blue/30 border-dashed ring-2 ring-monday-blue/20 bg-white/70'
-                              : 'rounded border border-monday-border/60 border-dashed bg-white/60'
-                          : ''
+                              ? bp
+                                ? 'rounded border-2 border-dashed border-monday-blue bg-white/35 shadow-none ring-0'
+                                : 'rounded border-2 border-monday-blue/30 border-dashed ring-2 ring-monday-blue/20 bg-white/70'
+                              : bp
+                                ? 'rounded border border-dashed border-slate-400 bg-white/25'
+                                : 'rounded border border-monday-border/60 border-dashed bg-white/60'
+                          : bp
+                            ? 'rounded border border-dashed border-slate-300/50 bg-white/15'
+                            : ''
                       }`}
                     >
                     <div
                       className={`flex-1 min-h-0 min-w-0 flex overflow-hidden rounded-sm ${
-                        canMoveOrDelete
-                          ? 'bg-white/95 focus-within:bg-white focus-within:ring-1 focus-within:ring-monday-blue/40'
-                          : isLocked
-                            ? 'bg-white/70 focus-within:bg-white focus-within:ring-1 focus-within:ring-monday-blue/30'
-                            : 'bg-transparent'
+                        bp
+                          ? 'bg-white/40 focus-within:bg-white/55 focus-within:ring-1 focus-within:ring-monday-blue/35'
+                          : canMoveOrDelete
+                            ? 'bg-white/95 focus-within:bg-white focus-within:ring-1 focus-within:ring-monday-blue/40'
+                            : isLocked
+                              ? 'bg-white/70 focus-within:bg-white focus-within:ring-1 focus-within:ring-monday-blue/30'
+                              : 'bg-transparent'
                       }`}
                     >
                       {box.kind === 'image' ? (
                         <img
                           src={box.imageUrl || ''}
                           alt=""
-                          className="w-full h-full object-contain select-none"
+                          className={`w-full h-full object-contain select-none ${bp ? 'opacity-[0.42]' : ''}`}
                           onClick={viewerOnly ? undefined : (e) => {
                             e.stopPropagation();
-                            if (canFormatBox) setSelectedBoxId(box.id);
+                            if (canFormatBox) {
+                              setSelectedBoxId(box.id);
+                              onActiveBoxChange?.({
+                                boxId: box.id,
+                                boxKind: 'image',
+                                xPct: x,
+                                yPct: y,
+                                wPct: w,
+                                hPct: h,
+                              });
+                            }
                           }}
                         />
                       ) : viewerOnly ? (
@@ -801,15 +904,30 @@ export const PdfTemplateEditor: React.FC<Props> = ({
                             // Mientras el cuadro tiene foco, evitamos sobrescribir su contenido desde React
                             // para que no salte el cursor al principio.
                             setSelectedBoxId(box.id);
+                            onActiveBoxChange?.({
+                              boxId: box.id,
+                              boxKind: 'text',
+                              xPct: x,
+                              yPct: y,
+                              wPct: w,
+                              hPct: h,
+                            });
+                          }}
+                          onBlur={() => {
+                            onActiveBoxChange?.({ boxId: null });
                           }}
                           data-placeholder={getSemanticPlaceholder(box)}
                           style={{
                             ...boxTextStyle,
-                            backgroundColor: canMoveOrDelete
-                              ? 'rgba(255,255,255,0.95)'
-                              : isLocked
-                                ? 'rgba(255,255,255,0.65)'
-                                : 'transparent',
+                            backgroundColor: bp
+                              ? canMoveOrDelete || isLocked
+                                ? 'rgba(255,255,255,0.42)'
+                                : 'rgba(255,255,255,0.18)'
+                              : canMoveOrDelete
+                                ? 'rgba(255,255,255,0.95)'
+                                : isLocked
+                                  ? 'rgba(255,255,255,0.65)'
+                                  : 'transparent',
                           }}
                           className={`w-full h-full min-h-0 border-0 outline-none focus:ring-0 px-1.5 placeholder:text-gray-500 block whitespace-pre-wrap break-words text-left box-border ${
                             isTotalBox
