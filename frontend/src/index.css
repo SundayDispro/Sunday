@@ -380,6 +380,9 @@
   --logo-enter-ease: cubic-bezier(0.25, 0.46, 0.45, 0.94);
   --logo-idle-ease: cubic-bezier(0.4, 0, 0.6, 1);
   --logo-sync-delay: 1s;
+  --logo-anim-duration: 5.2s;
+  --logo-anim-ease: cubic-bezier(0.4, 0, 0.6, 1);
+  --logo-rays-anim-delay: 0.35s;
 }
 
 /* ÚNICA animación: sol orgánico + rotación (pulsación elegante con deformación) */
@@ -393,11 +396,11 @@
   100% { transform: rotate(360deg) scaleX(1.02) scaleY(1.01); }
 }
 
-/* Variantes para rotar por pestaña (se elige vía data-sun-anim en <html>) */
+/* Keyframes para el grupo rotante del logo (sol y rayos) */
 @keyframes sun-pulse {
   0%, 100% { transform: rotate(0deg) scaleX(1.02) scaleY(1.01); }
-  40% { transform: rotate(0deg) scaleX(0.98) scaleY(1.04); }
-  70% { transform: rotate(0deg) scaleX(1.03) scaleY(0.99); }
+  40% { transform: rotate(22deg) scaleX(0.98) scaleY(1.04); }
+  70% { transform: rotate(-16deg) scaleX(1.03) scaleY(0.99); }
 }
 
 @keyframes sun-spin {
@@ -407,7 +410,7 @@
 
 @keyframes sun-shimmer {
   0%, 100% { transform: rotate(0deg) scaleX(1.01) scaleY(1.01); filter: drop-shadow(0 0 0 rgba(255,255,255,0)); }
-  50% { transform: rotate(0deg) scaleX(1.03) scaleY(0.99); filter: drop-shadow(0 10px 18px rgba(255,255,255,0.10)); }
+  50% { transform: rotate(90deg) scaleX(1.03) scaleY(0.99); filter: drop-shadow(0 10px 18px rgba(255,255,255,0.10)); }
 }
 
 @keyframes sun-morph {
@@ -417,6 +420,29 @@
   100% { transform: rotate(360deg) scaleX(1.02) scaleY(1.01); }
 }
 
+@keyframes sun-drift {
+  0% { transform: rotate(0deg) scaleX(1.01) scaleY(1.01); }
+  20% { transform: rotate(55deg) scaleX(0.99) scaleY(1.03); }
+  45% { transform: rotate(135deg) scaleX(1.04) scaleY(0.985); }
+  70% { transform: rotate(230deg) scaleX(0.98) scaleY(1.02); }
+  100% { transform: rotate(360deg) scaleX(1.01) scaleY(1.01); }
+}
+
+@keyframes sun-bloom {
+  0%, 100% {
+    transform: rotate(0deg) scaleX(1.01) scaleY(1.01);
+    filter: drop-shadow(0 0 0 rgba(255,255,255,0));
+  }
+  30% {
+    transform: rotate(120deg) scaleX(1.045) scaleY(0.98);
+    filter: drop-shadow(0 12px 22px rgba(255,255,255,0.12));
+  }
+  60% {
+    transform: rotate(235deg) scaleX(0.985) scaleY(1.055);
+    filter: drop-shadow(0 20px 38px rgba(255,255,255,0.08));
+  }
+}
+
 .animated-logo {
   display: block;
 }
@@ -424,26 +450,34 @@
 .animated-logo-sun {
   transform-box: fill-box;
   transform-origin: center;
-  animation: sun-pulse 6.2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+  animation: sun-pulse var(--logo-anim-duration) var(--logo-anim-ease) infinite;
   animation-delay: 0s;
   will-change: transform;
 }
 
-/* Selección de variante (se mantiene hasta cambiar de pestaña) */
-html[data-sun-anim="pulse"] .animated-logo-sun,
-html[data-sun-anim="pulse"] .animated-logo-rays { animation-name: sun-pulse; }
-html[data-sun-anim="spin"] .animated-logo-sun,
-html[data-sun-anim="spin"] .animated-logo-rays { animation-name: sun-spin; }
-html[data-sun-anim="shimmer"] .animated-logo-sun,
-html[data-sun-anim="shimmer"] .animated-logo-rays { animation-name: sun-shimmer; }
-html[data-sun-anim="morph"] .animated-logo-sun,
-html[data-sun-anim="morph"] .animated-logo-rays { animation-name: sun-morph; }
+/* Grupo rotante: sol y rayos usan keyframes distintos (no rigidamente sincronizados),
+   pero comparten el mismo eje de rotación (origin: center). */
+html[data-logo-sun-anim="sun-pulse"] .animated-logo-sun { animation-name: sun-pulse; }
+html[data-logo-sun-anim="sun-spin"] .animated-logo-sun { animation-name: sun-spin; }
+html[data-logo-sun-anim="sun-shimmer"] .animated-logo-sun { animation-name: sun-shimmer; }
+html[data-logo-sun-anim="sun-morph"] .animated-logo-sun { animation-name: sun-morph; }
+html[data-logo-sun-anim="sun-drift"] .animated-logo-sun { animation-name: sun-drift; }
+html[data-logo-sun-anim="sun-bloom"] .animated-logo-sun { animation-name: sun-bloom; }
+html[data-logo-sun-anim="logo-sun-hero"] .animated-logo-sun { animation-name: logo-sun-hero; }
 
 .animated-logo-rays {
-  animation: sun-pulse 6.2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
-  animation-delay: 0s;
+  animation: sun-pulse var(--logo-anim-duration) var(--logo-anim-ease) infinite;
+  animation-delay: var(--logo-rays-anim-delay);
   will-change: transform;
 }
+
+html[data-logo-rays-anim="sun-pulse"] .animated-logo-rays { animation-name: sun-pulse; }
+html[data-logo-rays-anim="sun-spin"] .animated-logo-rays { animation-name: sun-spin; }
+html[data-logo-rays-anim="sun-shimmer"] .animated-logo-rays { animation-name: sun-shimmer; }
+html[data-logo-rays-anim="sun-morph"] .animated-logo-rays { animation-name: sun-morph; }
+html[data-logo-rays-anim="sun-drift"] .animated-logo-rays { animation-name: sun-drift; }
+html[data-logo-rays-anim="sun-bloom"] .animated-logo-rays { animation-name: sun-bloom; }
+html[data-logo-rays-anim="logo-sun-hero"] .animated-logo-rays { animation-name: logo-sun-hero; }
 
 .animated-logo-waves {
   animation: none;
@@ -466,30 +500,8 @@ html[data-sun-anim="morph"] .animated-logo-rays { animation-name: sun-morph; }
   animation: none;
 }
 
-/* Idle en login: mismas animaciones por capa con desfases */
-.login-logo-idle .animated-logo-sun {
-  animation: logo-sun-hero 6.2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
-  animation-delay: 0s;
-}
-
-.login-logo-idle .animated-logo-rays {
-  animation: logo-sun-hero 6.2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
-  animation-delay: 0s;
-}
-
-.login-logo-idle .animated-logo-waves {
-  animation: none;
-}
-
-.login-logo-enter .animated-logo-sun {
-  animation: logo-sun-hero 6.2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
-}
-
-.login-logo-enter .animated-logo-rays {
-  animation: logo-sun-hero 6.2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
-  animation-delay: 0s;
-}
-
+/* Login: se deja que el grupo rotante controle sol y rayos */
+.login-logo-idle .animated-logo-waves,
 .login-logo-enter .animated-logo-waves {
   animation: none;
 }

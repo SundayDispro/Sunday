@@ -33,6 +33,12 @@ interface Props {
   savingTemplateConfig?: boolean;
   /** Solo visualización: sin barra de formato, sin menú admin y cuadros de solo lectura */
   viewerOnly?: boolean;
+  /** Habilita mover/redimensionar/eliminar cuadros (sin afectar edición de texto). */
+  allowBoxEditing?: boolean;
+  /** Muestra un outline tenue cuando el cuadro está bloqueado (allowBoxEditing=false). */
+  lockedOutline?: boolean;
+  /** Minimiza padding del contenedor para aprovechar más pantalla en móvil. */
+  compactPadding?: boolean;
   /** URL de plantilla PDF (cuando la proporciona el padre, no se hace fetch interno). */
   templatePdfUrlProp?: string | null;
   /** Llamado cuando el preview está listo para captura PDF (canvas + overlays). */
@@ -88,6 +94,9 @@ export const PdfTemplateEditor: React.FC<Props> = ({
   onSaveTemplateConfig,
   savingTemplateConfig = false,
   viewerOnly = false,
+  allowBoxEditing = true,
+  lockedOutline = false,
+  compactPadding = false,
   templatePdfUrlProp = null,
   onExportReady,
   exportPixelScale,
@@ -598,7 +607,7 @@ export const PdfTemplateEditor: React.FC<Props> = ({
           isAdmin={isAdmin}
         />
       )}
-      <div className={`flex-1 flex min-h-0 ${viewerOnly ? 'items-stretch justify-center overflow-auto p-0' : 'items-center justify-center p-2 sm:p-4 overflow-auto'}`}>
+      <div className={`flex-1 flex min-h-0 ${viewerOnly ? 'items-stretch justify-center overflow-auto p-0' : compactPadding ? 'items-center justify-center p-0 overflow-auto' : 'items-center justify-center p-2 sm:p-4 overflow-auto'}`}>
         {!viewerOnly && scale === 1 && (
           <div className="absolute top-14 left-4 z-20 text-[10px] text-monday-subtext bg-white/90 px-1.5 py-0.5 rounded border border-monday-border/60">
             1:1 @ 96 DPI (816×1056 px)
@@ -668,9 +677,11 @@ export const PdfTemplateEditor: React.FC<Props> = ({
           <div className={`absolute inset-0 z-20 ${viewerOnly ? 'pointer-events-none overflow-visible' : 'overflow-hidden'}`}>
             <div className={`absolute inset-0 ${viewerOnly ? '' : 'pointer-events-auto'}`}>
               {customBoxes.map((box) => {
-                const canMoveOrDelete = !viewerOnly && (isAdmin || (currentUser?.id && box.ownerId === currentUser.id));
-                // Para usuarios no admin y que no son dueños del cuadro: solo mostrar texto “plano” sin marco
-                const showFrame = !!canMoveOrDelete;
+                const canMoveOrDelete = !viewerOnly && allowBoxEditing && (isAdmin || (currentUser?.id && box.ownerId === currentUser.id));
+                const isLocked = !viewerOnly && lockedOutline && !allowBoxEditing;
+                // Para usuarios no admin y que no son dueños del cuadro: solo mostrar texto “plano” sin marco.
+                // En modo locked (ADMIN sin edición de cajas), mostrar un outline tenue para feedback.
+                const showFrame = !!canMoveOrDelete || isLocked;
                 const canFormatBox = !viewerOnly;
                 const isDraggingThis = dragging?.fieldKey === box.id && dragPreview;
                 const isResizingThis = resizing?.boxId === box.id && resizePreview;
@@ -711,9 +722,13 @@ export const PdfTemplateEditor: React.FC<Props> = ({
                       onClick={viewerOnly ? undefined : () => canFormatBox && setSelectedBoxId(box.id)}
                       className={`flex-1 min-w-0 flex flex-col transition-all overflow-hidden box-border relative ${
                         showFrame
-                          ? isSelected
-                            ? 'rounded border border-monday-blue ring-2 ring-monday-blue/30 bg-white shadow-md'
-                            : 'rounded border border-monday-border bg-white/95 hover:bg-white'
+                          ? canMoveOrDelete
+                            ? isSelected
+                              ? 'rounded border border-monday-blue ring-2 ring-monday-blue/30 bg-white shadow-md'
+                              : 'rounded border border-monday-border bg-white/95 hover:bg-white'
+                            : isSelected
+                              ? 'rounded border-2 border-monday-blue/30 border-dashed ring-2 ring-monday-blue/20 bg-white/70'
+                              : 'rounded border border-monday-border/60 border-dashed bg-white/60'
                           : ''
                       }`}
                     >
@@ -786,7 +801,11 @@ export const PdfTemplateEditor: React.FC<Props> = ({
                           data-placeholder={getSemanticPlaceholder(box)}
                           style={{
                             ...boxTextStyle,
-                            backgroundColor: showFrame ? 'rgba(255,255,255,0.95)' : 'transparent',
+                            backgroundColor: canMoveOrDelete
+                              ? 'rgba(255,255,255,0.95)'
+                              : isLocked
+                                ? 'rgba(255,255,255,0.65)'
+                                : 'transparent',
                           }}
                           className={`w-full h-full min-h-0 border-0 outline-none focus:ring-0 px-1.5 placeholder:text-gray-500 block whitespace-pre-wrap break-words text-left box-border ${
                             isTotalBox
