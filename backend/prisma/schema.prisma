@@ -196,6 +196,8 @@ model TemplateConfig {
   fontItalic      Boolean  @default(false)
   customBoxes     String   @default("[]") // JSON legacy: [{ id, x, y, width, height, singleLine? }]
   customBoxesJson Json?                   // Sombra JSONB para Postgres
+  /// Texto/contenido por defecto para documentos nuevos (lo que el admin edita en el master).
+  defaultContentJson Json?
   updatedAt       DateTime @updatedAt
 }
 

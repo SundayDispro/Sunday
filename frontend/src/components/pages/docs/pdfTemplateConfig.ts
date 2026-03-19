@@ -160,4 +160,6 @@ export interface TemplateConfigState {
   fontBold?: boolean;
   fontItalic?: boolean;
   customBoxes?: CustomBoxDef[];
+  /** Contenido por defecto para docs nuevos (persistido con el master). */
+  defaultContent?: Record<string, unknown>;
 }

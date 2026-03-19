@@ -329,4 +329,12 @@ Al finalizar cada cambio, reportar:
 
 ================================================================
 >>> Empieza por la Fase 1 completa.
+
+================================================================
+ANOTACIÓN ACTUALIZADA — Plantillas (defaults) y edición móvil
+================================================================
+Verificación adicional (recomendado):
+- Confirmar el correcto funcionamiento de los cuadros de texto en las 3 plantillas (cotización, levantamiento y hoja de trabajo) y que los textos por default definidos por ADMIN se apliquen al crear documentos nuevos.
+- Verificar el flujo correcto de edición de texto: cambios persistentes al guardar/cerrar, y restauración correcta con “Deshacer” y “Cerrar sin guardar”.
+- Validar la vista de plantillas en móvil: el editor abre en drawer a pantalla completa, el scroll del fondo queda bloqueado mientras el drawer/master está abierto, y al cerrar el master se regresa al modo normal sin romper la UI.
 ================================================================

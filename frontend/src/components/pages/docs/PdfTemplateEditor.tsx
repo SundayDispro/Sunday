@@ -542,7 +542,7 @@ export const PdfTemplateEditor: React.FC<Props> = ({
           </Dialog.Content>
         </Dialog.Portal>
       </Dialog.Root>
-      {isAdmin && !viewerOnly && (
+      {isAdmin && !viewerOnly && allowBoxEditing && onTemplateConfigChange && (
         <div className="absolute top-2 right-2 z-30 flex flex-col gap-2">
           <button
             type="button"
@@ -734,7 +734,11 @@ export const PdfTemplateEditor: React.FC<Props> = ({
                     >
                     <div
                       className={`flex-1 min-h-0 min-w-0 flex overflow-hidden rounded-sm ${
-                        showFrame ? 'bg-white/95 focus-within:bg-white focus-within:ring-1 focus-within:ring-monday-blue/40' : 'bg-transparent'
+                        canMoveOrDelete
+                          ? 'bg-white/95 focus-within:bg-white focus-within:ring-1 focus-within:ring-monday-blue/40'
+                          : isLocked
+                            ? 'bg-white/70 focus-within:bg-white focus-within:ring-1 focus-within:ring-monday-blue/30'
+                            : 'bg-transparent'
                       }`}
                     >
                       {box.kind === 'image' ? (

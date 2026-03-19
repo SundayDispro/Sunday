@@ -20,32 +20,34 @@ export function getDocTypeTitle(type: DocType): string {
 
 /** Estructura inicial de content para cotización. Fecha vacía: el usuario la escribe manualmente. */
 export const COTIZACION_INITIAL = {
-  cliente: '',
-  fecha: '',
-  vigencia: '',
-  items: [{ descripcion: '', cantidad: '', precio: '', total: '' }],
-  subtotal: '',
-  iva: '',
-  total: '',
-  notas: '',
+  cliente: 'DISPRO',
+  fecha: '00/00/0000',
+  vigencia: '00/00/0000',
+  descripcion_corta: 'Breve descripción',
+  elemento: 'Elemento / concepto',
+  items: [{ descripcion: 'Concepto', cantidad: '1', precio: '0', total: '0' }],
+  subtotal: '00.00',
+  iva: '00.00',
+  total: 'Total : $00,000.00',
+  notas: 'Esta cotización no incluye I.V.A.',
 };
 
 /** Estructura inicial de content para levantamiento. Fecha vacía: el usuario la escribe manualmente. */
 export const LEVANTAMIENTO_INITIAL = {
-  proyecto: '',
-  fecha: '',
-  direccion: '',
-  descripcion: '',
-  observaciones: '',
+  proyecto: 'Proyecto',
+  fecha: '00/00/0000',
+  direccion: 'Dirección',
+  descripcion: 'Descripción detallada del proyecto',
+  observaciones: 'Descripción detallada del proyecto',
 };
 
 /** Estructura inicial de content para hoja de trabajo. Fecha vacía: el usuario la escribe manualmente. */
 export const HOJA_TRABAJO_INITIAL = {
-  titulo: '',
-  fecha: '',
-  item: '',
-  descripcion: '',
-  observaciones: '',
+  titulo: 'Título',
+  fecha: '00/00/0000',
+  item: 'Breve descripción',
+  descripcion: 'Descripción detallada del proyecto',
+  observaciones: 'Descripción detallada del proyecto',
 };
 
 export const PDF_DOC_TYPES: DocType[] = ['cotizacion', 'levantamiento', 'hoja_trabajo'];
@@ -72,4 +74,16 @@ export function getInitialContentForType(type: DocType): Record<string, unknown>
     default:
       return { text: '' };
   }
+}
+
+/** Mezcla el contenido inicial del tipo con defaults guardados en el master (API). */
+export function mergeInitialPdfContentWithMasterDefaults(
+  type: DocType,
+  masterDefaults?: Record<string, unknown> | null
+): Record<string, unknown> {
+  const initial = getInitialContentForType(type) as Record<string, unknown>;
+  if (!masterDefaults || typeof masterDefaults !== 'object' || Array.isArray(masterDefaults)) {
+    return { ...initial };
+  }
+  return { ...initial, ...masterDefaults };
 }

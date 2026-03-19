@@ -1992,6 +1992,7 @@ function getDefaultTemplateConfig() {
     fontBold: false,
     fontItalic: false,
     customBoxes: [] as Array<Record<string, unknown>>,
+    defaultContent: {} as Record<string, unknown>,
   };
 }
 
@@ -2018,6 +2019,12 @@ app.get('/api/templates/:kind/config', authenticateToken, async (req, res) => {
     defaultConfig.fontSize = row.fontSize ?? 11;
     defaultConfig.fontBold = row.fontBold ?? false;
     defaultConfig.fontItalic = row.fontItalic ?? false;
+    try {
+      const dc = (row as { defaultContentJson?: unknown }).defaultContentJson;
+      if (dc != null && typeof dc === 'object' && !Array.isArray(dc)) {
+        (defaultConfig as { defaultContent: Record<string, unknown> }).defaultContent = dc as Record<string, unknown>;
+      }
+    } catch (_) {}
     return res.json(defaultConfig);
   } catch (e) {
     console.error('Error fetching template config:', e);
@@ -2057,6 +2064,13 @@ app.put('/api/templates/:kind/config', authenticateToken, async (req, res) => {
     const fontBold = body.fontBold === true || body.fontBold === 'true';
     const fontItalic = body.fontItalic === true || body.fontItalic === 'true';
     const customBoxes = Array.isArray(body.customBoxes) ? body.customBoxes : [];
+    const hasDefaultContentKey = Object.prototype.hasOwnProperty.call(body, 'defaultContent');
+    const defaultContentPayload =
+      hasDefaultContentKey && body.defaultContent != null && typeof body.defaultContent === 'object' && !Array.isArray(body.defaultContent)
+        ? (body.defaultContent as Prisma.JsonObject)
+        : hasDefaultContentKey
+          ? Prisma.JsonNull
+          : undefined;
     const fieldPositionsStr =
       typeof fieldPositions === 'object' && fieldPositions !== null
         ? JSON.stringify(fieldPositions)
@@ -2075,6 +2089,7 @@ app.put('/api/templates/:kind/config', authenticateToken, async (req, res) => {
         fontItalic,
         customBoxes: customBoxesStr,
         customBoxesJson: customBoxes as unknown as Prisma.JsonValue,
+        ...(defaultContentPayload !== undefined ? { defaultContentJson: defaultContentPayload } : {}),
       },
       update: {
         fieldPositions: fieldPositionsStr,
@@ -2086,6 +2101,7 @@ app.put('/api/templates/:kind/config', authenticateToken, async (req, res) => {
         fontItalic,
         customBoxes: customBoxesStr,
         customBoxesJson: customBoxes as unknown as Prisma.JsonValue,
+        ...(defaultContentPayload !== undefined ? { defaultContentJson: defaultContentPayload } : {}),
       },
     });
     return res.json({ ok: true });

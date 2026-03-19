@@ -32,6 +32,7 @@ import * as Dialog from '@radix-ui/react-dialog';
 import { Board, Doc, DocType } from '../../types';
 import {
   getInitialContentForType,
+  mergeInitialPdfContentWithMasterDefaults,
   getDocTypeTitle,
   getDocTypeLabel,
   DOC_TYPE_OPTIONS,
@@ -2227,6 +2228,46 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
   useEffect(() => {
     if (isMobile && selectedId === null) setMobileDocOpen(false);
   }, [isMobile, selectedId]);
+  // Drawer móvil para editar plantillas (evita “scroll dentro de scroll”).
+  const [templateEditorMobileOpen, setTemplateEditorMobileOpen] = useState(false);
+  const templateEditorDraftSnapshotRef = useRef<Record<string, unknown> | null>(null);
+  const templateEditorTemplateConfigSnapshotRef = useRef<TemplateConfigState | null>(null);
+  const templateEditorCloseAfterSaveRef = useRef(false);
+  const adminMasterSyncAppliedForDocIdRef = useRef<string | null>(null);
+  /** Si el master se abrió desde el drawer normal, al cerrar/guardar volver a abrirlo. */
+  const reopenNormalAfterMasterRef = useRef(false);
+
+  // Drawer de ADMIN para editar el master global (3 tipos).
+  const [templateMasterEditorOpen, setTemplateMasterEditorOpen] = useState(false);
+  const [templateMasterDocType, setTemplateMasterDocType] = useState<'cotizacion' | 'levantamiento' | 'hoja_trabajo'>('cotizacion');
+  const [templateMasterDraft, setTemplateMasterDraft] = useState<TemplateConfigState | null>(null);
+  const [templateMasterValue, setTemplateMasterValue] = useState<Record<string, unknown>>({});
+  useEffect(() => {
+    if (!templateEditorMobileOpen) return;
+    const prevOverflow = document.body.style.overflow;
+    const prevPaddingRight = document.body.style.paddingRight;
+    // Evita que el fondo “salte” cuando el drawer bloquea scroll.
+    const scrollbarWidth = window.innerWidth - document.documentElement.clientWidth;
+    document.body.style.overflow = 'hidden';
+    if (scrollbarWidth > 0) document.body.style.paddingRight = `${scrollbarWidth}px`;
+    return () => {
+      document.body.style.overflow = prevOverflow;
+      document.body.style.paddingRight = prevPaddingRight;
+    };
+  }, [templateEditorMobileOpen]);
+
+  useEffect(() => {
+    if (!templateMasterEditorOpen) return;
+    const prevOverflow = document.body.style.overflow;
+    const prevPaddingRight = document.body.style.paddingRight;
+    const scrollbarWidth = window.innerWidth - document.documentElement.clientWidth;
+    document.body.style.overflow = 'hidden';
+    if (scrollbarWidth > 0) document.body.style.paddingRight = `${scrollbarWidth}px`;
+    return () => {
+      document.body.style.overflow = prevOverflow;
+      document.body.style.paddingRight = prevPaddingRight;
+    };
+  }, [templateMasterEditorOpen]);
   const [deleteConfirm, setDeleteConfirm] = useState<{ docId: string } | null>(null);
   type PromptDialog =
     | { type: 'renameSubgroup'; docType: string; subgroupId: string; initialValue: string }
@@ -2632,9 +2673,18 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
     setSheetHistory({ past: [], future: [] });
     setHeaderImageUrlDraft((initial.headerImageUrl as string | null) ?? null);
     if (!(isPdfDocType(newDocDraft.type) && linkToBoardItem)) {
-      setPdfFormDraft(initial as Record<string, unknown>);
+      if (isPdfDocType(newDocDraft.type)) {
+        const masterDef = templateConfigByType[newDocDraft.type]?.defaultContent;
+        setPdfFormDraft(mergeInitialPdfContentWithMasterDefaults(newDocDraft.type, masterDef) as Record<string, unknown>);
+      } else {
+        setPdfFormDraft(initial as Record<string, unknown>);
+      }
     }
-  }, [newDocDraft?.type, linkToBoardItem]);
+  }, [
+    newDocDraft?.type,
+    linkToBoardItem,
+    newDocDraft && isPdfDocType(newDocDraft.type) ? templateConfigByType[newDocDraft.type]?.defaultContent : undefined,
+  ]);
 
   const pdfDocType = (selectedDoc && isPdfDocType(selectedDoc.type as DocType) ? selectedDoc.type : newDocDraft && isPdfDocType(newDocDraft.type) ? newDocDraft.type : null) as 'cotizacion' | 'levantamiento' | 'hoja_trabajo' | null;
 
@@ -2642,6 +2692,8 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
   const effectiveTemplateConfigForPdf = useMemo((): TemplateConfigState | null => {
     if (!pdfDocType) return null;
     const fromApi = templateConfigByType[pdfDocType];
+    // ADMIN usa siempre el master global para layout/estilos de cajas.
+    if (isAdmin) return fromApi ?? null;
     const fromDoc = Array.isArray(pdfFormDraft.customBoxes) ? pdfFormDraft.customBoxes : [];
     if (fromDoc.length > 0) {
       return {
@@ -2659,6 +2711,100 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
     return fromApi ?? null;
   }, [pdfDocType, templateConfigByType, pdfFormDraft]);
 
+  // ADMIN: normaliza el draft contra el master para que layout + IDs + valores queden coherentes.
+  const syncAdminDraftWithMaster = (
+    draft: Record<string, unknown>,
+    master: TemplateConfigState
+  ): { nextDraft: Record<string, unknown>; orphanCount: number } => {
+    const docBoxes: CustomBoxDef[] = Array.isArray(draft.customBoxes) ? (draft.customBoxes as CustomBoxDef[]) : [];
+    const docCustomFieldValuesRaw = (draft.customFieldValues ?? {}) as unknown;
+    const docCustomFieldValues =
+      docCustomFieldValuesRaw && typeof docCustomFieldValuesRaw === 'object' && !Array.isArray(docCustomFieldValuesRaw)
+        ? (docCustomFieldValuesRaw as Record<string, string>)
+        : {};
+
+    const masterBoxes: CustomBoxDef[] = Array.isArray(master.customBoxes) ? (master.customBoxes as CustomBoxDef[]) : [];
+
+    const nextCustomFieldValues: Record<string, string> = {};
+    const mappedDocIds = new Set<string>();
+
+    // Mantener valores de campos con fieldKey: el editor los lee desde draft[fieldKey].
+    const nextDraft: Record<string, unknown> = {
+      ...draft,
+      customBoxes: masterBoxes,
+      fieldPositions: master.fieldPositions ?? {},
+      globalFontColor: master.fontColor ?? '#000000',
+      globalFontFamily: master.fontFamily ?? 'Helvetica',
+      globalFontSize: master.fontSize ?? 11,
+      globalFontBold: master.fontBold ?? false,
+      globalFontItalic: master.fontItalic ?? false,
+      customFieldValues: nextCustomFieldValues,
+    };
+
+    for (let i = 0; i < masterBoxes.length; i += 1) {
+      const masterBox = masterBoxes[i] as CustomBoxDef;
+      let candidateDocBox: CustomBoxDef | undefined;
+
+      if (masterBox.semantic) {
+        candidateDocBox = docBoxes.find((b) => b.semantic === masterBox.semantic);
+      }
+      if (!candidateDocBox && masterBox.fieldKey) {
+        candidateDocBox = docBoxes.find((b) => b.fieldKey === masterBox.fieldKey);
+      }
+      if (!candidateDocBox && docBoxes.length > 0) {
+        candidateDocBox = docBoxes[Math.min(i, docBoxes.length - 1)];
+      }
+
+      const candidateId = candidateDocBox?.id;
+      const candidateValueFromCustom =
+        candidateId && typeof docCustomFieldValues[candidateId] === 'string' ? docCustomFieldValues[candidateId] : undefined;
+      const candidateValueFromFieldKey =
+        masterBox.fieldKey && typeof (draft as Record<string, unknown>)[masterBox.fieldKey] === 'string'
+          ? String((draft as Record<string, unknown>)[masterBox.fieldKey] as string)
+          : undefined;
+      const candidateValueFromDocFieldKey =
+        candidateDocBox?.fieldKey && typeof (draft as Record<string, unknown>)[candidateDocBox.fieldKey] === 'string'
+          ? String((draft as Record<string, unknown>)[candidateDocBox.fieldKey] as string)
+          : undefined;
+
+      const rawVal =
+        candidateValueFromCustom ?? candidateValueFromFieldKey ?? candidateValueFromDocFieldKey ?? '';
+      const val = typeof rawVal === 'string' ? rawVal.trim() : String(rawVal).trim();
+
+      nextCustomFieldValues[masterBox.id] = val;
+      mappedDocIds.add(candidateId ?? '');
+
+      if (masterBox.fieldKey) {
+        nextDraft[masterBox.fieldKey] = val;
+      }
+    }
+
+    const orphanCount = docBoxes.filter((b) => b.id && !mappedDocIds.has(b.id)).length;
+    return { nextDraft, orphanCount };
+  };
+
+  useEffect(() => {
+    if (!isAdmin) return;
+    if (!selectedDoc) return;
+    if (!pdfDocType) return;
+    if (!effectiveTemplateConfigForPdf) return;
+
+    const docId = selectedDoc.id;
+    if (adminMasterSyncAppliedForDocIdRef.current === docId) return;
+
+    // Importante: usamos updater funcional para que tome el draft “actual” (el que ya haya sido
+    // inicializado por el efecto que mezcla `selectedDoc.content`). Esto evita que un doc nuevo
+    // herede valores del doc anterior.
+    setPdfFormDraft((prev) => {
+      const { nextDraft, orphanCount } = syncAdminDraftWithMaster(prev, effectiveTemplateConfigForPdf);
+      adminMasterSyncAppliedForDocIdRef.current = docId;
+      if (orphanCount > 0) {
+        toast('Algunas cajas del diseño anterior no existen en el master y fueron ignoradas.', 'info');
+      }
+      return nextDraft;
+    });
+  }, [isAdmin, selectedDoc?.id, pdfDocType, effectiveTemplateConfigForPdf, toast]);
+
   useEffect(() => {
     if (!pdfDocType) {
       setTemplateConfigLoading(false);
@@ -2668,7 +2814,7 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
     setTemplateConfigLoading(true);
     apiFetch(`${API_BASE}/api/templates/${pdfDocType}/config`)
       .then((res) => (res.ok ? res.json() : null))
-      .then((data: { fieldPositions?: Record<string, { x: number; y: number }>; fontColor?: string; fontFamily?: string; fontSize?: number; fontBold?: boolean; fontItalic?: boolean; customBoxes?: unknown[] } | null) => {
+      .then((data: { fieldPositions?: Record<string, { x: number; y: number }>; fontColor?: string; fontFamily?: string; fontSize?: number; fontBold?: boolean; fontItalic?: boolean; customBoxes?: unknown[]; defaultContent?: Record<string, unknown> } | null) => {
         if (cancelled || !data) return;
         templateConfigJustLoadedRef.current = true;
         setTemplateConfigByType((prev) => {
@@ -2702,6 +2848,12 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
           if (currentImageCount > apiImageCount && currentImageCount > 0) {
             return prev;
           }
+          const prevEntry = prev[pdfDocType];
+          const fromApi =
+            data.defaultContent != null && typeof data.defaultContent === 'object' && !Array.isArray(data.defaultContent)
+              ? data.defaultContent
+              : undefined;
+          const defaultContent = fromApi ?? prevEntry?.defaultContent;
           return {
             ...prev,
             [pdfDocType]: {
@@ -2712,6 +2864,7 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
               fontBold: data.fontBold ?? false,
               fontItalic: data.fontItalic ?? false,
               customBoxes: apiBoxes,
+              ...(defaultContent ? { defaultContent } : {}),
             },
           };
         });
@@ -2844,6 +2997,10 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
             const res = await apiFetch(`${API_BASE}/api/templates/${pdfType}/config`);
             if (res.ok) {
               const data = await res.json();
+              const dc =
+                data.defaultContent != null && typeof data.defaultContent === 'object' && !Array.isArray(data.defaultContent)
+                  ? (data.defaultContent as Record<string, unknown>)
+                  : undefined;
               tmpl = {
                 fieldPositions: data.fieldPositions ?? {},
                 fontColor: data.fontColor ?? '#000000',
@@ -2852,15 +3009,16 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
                 fontBold: data.fontBold ?? false,
                 fontItalic: data.fontItalic ?? false,
                 customBoxes: Array.isArray(data.customBoxes) ? data.customBoxes : [],
+                ...(dc ? { defaultContent: dc } : {}),
               };
               setTemplateConfigByType((prev) => ({ ...prev, [pdfType]: tmpl! }));
             }
           }
 
-          const base = getInitialContentForType(type);
-          const customValues: Record<string, string> =
-            ((base as { customFieldValues?: Record<string, string> }).customFieldValues as Record<string, string>) ??
-            {};
+          const base = mergeInitialPdfContentWithMasterDefaults(type, tmpl?.defaultContent);
+          const customValues: Record<string, string> = {
+            ...(((base as { customFieldValues?: Record<string, string> }).customFieldValues as Record<string, string>) ?? {}),
+          };
 
           if (tmpl?.customBoxes && (elemento || folio)) {
             const elementBox = tmpl.customBoxes.find((b) => b.semantic === 'element');
@@ -2922,6 +3080,10 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
     setOverwriteDialog(null);
     if (fn) {
       await fn();
+    }
+    if (templateEditorCloseAfterSaveRef.current) {
+      templateEditorCloseAfterSaveRef.current = false;
+      setTemplateEditorMobileOpen(false);
     }
   };
 
@@ -3073,6 +3235,149 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
   };
 
   const canSaveTemplateConfig = isAdmin && !!pdfDocType && !!templateConfigByType[pdfDocType];
+
+  const handleSaveTemplateConfigForKind = async (
+    kind: 'cotizacion' | 'levantamiento' | 'hoja_trabajo',
+    configOverride?: TemplateConfigState,
+    /** Texto/contenido por defecto para docs nuevos (lo editado en el master). */
+    defaultContentSnapshot?: Record<string, unknown> | null
+  ) => {
+    if (!currentUser || !isAdmin) return;
+    const config = configOverride ?? templateConfigByType[kind];
+    if (!config) return;
+    setSavingTemplateConfig(true);
+    setError(null);
+    try {
+      const toSave = {
+        userId: currentUser.id,
+        username: currentUser.username,
+        fieldPositions: config.fieldPositions ?? {},
+        fontColor: config.fontColor ?? '#000000',
+        fontFamily: config.fontFamily ?? 'Helvetica',
+        fontSize: config.fontSize ?? 11,
+        fontBold: config.fontBold ?? false,
+        fontItalic: config.fontItalic ?? false,
+        customBoxes: config.customBoxes ?? [],
+        ...(defaultContentSnapshot != null && typeof defaultContentSnapshot === 'object' && !Array.isArray(defaultContentSnapshot)
+          ? { defaultContent: defaultContentSnapshot }
+          : {}),
+      };
+      const res = await apiFetch(
+        `${API_BASE}/api/templates/${kind}/config?userId=${encodeURIComponent(currentUser.id)}`,
+        {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-User-Id': currentUser.id,
+            'X-User-Username': currentUser.username ?? '',
+          },
+          body: JSON.stringify(toSave),
+        }
+      );
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(typeof data?.error === 'string' ? data.error : 'Error al guardar configuración de la plantilla');
+      }
+
+      // Asegurar que el master en memoria quede sincronizado (incl. textos por defecto).
+      setTemplateConfigByType((prev) => ({
+        ...prev,
+        [kind]: {
+          ...config,
+          ...(defaultContentSnapshot != null && typeof defaultContentSnapshot === 'object' && !Array.isArray(defaultContentSnapshot)
+            ? { defaultContent: defaultContentSnapshot }
+            : {}),
+        },
+      }));
+    } catch (e) {
+      console.error('Error saving template config', e);
+      setError(e instanceof Error ? e.message : 'No se pudo guardar la configuración de la plantilla.');
+    } finally {
+      setSavingTemplateConfig(false);
+    }
+  };
+
+  const loadTemplateMasterDraftForKind = useCallback(
+    async (kind: 'cotizacion' | 'levantamiento' | 'hoja_trabajo') => {
+      const cfgFromState = templateConfigByType[kind];
+      try {
+        let config: TemplateConfigState | null = cfgFromState ?? null;
+        if (!config) {
+          const res = await apiFetch(`${API_BASE}/api/templates/${kind}/config`);
+          if (!res.ok) throw new Error('No se pudo cargar la configuración del master');
+          const data: {
+            fieldPositions?: Record<string, { x: number; y: number }>;
+            fontColor?: string;
+            fontFamily?: string;
+            fontSize?: number;
+            fontBold?: boolean;
+            fontItalic?: boolean;
+            customBoxes?: unknown[];
+            defaultContent?: Record<string, unknown>;
+          } = await res.json();
+
+          const rawApi = data.customBoxes as unknown;
+          const apiBoxes: CustomBoxDef[] = Array.isArray(rawApi)
+            ? (rawApi as unknown[]).map((b) => {
+                const box = b as Partial<CustomBoxDef>;
+                return {
+                  id: box.id ?? crypto.randomUUID(),
+                  x: typeof box.x === 'number' ? box.x : 0,
+                  y: typeof box.y === 'number' ? box.y : 0,
+                  width: typeof box.width === 'number' ? box.width : 0.3,
+                  height: typeof box.height === 'number' ? box.height : 0.05,
+                  kind: box.kind,
+                  fieldKey: box.fieldKey,
+                  semantic: box.semantic,
+                  backgroundColor: box.backgroundColor,
+                  singleLine: box.singleLine,
+                  fontSize: box.fontSize,
+                  fontColor: box.fontColor,
+                  fontFamily: box.fontFamily,
+                  fontBold: box.fontBold,
+                  fontItalic: box.fontItalic,
+                };
+              })
+            : [];
+
+          const dcMaster =
+            data.defaultContent != null && typeof data.defaultContent === 'object' && !Array.isArray(data.defaultContent)
+              ? data.defaultContent
+              : undefined;
+          config = {
+            fieldPositions: data.fieldPositions ?? {},
+            fontColor: data.fontColor ?? '#000000',
+            fontFamily: data.fontFamily ?? 'Helvetica',
+            fontSize: data.fontSize ?? 11,
+            fontBold: data.fontBold ?? false,
+            fontItalic: data.fontItalic ?? false,
+            customBoxes: apiBoxes,
+            ...(dcMaster ? { defaultContent: dcMaster } : {}),
+          };
+
+          // Mantener también el cache en el estado principal.
+          setTemplateConfigByType((prev) => ({
+            ...prev,
+            [kind]: config!,
+          }));
+        }
+
+        setTemplateMasterDocType(kind);
+        setTemplateMasterDraft(
+          typeof structuredClone === 'function'
+            ? structuredClone(config!)
+            : (JSON.parse(JSON.stringify(config)) as TemplateConfigState)
+        );
+        setTemplateMasterValue(
+          mergeInitialPdfContentWithMasterDefaults(kind as DocType, config!.defaultContent) as Record<string, unknown>
+        );
+      } catch (e) {
+        console.error('Error al cargar master', e);
+        toast('Error al cargar el master de plantilla.', 'error');
+      }
+    },
+    [templateConfigByType, toast]
+  );
 
   /** Abre una ventana con la vista 1:1 del documento para que el usuario guarde como PDF (captura como imagen). */
   const handleGeneratePdf = () => {
@@ -3332,7 +3637,8 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
   };
 
   return (
-    <div className={`flex-1 flex flex-col min-h-0 ${scrollListInParent ? 'overflow-visible min-h-min' : 'overflow-hidden'}`}>
+    <>
+      <div className={`flex-1 flex flex-col min-h-0 ${scrollListInParent ? 'overflow-visible min-h-min' : 'overflow-hidden'}`}>
       <Dialog.Root open={!!deleteConfirm} onOpenChange={open => !open && setDeleteConfirm(null)}>
         <Dialog.Portal>
           <Dialog.Overlay className="fixed inset-0 bg-black/40 z-[150]" />
@@ -3688,6 +3994,20 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
                       <Download size={14} />
                       Generar PDF
                     </button>
+                    {isAdmin && pdfDocType && (
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          await loadTemplateMasterDraftForKind(pdfDocType);
+                          setTemplateEditorMobileOpen(false);
+                          setTemplateMasterEditorOpen(true);
+                        }}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-monday border border-monday-border text-[13px] font-medium text-monday-text hover:bg-monday-hover disabled:opacity-50"
+                        title="Editar el master global de plantillas (3 tipos)"
+                      >
+                        Master de plantillas
+                      </button>
+                    )}
                     <button
                       type="button"
                       onClick={handleGeneratePdf}
@@ -3717,8 +4037,10 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
                           docId={selectedDoc?.id ?? ''}
                           templateConfig={effectiveTemplateConfigForPdf}
                           isAdmin={isAdmin}
+                          allowBoxEditing={!isAdmin}
+                          lockedOutline={isAdmin}
                           onTemplateConfigChange={
-                            pdfDocType
+                            !isAdmin && pdfDocType
                               ? (config) =>
                                   setPdfFormDraft((prev) => {
                                     const prevFieldPositions =
@@ -3929,7 +4251,37 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
                       </button>
                       <button
                         type="button"
-                        onClick={() => setViewMode('overview')}
+                        onClick={() => {
+                          if (isMobile) {
+                            if (templateConfigLoading) {
+                              toast('Cargando plantilla…', 'info');
+                              return;
+                            }
+                            if (isAdmin && effectiveTemplateConfigForPdf) {
+                              const { nextDraft, orphanCount } = syncAdminDraftWithMaster(pdfFormDraft, effectiveTemplateConfigForPdf);
+                              setPdfFormDraft(nextDraft);
+                              adminMasterSyncAppliedForDocIdRef.current = selectedDoc.id;
+                              if (orphanCount > 0) toast('Algunas cajas del diseño anterior no existen en el master y fueron ignoradas.', 'info');
+                              // Snapshot inicial del master para poder deshacer/cerrar sin guardar.
+                              templateEditorTemplateConfigSnapshotRef.current =
+                                typeof structuredClone === 'function'
+                                  ? structuredClone(effectiveTemplateConfigForPdf)
+                                  : JSON.parse(JSON.stringify(effectiveTemplateConfigForPdf));
+                              templateEditorDraftSnapshotRef.current =
+                                typeof structuredClone === 'function'
+                                  ? structuredClone(nextDraft)
+                                  : JSON.parse(JSON.stringify(nextDraft));
+                            } else {
+                              templateEditorDraftSnapshotRef.current =
+                                typeof structuredClone === 'function'
+                                  ? structuredClone(pdfFormDraft)
+                                  : JSON.parse(JSON.stringify(pdfFormDraft));
+                            }
+                            setTemplateEditorMobileOpen(true);
+                          } else {
+                            setViewMode('overview');
+                          }
+                        }}
                         className="hidden sm:inline-flex items-center gap-1.5 px-3 py-1.5 rounded-monday bg-monday-blue text-white text-[13px] font-medium hover:bg-monday-blue/90"
                       >
                         <Pencil size={14} />
@@ -3937,7 +4289,37 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
                       </button>
                       <button
                         type="button"
-                        onClick={() => setViewMode('overview')}
+                        onClick={() => {
+                          if (isMobile) {
+                            if (templateConfigLoading) {
+                              toast('Cargando plantilla…', 'info');
+                              return;
+                            }
+                            if (isAdmin && effectiveTemplateConfigForPdf) {
+                              const { nextDraft, orphanCount } = syncAdminDraftWithMaster(pdfFormDraft, effectiveTemplateConfigForPdf);
+                              setPdfFormDraft(nextDraft);
+                              adminMasterSyncAppliedForDocIdRef.current = selectedDoc.id;
+                              if (orphanCount > 0) toast('Algunas cajas del diseño anterior no existen en el master y fueron ignoradas.', 'info');
+                              // Snapshot inicial del master para poder deshacer/cerrar sin guardar.
+                              templateEditorTemplateConfigSnapshotRef.current =
+                                typeof structuredClone === 'function'
+                                  ? structuredClone(effectiveTemplateConfigForPdf)
+                                  : JSON.parse(JSON.stringify(effectiveTemplateConfigForPdf));
+                              templateEditorDraftSnapshotRef.current =
+                                typeof structuredClone === 'function'
+                                  ? structuredClone(nextDraft)
+                                  : JSON.parse(JSON.stringify(nextDraft));
+                            } else {
+                              templateEditorDraftSnapshotRef.current =
+                                typeof structuredClone === 'function'
+                                  ? structuredClone(pdfFormDraft)
+                                  : JSON.parse(JSON.stringify(pdfFormDraft));
+                            }
+                            setTemplateEditorMobileOpen(true);
+                          } else {
+                            setViewMode('overview');
+                          }
+                        }}
                         title="Editar plantilla"
                         className="sm:hidden inline-flex items-center justify-center w-10 h-10 min-h-[44px] min-w-[44px] rounded-monday bg-monday-blue text-white hover:bg-monday-blue/90 touch-manipulation"
                       >
@@ -4069,6 +4451,328 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
       </div>
       )}
     </div>
+    <AnimatePresence>
+      {templateEditorMobileOpen && selectedDoc && isPdfDocType(selectedDoc.type as DocType) && (
+        <>
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.18 }}
+            className="fixed inset-0 z-[200] bg-black/30"
+            aria-hidden
+            onClick={() => {
+              if (templateEditorDraftSnapshotRef.current) {
+                setPdfFormDraft(templateEditorDraftSnapshotRef.current);
+              }
+              if (templateEditorTemplateConfigSnapshotRef.current && isAdmin && pdfDocType) {
+                setTemplateConfigByType((prev) => ({
+                  ...prev,
+                  [pdfDocType]: templateEditorTemplateConfigSnapshotRef.current as TemplateConfigState,
+                }));
+              }
+              templateEditorCloseAfterSaveRef.current = false;
+              setTemplateEditorMobileOpen(false);
+            }}
+          />
+          <motion.div
+            initial={{ y: '100%' }}
+            animate={{ y: 0 }}
+            exit={{ y: '100%' }}
+            transition={{ type: 'tween', duration: 0.25, ease: [0.22, 1, 0.36, 1] }}
+            className="fixed left-0 right-0 bottom-0 z-[201] bg-white rounded-t-2xl shadow-monday-xl border-t border-monday-border flex flex-col max-h-[95dvh]"
+            style={{ paddingBottom: 'max(0.5rem, env(safe-area-inset-bottom))' }}
+            role="dialog"
+            aria-label="Editar plantilla"
+          >
+            <div className="shrink-0 flex items-center justify-between min-h-[52px] px-4 border-b border-monday-border">
+              <div className="min-w-0">
+                <div className="text-[15px] font-semibold text-monday-text truncate">Editar plantilla</div>
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (templateEditorDraftSnapshotRef.current) {
+                      setPdfFormDraft(templateEditorDraftSnapshotRef.current);
+                    }
+                    if (templateEditorTemplateConfigSnapshotRef.current && isAdmin && pdfDocType) {
+                      setTemplateConfigByType((prev) => ({
+                        ...prev,
+                        [pdfDocType]: templateEditorTemplateConfigSnapshotRef.current as TemplateConfigState,
+                      }));
+                    }
+                  }}
+                  className="min-h-[44px] px-3 rounded-lg border border-monday-border bg-white text-[13px] text-monday-text hover:bg-monday-hover touch-manipulation"
+                  title="Deshacer cambios (un nivel)"
+                >
+                  Deshacer
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (templateEditorDraftSnapshotRef.current) {
+                      setPdfFormDraft(templateEditorDraftSnapshotRef.current);
+                    }
+                    if (templateEditorTemplateConfigSnapshotRef.current && isAdmin && pdfDocType) {
+                      setTemplateConfigByType((prev) => ({
+                        ...prev,
+                        [pdfDocType]: templateEditorTemplateConfigSnapshotRef.current as TemplateConfigState,
+                      }));
+                    }
+                    templateEditorCloseAfterSaveRef.current = false;
+                    setTemplateEditorMobileOpen(false);
+                  }}
+                  className="min-h-[44px] px-3 rounded-lg border border-monday-border bg-white text-[13px] text-monday-text hover:bg-monday-hover touch-manipulation"
+                  title="Cerrar sin guardar"
+                >
+                  Cerrar
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleGeneratePdf()}
+                  disabled={!selectedDoc || !isPdfDocType(selectedDoc.type as DocType)}
+                  className="min-h-[44px] px-3 rounded-lg border border-monday-border bg-white text-[13px] text-monday-text hover:bg-monday-hover disabled:opacity-60 touch-manipulation"
+                  title="Generar PDF"
+                >
+                  Generar PDF
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    templateEditorCloseAfterSaveRef.current = true;
+                    handleSave();
+                  }}
+                  className="min-h-[44px] px-3 rounded-lg bg-monday-blue text-white text-[13px] font-medium hover:bg-monday-blue/90 disabled:opacity-60 touch-manipulation"
+                  disabled={saving}
+                  title="Guardar documento"
+                >
+                  {saving ? 'Guardando…' : 'Guardar'}
+                </button>
+                {isAdmin && (
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      if (templateConfigLoading) {
+                        toast('Cargando master…', 'info');
+                        return;
+                      }
+                      reopenNormalAfterMasterRef.current = true;
+                      const kind = (pdfDocType ?? 'cotizacion') as 'cotizacion' | 'levantamiento' | 'hoja_trabajo';
+                      await loadTemplateMasterDraftForKind(kind);
+                      // Cancelar cambios del drawer actual (equivalente a "Cerrar sin guardar")
+                      if (templateEditorDraftSnapshotRef.current) {
+                        setPdfFormDraft(templateEditorDraftSnapshotRef.current);
+                      }
+                      if (templateEditorTemplateConfigSnapshotRef.current && isAdmin && pdfDocType) {
+                        setTemplateConfigByType((prev) => ({
+                          ...prev,
+                          [pdfDocType]: templateEditorTemplateConfigSnapshotRef.current as TemplateConfigState,
+                        }));
+                      }
+                      templateEditorCloseAfterSaveRef.current = false;
+                      setTemplateEditorMobileOpen(false);
+                      setTemplateMasterEditorOpen(true);
+                    }}
+                    className="min-h-[44px] px-3 rounded-lg border border-monday-border bg-white text-[13px] text-monday-text hover:bg-monday-hover disabled:opacity-60 touch-manipulation"
+                    title="Editar master global (3 tipos)"
+                  >
+                    Master de plantillas
+                  </button>
+                )}
+              </div>
+            </div>
+
+            <div className="flex-1 min-h-0 overflow-hidden">
+              <div className="p-0">
+                <PdfTemplateEditor
+                  key={selectedDoc.id}
+                  docType={selectedDoc.type as 'cotizacion' | 'levantamiento' | 'hoja_trabajo'}
+                  value={pdfFormDraft}
+                  onChange={setPdfFormDraft}
+                  docId={selectedDoc.id}
+                  templateConfig={effectiveTemplateConfigForPdf}
+                  isAdmin={isAdmin}
+                  allowBoxEditing={!isAdmin}
+                  lockedOutline={isAdmin}
+                  compactPadding
+                  onTemplateConfigChange={
+                    !isAdmin && pdfDocType
+                      ? (config) => {
+                          // No-admin: solo ajustar layout/draft para el documento actual.
+                          setPdfFormDraft((prev) => {
+                            const prevFieldPositions =
+                              typeof prev.fieldPositions === 'object' && prev.fieldPositions != null && !Array.isArray(prev.fieldPositions)
+                                ? (prev.fieldPositions as Record<string, { x: number; y: number }>)
+                                : {};
+                            const prevBold = prev.globalFontBold === true || prev.globalFontBold === 'true';
+                            const prevItalic = prev.globalFontItalic === true || prev.globalFontItalic === 'true';
+                            return {
+                              ...prev,
+                              fieldPositions: config.fieldPositions ?? prevFieldPositions,
+                              globalFontColor:
+                                typeof config.fontColor === 'string'
+                                  ? config.fontColor
+                                  : typeof prev.globalFontColor === 'string'
+                                    ? prev.globalFontColor
+                                    : '#000000',
+                              globalFontFamily:
+                                typeof config.fontFamily === 'string'
+                                  ? config.fontFamily
+                                  : typeof prev.globalFontFamily === 'string'
+                                    ? prev.globalFontFamily
+                                    : 'Helvetica',
+                              globalFontSize:
+                                typeof config.fontSize === 'number'
+                                  ? config.fontSize
+                                  : typeof prev.globalFontSize === 'number'
+                                    ? prev.globalFontSize
+                                    : 11,
+                              globalFontBold: config.fontBold ?? prevBold,
+                              globalFontItalic: config.fontItalic ?? prevItalic,
+                              customBoxes: config.customBoxes ?? (Array.isArray(prev.customBoxes) ? prev.customBoxes : []),
+                            } as Record<string, unknown>;
+                          });
+                        }
+                      : undefined
+                  }
+                  onSaveTemplateConfig={undefined}
+                  savingTemplateConfig={savingTemplateConfig}
+                />
+              </div>
+            </div>
+          </motion.div>
+        </>
+      )}
+    </AnimatePresence>
+    <AnimatePresence>
+      {templateMasterEditorOpen && isAdmin && (
+        <>
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.18 }}
+            className="fixed inset-0 z-[250] bg-black/30"
+            aria-hidden
+            onClick={() => {
+              setTemplateMasterEditorOpen(false);
+              if (reopenNormalAfterMasterRef.current) {
+                reopenNormalAfterMasterRef.current = false;
+                setTemplateEditorMobileOpen(true);
+              }
+            }}
+          />
+          <motion.div
+            initial={{ y: '100%' }}
+            animate={{ y: 0 }}
+            exit={{ y: '100%' }}
+            transition={{ type: 'tween', duration: 0.25, ease: [0.22, 1, 0.36, 1] }}
+            className="fixed left-0 right-0 bottom-0 z-[251] bg-white rounded-t-2xl shadow-monday-xl border-t border-monday-border flex flex-col max-h-[95dvh]"
+            style={{ paddingBottom: 'max(0.5rem, env(safe-area-inset-bottom))' }}
+            role="dialog"
+            aria-label="Editor master de plantillas"
+          >
+            <div className="shrink-0 flex flex-col">
+              <div className="flex items-center justify-between min-h-[52px] px-4 border-b border-monday-border">
+                <div className="min-w-0">
+                  <div className="text-[15px] font-semibold text-monday-text truncate">Master de plantillas</div>
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setTemplateMasterEditorOpen(false);
+                      if (reopenNormalAfterMasterRef.current) {
+                        reopenNormalAfterMasterRef.current = false;
+                        setTemplateEditorMobileOpen(true);
+                      }
+                    }}
+                    className="min-h-[44px] px-3 rounded-lg border border-monday-border bg-white text-[13px] text-monday-text hover:bg-monday-hover touch-manipulation"
+                    title="Cerrar sin guardar"
+                  >
+                    Cerrar
+                  </button>
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      if (!templateMasterDraft) return;
+                      await handleSaveTemplateConfigForKind(templateMasterDocType, templateMasterDraft, templateMasterValue);
+                      setTemplateMasterEditorOpen(false);
+                      if (reopenNormalAfterMasterRef.current) {
+                        reopenNormalAfterMasterRef.current = false;
+                        setTemplateEditorMobileOpen(true);
+                      }
+                    }}
+                    disabled={!templateMasterDraft || savingTemplateConfig}
+                    className="min-h-[44px] px-3 rounded-lg bg-monday-blue text-white text-[13px] font-medium hover:bg-monday-blue/90 disabled:opacity-60 touch-manipulation"
+                    title="Guardar master global"
+                  >
+                    {savingTemplateConfig ? 'Guardando…' : 'Guardar master'}
+                  </button>
+                </div>
+              </div>
+
+              <div className="p-3 border-b border-monday-border">
+                <div className="flex gap-2">
+                  {(
+                    [
+                      { id: 'cotizacion', label: 'Cotización' },
+                      { id: 'levantamiento', label: 'Levantamiento' },
+                      { id: 'hoja_trabajo', label: 'Hoja de trabajo' },
+                    ] as const
+                  ).map((t) => (
+                    <button
+                      key={t.id}
+                      type="button"
+                      onClick={async () => {
+                        if (t.id === templateMasterDocType) return;
+                        await loadTemplateMasterDraftForKind(t.id);
+                      }}
+                      className={`flex-1 min-h-[44px] px-3 rounded-xl border touch-manipulation text-[13px] ${
+                        t.id === templateMasterDocType
+                          ? 'bg-monday-blue border-monday-blue text-white'
+                          : 'bg-white border-monday-border text-monday-text hover:bg-monday-hover'
+                      }`}
+                    >
+                      {t.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            <div className="flex-1 min-h-0 overflow-hidden">
+              <div className="flex-1 overflow-y-auto overflow-x-hidden custom-scrollbar">
+                {!templateMasterDraft ? (
+                  <div className="flex items-center justify-center py-10 text-monday-subtext text-[13px]">
+                    Cargando master…
+                  </div>
+                ) : (
+                  <div className="p-0">
+                    <PdfTemplateEditor
+                      docType={templateMasterDocType}
+                      value={templateMasterValue}
+                      onChange={setTemplateMasterValue}
+                      docId=""
+                      templateConfig={templateMasterDraft}
+                      isAdmin
+                      allowBoxEditing
+                      lockedOutline={false}
+                      compactPadding
+                      onTemplateConfigChange={(cfg) => setTemplateMasterDraft(cfg)}
+                      onSaveTemplateConfig={undefined}
+                      savingTemplateConfig={savingTemplateConfig}
+                    />
+                  </div>
+                )}
+              </div>
+            </div>
+          </motion.div>
+        </>
+      )}
+    </AnimatePresence>
+    </>
   );
 };
 export default DocsPage;
