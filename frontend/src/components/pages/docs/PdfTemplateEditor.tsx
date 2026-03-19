@@ -152,6 +152,11 @@ export const PdfTemplateEditor: React.FC<Props> = ({
   const [imageDialogUploading, setImageDialogUploading] = useState(false);
   const [imageDialogError, setImageDialogError] = useState<string | null>(null);
   const imageFileInputRef = useRef<HTMLInputElement>(null);
+  /** Lienzo vacío (capa bajo las cajas): doble toque táctil = reset zoom (m7 / iOS). */
+  const canvasOverlayRef = useRef<HTMLDivElement | null>(null);
+  const onCanvasDoubleTapRef = useRef(onCanvasDoubleTap);
+  onCanvasDoubleTapRef.current = onCanvasDoubleTap;
+  const lastCanvasTapRef = useRef<{ t: number; x: number; y: number } | null>(null);
 
   const update = useCallback(
     (updates: Record<string, unknown>) => onChange({ ...value, ...updates }),
@@ -285,6 +290,35 @@ export const PdfTemplateEditor: React.FC<Props> = ({
       cancelled = true;
     };
   }, [templatePdfUrl, onExportReady, pixelScale, blueprintMode]);
+
+  useEffect(() => {
+    const el = canvasOverlayRef.current;
+    if (!el || viewerOnly || exportPixelScale) return;
+    const DOUBLE_MS = 380;
+    const MAX_D_PX = 48;
+    const handler = (e: TouchEvent) => {
+      const cb = onCanvasDoubleTapRef.current;
+      if (!cb) return;
+      if (e.target !== e.currentTarget) return;
+      const touch = e.changedTouches[0];
+      if (!touch) return;
+      const now = Date.now();
+      const last = lastCanvasTapRef.current;
+      if (last && now - last.t < DOUBLE_MS) {
+        const dx = touch.clientX - last.x;
+        const dy = touch.clientY - last.y;
+        if (dx * dx + dy * dy <= MAX_D_PX * MAX_D_PX) {
+          lastCanvasTapRef.current = null;
+          e.preventDefault();
+          cb();
+          return;
+        }
+      }
+      lastCanvasTapRef.current = { t: now, x: touch.clientX, y: touch.clientY };
+    };
+    el.addEventListener('touchend', handler, { passive: false });
+    return () => el.removeEventListener('touchend', handler);
+  }, [viewerOnly, exportPixelScale]);
 
   const handleCustomBoxMouseDown = useCallback((e: React.MouseEvent, box: CustomBoxDef) => {
     e.preventDefault();
@@ -749,6 +783,7 @@ export const PdfTemplateEditor: React.FC<Props> = ({
           {/* Capa 2: cuadros que ADMIN agrega/modifica (customBoxes). En viewerOnly sin overflow-hidden para no recortar. */}
           <div className={`absolute inset-0 z-20 ${viewerOnly ? 'pointer-events-none overflow-visible' : 'overflow-hidden'}`}>
             <div
+              ref={canvasOverlayRef}
               className={`absolute inset-0 ${viewerOnly ? '' : 'pointer-events-auto'}`}
               onDoubleClick={(e) => {
                 if (viewerOnly || exportPixelScale || !onCanvasDoubleTap) return;
