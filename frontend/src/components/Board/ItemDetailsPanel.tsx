@@ -228,6 +228,14 @@ function containsUuid(raw: string): boolean {
   return /[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}/.test(s);
 }
 
+function looksLikeMachineValue(raw: string): boolean {
+  const s = raw.trim();
+  if (!s) return false;
+  if (looksLikeUuid(s) || containsUuid(s)) return true;
+  if ((s.startsWith('{') && s.endsWith('}')) || (s.startsWith('[') && s.endsWith(']'))) return true;
+  return false;
+}
+
 function extractBillingDocsUrl(raw: string): { url: string; name?: string } | null {
   const s = raw.trim();
   if (!s) return null;
@@ -325,7 +333,7 @@ export const ItemDetailsPanel: React.FC<Props> = ({ item, onClose, variant = 'pa
       if (col.type === 'person') {
         const uid = raw.trim();
         const u = users.find((x) => x.id === uid);
-        return u ? u.name : uid;
+        return u ? u.name : 'Usuario asignado';
       }
 
       if (col.type === 'contact') {
@@ -437,7 +445,8 @@ export const ItemDetailsPanel: React.FC<Props> = ({ item, onClose, variant = 'pa
           }
 
           const cleaned = raw.startsWith('"') && raw.endsWith('"') ? raw.slice(1, -1) : raw;
-          return { id: cv.id, label: cv.columnId, value: cleaned };
+          const normalized = looksLikeMachineValue(cleaned) ? '—' : cleaned;
+          return { id: cv.id, label: 'Campo', value: normalized };
         }
         return {
           id: cv.id,
@@ -826,7 +835,7 @@ export const ItemDetailsPanel: React.FC<Props> = ({ item, onClose, variant = 'pa
       </div>
 
       {/* Content */}
-      <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden custom-scrollbar scroll-touch bg-[#f9fafb]" ref={feedRef}>
+      <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden custom-scrollbar scroll-touch bg-monday-bg" ref={feedRef}>
         {activeTab === 'Actualizaciones' && (
           <div className="p-4 flex flex-col gap-4">
             {/* Write update box */}

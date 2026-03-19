@@ -3,6 +3,7 @@ import { FilePlus2, LayoutTemplate, FileText, Sheet, ChevronRight } from 'lucide
 import { apiFetch } from '../../api';
 import DocsPage from '../pages/DocsPage';
 import type { Board } from '../../types';
+import type { DocType as GlobalDocType } from '../../types';
 
 const API_BASE = import.meta.env.DEV ? '' : (import.meta.env.VITE_API_URL || 'http://localhost:3001');
 
@@ -69,7 +70,10 @@ export function MobileDocsHub({
   onConsumeInitialCreateFromBoard,
   initialOpenDocId,
   onConsumeInitialOpenDocId,
+  initialCreateDocType,
+  onConsumeInitialCreateDocType,
   onRequestOpenDoc,
+  onAddReminderWidget,
 }: {
   workspaceId: string | null;
   boards: Board[];
@@ -77,7 +81,10 @@ export function MobileDocsHub({
   onConsumeInitialCreateFromBoard: () => void;
   initialOpenDocId: string | null;
   onConsumeInitialOpenDocId: () => void;
+  initialCreateDocType?: GlobalDocType | null;
+  onConsumeInitialCreateDocType?: () => void;
   onRequestOpenDoc: (id: string) => void;
+  onAddReminderWidget?: () => void;
 }) {
   const [segment, setSegment] = useState<Segment>('explorar');
   const [step, setStep] = useState<0 | 1 | 2>(0);
@@ -97,6 +104,14 @@ export function MobileDocsHub({
       setError(null);
     }
   }, [initialOpenDocId, initialCreateFromBoard]);
+
+  useEffect(() => {
+    if (!initialCreateDocType) return;
+    setSegment('explorar');
+    setStep(0);
+    setError(null);
+    onConsumeInitialCreateDocType?.();
+  }, [initialCreateDocType, onConsumeInitialCreateDocType]);
 
   const createDoc = async () => {
     if (!workspaceId) {
@@ -148,8 +163,11 @@ export function MobileDocsHub({
               boards={boards}
               initialCreateFromBoard={initialCreateFromBoard}
               onConsumeInitialCreateFromBoard={onConsumeInitialCreateFromBoard}
+              initialCreateDocType={initialCreateDocType}
+              onConsumeInitialCreateDocType={onConsumeInitialCreateDocType}
               initialOpenDocId={initialOpenDocId}
               onConsumeInitialOpenDocId={onConsumeInitialOpenDocId}
+              onAddReminderWidget={onAddReminderWidget}
               mobileLayout
               scrollListInParent
             />

@@ -29,7 +29,7 @@ export function MobileBottomNav({
         'fixed bottom-0 left-0 right-0 z-40',
         'safe-area-pb',
         // Liquid glass
-        'bg-white backdrop-blur-xl',
+        'bg-[var(--monday-surface)]/95 backdrop-blur-xl',
         'border-t border-monday-border',
         'shadow-monday-lg',
       ].join(' ')}
@@ -49,17 +49,19 @@ export function MobileBottomNav({
                   'flex flex-col items-center justify-center',
                   compact ? 'min-h-[48px] py-2' : 'min-h-[64px] py-2.5',
                   'touch-manipulation select-none',
-                  'transition-colors',
+                  'transition-colors active:scale-[0.985]',
                   isActive ? 'text-monday-text' : 'text-monday-subtext hover:text-monday-text',
                 ].join(' ')}
                 aria-current={isActive ? 'page' : undefined}
+                aria-label={t.label}
               >
                 <span className="relative flex items-center justify-center w-11 h-11">
                   <span
                     className={[
                       'absolute inset-0 rounded-2xl',
-                      'transition-opacity',
+                      'transition-opacity transition-transform',
                       isActive ? 'opacity-100' : 'opacity-0',
+                      isActive ? 'scale-100' : 'scale-90',
                       'bg-monday-pill',
                       'border border-monday-border',
                     ].join(' ')}

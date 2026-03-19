@@ -10,6 +10,8 @@ import {
   PieChart,
   GanttChart,
   Check,
+  ChevronLeft,
+  ChevronRight,
 } from 'lucide-react';
 
 export type ViewMode = 'table' | 'kanban' | 'calendar' | 'facturacion' | 'resumen' | 'archivos' | 'miTrabajo' | 'timeline';
@@ -32,6 +34,7 @@ interface BoardViewBottomSheetProps {
   onChangeView: (view: ViewMode) => void;
   enabledViews: ViewMode[];
   onAddView: (view: ViewMode) => void;
+  onMoveView?: (view: ViewMode, direction: 'left' | 'right') => void;
   canSeeFacturacion: boolean;
   isTaller: boolean;
   onToggleStar?: () => void;
@@ -47,6 +50,7 @@ export function BoardViewBottomSheet({
   onChangeView,
   enabledViews,
   onAddView,
+  onMoveView,
   canSeeFacturacion,
   isTaller,
   onToggleStar,
@@ -54,16 +58,10 @@ export function BoardViewBottomSheet({
   exportingFolders,
   onOpenSearch,
 }: BoardViewBottomSheetProps) {
-  const viewTabs = [
-    { id: 'table' as const, label: VIEW_LABELS.table },
-    ...(!isTaller ? [{ id: 'kanban' as const, label: VIEW_LABELS.kanban }] : []),
-    ...(enabledViews.includes('facturacion') && canSeeFacturacion ? [{ id: 'facturacion' as const, label: VIEW_LABELS.facturacion }] : []),
-    ...(enabledViews.includes('calendar') ? [{ id: 'calendar' as const, label: VIEW_LABELS.calendar }] : []),
-    ...(enabledViews.includes('resumen') ? [{ id: 'resumen' as const, label: VIEW_LABELS.resumen }] : []),
-    ...(enabledViews.includes('archivos') ? [{ id: 'archivos' as const, label: VIEW_LABELS.archivos }] : []),
-    ...(enabledViews.includes('miTrabajo') ? [{ id: 'miTrabajo' as const, label: VIEW_LABELS.miTrabajo }] : []),
-    ...(enabledViews.includes('timeline') ? [{ id: 'timeline' as const, label: VIEW_LABELS.timeline }] : []),
-  ];
+  const viewTabs = enabledViews
+    .filter((v) => (isTaller ? (v === 'table' || v === 'calendar') : true))
+    .filter((v) => (v === 'facturacion' ? canSeeFacturacion : true))
+    .map((id) => ({ id, label: VIEW_LABELS[id] }));
 
   const canAddCalendar = !enabledViews.includes('calendar');
   const canAddFact = canSeeFacturacion && !enabledViews.includes('facturacion');
@@ -102,7 +100,7 @@ export function BoardViewBottomSheet({
             animate={{ y: 0 }}
             exit={{ y: '100%' }}
             transition={{ type: 'tween', duration: 0.25, ease: [0.22, 1, 0.36, 1] }}
-            className="fixed left-0 right-0 bottom-0 z-[46] bg-white rounded-t-2xl shadow-monday-xl border-t border-monday-border flex flex-col max-h-[58vh]"
+            className="fixed left-0 right-0 bottom-0 z-[46] bg-[var(--monday-surface)] rounded-t-2xl shadow-monday-xl border-t border-monday-border flex flex-col max-h-[58vh]"
             style={{ paddingBottom: 'max(0.5rem, env(safe-area-inset-bottom))' }}
             aria-label="Vista del tablero"
           >
@@ -123,18 +121,41 @@ export function BoardViewBottomSheet({
                 <p className="text-[11px] font-semibold text-monday-subtext px-2 py-1.5 uppercase tracking-wider">
                   Cambiar vista
                 </p>
-                {viewTabs.map((tab) => (
-                  <button
-                    key={tab.id}
-                    type="button"
-                    onClick={() => handleSelectView(tab.id)}
-                    className={`w-full flex items-center gap-2.5 px-3 min-h-[48px] py-2.5 rounded-monday transition-colors text-left text-[14px] touch-manipulation ${
-                      currentView === tab.id ? 'bg-monday-pill text-monday-blue font-medium' : 'hover:bg-monday-hover text-monday-text'
-                    }`}
-                  >
-                    {currentView === tab.id ? <Check size={18} className="shrink-0 text-monday-blue" /> : <span className="w-[18px] shrink-0" />}
-                    {tab.label}
-                  </button>
+                {viewTabs.map((tab, idx) => (
+                  <div key={tab.id} className="flex items-center gap-1">
+                    <button
+                      type="button"
+                      onClick={() => handleSelectView(tab.id)}
+                      className={`flex-1 flex items-center gap-2.5 px-3 min-h-[48px] py-2.5 rounded-monday transition-colors text-left text-[14px] touch-manipulation ${
+                        currentView === tab.id ? 'bg-monday-pill text-monday-blue font-medium' : 'hover:bg-monday-hover text-monday-text'
+                      }`}
+                    >
+                      {currentView === tab.id ? <Check size={18} className="shrink-0 text-monday-blue" /> : <span className="w-[18px] shrink-0" />}
+                      {tab.label}
+                    </button>
+                    {!!onMoveView && viewTabs.length > 1 && (
+                      <div className="flex items-center gap-0.5 shrink-0">
+                        <button
+                          type="button"
+                          onClick={() => onMoveView(tab.id, 'left')}
+                          disabled={idx === 0}
+                          className="min-h-[40px] min-w-[36px] flex items-center justify-center rounded-md border border-monday-border text-monday-subtext hover:bg-monday-hover disabled:opacity-35 disabled:cursor-not-allowed"
+                          title="Mover a la izquierda"
+                        >
+                          <ChevronLeft size={16} />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => onMoveView(tab.id, 'right')}
+                          disabled={idx === viewTabs.length - 1}
+                          className="min-h-[40px] min-w-[36px] flex items-center justify-center rounded-md border border-monday-border text-monday-subtext hover:bg-monday-hover disabled:opacity-35 disabled:cursor-not-allowed"
+                          title="Mover a la derecha"
+                        >
+                          <ChevronRight size={16} />
+                        </button>
+                      </div>
+                    )}
+                  </div>
                 ))}
 
                 {!isTaller && hasAnyToAdd && (

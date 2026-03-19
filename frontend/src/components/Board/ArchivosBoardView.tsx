@@ -90,7 +90,7 @@ export const ArchivosBoardView: React.FC<Props> = ({ board, onRowClick, isMobile
               tabIndex={0}
               onClick={() => onRowClick(e.item)}
               onKeyDown={ev => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); onRowClick(e.item); } }}
-              className="bg-white border border-monday-border rounded-xl p-4 shadow-monday-sm text-left min-h-[48px] touch-manipulation active:bg-monday-hover/30"
+              className="bg-[var(--monday-surface)] border border-monday-border rounded-xl p-4 shadow-monday-sm text-left min-h-[48px] touch-manipulation active:bg-monday-hover/30"
             >
               <div className="font-medium text-monday-text text-[14px] mb-1">{e.item.name}</div>
               <div className="text-[12px] text-monday-subtext">{e.group.name} · {e.columnTitle}</div>

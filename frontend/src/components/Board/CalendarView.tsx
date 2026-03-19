@@ -740,7 +740,7 @@ export const CalendarView: React.FC<Props> = ({ board, onRowClick, isTallerView,
     d.getDate() === today.getDate() && d.getMonth() === today.getMonth() && d.getFullYear() === today.getFullYear();
 
   return (
-    <div className="h-full flex flex-col bg-white">
+    <div className="h-full flex flex-col bg-[var(--monday-surface)]">
       {/* Barra de navegación del calendario (estilo Monday); en móvil: áreas táctiles más grandes; landscape corto: más compacto */}
       <div className={`flex items-center justify-between border-b border-monday-border shrink-0 flex-wrap gap-2 ${
         isLandscapeShort ? 'px-2 py-1.5 gap-1' : isMobile ? 'px-3 py-2' : 'px-4 py-3'
@@ -748,7 +748,7 @@ export const CalendarView: React.FC<Props> = ({ board, onRowClick, isTallerView,
         <div className={`flex items-center gap-1 sm:gap-2 ${isMobile ? 'gap-1' : ''}`}>
           <button
             onClick={goToToday}
-            className={`rounded-monday border border-monday-border bg-white text-monday-text hover:bg-monday-hover transition-colors ${isMobile ? 'px-3 py-2.5 text-[13px] font-medium min-h-[44px]' : 'px-3 py-1.5 text-[13px] font-medium'}`}
+            className={`rounded-monday border border-monday-border bg-[var(--monday-surface)] text-monday-text hover:bg-monday-hover transition-colors ${isMobile ? 'px-3 py-2.5 text-[13px] font-medium min-h-[44px]' : 'px-3 py-1.5 text-[13px] font-medium'}`}
           >
             Hoy
           </button>
@@ -784,7 +784,7 @@ export const CalendarView: React.FC<Props> = ({ board, onRowClick, isTallerView,
             </Popover.Trigger>
             <Popover.Portal>
               <Popover.Content
-                className="z-50 bg-white rounded-xl shadow-monday-lg border border-monday-border p-4 w-auto"
+                className="z-50 bg-[var(--monday-surface)] rounded-xl shadow-monday-lg border border-monday-border p-4 w-auto"
                 sideOffset={8}
                 align="center"
               >
@@ -826,7 +826,7 @@ export const CalendarView: React.FC<Props> = ({ board, onRowClick, isTallerView,
           <div className="relative">
             <button
               onClick={() => setViewDropdownOpen(!viewDropdownOpen)}
-              className={`flex items-center gap-1.5 rounded-monday border border-monday-border bg-white font-medium text-monday-text hover:bg-monday-hover transition-colors ${isMobile ? 'px-3 py-2.5 min-h-[44px] text-[13px]' : 'px-3 py-1.5 text-[13px]'}`}
+              className={`flex items-center gap-1.5 rounded-monday border border-monday-border bg-[var(--monday-surface)] font-medium text-monday-text hover:bg-monday-hover transition-colors ${isMobile ? 'px-3 py-2.5 min-h-[44px] text-[13px]' : 'px-3 py-1.5 text-[13px]'}`}
             >
               {viewType === 'month' ? 'Mes' : viewType === 'week' ? 'Semana' : 'Día'}
               <ChevronDown size={14} className={`transition-transform ${viewDropdownOpen ? 'rotate-180' : ''}`} />
@@ -834,7 +834,7 @@ export const CalendarView: React.FC<Props> = ({ board, onRowClick, isTallerView,
             {viewDropdownOpen && (
               <>
                 <div className="fixed inset-0 z-10" onClick={() => setViewDropdownOpen(false)} />
-                <div className="absolute top-full left-0 mt-1 z-20 bg-white rounded-monday border border-monday-border shadow-monday-lg py-1 min-w-[100px]">
+                <div className="absolute top-full left-0 mt-1 z-20 bg-[var(--monday-surface)] rounded-monday border border-monday-border shadow-monday-lg py-1 min-w-[100px]">
                   {(['month', 'week', 'day'] as const).map(type => (
                     <button
                       key={type}
@@ -862,7 +862,7 @@ export const CalendarView: React.FC<Props> = ({ board, onRowClick, isTallerView,
       }`}
            style={isMobile ? { WebkitOverflowScrolling: 'touch' } : undefined}>
         {viewType === 'day' && (
-          <div className="rounded-xl border border-monday-border shadow-monday-sm bg-white overflow-hidden min-h-[280px]">
+          <div className="rounded-xl border border-monday-border shadow-monday-sm bg-[var(--monday-surface)] overflow-hidden min-h-[280px]">
             <button
               type="button"
               onClick={() => openAddModal(viewDate)}
@@ -902,7 +902,7 @@ export const CalendarView: React.FC<Props> = ({ board, onRowClick, isTallerView,
                       </Popover.Trigger>
                       <Popover.Portal>
                         <Popover.Content
-                          className="bg-white rounded-lg border border-monday-border shadow-monday-lg p-3 z-[200] max-h-[280px] overflow-auto"
+                          className="bg-[var(--monday-surface)] rounded-lg border border-monday-border shadow-monday-lg p-3 z-[200] max-h-[280px] overflow-auto"
                           sideOffset={6}
                           onClick={(e) => e.stopPropagation()}
                         >
@@ -933,7 +933,7 @@ export const CalendarView: React.FC<Props> = ({ board, onRowClick, isTallerView,
         )}
 
         {viewType === 'week' && (
-          <div className="rounded-xl overflow-hidden border border-monday-border shadow-monday-sm bg-white flex-1 min-h-0 flex flex-col">
+          <div className="rounded-xl overflow-hidden border border-monday-border shadow-monday-sm bg-[var(--monday-surface)] flex-1 min-h-0 flex flex-col">
             {/* Vista semanal horizontal: 7 columnas (lun–dom), cabecera fija */}
             <div className="grid grid-cols-7 border-b border-monday-border shrink-0 bg-monday-pill/30">
               {weekDays.map((cell) => (
@@ -976,7 +976,7 @@ export const CalendarView: React.FC<Props> = ({ board, onRowClick, isTallerView,
                     onClick={() => openAddModal(cell.date)}
                     onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openAddModal(cell.date); } }}
                     className={`p-2 flex flex-col gap-1.5 border-r border-monday-border last:border-r-0 cursor-pointer hover:bg-monday-hover/40 transition-colors touch-manipulation ${isMobile ? 'min-h-[200px]' : 'min-h-[160px]'} ${
-                      cell.month !== viewDate.getMonth() ? 'bg-monday-bg/50' : 'bg-white'
+                      cell.month !== viewDate.getMonth() ? 'bg-monday-bg/50' : 'bg-[var(--monday-surface)]'
                     }`}
                   >
                     {visible.map((bar) => (
@@ -1004,7 +1004,7 @@ export const CalendarView: React.FC<Props> = ({ board, onRowClick, isTallerView,
                         </Popover.Trigger>
                         <Popover.Portal>
                           <Popover.Content
-                            className="bg-white rounded-lg border border-monday-border shadow-monday-lg p-3 z-[200] max-h-[280px] overflow-auto min-w-[200px] max-w-[min(320px,100vw-24px)]"
+                            className="bg-[var(--monday-surface)] rounded-lg border border-monday-border shadow-monday-lg p-3 z-[200] max-h-[280px] overflow-auto min-w-[200px] max-w-[min(320px,100vw-24px)]"
                             sideOffset={4}
                             side={isMobile ? 'top' : undefined}
                             align={isMobile ? 'center' : undefined}
@@ -1040,7 +1040,7 @@ export const CalendarView: React.FC<Props> = ({ board, onRowClick, isTallerView,
         )}
 
         {viewType === 'month' && (
-          <div className="rounded-lg overflow-hidden border border-monday-hover bg-white shadow-monday-sm flex flex-col min-h-[400px] flex-1">
+          <div className="rounded-lg overflow-hidden border border-monday-hover bg-[var(--monday-surface)] shadow-monday-sm flex flex-col min-h-[400px] flex-1">
             <div className="grid grid-cols-7 border-b border-monday-hover shrink-0">
               {WEEKDAYS.map(day => (
                 <div
@@ -1072,7 +1072,7 @@ export const CalendarView: React.FC<Props> = ({ board, onRowClick, isTallerView,
                         onClick={() => openAddModal(cell.date)}
                         onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openAddModal(cell.date); } }}
                         className={`p-1 flex flex-col border-r border-monday-hover last:border-r-0 cursor-pointer hover:bg-monday-hover/50 transition-colors ${
-                          cell.isCurrentMonth ? 'bg-white' : 'bg-monday-bg/40'
+                          cell.isCurrentMonth ? 'bg-[var(--monday-surface)]' : 'bg-monday-bg/40'
                         }`}
                         style={{ gridRow: 1 }}
                       >
@@ -1118,7 +1118,7 @@ export const CalendarView: React.FC<Props> = ({ board, onRowClick, isTallerView,
       </div>
 
       {/* Leyenda inferior: Colocación (verde), Producción (amarillo), Diseño (azul) */}
-      <div className="shrink-0 px-4 py-2 border-t border-monday-border flex items-center gap-4 flex-wrap bg-white">
+      <div className="shrink-0 px-4 py-2 border-t border-monday-border flex items-center gap-4 flex-wrap bg-[var(--monday-surface)]">
         {calendarLegend.map(opt => (
           <div key={opt.label} className="flex items-center gap-1.5">
             <span
@@ -1135,7 +1135,7 @@ export const CalendarView: React.FC<Props> = ({ board, onRowClick, isTallerView,
         <Dialog.Portal>
           <Dialog.Overlay className="fixed inset-0 bg-black/40 z-[200]" />
           <Dialog.Content
-            className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 bg-white rounded-xl shadow-monday-xl border border-monday-border p-6 w-[360px] max-w-[90vw] z-[201]"
+            className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 bg-[var(--monday-surface)] rounded-xl shadow-monday-xl border border-monday-border p-6 w-[360px] max-w-[90vw] z-[201]"
             onCloseAutoFocus={(e) => e.preventDefault()}
           >
             <Dialog.Title className="text-[16px] font-semibold text-monday-text mb-1">
@@ -1199,7 +1199,7 @@ export const CalendarView: React.FC<Props> = ({ board, onRowClick, isTallerView,
                       <select
                         value={addModalTime.slice(0, 2)}
                         onChange={(e) => setAddModalTime(`${e.target.value}:${addModalTime.slice(3, 5)}`)}
-                        className="flex-1 px-3 py-2 text-[13px] border border-monday-border rounded-lg outline-none focus:ring-2 focus:ring-monday-blue/30 focus:border-monday-blue bg-white text-monday-text"
+                        className="flex-1 px-3 py-2 text-[13px] border border-monday-border rounded-lg outline-none focus:ring-2 focus:ring-monday-blue/30 focus:border-monday-blue bg-[var(--monday-surface)] text-monday-text"
                         aria-label="Hora"
                       >
                         {Array.from({ length: 24 }, (_, i) => (
@@ -1211,7 +1211,7 @@ export const CalendarView: React.FC<Props> = ({ board, onRowClick, isTallerView,
                       <select
                         value={addModalTime.slice(3, 5)}
                         onChange={(e) => setAddModalTime(`${addModalTime.slice(0, 2)}:${e.target.value}`)}
-                        className="flex-1 px-3 py-2 text-[13px] border border-monday-border rounded-lg outline-none focus:ring-2 focus:ring-monday-blue/30 focus:border-monday-blue bg-white text-monday-text"
+                        className="flex-1 px-3 py-2 text-[13px] border border-monday-border rounded-lg outline-none focus:ring-2 focus:ring-monday-blue/30 focus:border-monday-blue bg-[var(--monday-surface)] text-monday-text"
                         aria-label="Minutos"
                       >
                         {['00', '15', '30', '45'].map((m) => (
@@ -1258,7 +1258,7 @@ export const CalendarView: React.FC<Props> = ({ board, onRowClick, isTallerView,
         <Dialog.Portal>
           <Dialog.Overlay className="fixed inset-0 bg-black/40 z-[202]" />
           <Dialog.Content
-            className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 bg-white rounded-xl shadow-monday-xl border border-monday-border p-6 w-[320px] max-w-[90vw] z-[203]"
+            className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 bg-[var(--monday-surface)] rounded-xl shadow-monday-xl border border-monday-border p-6 w-[320px] max-w-[90vw] z-[203]"
             onCloseAutoFocus={(e) => e.preventDefault()}
           >
             {editFormEvent ? (
@@ -1283,7 +1283,7 @@ export const CalendarView: React.FC<Props> = ({ board, onRowClick, isTallerView,
                       <select
                         value={editFormTime.slice(0, 2)}
                         onChange={(e) => setEditFormTime(`${e.target.value}:${editFormTime.slice(3, 5)}`)}
-                        className="flex-1 px-3 py-2 text-[13px] border border-monday-border rounded-lg outline-none focus:ring-2 focus:ring-monday-blue/30 focus:border-monday-blue bg-white"
+                        className="flex-1 px-3 py-2 text-[13px] border border-monday-border rounded-lg outline-none focus:ring-2 focus:ring-monday-blue/30 focus:border-monday-blue bg-[var(--monday-surface)]"
                         aria-label="Hora"
                       >
                         {Array.from({ length: 24 }, (_, i) => (
@@ -1293,7 +1293,7 @@ export const CalendarView: React.FC<Props> = ({ board, onRowClick, isTallerView,
                       <select
                         value={editFormTime.slice(3, 5)}
                         onChange={(e) => setEditFormTime(`${editFormTime.slice(0, 2)}:${e.target.value}`)}
-                        className="flex-1 px-3 py-2 text-[13px] border border-monday-border rounded-lg outline-none focus:ring-2 focus:ring-monday-blue/30 focus:border-monday-blue bg-white"
+                        className="flex-1 px-3 py-2 text-[13px] border border-monday-border rounded-lg outline-none focus:ring-2 focus:ring-monday-blue/30 focus:border-monday-blue bg-[var(--monday-surface)]"
                         aria-label="Minutos"
                       >
                         {['00', '15', '30', '45'].map((m) => (
@@ -1377,7 +1377,7 @@ export const CalendarView: React.FC<Props> = ({ board, onRowClick, isTallerView,
         <Dialog.Portal>
           <Dialog.Overlay className="fixed inset-0 bg-black/40 z-[204]" />
           <Dialog.Content
-            className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 bg-white rounded-xl shadow-monday-xl border border-monday-border p-6 w-[380px] max-w-[90vw] z-[205]"
+            className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 bg-[var(--monday-surface)] rounded-xl shadow-monday-xl border border-monday-border p-6 w-[380px] max-w-[90vw] z-[205]"
             onCloseAutoFocus={(e) => e.preventDefault()}
           >
             <Dialog.Title className="text-[16px] font-semibold text-monday-text mb-1">
@@ -1393,7 +1393,7 @@ export const CalendarView: React.FC<Props> = ({ board, onRowClick, isTallerView,
                 <select
                   value={selectedBoardForSend?.id ?? ''}
                   onChange={(e) => onSelectBoardForSend(e.target.value)}
-                  className="w-full px-3 py-2 text-[13px] border border-monday-border rounded-lg bg-white text-monday-text outline-none focus:ring-2 focus:ring-monday-blue/30 focus:border-monday-blue"
+                  className="w-full px-3 py-2 text-[13px] border border-monday-border rounded-lg bg-[var(--monday-surface)] text-monday-text outline-none focus:ring-2 focus:ring-monday-blue/30 focus:border-monday-blue"
                 >
                   <option value="">Seleccionar tablero</option>
                   {boardsList.map((b) => (
@@ -1413,7 +1413,7 @@ export const CalendarView: React.FC<Props> = ({ board, onRowClick, isTallerView,
                   <select
                     value={sendToGroupId}
                     onChange={(e) => { setSendToGroupId(e.target.value); setSendToAfterItemId(''); }}
-                    className="w-full px-3 py-2 text-[13px] border border-monday-border rounded-lg bg-white text-monday-text outline-none focus:ring-2 focus:ring-monday-blue/30 focus:border-monday-blue"
+                    className="w-full px-3 py-2 text-[13px] border border-monday-border rounded-lg bg-[var(--monday-surface)] text-monday-text outline-none focus:ring-2 focus:ring-monday-blue/30 focus:border-monday-blue"
                   >
                     {selectedBoardForSend.groups.map((g) => (
                       <option key={g.id} value={g.id}>{g.name}</option>
@@ -1426,7 +1426,7 @@ export const CalendarView: React.FC<Props> = ({ board, onRowClick, isTallerView,
                   <select
                     value={sendToAfterItemId}
                     onChange={(e) => setSendToAfterItemId(e.target.value)}
-                    className="w-full px-3 py-2 text-[13px] border border-monday-border rounded-lg bg-white text-monday-text outline-none focus:ring-2 focus:ring-monday-blue/30 focus:border-monday-blue"
+                    className="w-full px-3 py-2 text-[13px] border border-monday-border rounded-lg bg-[var(--monday-surface)] text-monday-text outline-none focus:ring-2 focus:ring-monday-blue/30 focus:border-monday-blue"
                   >
                     <option value="">Al inicio del grupo</option>
                     {selectedBoardForSend.groups.find(g => g.id === sendToGroupId)?.items.map((item) => (

@@ -147,25 +147,46 @@
   --scrollbar-track: rgba(255, 255, 255, 0.06);
 }
 
-/* Modo ember: naranja plano y vivo (similar a la muestra) */
-[data-theme="ember"] {
-  --monday-bg: #ff9800;          /* fondo naranja vivo */
-  --monday-surface: #ff8a00;     /* tarjetas un poco más oscuras */
-  --monday-text: #23150a;        /* texto marrón muy oscuro para contraste */
-  --monday-subtext: #4e2c13;
-  --monday-border: #e07700;
-  --monday-hover: #ff9100;
-  --monday-pill: #ffb74d;
-  --monday-sidebar: #e07700;     /* sidebar naranja más oscuro */
-  --monday-sidebarHover: #cc6a00;
-  --monday-sidebarPanel: #ff9800;
-  --monday-shadow-sm: 0 4px 14px rgba(0, 0, 0, 0.25);
-  --monday-shadow-md: 0 8px 22px rgba(0, 0, 0, 0.30);
-  --monday-shadow-lg: 0 12px 36px rgba(0, 0, 0, 0.35);
-  --monday-shadow-panel: -4px 0 24px rgba(0, 0, 0, 0.30);
-  --scrollbar-thumb: #ffb74d;    /* naranja claro para scroll */
-  --scrollbar-thumb-hover: #ffcc80;
-  --scrollbar-track: rgba(0, 0, 0, 0.08);
+/* Modo cacao: café oscuro elegante */
+[data-theme="cacao"] {
+  --monday-bg: #1a1410;
+  --monday-surface: #241b15;
+  --monday-text: #f2e9df;
+  --monday-subtext: #c8b7a6;
+  --monday-border: #4a3526;
+  --monday-hover: #2e221b;
+  --monday-pill: #3a2b21;
+  --monday-sidebar: #120d0a;
+  --monday-sidebarHover: #1f1611;
+  --monday-sidebarPanel: #1b1410;
+  --monday-shadow-sm: 0 4px 14px rgba(0, 0, 0, 0.45);
+  --monday-shadow-md: 0 8px 24px rgba(0, 0, 0, 0.55);
+  --monday-shadow-lg: 0 12px 40px rgba(0, 0, 0, 0.65);
+  --monday-shadow-panel: -4px 0 24px rgba(0, 0, 0, 0.55);
+  --scrollbar-thumb: #6f4f3a;
+  --scrollbar-thumb-hover: #8a654c;
+  --scrollbar-track: rgba(255, 255, 255, 0.06);
+}
+
+/* Modo aurora: azul petróleo con acento frío */
+[data-theme="aurora"] {
+  --monday-bg: #091821;
+  --monday-surface: #0f2531;
+  --monday-text: #e4f4ff;
+  --monday-subtext: #9fc2d4;
+  --monday-border: #234252;
+  --monday-hover: #153241;
+  --monday-pill: #1a3a4a;
+  --monday-sidebar: #06121a;
+  --monday-sidebarHover: #0d2230;
+  --monday-sidebarPanel: #0b1d27;
+  --monday-shadow-sm: 0 4px 14px rgba(0, 0, 0, 0.42);
+  --monday-shadow-md: 0 8px 24px rgba(0, 0, 0, 0.5);
+  --monday-shadow-lg: 0 12px 40px rgba(0, 0, 0, 0.62);
+  --monday-shadow-panel: -4px 0 24px rgba(0, 0, 0, 0.5);
+  --scrollbar-thumb: #2f6d86;
+  --scrollbar-thumb-hover: #3d89a8;
+  --scrollbar-track: rgba(255, 255, 255, 0.06);
 }
 
 @layer base {

@@ -110,6 +110,16 @@ function isoToFechaDraft(iso: string): string {
   return `${m[3]}/${m[2]}/${m[1]}`;
 }
 
+function placeCaretAtEnd(el: HTMLElement): void {
+  const selection = window.getSelection();
+  if (!selection) return;
+  const range = document.createRange();
+  range.selectNodeContents(el);
+  range.collapse(false);
+  selection.removeAllRanges();
+  selection.addRange(range);
+}
+
 type ActiveBoxKind = 'text' | 'image';
 type ActiveBoxGeomPct = { xPct: number; yPct: number; wPct: number; hPct: number };
 type ActiveBoxChangePayload =
@@ -229,6 +239,7 @@ export const PdfTemplateEditor: React.FC<Props> = ({
 
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [pdfRenderError, setPdfRenderError] = useState<string | null>(null);
+  const editableRefs = useRef<Record<string, HTMLDivElement | null>>({});
 
   useEffect(() => {
     if (exportPixelScale) return;
@@ -541,6 +552,25 @@ export const PdfTemplateEditor: React.FC<Props> = ({
   }, [resizing, resizePreview, customBoxes, effectiveConfig, onTemplateConfigChange]);
 
   const normalizedColor = fontColor.toLowerCase() === '#ffffff' ? '#ffffff' : '#000000';
+  const getBoxTextValue = useCallback((box: CustomBoxDef) => {
+    const customValues = (value.customFieldValues as Record<string, string>) ?? {};
+    if (box.fieldKey && value[box.fieldKey] !== undefined && value[box.fieldKey] !== null) {
+      return box.fieldKey === 'fecha' ? String(value[box.fieldKey]) : String(value[box.fieldKey]).trim();
+    }
+    return customValues[box.id] ?? '';
+  }, [value]);
+
+  useEffect(() => {
+    for (const box of customBoxes) {
+      if (box.kind !== 'text' || box.fieldKey === 'fecha') continue;
+      const el = editableRefs.current[box.id];
+      if (!el) continue;
+      if (selectedBoxId === box.id) continue; // Nunca pisar mientras el usuario escribe.
+      const nextText = getBoxTextValue(box);
+      if (el.innerText !== nextText) el.innerText = nextText;
+    }
+  }, [customBoxes, selectedBoxId, getBoxTextValue]);
+
   const getTextStyleForBox = (box: CustomBoxDef) => {
     // Estilos globales definidos por admin en TemplateConfig;
     // los valores específicos por cuadro (fontSize, fontFamily, etc.)
@@ -825,6 +855,7 @@ export const PdfTemplateEditor: React.FC<Props> = ({
                 const canFormatBox = !viewerOnly;
                 const isDraggingThis = dragging?.fieldKey === box.id && dragPreview;
                 const isResizingThis = resizing?.boxId === box.id && resizePreview;
+                const isTransformingThisBox = Boolean(isDraggingThis || isResizingThis);
                 const x = isDraggingThis ? dragPreview.x : box.x;
                 const y = isDraggingThis ? dragPreview.y : box.y;
                 let w = isResizingThis ? resizePreview.width : (box.width ?? 0.3);
@@ -843,6 +874,8 @@ export const PdfTemplateEditor: React.FC<Props> = ({
                 const isFolio = box.semantic === 'folio';
                 const isDescripcionCorta = box.fieldKey === 'descripcion_corta';
                 const isTotalBox = box.fieldKey === 'total';
+                const isSingleLineInput = box.singleLine === true || box.semantic === 'folio';
+                const isWhiteText = String(boxTextStyle.color ?? '').toLowerCase() === '#ffffff';
                 return (
                   <div
                     key={box.id}
@@ -854,6 +887,8 @@ export const PdfTemplateEditor: React.FC<Props> = ({
                       height: `${h * 100}%`,
                       minHeight: 0,
                       minWidth: 0,
+                      // Hint temporal durante drag/resize para mejorar suavidad en móvil.
+                      willChange: isTransformingThisBox ? 'left, top, width, height' : 'auto',
                     }}
                   >
                     <div
@@ -992,14 +1027,22 @@ export const PdfTemplateEditor: React.FC<Props> = ({
                         <div
                           contentEditable
                           suppressContentEditableWarning
+                          ref={(el) => {
+                            editableRefs.current[box.id] = el;
+                          }}
                           onInput={(e) => {
                             const target = e.currentTarget;
                             const text = target.innerText.replace(/\r\n/g, '\n');
+                            const normalizedText = isSingleLineInput ? text.replace(/\n+/g, ' ') : text;
+                            if (normalizedText !== text) {
+                              target.innerText = normalizedText;
+                              placeCaretAtEnd(target);
+                            }
                             if (box.fieldKey) {
-                              update({ [box.fieldKey]: text });
+                              update({ [box.fieldKey]: normalizedText });
                             } else {
                               update({
-                                customFieldValues: { ...customValues, [box.id]: text },
+                                customFieldValues: { ...customValues, [box.id]: normalizedText },
                               });
                             }
                           }}
@@ -1016,6 +1059,17 @@ export const PdfTemplateEditor: React.FC<Props> = ({
                               hPct: h,
                             });
                           }}
+                          onKeyDown={(e) => {
+                            if (isSingleLineInput && e.key === 'Enter') {
+                              e.preventDefault();
+                            }
+                          }}
+                          onPaste={(e) => {
+                            if (!isSingleLineInput) return;
+                            e.preventDefault();
+                            const pasted = e.clipboardData.getData('text/plain').replace(/\r?\n+/g, ' ');
+                            document.execCommand('insertText', false, pasted);
+                          }}
                           onBlur={() => {
                             onActiveBoxChange?.({ boxId: null });
                           }}
@@ -1031,6 +1085,8 @@ export const PdfTemplateEditor: React.FC<Props> = ({
                                 : isLocked
                                   ? 'rgba(255,255,255,0.65)'
                                   : 'transparent',
+                            textShadow: isWhiteText ? '0 1px 2px rgba(0,0,0,0.78)' : undefined,
+                            caretColor: isWhiteText ? '#ffffff' : undefined,
                           }}
                           className={`w-full h-full min-h-0 border-0 outline-none focus:ring-0 px-1.5 placeholder:text-gray-500 block whitespace-pre-wrap break-words text-left box-border ${
                             isTotalBox
@@ -1048,13 +1104,7 @@ export const PdfTemplateEditor: React.FC<Props> = ({
                             if (canFormatBox) setSelectedBoxId(box.id);
                           }}
                           spellCheck
-                        >
-                          {/*
-                            No inyectamos boxVal cuando el cuadro está seleccionado para no
-                            forzar un re-render que mueva el cursor al inicio mientras el usuario escribe.
-                          */}
-                          {selectedBoxId === box.id ? null : boxVal || ''}
-                        </div>
+                        />
                       )}
                     </div>
                     {canMoveOrDelete && (

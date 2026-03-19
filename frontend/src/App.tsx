@@ -1,17 +1,17 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { socket } from './store/socket';
 import BoardContainer from './components/Board/BoardContainer';
 import { ItemDetailsPanel } from './components/Board/ItemDetailsPanel';
 import {
   Home, Bell, Search, ChevronDown, ChevronRight,
-  Users, BookOpen, BarChart2, Inbox, Star, Plus, Receipt, Calendar, Folder, PieChart, FolderOpen, UserCheck, GanttChart, Check, AlertCircle, X, Sun, Moon, Sparkles, LayoutGrid, Menu, ChevronLeft, Globe,
+  Users, BookOpen, BarChart2, Inbox, Star, Plus, Receipt, Calendar, Folder, PieChart, FolderOpen, UserCheck, GanttChart, Check, AlertCircle, X, Sun, Moon, Sparkles, LayoutGrid, Menu, ChevronLeft, Globe, GripVertical,
 } from 'lucide-react';
-import { Item, Board, Workspace, User } from './types';
+import { Item, Board, Workspace, User, DocType } from './types';
 import { useUser } from './store/UserContext';
 import { AnimatedLogo } from './components/AnimatedLogo';
 import { Login } from './components/Login';
-type AppTheme = 'light' | 'dark' | 'night' | 'dawn' | 'fog' | 'plum' | 'ember';
+type AppTheme = 'light' | 'dark' | 'night' | 'dawn' | 'fog' | 'plum' | 'cacao' | 'aurora';
 const THEME_STORAGE_KEY = 'sunday-theme';
 const THEME_COLORS: Record<AppTheme, string> = {
   light: '#f6f7fb',
@@ -20,7 +20,28 @@ const THEME_COLORS: Record<AppTheme, string> = {
   dawn: '#e1d4c0',
   fog: '#b8b8b8',
   plum: '#1b1026',
-  ember: '#ff9800',
+  cacao: '#1a1410',
+  aurora: '#091821',
+};
+const THEME_LABELS: Record<AppTheme, string> = {
+  light: 'Claro',
+  dark: 'Oscuro',
+  night: 'Noche',
+  dawn: 'Dawn',
+  fog: 'Fog',
+  plum: 'Plum',
+  cacao: 'Cacao',
+  aurora: 'Aurora',
+};
+const THEME_SWATCHES: Record<AppTheme, [string, string]> = {
+  light: ['#f6f7fb', '#d0d4e4'],
+  dark: ['#111827', '#374151'],
+  night: ['#0a0a0a', '#262626'],
+  dawn: ['#e1d4c0', '#bda78a'],
+  fog: ['#b8b8b8', '#8f8f8f'],
+  plum: ['#12091a', '#3a244f'],
+  cacao: ['#1a1410', '#4a3526'],
+  aurora: ['#091821', '#234252'],
 };
 import { AdminUsersPanel } from './components/AdminUsersPanel';
 import { UserPanel } from './components/UserPanel';
@@ -47,6 +68,9 @@ import { MobileDocsHub } from './components/mobile/MobileDocsHub';
 import { useViewport } from './hooks/useViewport';
 import * as Popover from '@radix-ui/react-popover';
 import * as Dialog from '@radix-ui/react-dialog';
+import { DndContext, PointerSensor, closestCenter, useSensor, useSensors, type DragEndEvent } from '@dnd-kit/core';
+import { SortableContext, arrayMove, horizontalListSortingStrategy, useSortable } from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
 type ViewMode = 'table' | 'kanban' | 'calendar' | 'facturacion' | 'resumen' | 'archivos' | 'miTrabajo' | 'timeline';
 
 const VIEW_LABELS: Record<ViewMode, string> = {
@@ -58,6 +82,16 @@ const VIEW_LABELS: Record<ViewMode, string> = {
   archivos: 'Archivos',
   miTrabajo: 'Mi trabajo',
   timeline: 'Timeline',
+};
+const VIEW_TAB_META: Record<ViewMode, string> = {
+  table: '\u{1F4CB} Tabla principal',
+  kanban: '\u{25A6} Kanban',
+  calendar: '\u{1F4C5} Calendario',
+  facturacion: '\u{1F4B3} Facturación',
+  resumen: '\u{1F4CA} Resumen',
+  archivos: '\u{1F4C1} Archivos',
+  miTrabajo: '\u{1F464} Mi trabajo',
+  timeline: '\u{1F4C8} Timeline',
 };
 
 function AddViewDropdown({
@@ -142,6 +176,45 @@ function AddViewDropdown({
   );
 }
 
+function SortableBoardTab({
+  tabId,
+  label,
+  isActive,
+  onSelect,
+}: {
+  tabId: ViewMode;
+  label: string;
+  isActive: boolean;
+  onSelect: (view: ViewMode) => void;
+}) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: tabId });
+  return (
+    <div
+      ref={setNodeRef}
+      style={{ transform: CSS.Transform.toString(transform), transition }}
+      className={`flex items-center gap-1 shrink-0 group rounded-t-md ${isDragging ? 'opacity-70' : ''}`}
+    >
+      <button
+        type="button"
+        onClick={() => onSelect(tabId)}
+        className={`min-h-[44px] py-2.5 px-3 border-b-2 transition-colors font-medium rounded-t-md flex items-center shrink-0 ${isActive ? 'border-monday-blue text-monday-blue' : 'border-transparent text-monday-subtext hover:text-monday-text hover:bg-monday-hover'}`}
+      >
+        {label}
+      </button>
+      <button
+        type="button"
+        className="h-7 w-7 rounded border border-monday-border text-monday-subtext hover:bg-monday-hover flex items-center justify-center cursor-grab active:cursor-grabbing"
+        title="Arrastra para reordenar vista"
+        aria-label="Arrastrar vista"
+        {...attributes}
+        {...listeners}
+      >
+        <GripVertical size={14} />
+      </button>
+    </div>
+  );
+}
+
 const API_BASE = import.meta.env.DEV ? '' : (import.meta.env.VITE_API_URL || 'http://localhost:3001');
 import { apiFetch } from './api';
 import { can } from './authz/can';
@@ -210,6 +283,7 @@ function App() {
     } catch { /* ignore */ }
     return defaultViewsForRole;
   });
+  const [pendingCreateDocType, setPendingCreateDocType] = useState<DocType | null>(null);
 
   const setCurrentView = (v: ViewMode) => {
     let allowed: ViewMode = isTaller ? (v === 'table' || v === 'calendar' ? v : 'table') : v;
@@ -236,6 +310,42 @@ function App() {
         localStorage.setItem('sunday-views', JSON.stringify({ ...data, enabledViews: next }));
       } catch { /* ignore */ }
       return next;
+    });
+  };
+  const orderedBoardTabs = useMemo(() => {
+    const base = [...enabledViews];
+    if (!base.includes('table')) base.unshift('table');
+    if (!isTaller && !base.includes('kanban')) base.splice(1, 0, 'kanban');
+    return base
+      .filter(v => !DISABLED_VIEWS.includes(v))
+      .filter(v => (isTaller ? (v === 'table' || v === 'calendar') : true))
+      .filter(v => (v === 'facturacion' ? canSeeFacturacionView : true));
+  }, [enabledViews, isTaller, canSeeFacturacionView]);
+
+  const moveBoardView = (view: ViewMode, direction: 'left' | 'right') => {
+    setEnabledViews(prev => {
+      const idx = prev.indexOf(view);
+      if (idx === -1) return prev;
+      const target = direction === 'left' ? idx - 1 : idx + 1;
+      if (target < 0 || target >= prev.length) return prev;
+      const next = [...prev];
+      [next[idx], next[target]] = [next[target], next[idx]];
+      return next;
+    });
+  };
+  const boardTabSensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 8 } })
+  );
+  const handleBoardTabDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+    const activeId = String(active.id) as ViewMode;
+    const overId = String(over.id) as ViewMode;
+    setEnabledViews((prev) => {
+      const oldIndex = prev.indexOf(activeId);
+      const newIndex = prev.indexOf(overId);
+      if (oldIndex < 0 || newIndex < 0 || oldIndex === newIndex) return prev;
+      return arrayMove(prev, oldIndex, newIndex);
     });
   };
 
@@ -326,11 +436,12 @@ function App() {
     if (typeof window === 'undefined') return 'light';
     try {
       const raw = localStorage.getItem(THEME_STORAGE_KEY);
-      let stored = raw as AppTheme | 'zen' | 'zenPlus' | null;
+      let stored = raw as AppTheme | 'zen' | 'zenPlus' | 'ember' | null;
       // Migración de nombres antiguos a los nuevos
       if (stored === 'zen') stored = 'dawn';
       if (stored === 'zenPlus') stored = 'fog';
-      if (stored && ['light', 'dark', 'night', 'dawn', 'fog', 'plum', 'ember'].includes(stored)) return stored as AppTheme;
+      if (stored === 'ember') stored = 'cacao';
+      if (stored && ['light', 'dark', 'night', 'dawn', 'fog', 'plum', 'cacao', 'aurora'].includes(stored)) return stored as AppTheme;
       return window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
     } catch {
       return 'light';
@@ -496,6 +607,12 @@ function App() {
     done: boolean;
     important?: boolean;
   }
+  interface ReminderItem {
+    id: string;
+    title: string;
+    dueAt: string;
+    done: boolean;
+  }
 
   interface TaskWindow {
     id: string;
@@ -503,7 +620,10 @@ function App() {
     ownerId?: string;
     color?: string;
     tasks: TaskItem[];
-    kind?: 'tasks' | 'calculator';
+    reminders?: ReminderItem[];
+    reminderDraftTitle?: string;
+    reminderDraftDueAt?: string;
+    kind?: 'tasks' | 'calculator' | 'reminders';
   }
 
   const TASK_WINDOW_COLORS = [
@@ -561,6 +681,14 @@ function App() {
         done: t.done,
         important: t.important,
       })),
+      reminders: (n.reminders ?? []).map(r => ({
+        id: r.id,
+        title: r.title,
+        dueAt: r.dueAt,
+        done: r.done,
+      })),
+      reminderDraftTitle: n.reminderDraftTitle ?? '',
+      reminderDraftDueAt: n.reminderDraftDueAt ?? '',
     }));
     apiFetch(`${API_BASE}/api/workspaces/${wid}/panel-notes`, {
       method: 'PATCH',
@@ -601,7 +729,7 @@ function App() {
             title: typeof item.title === 'string' ? item.title : 'Mis tareas',
             ownerId: typeof item.ownerId === 'string' ? item.ownerId : currentUser.id,
             color: typeof item.color === 'string' && /^#[0-9A-Fa-f]{6}$/.test(item.color) ? item.color : DEFAULT_TASK_WINDOW_COLOR,
-            kind: item.kind === 'calculator' ? 'calculator' : 'tasks',
+            kind: item.kind === 'calculator' ? 'calculator' : item.kind === 'reminders' ? 'reminders' : 'tasks',
             tasks: Array.isArray(item.tasks)
               ? item.tasks.map((t: any, i: number) => ({
                   id: typeof t.id === 'string' ? t.id : `t-${i}`,
@@ -610,6 +738,16 @@ function App() {
                   important: !!t.important,
                 }))
               : [],
+            reminders: Array.isArray(item.reminders)
+              ? item.reminders.map((r: any, i: number) => ({
+                  id: typeof r.id === 'string' ? r.id : `r-${i}`,
+                  title: typeof r.title === 'string' ? r.title : '',
+                  dueAt: typeof r.dueAt === 'string' ? r.dueAt : '',
+                  done: !!r.done,
+                }))
+              : [],
+            reminderDraftTitle: typeof item.reminderDraftTitle === 'string' ? item.reminderDraftTitle : '',
+            reminderDraftDueAt: typeof item.reminderDraftDueAt === 'string' ? item.reminderDraftDueAt : '',
           }));
         setTaskWindows(normalized);
       })
@@ -659,6 +797,19 @@ function App() {
     };
     window.addEventListener('sunday:create-doc-from-board', handler as EventListener);
     return () => window.removeEventListener('sunday:create-doc-from-board', handler as EventListener);
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const url = new URL(window.location.href);
+    const createType = url.searchParams.get('docsCreate');
+    if (!createType) return;
+    const validTypes: DocType[] = ['text', 'sheet', 'cotizacion', 'levantamiento', 'hoja_trabajo'];
+    if (!validTypes.includes(createType as DocType)) return;
+    setActivePage('docs');
+    setPendingCreateDocType(createType as DocType);
+    url.searchParams.delete('docsCreate');
+    window.history.replaceState({}, document.title, `${url.pathname}${url.search}${url.hash}`);
   }, []);
 
   useEffect(() => {
@@ -902,6 +1053,30 @@ function App() {
         tasks: [],
       };
       const next = [...prev, calcWindow];
+      scheduleSavePanelNotes();
+      return next;
+    });
+  };
+
+  const ensureReminderWidgetVisible = () => {
+    if (!currentUser?.id) return;
+    setTaskWindows(prev => {
+      const alreadyHasReminder = prev.some(
+        w => (w.kind === 'reminders') && (w.ownerId ?? currentUser.id) === currentUser.id,
+      );
+      if (alreadyHasReminder) return prev;
+      const reminderWindow: TaskWindow = {
+        id: crypto.randomUUID(),
+        title: 'Recordatorios',
+        kind: 'reminders',
+        ownerId: currentUser.id,
+        color: DEFAULT_TASK_WINDOW_COLOR,
+        tasks: [],
+        reminders: [],
+        reminderDraftTitle: '',
+        reminderDraftDueAt: '',
+      };
+      const next = [...prev, reminderWindow];
       scheduleSavePanelNotes();
       return next;
     });
@@ -1218,21 +1393,7 @@ function App() {
         <Popover.Root open={themeSelectorOpen} onOpenChange={setThemeSelectorOpen}>
           <Popover.Trigger asChild>
             <button
-              title={
-                theme === 'light'
-                  ? 'Tema claro'
-                  : theme === 'dark'
-                  ? 'Tema oscuro'
-                  : theme === 'night'
-                  ? 'Modo noche'
-                  : theme === 'dawn'
-                  ? 'Modo dawn'
-                  : theme === 'fog'
-                  ? 'Modo fog'
-                  : theme === 'plum'
-                  ? 'Modo plum'
-                  : 'Modo ember'
-              }
+              title={`Tema ${THEME_LABELS[theme].toLowerCase()}`}
               className="min-h-[44px] min-w-[44px] w-11 h-11 flex items-center justify-center rounded-lg text-white/70 hover:text-white hover:bg-monday-sidebarHover transition-all duration-150"
             >
               {theme === 'light' && <Sun size={20} strokeWidth={2.25} />}
@@ -1241,7 +1402,8 @@ function App() {
               {theme === 'dawn' && <Sparkles size={20} strokeWidth={2.25} />}
               {theme === 'fog' && <Sparkles size={20} strokeWidth={2.25} />}
               {theme === 'plum' && <Sparkles size={20} strokeWidth={2.25} />}
-              {theme === 'ember' && <Sparkles size={20} strokeWidth={2.25} />}
+              {theme === 'cacao' && <Sparkles size={20} strokeWidth={2.25} />}
+              {theme === 'aurora' && <Sparkles size={20} strokeWidth={2.25} />}
             </button>
           </Popover.Trigger>
           <Popover.Portal>
@@ -1255,7 +1417,7 @@ function App() {
               <p className="text-[11px] font-semibold text-monday-subtext px-2 mb-1.5 uppercase tracking-wider">
                 Tema
               </p>
-              {(['light', 'dark', 'night', 'dawn', 'fog', 'plum', 'ember'] as const).map(t => (
+              {(['light', 'dark', 'night', 'dawn', 'fog', 'plum', 'cacao', 'aurora'] as const).map(t => (
                 <button
                   key={t}
                   onClick={() => { setTheme(t); setThemeSelectorOpen(false); }}
@@ -1267,21 +1429,12 @@ function App() {
                   {t === 'dawn' && <Sparkles size={16} className="shrink-0" />}
                   {t === 'fog' && <Sparkles size={16} className="shrink-0" />}
                   {t === 'plum' && <Sparkles size={16} className="shrink-0" />}
-                  {t === 'ember' && <Sparkles size={16} className="shrink-0" />}
-                  <span>
-                    {t === 'light'
-                      ? 'Claro'
-                      : t === 'dark'
-                      ? 'Oscuro'
-                      : t === 'night'
-                      ? 'Noche'
-                      : t === 'dawn'
-                      ? 'Dawn'
-                      : t === 'fog'
-                      ? 'Fog'
-                      : t === 'plum'
-                      ? 'Plum'
-                      : 'Ember'}
+                  {t === 'cacao' && <Sparkles size={16} className="shrink-0" />}
+                  {t === 'aurora' && <Sparkles size={16} className="shrink-0" />}
+                  <span className="flex-1">{THEME_LABELS[t]}</span>
+                  <span className="ml-auto flex items-center gap-1">
+                    <span className="w-2.5 h-2.5 rounded-full border border-monday-border" style={{ backgroundColor: THEME_SWATCHES[t][0] }} />
+                    <span className="w-2.5 h-2.5 rounded-full border border-monday-border" style={{ backgroundColor: THEME_SWATCHES[t][1] }} />
                   </span>
                 </button>
               ))}
@@ -1547,14 +1700,16 @@ if (ok && data && typeof data.id === 'string') {
               </div>
               {!isMobile && (
                 <>
-                  <p className="text-[11px] font-semibold text-monday-subtext uppercase tracking-wider px-2 mb-1 mt-2">Tus widgets</p>
+                  <div className="px-2 mb-2 mt-2">
+                    <p className="text-[11px] font-semibold text-monday-subtext uppercase tracking-wider">Tus widgets</p>
+                  </div>
                   {tasksLoading && (
                     <p className="text-[12px] text-monday-subtext px-2 mb-2">Cargando tareas...</p>
                   )}
                   {!tasksLoading && taskWindows.length === 0 && (
                     <p className="text-[12px] text-monday-subtext px-2 mb-2">No hay widgets. Usa &quot;Añadir widget&quot; en Docs.</p>
                   )}
-                  <div className="space-y-3 mb-3">
+                  <div className="space-y-2 mb-3 px-2">
                     {taskWindows.map(win => (
             <div
               key={win.id}
@@ -1575,11 +1730,11 @@ if (ok && data && typeof data.id === 'string') {
                   return next;
                 });
               }}
-              className="cursor-move"
+              className="cursor-move group/widget"
             >
               {win.kind === 'calculator' ? (
                 <div
-                  className="rounded-2xl border border-monday-border bg-white shadow-monday-sm overflow-hidden outline-none"
+                  className="rounded-2xl border border-monday-border/25 bg-[var(--monday-surface)] shadow-[0_10px_24px_rgba(0,0,0,0.16)] backdrop-blur-md overflow-hidden outline-none transition-all duration-200 group-hover/widget:shadow-[0_14px_30px_rgba(0,0,0,0.2)]"
                   tabIndex={0}
                   onClick={e => {
                     (e.currentTarget as HTMLDivElement).focus();
@@ -1595,7 +1750,7 @@ if (ok && data && typeof data.id === 'string') {
                   }}
                 >
                   {/* Cabecera: título + botón cerrar */}
-                  <div className="flex items-center justify-between gap-2 bg-[#f6f7fb] px-3 pt-2 pb-1">
+                  <div className="flex items-center justify-between gap-2 bg-gradient-to-r from-monday-hover/50 via-monday-hover/20 to-transparent px-3 pt-2.5 pb-2 border-b border-monday-border/30">
                     <p className="text-[10px] font-semibold text-monday-subtext tracking-widest uppercase">Calculadora</p>
                     <button
                       type="button"
@@ -1610,11 +1765,11 @@ if (ok && data && typeof data.id === 'string') {
                     </button>
                   </div>
                   {/* Display */}
-                  <div className="bg-[#f6f7fb] px-3 pb-2 select-none">
+                  <div className="bg-monday-hover/10 px-2.5 py-2 select-none border-b border-monday-border/25">
                     <div className="text-[10px] text-monday-subtext text-right min-h-[13px] break-all leading-none">
                       {calculatorExpression || '\u00a0'}
                     </div>
-                    <div className={`text-[20px] font-semibold text-right leading-tight tracking-tight mt-0.5 min-h-[24px] ${calculatorError ? 'text-red-500' : 'text-monday-text'}`}>
+                    <div className={`text-[18px] font-semibold text-right leading-tight tracking-tight mt-0.5 min-h-[22px] ${calculatorError ? 'text-red-500' : 'text-monday-text'}`}>
                       {calculatorResult != null ? calculatorResult : (calculatorExpression || '0')}
                     </div>
                     {calculatorError ? (
@@ -1628,17 +1783,17 @@ if (ok && data && typeof data.id === 'string') {
                   </div>
 
                   {/* Pills IVA */}
-                  <div className="flex gap-1 px-2.5 py-1.5 border-b border-monday-border/40 bg-white">
+                  <div className="flex gap-1 px-2.5 py-1.5 border-b border-monday-border/20 bg-[var(--monday-surface)]">
                     <button
                       type="button"
-                      className="flex-1 text-[10px] py-0.5 rounded-full border border-monday-border text-monday-subtext hover:bg-monday-hover hover:text-monday-text transition-colors"
+                      className="flex-1 text-[10px] py-0.5 rounded-full border border-monday-border/35 text-monday-subtext hover:bg-monday-hover/70 hover:text-monday-text transition-colors"
                       onClick={() => { setCalculatorExpression(prev => prev ? `(${prev})*1.16` : '1*1.16'); setCalculatorError(null); }}
                     >
                       +IVA 16%
                     </button>
                     <button
                       type="button"
-                      className="flex-1 text-[10px] py-0.5 rounded-full border border-monday-border text-monday-subtext hover:bg-monday-hover hover:text-monday-text transition-colors"
+                      className="flex-1 text-[10px] py-0.5 rounded-full border border-monday-border/35 text-monday-subtext hover:bg-monday-hover/70 hover:text-monday-text transition-colors"
                       onClick={() => { setCalculatorExpression(prev => prev ? `(${prev})/1.16` : '0'); setCalculatorError(null); }}
                     >
                       −IVA 16%
@@ -1646,10 +1801,10 @@ if (ok && data && typeof data.id === 'string') {
                   </div>
 
                   {/* 4 botones funcionales */}
-                  <div className="p-2 bg-[#f6f7fb] flex flex-wrap gap-1">
+                  <div className="p-2 bg-monday-hover/15 grid grid-cols-2 gap-1.5">
                     <button
                       type="button"
-                      className="flex-1 min-w-[4rem] text-[11px] py-1.5 rounded-xl bg-white border border-monday-border/60 text-monday-text hover:bg-monday-hover transition-colors"
+                      className="w-full text-[11px] py-1.5 rounded-lg bg-[var(--monday-surface)] border border-monday-border/30 text-monday-text hover:bg-monday-hover/75 hover:border-monday-blue/25 shadow-sm transition-colors"
                       onClick={() => {
                         const toCopy = calculatorError ? '' : (calculatorResult != null ? calculatorResult : (calculatorExpression || '0'));
                         if (toCopy) navigator.clipboard.writeText(String(toCopy));
@@ -1660,7 +1815,7 @@ if (ok && data && typeof data.id === 'string') {
                     </button>
                     <button
                       type="button"
-                      className="flex-1 min-w-[4rem] text-[11px] py-1.5 rounded-xl bg-white border border-monday-border/60 text-red-500 font-medium hover:bg-red-50 transition-colors"
+                      className="w-full text-[11px] py-1.5 rounded-lg bg-[var(--monday-surface)] border border-monday-border/30 text-red-500 font-medium hover:bg-red-500/10 hover:border-red-400/25 shadow-sm transition-colors"
                       onClick={() => { setCalculatorExpression(''); setCalculatorResult(null); setCalculatorError(null); }}
                       title="Borrar todo"
                     >
@@ -1668,7 +1823,7 @@ if (ok && data && typeof data.id === 'string') {
                     </button>
                     <button
                       type="button"
-                      className="flex-1 min-w-[4rem] text-[11px] py-1.5 rounded-xl bg-white border border-monday-border/60 text-monday-text hover:bg-monday-hover transition-colors"
+                      className="w-full text-[11px] py-1.5 rounded-lg bg-[var(--monday-surface)] border border-monday-border/30 text-monday-text hover:bg-monday-hover/75 hover:border-monday-blue/25 shadow-sm transition-colors"
                       onClick={async () => {
                         try {
                           const text = await navigator.clipboard.readText();
@@ -1684,7 +1839,7 @@ if (ok && data && typeof data.id === 'string') {
                     </button>
                     <button
                       type="button"
-                      className="flex-1 min-w-[4rem] text-[11px] py-1.5 rounded-xl bg-monday-blue text-white font-semibold hover:bg-monday-blue/90 transition-colors"
+                      className="w-full text-[11px] py-1.5 rounded-lg bg-gradient-to-r from-monday-blue to-monday-blue/90 text-white font-semibold hover:brightness-105 shadow-sm ring-1 ring-monday-blue/25 transition-all"
                       onClick={evaluateCalculator}
                       title="Calcular"
                     >
@@ -1692,9 +1847,103 @@ if (ok && data && typeof data.id === 'string') {
                     </button>
                   </div>
                 </div>
+              ) : win.kind === 'reminders' ? (
+                <div
+                  className="rounded-2xl border border-monday-border/25 shadow-[0_10px_24px_rgba(0,0,0,0.16)] p-2.5 bg-[var(--monday-surface)] backdrop-blur-md transition-all duration-200 group-hover/widget:shadow-[0_14px_30px_rgba(0,0,0,0.2)]"
+                >
+                  <div className="flex items-center justify-between gap-1.5 mb-2">
+                    <input
+                      type="text"
+                      value={win.title}
+                      onChange={e => updateTaskWindow(win.id, { title: e.target.value })}
+                      className="flex-1 min-w-0 text-[12px] font-medium text-monday-text bg-transparent border-0 outline-none placeholder:text-monday-subtext/70"
+                      placeholder="Recordatorios"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => removeTaskWindow(win.id)}
+                      className="text-monday-subtext hover:text-monday-red text-[11px] p-0.5 rounded"
+                      title="Eliminar widget"
+                    >
+                      <X size={12} />
+                    </button>
+                  </div>
+                  <div className="space-y-1.5">
+                    <input
+                      type="text"
+                      value={win.reminderDraftTitle ?? ''}
+                      onChange={(e) => updateTaskWindow(win.id, { reminderDraftTitle: e.target.value })}
+                      placeholder="Nuevo recordatorio..."
+                      className="w-full px-2 py-1.5 rounded-md border border-monday-border/30 bg-monday-bg/70 text-[11px] text-monday-text placeholder:text-monday-subtext/70"
+                    />
+                    <input
+                      type="datetime-local"
+                      value={win.reminderDraftDueAt ?? ''}
+                      onChange={(e) => updateTaskWindow(win.id, { reminderDraftDueAt: e.target.value })}
+                      className="w-full px-2 py-1.5 rounded-md border border-monday-border/30 bg-monday-bg/70 text-[11px] text-monday-text"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const title = String(win.reminderDraftTitle ?? '').trim();
+                        const dueAt = String(win.reminderDraftDueAt ?? '').trim();
+                        if (!title || !dueAt) return;
+                        updateTaskWindow(win.id, {
+                          reminders: [...(win.reminders ?? []), { id: crypto.randomUUID(), title, dueAt, done: false }],
+                          reminderDraftTitle: '',
+                          reminderDraftDueAt: '',
+                        });
+                      }}
+                      className="w-full px-2 py-1.5 rounded-md bg-gradient-to-r from-monday-blue to-monday-blue/90 text-white text-[11px] font-medium hover:brightness-105 transition-all"
+                    >
+                      Añadir recordatorio
+                    </button>
+                  </div>
+                  <div className="mt-2 space-y-1 max-h-40 overflow-auto pr-1 custom-scrollbar">
+                    {(win.reminders ?? []).length === 0 ? (
+                      <p className="text-[11px] text-monday-subtext">Sin recordatorios.</p>
+                    ) : (
+                      (win.reminders ?? []).map((r) => (
+                        <div key={r.id} className="rounded-md border border-monday-border/25 bg-monday-bg/60 px-2 py-1.5">
+                          <div className="flex items-start gap-2">
+                            <button
+                              type="button"
+                              onClick={() =>
+                                updateTaskWindow(win.id, {
+                                  reminders: (win.reminders ?? []).map((x) => (x.id === r.id ? { ...x, done: !x.done } : x)),
+                                })
+                              }
+                              className={`mt-0.5 w-3.5 h-3.5 rounded-sm border flex items-center justify-center ${
+                                r.done ? 'bg-monday-blue border-monday-blue text-white' : 'border-monday-border text-transparent'
+                              }`}
+                            >
+                              <Check size={9} />
+                            </button>
+                            <div className="flex-1 min-w-0">
+                              <p className={`text-[11px] truncate ${r.done ? 'line-through text-monday-subtext' : 'text-monday-text'}`}>{r.title}</p>
+                              <p className="text-[10px] text-monday-subtext">{new Date(r.dueAt).toLocaleString()}</p>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() =>
+                                updateTaskWindow(win.id, {
+                                  reminders: (win.reminders ?? []).filter((x) => x.id !== r.id),
+                                })
+                              }
+                              className="text-monday-subtext hover:text-monday-red text-[11px]"
+                              title="Eliminar"
+                            >
+                              ×
+                            </button>
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
               ) : (
                 <div
-                  className="rounded-xl border border-monday-border/80 shadow-monday-sm p-2.5 transition-shadow hover:shadow-monday-md bg-opacity-90"
+                  className="rounded-2xl border border-monday-border/25 shadow-[0_10px_24px_rgba(0,0,0,0.16)] p-2.5 transition-all duration-200 bg-opacity-90 backdrop-blur-md group-hover/widget:shadow-[0_14px_30px_rgba(0,0,0,0.2)]"
                   style={{ backgroundColor: win.color ?? DEFAULT_TASK_WINDOW_COLOR }}
                 >
                   <div className="flex items-center gap-1.5 mb-2">
@@ -1709,7 +1958,7 @@ if (ok && data && typeof data.id === 'string') {
                       <Popover.Trigger asChild>
                         <button
                           type="button"
-                          className="w-5 h-5 rounded-md border border-monday-border/60 shadow-inner flex-shrink-0 hover:ring-2 ring-monday-blue/40 transition-shadow"
+                          className="w-5 h-5 rounded-md border border-monday-border/30 shadow-inner flex-shrink-0 hover:ring-2 ring-monday-blue/25 transition-shadow"
                           style={{ backgroundColor: win.color ?? DEFAULT_TASK_WINDOW_COLOR }}
                           title="Cambiar color"
                         />
@@ -2137,6 +2386,7 @@ if (ok && data && typeof data.id === 'string') {
                     setCurrentView(view);
                   }
                 }}
+                onMoveView={moveBoardView}
                 canSeeFacturacion={!!canSeeFacturacionView}
                 isTaller={!!isTaller}
                 onToggleStar={undefined}
@@ -2339,26 +2589,42 @@ if (ok && data && typeof data.id === 'string') {
                   style={{ WebkitOverflowScrolling: 'touch', scrollbarWidth: 'thin' }}
                 >
                   <div className="flex gap-1 flex-nowrap pb-px min-h-[44px] items-center">
-                  {[
-                    { id: 'table' as const, label: '\u{1F4CB} Tabla principal' },
-                    ...(!isTaller ? [{ id: 'kanban' as const, label: '\u{25A6} Kanban' }] : []),
-                    ...(enabledViews.includes('facturacion') && canSeeFacturacionView
-                      ? [{ id: 'facturacion' as const, label: '\u{1F4B3} Facturación' }]
-                      : []),
-                    ...(enabledViews.includes('calendar') ? [{ id: 'calendar' as const, label: '\u{1F4C5} Calendario' }] : []),
-                    ...(enabledViews.includes('resumen') ? [{ id: 'resumen' as const, label: '\u{1F4CA} Resumen' }] : []),
-                    ...(enabledViews.includes('archivos') ? [{ id: 'archivos' as const, label: '\u{1F4C1} Archivos' }] : []),
-                    ...(enabledViews.includes('miTrabajo') ? [{ id: 'miTrabajo' as const, label: '\u{1F464} Mi trabajo' }] : []),
-                    ...(enabledViews.includes('timeline') ? [{ id: 'timeline' as const, label: '\u{1F4C8} Timeline' }] : []),
-                  ].map(tab => (
-                    <button
-                      key={tab.id}
-                      onClick={() => setCurrentView(tab.id)}
-                      className={`min-h-[44px] py-2.5 px-3 border-b-2 transition-colors font-medium rounded-t-md flex items-center shrink-0 ${currentView === tab.id ? 'border-monday-blue text-monday-blue' : 'border-transparent text-monday-subtext hover:text-monday-text hover:bg-monday-hover'}`}
-                    >
-                      {tab.label}
-                    </button>
-                  ))}
+                  <DndContext sensors={boardTabSensors} collisionDetection={closestCenter} onDragEnd={handleBoardTabDragEnd}>
+                    <SortableContext items={orderedBoardTabs} strategy={horizontalListSortingStrategy}>
+                      {orderedBoardTabs.map((tabId, idx) => (
+                        <div key={tabId} className="flex items-center gap-1">
+                          <SortableBoardTab
+                            tabId={tabId}
+                            label={VIEW_TAB_META[tabId]}
+                            isActive={currentView === tabId}
+                            onSelect={setCurrentView}
+                          />
+                          {orderedBoardTabs.length > 1 && (
+                            <div className="flex items-center gap-0.5">
+                              <button
+                                type="button"
+                                onClick={() => moveBoardView(tabId, 'left')}
+                                disabled={idx === 0}
+                                className="h-7 w-7 rounded border border-monday-border text-monday-subtext hover:bg-monday-hover disabled:opacity-35 disabled:cursor-not-allowed flex items-center justify-center"
+                                title="Mover vista a la izquierda"
+                              >
+                                <ChevronLeft size={14} />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => moveBoardView(tabId, 'right')}
+                                disabled={idx === orderedBoardTabs.length - 1}
+                                className="h-7 w-7 rounded border border-monday-border text-monday-subtext hover:bg-monday-hover disabled:opacity-35 disabled:cursor-not-allowed flex items-center justify-center"
+                                title="Mover vista a la derecha"
+                              >
+                                <ChevronRight size={14} />
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </SortableContext>
+                  </DndContext>
                   {!isTaller && (
                   <AddViewDropdown
                     enabledViews={enabledViews}
@@ -2425,9 +2691,12 @@ if (ok && data && typeof data.id === 'string') {
                 boards={boards}
                 initialCreateFromBoard={pendingDocFromBoard}
                 onConsumeInitialCreateFromBoard={() => setPendingDocFromBoard(null)}
+                initialCreateDocType={pendingCreateDocType}
+                onConsumeInitialCreateDocType={() => setPendingCreateDocType(null)}
                 initialOpenDocId={openDocId}
                 onConsumeInitialOpenDocId={() => setOpenDocId(null)}
                 onRequestOpenDoc={(id) => setOpenDocId(id)}
+                onAddReminderWidget={ensureReminderWidgetVisible}
               />
             ) : (
               <DocsPage
@@ -2435,10 +2704,13 @@ if (ok && data && typeof data.id === 'string') {
                 boards={boards}
                 initialCreateFromBoard={pendingDocFromBoard}
                 onConsumeInitialCreateFromBoard={() => setPendingDocFromBoard(null)}
+                initialCreateDocType={pendingCreateDocType}
+                onConsumeInitialCreateDocType={() => setPendingCreateDocType(null)}
                 initialOpenDocId={openDocId}
                 onConsumeInitialOpenDocId={() => setOpenDocId(null)}
                 onAddTaskList={addTaskWindow}
                 onAddCalculatorWidget={ensureCalculatorVisible}
+                onAddReminderWidget={ensureReminderWidgetVisible}
               />
             )
           ) : activePage === 'team' ? (

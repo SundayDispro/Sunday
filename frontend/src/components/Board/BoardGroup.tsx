@@ -106,7 +106,7 @@ const TextCell: React.FC<{ content: string; item: Item; column: BoardColumn }> =
           }
         }}
         onClick={e => e.stopPropagation()}
-        className="w-full h-full min-h-[38px] bg-white border border-monday-blue rounded outline-none text-[13px] text-monday-text px-2"
+        className="w-full h-full min-h-[38px] bg-[var(--monday-surface)] border border-monday-blue rounded outline-none text-[13px] text-monday-text px-2"
       />
     );
   }
@@ -199,7 +199,7 @@ const InlineNameCell: React.FC<{
           }
         }}
         onClick={e => e.stopPropagation()}
-        className="w-full bg-white border border-monday-blue rounded-sm outline-none text-[13px] text-monday-text px-1 py-0.5 shadow-monday-sm"
+        className="w-full bg-[var(--monday-surface)] border border-monday-blue rounded-sm outline-none text-[13px] text-monday-text px-1 py-0.5 shadow-monday-sm"
       />
     );
   }
@@ -244,7 +244,7 @@ const InlineNameCell: React.FC<{
           </Popover.Trigger>
           <Popover.Portal>
             <Popover.Content
-              className="z-[100] bg-white rounded-xl shadow-monday-lg border border-monday-border w-48 p-1.5 fade-in box-border"
+              className="z-[100] bg-[var(--monday-surface)] rounded-xl shadow-monday-lg border border-monday-border w-48 p-1.5 fade-in box-border"
               sideOffset={5}
               align="start"
               onClick={e => e.stopPropagation()}
@@ -318,7 +318,7 @@ const ColumnHeader: React.FC<{ col: BoardColumn; onEditLabels?: (col: BoardColum
         onBlur={commitRename}
         onKeyDown={e => { if (e.key === 'Enter') commitRename(); if (e.key === 'Escape') { setDraft(col.title); setRenaming(false); } }}
         onClick={e => e.stopPropagation()}
-        className="w-full bg-white border border-monday-blue rounded-sm outline-none text-[13px] text-monday-text px-1.5 py-0.5 text-center"
+        className="w-full bg-[var(--monday-surface)] border border-monday-blue rounded-sm outline-none text-[13px] text-monday-text px-1.5 py-0.5 text-center"
       />
     );
   }
@@ -351,7 +351,7 @@ const ColumnHeader: React.FC<{ col: BoardColumn; onEditLabels?: (col: BoardColum
       </div>
       <Popover.Portal>
         <Popover.Content
-          className="z-[100] bg-white rounded-xl shadow-monday-lg border border-monday-border w-44 p-1.5 fade-in"
+          className="z-[100] bg-[var(--monday-surface)] rounded-xl shadow-monday-lg border border-monday-border w-44 p-1.5 fade-in"
           sideOffset={4}
           align="center"
           onClick={e => e.stopPropagation()}
@@ -381,7 +381,7 @@ const ColumnHeader: React.FC<{ col: BoardColumn; onEditLabels?: (col: BoardColum
               Eliminar
             </button>
           )}
-          <Popover.Arrow className="fill-white" />
+          <Popover.Arrow className="fill-[var(--monday-surface)]" />
         </Popover.Content>
       </Popover.Portal>
     </Popover.Root>
@@ -647,7 +647,7 @@ export const BoardGroup: React.FC<Props> = ({
     >
       {/* ── Group Header (sticky): siempre visible por encima de las filas; cada grupo tiene su propio scroll en vista tabla. */}
       <div
-        className={`sticky top-0 z-10 isolate flex items-center gap-1.5 py-1.5 pt-2 pb-2 mb-1.5 bg-white border-b border-monday-border shadow-[0_2px_6px_0_rgba(0,0,0,0.08)] group/header ${isSubgroup && !indentFromParent ? 'ml-6' : ''}`}
+        className={`sticky top-0 z-10 isolate flex items-center gap-1.5 py-1.5 pt-2 pb-2 mb-1.5 bg-[var(--monday-surface)] border-b border-monday-border shadow-[0_2px_6px_0_rgba(0,0,0,0.08)] group/header ${isSubgroup && !indentFromParent ? 'ml-6' : ''}`}
         style={{ transform: 'translateZ(0)', backfaceVisibility: 'hidden' as const }}
       >
         <div 
@@ -755,7 +755,7 @@ export const BoardGroup: React.FC<Props> = ({
       <AnimatedDialog open={canDeleteGroup && showDeleteConfirm} onOpenChange={setShowDeleteConfirm}>
         <Dialog.Overlay className="fixed inset-0 bg-black/40 z-[100]" />
         <Dialog.Content
-          className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 bg-white rounded-xl shadow-monday-xl border border-monday-border p-6 w-[400px] max-w-[90vw] z-[101]"
+          className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 bg-[var(--monday-surface)] rounded-xl shadow-monday-xl border border-monday-border p-6 w-[400px] max-w-[90vw] z-[101]"
           onCloseAutoFocus={(e) => e.preventDefault()}
         >
           <Dialog.Title className="text-lg font-bold text-monday-text mb-1">
@@ -810,7 +810,7 @@ export const BoardGroup: React.FC<Props> = ({
                 tabIndex={0}
                 onClick={() => onRowClick(item)}
                 onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onRowClick(item); } }}
-                className="bg-white border border-monday-border rounded-lg shadow-monday-sm overflow-hidden text-left min-h-[48px] touch-manipulation active:bg-monday-hover/30"
+                className="bg-[var(--monday-surface)] border border-monday-border rounded-lg shadow-monday-sm overflow-hidden text-left min-h-[48px] touch-manipulation active:bg-monday-hover/30"
               >
                 <div className="flex items-start gap-2 p-3">
                   {onToggleItem && (
@@ -885,7 +885,7 @@ export const BoardGroup: React.FC<Props> = ({
                   onKeyDown={handleAddTask}
                   onBlur={() => emitAddItem(newTaskName)}
                   onClick={e => e.stopPropagation()}
-                  className="w-full bg-white border border-monday-border rounded-monday outline-none text-[13px] text-monday-text px-2 py-1.5"
+                  className="w-full bg-[var(--monday-surface)] border border-monday-border rounded-monday outline-none text-[13px] text-monday-text px-2 py-1.5"
                 />
               ) : (
                 <button
@@ -946,7 +946,7 @@ export const BoardGroup: React.FC<Props> = ({
 
                 {/* ── Add task row (oculta en vista Taller) ───────────────────────────────── */}
                 {showAddRow && (
-                <tr className="h-[38px] hover:bg-monday-hover/50 bg-white" onClick={e => e.stopPropagation()}>
+                <tr className="h-[38px] hover:bg-monday-hover/50 bg-[var(--monday-surface)]" onClick={e => e.stopPropagation()}>
                   <td colSpan={2} className="border-b border-r border-monday-border align-middle" />
                   <td
                     className="px-2 border-b border-r border-monday-border border-l-[3px] h-full"

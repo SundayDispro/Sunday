@@ -325,6 +325,8 @@ export interface TextFormatBarForTemplateProps {
   onAddImageBox?: () => void;
   /** Solo los administradores pueden marcar un cuadro como Elemento/Folio */
   isAdmin?: boolean;
+  /** Modo de UI para restringir controles estructurales (Focus Mode / Micro-Editor). */
+  uiMode?: 'full' | 'textStyleOnly';
 }
 
 export function TextFormatBarForTemplate({
@@ -334,7 +336,9 @@ export function TextFormatBarForTemplate({
   onAddTextBox,
   onAddImageBox,
   isAdmin,
+  uiMode = 'full',
 }: TextFormatBarForTemplateProps) {
+  const isTextStyleOnly = uiMode === 'textStyleOnly';
   const selectedBox = selectedBoxId
     ? templateConfig.customBoxes?.find((b) => b.id === selectedBoxId)
     : null;
@@ -377,88 +381,98 @@ export function TextFormatBarForTemplate({
   const inactiveFormatBarBtn = `${formatBarBtn} text-monday-subtext ${disabledCls}`;
 
   return (
-    <div className="shrink-0 flex items-center gap-0.5 px-3 py-2 bg-white border-b border-monday-border shadow-sm flex-wrap">
-      {/* Fuente */}
-      <Popover.Root>
-        <Popover.Trigger asChild>
-          <button
-            type="button"
-            disabled={!hasSelection}
-            className={`px-2 py-1.5 text-[11px] border border-monday-border rounded-monday bg-white min-w-[5rem] text-left transition-colors ${hasSelection ? 'text-monday-text hover:bg-monday-hover' : 'text-monday-subtext ' + disabledCls}`}
-            title={hasSelection ? 'Fuente del cuadro' : 'Selecciona un cuadro primero'}
-          >
-            {FONT_OPTIONS.find((f) => f.value === effectiveFontFamily)?.label ?? effectiveFontFamily}
-          </button>
-        </Popover.Trigger>
-        {hasSelection && (
-          <Popover.Portal>
-            <Popover.Content
-              className="z-50 p-1.5 rounded-lg shadow-lg border border-monday-border bg-white max-h-[240px] overflow-auto"
-              sideOffset={4}
-              onOpenAutoFocus={(e) => e.preventDefault()}
-            >
-              {FONT_OPTIONS.map(({ label, value }) => (
-                <button
-                  key={value}
-                  type="button"
-                  className={`block w-full px-3 py-1.5 text-left text-[12px] hover:bg-monday-hover rounded ${value === effectiveFontFamily ? 'text-monday-blue font-semibold' : 'text-monday-text'}`}
-                  onClick={() => updateSelectedBox({ fontFamily: value })}
-                >
-                  {label}
-                </button>
-              ))}
-            </Popover.Content>
-          </Popover.Portal>
-        )}
-      </Popover.Root>
-
-      <div className="w-px h-5 bg-monday-border mx-1" />
-
-      {/* Marcar semántica del cuadro (Elemento / Folio) – solo ADMIN */}
-      {isAdmin && hasSelection && (
+    <div
+      className="shrink-0 flex items-center gap-0.5 px-3 py-2 bg-white border-b border-monday-border shadow-sm flex-wrap"
+      onMouseDownCapture={(e) => {
+        // En Focus Mode queremos minimizar blur del contentEditable al tocar botones.
+        e.preventDefault();
+      }}
+    >
+      {!isTextStyleOnly && (
         <>
-          <button
-            type="button"
-            className={activeFormatBarBtn}
-            title="Usar este cuadro para el nombre de elemento del tablero"
-            onClick={() => {
-              if (!templateConfig.customBoxes || !selectedBoxId) return;
-              const next: CustomBoxDef[] = templateConfig.customBoxes.map((b) => {
-                if (b.id === selectedBoxId) return { ...b, semantic: 'element' };
-                if (b.semantic === 'element') {
-                  const { semantic, ...rest } = b;
-                  return rest;
-                }
-                return b;
-              });
-              onTemplateConfigChange({ customBoxes: next });
-            }}
-          >
-            Elemento
-          </button>
-          <button
-            type="button"
-            className={activeFormatBarBtn}
-            title="Usar este cuadro para el folio del tablero"
-            onClick={() => {
-              if (!templateConfig.customBoxes || !selectedBoxId) return;
-              const next: CustomBoxDef[] = templateConfig.customBoxes.map((b) => {
-                if (b.id === selectedBoxId) return { ...b, semantic: 'folio' };
-                if (b.semantic === 'folio') {
-                  const { semantic, ...rest } = b;
-                  return rest;
-                }
-                return b;
-              });
-              onTemplateConfigChange({ customBoxes: next });
-            }}
-          >
-            Folio
-          </button>
+          {/* Fuente */}
+          <Popover.Root>
+            <Popover.Trigger asChild>
+              <button
+                type="button"
+                disabled={!hasSelection}
+                className={`px-2 py-1.5 text-[11px] border border-monday-border rounded-monday bg-white min-w-[5rem] text-left transition-colors ${hasSelection ? 'text-monday-text hover:bg-monday-hover' : 'text-monday-subtext ' + disabledCls}`}
+                title={hasSelection ? 'Fuente del cuadro' : 'Selecciona un cuadro primero'}
+              >
+                {FONT_OPTIONS.find((f) => f.value === effectiveFontFamily)?.label ?? effectiveFontFamily}
+              </button>
+            </Popover.Trigger>
+            {hasSelection && (
+              <Popover.Portal>
+                <Popover.Content
+                  className="z-50 p-1.5 rounded-lg shadow-lg border border-monday-border bg-white max-h-[240px] overflow-auto"
+                  sideOffset={4}
+                  onOpenAutoFocus={(e) => e.preventDefault()}
+                >
+                  {FONT_OPTIONS.map(({ label, value }) => (
+                    <button
+                      key={value}
+                      type="button"
+                      className={`block w-full px-3 py-1.5 text-left text-[12px] hover:bg-monday-hover rounded ${value === effectiveFontFamily ? 'text-monday-blue font-semibold' : 'text-monday-text'}`}
+                      onClick={() => updateSelectedBox({ fontFamily: value })}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </Popover.Content>
+              </Popover.Portal>
+            )}
+          </Popover.Root>
+
+          <div className="w-px h-5 bg-monday-border mx-1" />
+
+          {/* Marcar semántica del cuadro (Elemento / Folio) – solo ADMIN */}
+          {isAdmin && hasSelection && (
+            <>
+              <button
+                type="button"
+                className={activeFormatBarBtn}
+                title="Usar este cuadro para el nombre de elemento del tablero"
+                onClick={() => {
+                  if (!templateConfig.customBoxes || !selectedBoxId) return;
+                  const next: CustomBoxDef[] = templateConfig.customBoxes.map((b) => {
+                    if (b.id === selectedBoxId) return { ...b, semantic: 'element' };
+                    if (b.semantic === 'element') {
+                      const { semantic, ...rest } = b;
+                      return rest;
+                    }
+                    return b;
+                  });
+                  onTemplateConfigChange({ customBoxes: next });
+                }}
+              >
+                Elemento
+              </button>
+              <button
+                type="button"
+                className={activeFormatBarBtn}
+                title="Usar este cuadro para el folio del tablero"
+                onClick={() => {
+                  if (!templateConfig.customBoxes || !selectedBoxId) return;
+                  const next: CustomBoxDef[] = templateConfig.customBoxes.map((b) => {
+                    if (b.id === selectedBoxId) return { ...b, semantic: 'folio' };
+                    if (b.semantic === 'folio') {
+                      const { semantic, ...rest } = b;
+                      return rest;
+                    }
+                    return b;
+                  });
+                  onTemplateConfigChange({ customBoxes: next });
+                }}
+              >
+                Folio
+              </button>
+            </>
+          )}
+
+          <div className="w-px h-5 bg-monday-border mx-1" />
         </>
       )}
-
-      <div className="w-px h-5 bg-monday-border mx-1" />
 
       {/* Negrita */}
       <button
@@ -484,41 +498,45 @@ export function TextFormatBarForTemplate({
 
       <div className="w-px h-5 bg-monday-border mx-1" />
 
-      {/* Tamaño */}
-      <Popover.Root>
-        <Popover.Trigger asChild>
-          <button
-            type="button"
-            disabled={!hasSelection}
-            className={`px-2 py-1.5 text-[11px] border border-monday-border rounded-monday bg-white min-w-[4rem] text-left transition-colors ${hasSelection ? 'text-monday-text hover:bg-monday-hover' : 'text-monday-subtext ' + disabledCls}`}
-            title={hasSelection ? 'Tamaño del cuadro' : 'Selecciona un cuadro primero'}
-          >
-            {effectiveFontSize}pt
-          </button>
-        </Popover.Trigger>
-        {hasSelection && (
-          <Popover.Portal>
-            <Popover.Content
-              className="z-50 p-1.5 rounded-lg shadow-lg border border-monday-border bg-white"
-              sideOffset={4}
-              onOpenAutoFocus={(e) => e.preventDefault()}
-            >
-              {FONT_SIZE_PT_OPTIONS.map((pt) => (
-                <button
-                  key={pt}
-                  type="button"
-                  className={`block w-full px-3 py-1.5 text-left text-[12px] hover:bg-monday-hover rounded ${pt === effectiveFontSize ? 'text-monday-blue font-semibold' : 'text-monday-text'}`}
-                  onClick={() => updateSelectedBox({ fontSize: pt })}
+      {!isTextStyleOnly && (
+        <>
+          {/* Tamaño */}
+          <Popover.Root>
+            <Popover.Trigger asChild>
+              <button
+                type="button"
+                disabled={!hasSelection}
+                className={`px-2 py-1.5 text-[11px] border border-monday-border rounded-monday bg-white min-w-[4rem] text-left transition-colors ${hasSelection ? 'text-monday-text hover:bg-monday-hover' : 'text-monday-subtext ' + disabledCls}`}
+                title={hasSelection ? 'Tamaño del cuadro' : 'Selecciona un cuadro primero'}
+              >
+                {effectiveFontSize}pt
+              </button>
+            </Popover.Trigger>
+            {hasSelection && (
+              <Popover.Portal>
+                <Popover.Content
+                  className="z-50 p-1.5 rounded-lg shadow-lg border border-monday-border bg-white"
+                  sideOffset={4}
+                  onOpenAutoFocus={(e) => e.preventDefault()}
                 >
-                  {pt}pt
-                </button>
-              ))}
-            </Popover.Content>
-          </Popover.Portal>
-        )}
-      </Popover.Root>
+                  {FONT_SIZE_PT_OPTIONS.map((pt) => (
+                    <button
+                      key={pt}
+                      type="button"
+                      className={`block w-full px-3 py-1.5 text-left text-[12px] hover:bg-monday-hover rounded ${pt === effectiveFontSize ? 'text-monday-blue font-semibold' : 'text-monday-text'}`}
+                      onClick={() => updateSelectedBox({ fontSize: pt })}
+                    >
+                      {pt}pt
+                    </button>
+                  ))}
+                </Popover.Content>
+              </Popover.Portal>
+            )}
+          </Popover.Root>
 
-      <div className="w-px h-5 bg-monday-border mx-1" />
+          <div className="w-px h-5 bg-monday-border mx-1" />
+        </>
+      )}
 
       {/* Color */}
       <Popover.Root>
@@ -562,29 +580,33 @@ export function TextFormatBarForTemplate({
         )}
       </Popover.Root>
 
-      {/* Acciones admin */}
-      {onAddTextBox && (
+      {!isTextStyleOnly && (
         <>
-          <div className="w-px h-5 bg-monday-border mx-1" />
-          <button
-            type="button"
-            onClick={onAddTextBox}
-            className={activeFormatBarBtn}
-            title="Agregar cuadro de texto"
-          >
-            <span className="text-[12px]">+ Texto</span>
-          </button>
+          {/* Acciones admin */}
+          {onAddTextBox && (
+            <>
+              <div className="w-px h-5 bg-monday-border mx-1" />
+              <button
+                type="button"
+                onClick={onAddTextBox}
+                className={activeFormatBarBtn}
+                title="Agregar cuadro de texto"
+              >
+                <span className="text-[12px]">+ Texto</span>
+              </button>
+            </>
+          )}
+          {onAddImageBox && (
+            <button
+              type="button"
+              onClick={onAddImageBox}
+              className={activeFormatBarBtn}
+              title="Agregar imagen"
+            >
+              <span className="text-[12px]">+ Imagen</span>
+            </button>
+          )}
         </>
-      )}
-      {onAddImageBox && (
-        <button
-          type="button"
-          onClick={onAddImageBox}
-          className={activeFormatBarBtn}
-          title="Agregar imagen"
-        >
-          <span className="text-[12px]">+ Imagen</span>
-        </button>
       )}
 
       {/* Indicador de estado */}

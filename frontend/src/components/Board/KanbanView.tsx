@@ -1,5 +1,6 @@
 import React, { useRef, useState, useEffect } from 'react';
 import { Board, Item } from '../../types';
+import { useUser } from '../../store/UserContext';
 
 interface Props {
   board: Board;
@@ -17,9 +18,49 @@ interface KanbanStatus {
 }
 
 export const KanbanView: React.FC<Props> = ({ board, onRowClick, isMobile = false, isLandscapeShort = false }) => {
-  // In a Monday board Kanban, columns usually map to statuses. 
-  // For the sake of this feature mirroring the provided screenshots where columns are "En curso", "Listo", "Detenido" etc.
-  
+  const { users } = useUser();
+  const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+  const looksTechnical = (value: string) => {
+    const v = value.trim();
+    if (!v) return false;
+    if (uuidRegex.test(v)) return true;
+    if ((v.startsWith('{') && v.endsWith('}')) || (v.startsWith('[') && v.endsWith(']'))) return true;
+    return false;
+  };
+  const safeDisplayValue = (item: Item, columnId: string, type: string) => {
+    const raw = item.columnValues.find((cv) => cv.columnId === columnId)?.value?.trim() ?? '';
+    if (!raw) return null;
+    if (type === 'person') {
+      try {
+        const parsed = JSON.parse(raw);
+        const ids = Array.isArray(parsed) ? parsed : [raw];
+        const names = ids
+          .map((id: string) => users.find((u) => u.id === id)?.name || users.find((u) => u.id === id)?.username)
+          .filter(Boolean) as string[];
+        return names.length ? names.join(', ') : 'Asignado';
+      } catch {
+        const name = users.find((u) => u.id === raw)?.name || users.find((u) => u.id === raw)?.username;
+        return name || 'Asignado';
+      }
+    }
+    if (type === 'date') {
+      const d = new Date(raw);
+      if (!isNaN(d.getTime())) return d.toLocaleDateString(undefined, { day: '2-digit', month: 'short', year: 'numeric' });
+    }
+    if (type === 'file' || type === 'docs' || type === 'excel' || type === 'billing_docs') return 'Documento vinculado';
+    if (looksTechnical(raw)) return null;
+    return raw.replace(/^"|"$/g, '');
+  };
+  const getContrastText = (hexColor: string) => {
+    const hex = hexColor.replace('#', '');
+    if (hex.length !== 6) return '#ffffff';
+    const r = parseInt(hex.slice(0, 2), 16);
+    const g = parseInt(hex.slice(2, 4), 16);
+    const b = parseInt(hex.slice(4, 6), 16);
+    const luminance = (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
+    return luminance > 0.62 ? '#111827' : '#ffffff';
+  };
+
   const statusColumn = board.columns.find((c) => c.type === 'status');
   const settings: { options?: { id: string; label: string; color?: string }[] } =
     statusColumn?.settings
@@ -119,10 +160,13 @@ export const KanbanView: React.FC<Props> = ({ board, onRowClick, isMobile = fals
           {/* Column Header: sticky al hacer scroll vertical dentro de la columna; indicador de columna actual en móvil */}
           <div
             className={`shrink-0 sticky top-0 z-10 ${isMobile && activeColumnIndex === idx ? 'ring-2 ring-monday-blue ring-inset' : ''}`}
-            style={{ backgroundColor: statusCol.color }}
+            style={{ background: `linear-gradient(135deg, ${statusCol.color}, ${statusCol.color}D9)` }}
           >
-            <div className="text-white text-sm font-medium px-3 sm:px-4 py-2 rounded-t-md min-h-[44px] flex items-center justify-between">
+            <div className="text-sm font-medium px-3 sm:px-4 py-2 rounded-t-md min-h-[44px] flex items-center justify-between" style={{ color: getContrastText(statusCol.color) }}>
               <span>{statusCol.label} / {statusCol.items.length}</span>
+              <span className="text-[11px] rounded-full px-2 py-0.5" style={{ backgroundColor: 'rgba(255,255,255,0.22)' }}>
+                {Math.round((statusCol.items.length / Math.max(1, board.groups.reduce((acc, g) => acc + g.items.length, 0))) * 100)}%
+              </span>
             </div>
             {isMobile && (
               <div className="h-1 flex justify-center bg-white/20">
@@ -132,23 +176,26 @@ export const KanbanView: React.FC<Props> = ({ board, onRowClick, isMobile = fals
           </div>
 
           {/* Card List Container */}
-          <div className="bg-monday-bg flex-1 min-h-0 p-2 rounded-b-md border border-monday-border flex flex-col gap-2 overflow-y-auto overflow-x-hidden custom-scrollbar scroll-touch">
+          <div className="bg-monday-bg/70 flex-1 min-h-0 p-2 rounded-b-md border border-monday-border flex flex-col gap-2 overflow-y-auto overflow-x-hidden custom-scrollbar scroll-touch">
             {statusCol.items.map(item => (
               <div 
                 key={item.id} 
                 onClick={() => onRowClick(item)}
-                className="bg-white p-4 rounded-md shadow-sm border border-monday-border cursor-pointer hover:shadow-md transition group"
+                className="p-4 rounded-xl shadow-sm border border-monday-border cursor-pointer hover:shadow-md hover:border-monday-blue/40 transition group bg-[var(--monday-surface)]"
               >
-                <div className="font-medium text-monday-text text-sm mb-4">{item.name}</div>
+                <div className="flex items-start justify-between gap-2 mb-3">
+                  <div className="font-semibold text-monday-text text-sm line-clamp-2">{item.name}</div>
+                  <span className="h-2.5 w-2.5 rounded-full mt-1 shrink-0" style={{ backgroundColor: statusCol.color }} />
+                </div>
                 {/* Render column previews slightly faded */}
                 <div className="flex flex-col gap-2">
                   {board.columns.filter((c) => c.type !== 'status').map((col) => {
-                     const val = item.columnValues.find((cv) => cv.columnId === col.id)?.value;
+                     const val = safeDisplayValue(item, col.id, col.type);
                      if (!val) return null;
                      return (
-                       <div key={col.id} className="flex items-center text-xs">
+                       <div key={col.id} className="flex items-center text-xs gap-2">
                          <span className="text-monday-subtext w-24 truncate">{col.title}</span>
-                         <span className="text-monday-text truncate flex-1">{val}</span>
+                         <span className="text-monday-text truncate flex-1 font-medium">{val}</span>
                        </div>
                      )
                   })}

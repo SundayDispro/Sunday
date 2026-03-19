@@ -4,7 +4,7 @@ import { ArrowRight } from 'lucide-react';
 import { AnimatedLogo } from './AnimatedLogo';
 
 type LoginProps = {
-  theme: 'light' | 'dark' | 'night' | 'dawn' | 'fog' | 'plum' | 'ember';
+  theme: 'light' | 'dark' | 'night' | 'dawn' | 'fog' | 'plum' | 'cacao' | 'aurora';
   layout?: 'horizontal' | 'vertical';
 };
 
@@ -15,7 +15,8 @@ const LOGIN_LOGO_COLORS: Record<LoginProps['theme'], string> = {
   dawn: '#23150a',
   fog: '#111111',
   plum: '#f3e9ff',
-  ember: '#23150a',
+  cacao: '#f2e9df',
+  aurora: '#e4f4ff',
 };
 
 const LOGIN_CARD_CLASS: Record<LoginProps['theme'], string> = {
@@ -25,7 +26,8 @@ const LOGIN_CARD_CLASS: Record<LoginProps['theme'], string> = {
   dawn: 'bg-[#d4c4ab]',
   fog: 'bg-[#a3a3a3]',
   plum: 'bg-[#1b1026]',
-  ember: 'bg-[#ff8a00]',
+  cacao: 'bg-[#241b15]',
+  aurora: 'bg-[#0f2531]',
 };
 
 /* Tiempo tras el cual se pasa a idle (≥ duración de entrada del logo) */
@@ -44,6 +46,9 @@ const INPUT_LIGHT_CLASS =
   'shadow-[0_10px_22px_rgba(0,0,0,0.08)] ' +
   'focus:border-[#6d28d9]/45 focus:shadow-[0_0_0_4px_rgba(109,40,217,0.14),0_14px_30px_rgba(0,0,0,0.12)] ' +
   'transition-[border-color,box-shadow,background-color] duration-160';
+
+const LOGIN_PRIMARY_BUTTON_CLASS =
+  'mt-1 h-10 w-full rounded-[12px] bg-monday-blue text-white font-semibold hover:bg-blue-600 transition-colors disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2 shadow-[0_12px_28px_rgba(37,99,235,0.28)]';
 
 export const Login: React.FC<LoginProps> = ({ theme, layout = 'horizontal' }) => {
   const { login } = useUser();
@@ -71,7 +76,7 @@ export const Login: React.FC<LoginProps> = ({ theme, layout = 'horizontal' }) =>
     return () => window.clearTimeout(t);
   }, []);
 
-  const verticalIsDark = theme === 'dark' || theme === 'night' || theme === 'plum';
+  const verticalIsDark = theme === 'dark' || theme === 'night' || theme === 'plum' || theme === 'cacao' || theme === 'aurora';
   const verticalCardClass = verticalIsDark
     ? 'relative w-full max-w-[430px] rounded-[22px] border border-white/10 bg-[#12091a] shadow-[0_28px_72px_rgba(0,0,0,0.55)] overflow-hidden'
     : 'relative w-full max-w-[430px] rounded-[22px] border border-black/10 bg-[#fbf7ef] shadow-[0_28px_72px_rgba(0,0,0,0.28)] overflow-hidden';
@@ -86,9 +91,7 @@ export const Login: React.FC<LoginProps> = ({ theme, layout = 'horizontal' }) =>
   const verticalInputClass = verticalIsDark
     ? `${INPUT_BASE_CLASS} text-white`
     : `${INPUT_LIGHT_CLASS} text-[#2a1c33]`;
-  const verticalButtonClass = verticalIsDark
-    ? 'mt-1 h-10 w-full rounded-[12px] bg-white text-[#12091a] font-semibold hover:bg-white/90 transition-colors disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2 shadow-[0_14px_34px_rgba(255,255,255,0.14)]'
-    : 'mt-1 h-10 w-full rounded-[12px] bg-[#5b21b6] text-white font-semibold hover:bg-[#6d28d9] transition-colors disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2 shadow-[0_14px_34px_rgba(91,33,182,0.28)]';
+  const verticalButtonClass = LOGIN_PRIMARY_BUTTON_CLASS;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -236,7 +239,7 @@ export const Login: React.FC<LoginProps> = ({ theme, layout = 'horizontal' }) =>
                 <button
                   type="submit"
                   disabled={loading}
-                  className="mt-1 h-10 w-full rounded-[12px] bg-[#2088ff] text-white font-medium hover:bg-[#1b78e8] transition-colors disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2 shadow-[0_10px_24px_rgba(32,136,255,0.22)]"
+                  className={LOGIN_PRIMARY_BUTTON_CLASS}
                 >
                   {loading ? 'Entrando...' : 'Continuar'}
                   {!loading && <ArrowRight size={15} />}

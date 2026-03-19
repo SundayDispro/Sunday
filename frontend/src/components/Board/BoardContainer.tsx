@@ -66,7 +66,7 @@ function GroupDragOverlay({ groups }: { groups: Group[] }) {
   return (
     <DragOverlay>
       <div
-        className="bg-white rounded-lg border border-monday-border shadow-monday-lg px-4 py-3 flex items-center gap-3 min-w-[200px]"
+        className="bg-[var(--monday-surface)] rounded-lg border border-monday-border shadow-monday-lg px-4 py-3 flex items-center gap-3 min-w-[200px]"
         style={{ borderLeftWidth: 4, borderLeftColor: group.color }}
       >
         <span className="font-medium text-monday-text truncate">{group.name}</span>
@@ -904,7 +904,7 @@ const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode, mobile
           initial={false}
           transition={{ duration: 0.25, ease: 'easeInOut' }}
         >
-          <div ref={setCalendarBarRefCallback} className="shrink-0 px-3 sm:px-6 py-2.5 border-b border-monday-border bg-white flex items-center gap-2">
+          <div ref={setCalendarBarRefCallback} className="shrink-0 px-3 sm:px-6 py-2.5 border-b border-monday-border bg-[var(--monday-surface)] flex items-center gap-2">
             {!isTaller && (
               <div className="flex items-center bg-monday-blue rounded-monday shadow-monday-sm">
                 <button
@@ -921,7 +921,7 @@ const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode, mobile
                   </Popover.Trigger>
                   <Popover.Portal>
                     <Popover.Content
-                      className="z-50 bg-white rounded-xl shadow-monday-lg border border-monday-border w-44 p-1 mt-1"
+                      className="z-50 bg-[var(--monday-surface)] rounded-xl shadow-monday-lg border border-monday-border w-44 p-1 mt-1"
                       sideOffset={4}
                       align="start"
                     >
@@ -956,7 +956,7 @@ const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode, mobile
     );
   }
 
-  const toolbarClass = `min-w-0 px-4 sm:px-6 py-2.5 border-b border-monday-border flex items-center gap-x-2 gap-y-2 shrink-0 bg-white ${mobileOptimized ? 'flex-nowrap' : 'flex-wrap'}`;
+  const toolbarClass = `min-w-0 px-4 sm:px-6 py-2.5 border-b border-monday-border flex items-center gap-x-2 gap-y-2 shrink-0 bg-[var(--monday-surface)] ${mobileOptimized ? 'flex-nowrap' : 'flex-wrap'}`;
   const ToolbarWrapper = isMobile ? motion.div : 'div';
   const toolbarHeightVisible = headerHidden ? 0 : Math.max(toolbarHeight, 48);
   const toolbarWrapperProps = isMobile
@@ -1096,7 +1096,7 @@ const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode, mobile
         {(viewMode === 'table' || viewMode === 'miTrabajo') && showMultiSelectHint && selectedItemIds.size > 0 && (
           <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/30" onClick={dismissMultiSelectHint}>
             <div
-              className="bg-white rounded-xl shadow-monday-xl border border-monday-border p-6 max-w-sm mx-4 text-center"
+              className="bg-[var(--monday-surface)] rounded-xl shadow-monday-xl border border-monday-border p-6 max-w-sm mx-4 text-center"
               onClick={e => e.stopPropagation()}
             >
               <h3 className="text-[16px] font-semibold text-monday-text mb-2">
@@ -1118,7 +1118,7 @@ const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode, mobile
 
         {/* Barra flotante de acciones múltiples (sin IA) */}
         {(viewMode === 'table' || viewMode === 'miTrabajo') && selectedItemIds.size > 0 && (
-          <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[100] flex items-center gap-4 px-4 py-3 bg-white rounded-xl shadow-monday-lg border border-monday-border">
+          <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[100] flex items-center gap-4 px-4 py-3 bg-[var(--monday-surface)] rounded-xl shadow-monday-lg border border-monday-border">
             <span className="text-[13px] font-medium text-monday-text whitespace-nowrap">
               {selectedItemIds.size} elemento{selectedItemIds.size !== 1 ? 's' : ''} seleccionado{selectedItemIds.size !== 1 ? 's' : ''}
             </span>
@@ -1174,7 +1174,7 @@ const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode, mobile
                 </Popover.Trigger>
                 <Popover.Portal>
                   <Popover.Content
-                    className="z-[110] bg-white rounded-xl shadow-monday-lg border border-monday-border w-52 p-2 max-h-64 overflow-y-auto"
+                    className="z-[110] bg-[var(--monday-surface)] rounded-xl shadow-monday-lg border border-monday-border w-52 p-2 max-h-64 overflow-y-auto"
                     sideOffset={8}
                     side="top"
                   >
@@ -1209,7 +1209,7 @@ const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode, mobile
         <AnimatedDialog open={showDeleteItemsConfirm} onOpenChange={setShowDeleteItemsConfirm}>
           <Dialog.Overlay className="fixed inset-0 bg-black/40 z-[150]" />
           <Dialog.Content
-            className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 bg-white rounded-xl shadow-monday-xl border border-monday-border p-6 w-[400px] max-w-[90vw] z-[151]"
+            className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 bg-[var(--monday-surface)] rounded-xl shadow-monday-xl border border-monday-border p-6 w-[400px] max-w-[90vw] z-[151]"
             onCloseAutoFocus={(e) => e.preventDefault()}
           >
             <Dialog.Title className="text-lg font-bold text-monday-text mb-1">
@@ -1243,7 +1243,7 @@ const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode, mobile
           <Dialog.Portal>
             <Dialog.Overlay className="fixed inset-0 bg-black/40 z-[150]" />
             <Dialog.Content
-              className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 bg-white rounded-xl shadow-monday-xl border border-monday-border p-6 w-[400px] max-w-[90vw] z-[151] sm:w-[400px]"
+              className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 bg-[var(--monday-surface)] rounded-xl shadow-monday-xl border border-monday-border p-6 w-[400px] max-w-[90vw] z-[151] sm:w-[400px]"
               onCloseAutoFocus={(e) => e.preventDefault()}
             >
               <div className="flex items-start justify-between gap-4 mb-4">

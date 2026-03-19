@@ -88,7 +88,7 @@ export const FacturacionBoardView: React.FC<Props> = ({ board, onRowClick, isMob
             value={searchQuery}
             onChange={e => setSearchQuery(e.target.value)}
             placeholder="Buscar elemento..."
-            className="px-3 py-2 text-[13px] border border-monday-border rounded-lg bg-white text-monday-text placeholder:text-monday-subtext outline-none focus:ring-2 focus:ring-monday-blue/30 focus:border-monday-blue min-w-0 flex-1 min-h-[44px]"
+            className="px-3 py-2 text-[13px] border border-monday-border rounded-lg bg-[var(--monday-surface)] text-monday-text placeholder:text-monday-subtext outline-none focus:ring-2 focus:ring-monday-blue/30 focus:border-monday-blue min-w-0 flex-1 min-h-[44px]"
           />
         </div>
         {estadoFacturacionColumn && estadoFacturacionOptions.length > 0 && (
@@ -97,7 +97,7 @@ export const FacturacionBoardView: React.FC<Props> = ({ board, onRowClick, isMob
             <select
               value={filterEstadoFacturacion ?? ''}
               onChange={e => setFilterEstadoFacturacion(e.target.value || null)}
-              className="px-3 py-2 text-[13px] border border-monday-border rounded-lg bg-white text-monday-text outline-none focus:ring-2 focus:ring-monday-blue/30 focus:border-monday-blue min-h-[44px] flex-1 min-w-0"
+              className="px-3 py-2 text-[13px] border border-monday-border rounded-lg bg-[var(--monday-surface)] text-monday-text outline-none focus:ring-2 focus:ring-monday-blue/30 focus:border-monday-blue min-h-[44px] flex-1 min-w-0"
             >
               <option value="">Todos</option>
               {estadoFacturacionOptions.map(opt => (
@@ -127,7 +127,7 @@ export const FacturacionBoardView: React.FC<Props> = ({ board, onRowClick, isMob
                 tabIndex={0}
                 onClick={() => onRowClick(item)}
                 onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onRowClick(item); } }}
-                className="bg-white border border-monday-border rounded-xl p-4 shadow-monday-sm text-left min-h-[48px] touch-manipulation active:bg-monday-hover/30"
+                className="bg-[var(--monday-surface)] border border-monday-border rounded-xl p-4 shadow-monday-sm text-left min-h-[48px] touch-manipulation active:bg-monday-hover/30"
               >
                 <div className="font-medium text-monday-text text-[14px] mb-2">{item.name}</div>
                 <div className="space-y-1.5 text-[12px]">

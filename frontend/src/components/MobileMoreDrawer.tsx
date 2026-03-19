@@ -22,7 +22,7 @@ import * as Popover from '@radix-ui/react-popover';
 import { UserPanel } from './UserPanel';
 import type { Workspace, Board } from '../types';
 
-export type AppTheme = 'light' | 'dark' | 'night' | 'dawn' | 'fog' | 'plum' | 'ember';
+export type AppTheme = 'light' | 'dark' | 'night' | 'dawn' | 'fog' | 'plum' | 'cacao' | 'aurora';
 
 interface MobileMoreDrawerProps {
   open: boolean;
@@ -78,6 +78,26 @@ export function MobileMoreDrawer({
   onOpenAdmin,
 }: MobileMoreDrawerProps) {
   const [workspaceSelectorOpen, setWorkspaceSelectorOpen] = useState(false);
+  const themeLabel: Record<AppTheme, string> = {
+    light: 'Claro',
+    dark: 'Oscuro',
+    night: 'Noche',
+    dawn: 'Dawn',
+    fog: 'Fog',
+    plum: 'Plum',
+    cacao: 'Cacao',
+    aurora: 'Aurora',
+  };
+  const themeSwatches: Record<AppTheme, [string, string]> = {
+    light: ['#f6f7fb', '#d0d4e4'],
+    dark: ['#111827', '#374151'],
+    night: ['#0a0a0a', '#262626'],
+    dawn: ['#e1d4c0', '#bda78a'],
+    fog: ['#b8b8b8', '#8f8f8f'],
+    plum: ['#12091a', '#3a244f'],
+    cacao: ['#1a1410', '#4a3526'],
+    aurora: ['#091821', '#234252'],
+  };
 
   const handleSelectBoard = (id: string | null) => {
     onSelectBoard(id);
@@ -179,7 +199,7 @@ export function MobileMoreDrawer({
                     </Popover.Trigger>
                     <Popover.Portal>
                       <Popover.Content
-                        className="z-50 w-64 rounded-xl shadow-monday-lg border border-monday-border bg-white p-2"
+                        className="z-50 w-64 rounded-xl shadow-monday-lg border border-monday-border bg-monday-sidebarPanel p-2"
                         sideOffset={8}
                         align="start"
                         onClick={(e) => e.stopPropagation()}
@@ -220,7 +240,7 @@ export function MobileMoreDrawer({
                     <input
                       type="text"
                       placeholder="Buscar tableros..."
-                      className="w-full pl-9 pr-3 py-1.5 rounded-lg bg-white border border-monday-border text-[13px] text-monday-text placeholder:text-monday-subtext focus:outline-none focus:ring-2 focus:ring-monday-blue"
+                      className="w-full pl-9 pr-3 py-1.5 rounded-lg bg-monday-sidebarPanel border border-monday-border text-[13px] text-monday-text placeholder:text-monday-subtext focus:outline-none focus:ring-2 focus:ring-monday-blue"
                       value={boardSearch}
                       onChange={(e) => onBoardSearchChange(e.target.value)}
                     />
@@ -321,7 +341,7 @@ export function MobileMoreDrawer({
                         <Popover.Trigger asChild>
                           <button
                             type="button"
-                            className="flex-1 flex items-center justify-between gap-2 px-3 py-1.5 rounded-lg border border-monday-border bg-white text-[12px] text-monday-text hover:bg-monday-hover transition-colors"
+                            className="flex-1 flex items-center justify-between gap-2 px-3 py-1.5 rounded-lg border border-monday-border bg-monday-sidebarPanel text-[12px] text-monday-text hover:bg-monday-hover transition-colors"
                           >
                             <span className="flex items-center gap-1.5">
                               {theme === 'light' && <Sun size={14} />}
@@ -330,33 +350,24 @@ export function MobileMoreDrawer({
                               {theme === 'dawn' && <Sparkles size={14} />}
                               {theme === 'fog' && <Sparkles size={14} />}
                               {theme === 'plum' && <Sparkles size={14} />}
-                              {theme === 'ember' && <Sparkles size={14} />}
-                              <span>
-                                {theme === 'light'
-                                  ? 'Claro'
-                                  : theme === 'dark'
-                                  ? 'Oscuro'
-                                  : theme === 'night'
-                                  ? 'Noche'
-                                  : theme === 'dawn'
-                                  ? 'Dawn'
-                                  : theme === 'fog'
-                                  ? 'Fog'
-                                  : theme === 'plum'
-                                  ? 'Plum'
-                                  : 'Ember'}
-                              </span>
+                              {theme === 'cacao' && <Sparkles size={14} />}
+                              {theme === 'aurora' && <Sparkles size={14} />}
+                              <span>{themeLabel[theme]}</span>
+                            </span>
+                            <span className="ml-auto flex items-center gap-1">
+                              <span className="w-2.5 h-2.5 rounded-full border border-monday-border" style={{ backgroundColor: themeSwatches[theme][0] }} />
+                              <span className="w-2.5 h-2.5 rounded-full border border-monday-border" style={{ backgroundColor: themeSwatches[theme][1] }} />
                             </span>
                             <ChevronDown size={14} className="text-monday-subtext shrink-0" />
                           </button>
                         </Popover.Trigger>
                         <Popover.Portal>
                           <Popover.Content
-                            className="z-50 bg-white rounded-xl shadow-monday-lg border border-monday-border w-44 max-h-[60vh] overflow-y-auto custom-scrollbar p-1"
+                            className="z-50 bg-monday-sidebarPanel rounded-xl shadow-monday-lg border border-monday-border w-44 max-h-[60vh] overflow-y-auto custom-scrollbar p-1"
                             sideOffset={6}
                             align="start"
                           >
-                            {(['light', 'dark', 'night', 'dawn', 'fog', 'plum', 'ember'] as const).map((t) => (
+                            {(['light', 'dark', 'night', 'dawn', 'fog', 'plum', 'cacao', 'aurora'] as const).map((t) => (
                               <button
                                 key={t}
                                 type="button"
@@ -371,21 +382,12 @@ export function MobileMoreDrawer({
                                 {t === 'dawn' && <Sparkles size={14} />}
                                 {t === 'fog' && <Sparkles size={14} />}
                                 {t === 'plum' && <Sparkles size={14} />}
-                                {t === 'ember' && <Sparkles size={14} />}
-                                <span>
-                                  {t === 'light'
-                                    ? 'Claro'
-                                    : t === 'dark'
-                                    ? 'Oscuro'
-                                    : t === 'night'
-                                    ? 'Noche'
-                                    : t === 'dawn'
-                                    ? 'Dawn'
-                                    : t === 'fog'
-                                    ? 'Fog'
-                                    : t === 'plum'
-                                    ? 'Plum'
-                                    : 'Ember'}
+                                {t === 'cacao' && <Sparkles size={14} />}
+                                {t === 'aurora' && <Sparkles size={14} />}
+                                <span className="flex-1">{themeLabel[t]}</span>
+                                <span className="ml-auto flex items-center gap-1">
+                                  <span className="w-2.5 h-2.5 rounded-full border border-monday-border" style={{ backgroundColor: themeSwatches[t][0] }} />
+                                  <span className="w-2.5 h-2.5 rounded-full border border-monday-border" style={{ backgroundColor: themeSwatches[t][1] }} />
                                 </span>
                               </button>
                             ))}

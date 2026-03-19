@@ -38,7 +38,7 @@ export const TodayPage: React.FC<TodayPageProps> = ({ onGoSearch, onGoKanban, on
       </header>
 
       <div className="shrink-0 bg-transparent px-4 pt-3 pb-1">
-        <div className="w-full flex items-center gap-2 px-4 py-2 rounded-full bg-gradient-to-r from-monday-sidebarPanel/95 via-monday-sidebarPanel/80 to-monday-sidebarPanel/95 border border-white/5 shadow-monday-sm backdrop-blur-md">
+        <div className="w-full flex items-center gap-2 px-4 py-2 rounded-full bg-white border border-monday-border shadow-monday-sm">
           <Search size={16} className="text-monday-subtext shrink-0" />
           <input
             type="search"
@@ -57,7 +57,7 @@ export const TodayPage: React.FC<TodayPageProps> = ({ onGoSearch, onGoKanban, on
         <button
           type="button"
           onClick={onGoKanban}
-          className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-2xl bg-gradient-to-r from-monday-sidebarPanel/95 via-monday-sidebarPanel/85 to-monday-sidebarPanel/95 border border-white/5 hover:border-monday-blue/40 hover:shadow-monday-sm transition-all text-left"
+          className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-2xl bg-white border border-monday-border hover:border-monday-blue/40 hover:shadow-monday-sm active:scale-[0.995] transition-all text-left"
         >
           <div className="w-9 h-9 rounded-xl bg-monday-blue/15 flex items-center justify-center text-monday-blue shrink-0">
             <LayoutGrid size={18} />
@@ -73,7 +73,7 @@ export const TodayPage: React.FC<TodayPageProps> = ({ onGoSearch, onGoKanban, on
         <button
           type="button"
           onClick={onGoInbox}
-          className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-2xl bg-gradient-to-r from-monday-sidebarPanel/95 via-monday-sidebarPanel/85 to-monday-sidebarPanel/95 border border-white/5 hover:border-monday-blue/40 hover:shadow-monday-sm transition-all text-left"
+          className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-2xl bg-white border border-monday-border hover:border-monday-blue/40 hover:shadow-monday-sm active:scale-[0.995] transition-all text-left"
         >
           <div className="w-9 h-9 rounded-xl bg-monday-blue/15 flex items-center justify-center text-monday-blue shrink-0">
             <Inbox size={18} />
@@ -89,7 +89,7 @@ export const TodayPage: React.FC<TodayPageProps> = ({ onGoSearch, onGoKanban, on
         <button
           type="button"
           onClick={onGoDocs}
-          className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-2xl bg-gradient-to-r from-monday-sidebarPanel/95 via-monday-sidebarPanel/85 to-monday-sidebarPanel/95 border border-white/5 hover:border-monday-blue/40 hover:shadow-monday-sm transition-all text-left"
+          className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-2xl bg-white border border-monday-border hover:border-monday-blue/40 hover:shadow-monday-sm active:scale-[0.995] transition-all text-left"
         >
           <div className="w-9 h-9 rounded-xl bg-monday-blue/15 flex items-center justify-center text-monday-blue shrink-0">
             <BookOpen size={18} />

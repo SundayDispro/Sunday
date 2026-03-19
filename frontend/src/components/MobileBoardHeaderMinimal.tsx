@@ -28,7 +28,7 @@ export function MobileBoardHeaderMinimal({
   compact = false,
 }: MobileBoardHeaderMinimalProps) {
   return (
-    <div className={`shrink-0 border-b border-monday-border bg-white ${compact ? 'mobile-header-landscape' : ''}`}>
+    <div className={`shrink-0 border-b border-monday-border bg-[var(--monday-surface)] ${compact ? 'mobile-header-landscape' : ''}`}>
       <div className={`flex items-center gap-2 ${compact ? 'min-h-[40px] px-2 gap-1.5' : 'min-h-[44px] px-3 sm:px-4 gap-2'}`}>
         {editingName && onNameDraftChange && onFinishEditName ? (
           <input
