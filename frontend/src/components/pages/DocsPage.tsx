@@ -4045,7 +4045,7 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
                     </div>
                   )}
                 </div>
-              ) : selectedDoc.type === 'sheet' ? (
+              ) : selectedDoc?.type === 'sheet' ? (
                 <div className="flex-1 min-h-0 overflow-auto scroll-touch custom-scrollbar">
                   <ExcelLikeSheet
                     tableDraft={tableDraft}

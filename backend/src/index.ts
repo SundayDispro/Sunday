@@ -2399,6 +2399,12 @@ io.on('connection', (socket) => {
         return;
       }
 
+      // Para auditoría (Registro de actividad): capturar valor previo antes del upsert.
+      const prevColumnValue = await prisma.columnValue.findUnique({
+        where: { itemId_columnId: { itemId, columnId } },
+      });
+      const prevValue = prevColumnValue?.value ?? null;
+
       // RBAC por columna (Fase 3+): evitar que roles restrictivos modifiquen columnas sensibles.
       // - ADMIN: bypass ya aplicado en withSocketRoles()
       // - VENTAS/DISENO: pueden editar valores en general, salvo reglas futuras más finas.
@@ -2431,6 +2437,234 @@ io.on('connection', (socket) => {
         create: { itemId, columnId, value, valueJson }
       });
       io.to(boardRoom(column.boardId)).emit('column_value_updated', updated);
+
+      // ── AUDITORÍA (Registro de actividad) ──────────────────────────────────────────
+      // Crear entradas automáticas cuando cambien columnas relevantes.
+      // Marcamos el contenido con un prefijo para que el frontend distinga logs vs comentarios manuales.
+      const AUDIT_PREFIX = '__audit__:'; // no mostrar tal cual en UI
+      const oldV = prevValue ?? '';
+      const newV = updated.value ?? '';
+      const changed = oldV !== newV;
+
+      const isAuditable =
+        changed &&
+        ['status', 'priority', 'person', 'docs', 'excel', 'file', 'billing_docs', 'folio'].includes(column.type);
+
+      if (isAuditable) {
+        let auditContent: string | null = null;
+
+        // Helpers para parseos seguros.
+        const safeJsonParse = (raw: string): any | null => {
+          if (!raw || typeof raw !== 'string') return null;
+          try {
+            const parsed = JSON.parse(raw);
+            // Algunos valores pueden venir double-encoded como string JSON.
+            if (typeof parsed === 'string') {
+              try {
+                return JSON.parse(parsed);
+              } catch {
+                return parsed;
+              }
+            }
+            return parsed;
+          } catch {
+            return null;
+          }
+        };
+
+        const parseOptionId = (raw: string): string | null => {
+          const p = safeJsonParse(raw);
+          const optionId = p?.optionId;
+          return typeof optionId === 'string' ? optionId : null;
+        };
+
+        const parseDocsValue = (raw: string): any => {
+          const p = safeJsonParse(raw);
+          return (p && typeof p === 'object') ? p : {};
+        };
+
+        const parseExcelValue = (raw: string): { url?: string; docId?: string } => {
+          const p = safeJsonParse(raw);
+          if (p && typeof p === 'object') {
+            const out: { url?: string; docId?: string } = {};
+            if (typeof (p as any).docId === 'string') out.docId = (p as any).docId;
+            if (typeof (p as any).url === 'string') out.url = (p as any).url;
+            return out;
+          }
+          // fallback: string URL
+          if (typeof raw === 'string' && raw.trim()) return { url: raw.trim() };
+          return {};
+        };
+
+        const parseBillingDocsValue = (raw: string): { url?: string; label?: string } => {
+          const p = safeJsonParse(raw);
+          if (p && typeof p === 'object') {
+            const out: { url?: string; label?: string } = {};
+            if (typeof (p as any).url === 'string') out.url = (p as any).url;
+            if (typeof (p as any).label === 'string') out.label = (p as any).label;
+            return out;
+          }
+          return {};
+        };
+
+        // Campo de estados/prioridad: traducir optionId -> label.
+        const getOptionLabel = (optionId: string | null): string | null => {
+          if (!optionId) return null;
+          try {
+            const settingsRaw = column.settings ?? (column as any).settingsJson;
+            const settings = typeof settingsRaw === 'string' ? JSON.parse(settingsRaw) : settingsRaw;
+            const options = settings?.options;
+            if (!Array.isArray(options)) return null;
+            const opt = options.find((o: any) => o.id === optionId);
+            return opt?.label || null;
+          } catch {
+            return null;
+          }
+        };
+
+        const normalizeSimpleValue = (raw: string): string => {
+          const t = (raw ?? '').trim();
+          if (!t) return '';
+          // Si viene como JSON string: "\"ABC\"" => "ABC"
+          try {
+            const parsed = JSON.parse(t);
+            if (typeof parsed === 'string') return parsed.trim();
+            if (typeof parsed === 'number') return String(parsed);
+          } catch {/* ignore */}
+          // Si viene entre comillas simples del legacy JSON: "ABC" (ya lo intentamos con JSON.parse, pero por si acaso)
+          if (t.startsWith('"') && t.endsWith('"') && t.length >= 2) return t.slice(1, -1);
+          return t;
+        };
+
+        if (column.type === 'person') {
+          const prevAssigneeId = oldV.trim();
+          const nextAssigneeId = newV.trim();
+          const prevUser = prevAssigneeId ? await prisma.user.findUnique({ where: { id: prevAssigneeId }, select: { name: true } }) : null;
+          const nextUser = nextAssigneeId ? await prisma.user.findUnique({ where: { id: nextAssigneeId }, select: { name: true } }) : null;
+
+          if (!prevAssigneeId && nextAssigneeId) {
+            auditContent = `asignó el elemento a ${nextUser?.name ?? nextAssigneeId}`;
+          } else if (prevAssigneeId && !nextAssigneeId) {
+            auditContent = `desasignó el elemento`;
+          } else if (prevAssigneeId && nextAssigneeId && prevAssigneeId !== nextAssigneeId) {
+            auditContent = `reasignó el elemento de ${prevUser?.name ?? prevAssigneeId} a ${nextUser?.name ?? nextAssigneeId}`;
+          }
+        } else if (column.type === 'status' || column.type === 'priority') {
+          const prevOptionId = parseOptionId(oldV);
+          const nextOptionId = parseOptionId(newV);
+          const prevLabel = getOptionLabel(prevOptionId) ?? prevOptionId ?? '—';
+          const nextLabel = getOptionLabel(nextOptionId) ?? nextOptionId ?? '—';
+          if (prevOptionId !== nextOptionId) {
+            auditContent = `actualizó ${column.title}: de "${prevLabel}" a "${nextLabel}"`;
+          }
+        } else if (column.type === 'docs') {
+          const prev = parseDocsValue(oldV);
+          const next = parseDocsValue(newV);
+
+          const keys: Array<{ key: string; label: string }> = [
+            { key: 'levantamientoDocId', label: 'Levantamiento' },
+            { key: 'cotizacionDocId', label: 'Cotización' },
+            { key: 'hojaTrabajoDocId', label: 'Hoja de trabajo' },
+          ];
+
+          const summaryAfter = keys
+            .map(k => {
+              const v = (next as any)?.[k.key];
+              return typeof v === 'string' && v.trim() ? k.label : null;
+            })
+            .filter(Boolean) as string[];
+
+          const summaryBefore = keys
+            .map(k => {
+              const v = (prev as any)?.[k.key];
+              return typeof v === 'string' && v.trim() ? k.label : null;
+            })
+            .filter(Boolean) as string[];
+
+          if (summaryBefore.join(', ') !== summaryAfter.join(', ')) {
+            auditContent = `actualizó documentos (${column.title}): ${summaryAfter.length ? summaryAfter.join(', ') : 'sin documentos enlazados'}`;
+          } else {
+            // fallback para URLs legacy cotizacion/levantamiento/hojaTrabajo
+            const prevUrl = typeof (prev as any)?.cotizacion === 'string' ? (prev as any).cotizacion : '';
+            const nextUrl = typeof (next as any)?.cotizacion === 'string' ? (next as any).cotizacion : '';
+            if (prevUrl !== nextUrl) {
+              auditContent = `actualizó documentos (${column.title})`;
+            }
+          }
+        } else if (column.type === 'excel') {
+          const prev = parseExcelValue(oldV);
+          const next = parseExcelValue(newV);
+          if ((prev.docId ?? '') !== (next.docId ?? '') || (prev.url ?? '') !== (next.url ?? '')) {
+            const labelAfter = next.docId ? 'Documento enlazado' : next.url ? 'Archivo enlazado' : 'sin archivo';
+            auditContent = `actualizó excel (${column.title}): ${labelAfter}`;
+          }
+        } else if (column.type === 'file') {
+          const prevHref = oldV.trim();
+          const nextHref = newV.trim();
+          if (prevHref !== nextHref) {
+            auditContent = `actualizó enlace Drive (${column.title})`;
+          }
+        } else if (column.type === 'billing_docs') {
+          const prev = parseBillingDocsValue(oldV);
+          const next = parseBillingDocsValue(newV);
+          if ((prev.url ?? '') !== (next.url ?? '') || (prev.label ?? '') !== (next.label ?? '')) {
+            const labelAfter = next.label?.trim() || next.url?.trim() || 'Documento actualizado';
+            auditContent = `actualizó documentos de facturación (${column.title}): ${labelAfter}`;
+          }
+        } else if (column.type === 'folio') {
+          const fieldName = column.title?.trim() || 'Folio';
+          const prevVal = normalizeSimpleValue(oldV);
+          const nextVal = normalizeSimpleValue(newV);
+
+          if (!prevVal && nextVal) {
+            auditContent = `añadió ${fieldName} "${nextVal}"`;
+          } else if (prevVal && !nextVal) {
+            auditContent = `eliminó ${fieldName} "${prevVal}"`;
+          } else if (prevVal && nextVal && prevVal !== nextVal) {
+            auditContent = `cambió ${fieldName} de "${prevVal}" a "${nextVal}"`;
+          }
+        }
+
+        if (auditContent) {
+          const newUpdate = await prisma.update.create({
+            data: { itemId, content: `${AUDIT_PREFIX}${auditContent}`, authorId: auth.userId }
+          });
+
+          const fullUpdate = await prisma.update.findUnique({
+            where: { id: newUpdate.id },
+            include: { author: { select: { id: true, username: true, name: true, initials: true, color: true } } }
+          });
+
+          if (fullUpdate) {
+            const { author, ...rest } = fullUpdate as any;
+            const safeAuthor = author ? (() => {
+              const { password, ...safe } = author;
+              return safe;
+            })() : null;
+            const safeUpdate = { ...rest, author: safeAuthor };
+
+            // Emitir a autor y a usuarios asignados al ítem.
+            const item = await prisma.item.findUnique({
+              where: { id: itemId },
+              select: {
+                columnValues: {
+                  where: { column: { type: 'person' } },
+                  select: { value: true }
+                }
+              }
+            });
+
+            const recipientIds = new Set<string>();
+            if (auth.userId) recipientIds.add(auth.userId);
+            item?.columnValues?.forEach((cv: any) => {
+              const v = typeof cv.value === 'string' ? cv.value.trim() : '';
+              if (v) recipientIds.add(v);
+            });
+
+            recipientIds.forEach((uid) => io.to(userRoom(uid)).emit('update_added', safeUpdate));
+          }
+        }
+      }
 
       // Regla Taller→Facturación: al marcar "colocado" se crea columna "Estado Facturación" si no existe
       // y se setea "Pendiente de facturar". Si el board ya tiene una columna "Estado Facturación" con

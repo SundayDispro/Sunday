@@ -378,24 +378,40 @@ function App() {
     return isMobileInitial ? 'home' : 'board';
   });
 
-  // Animación del sol: se mantiene fija por pestaña y cambia al cambiar de pestaña.
+  // Animación del logo: grupo rotante entre varias keyframes (sol y rayos desfasados).
   useEffect(() => {
     if (typeof document === 'undefined') return;
     const root = document.documentElement;
-    const pageToVariant: Record<string, string> = {
-      board: 'pulse',
-      docs: 'morph',
-      calendar: 'spin',
-      inbox: 'shimmer',
-      notifications: 'shimmer',
-      search: 'spin',
-      team: 'pulse',
-      facturacion: 'morph',
-      miTrabajo: 'pulse',
-      home: 'spin',
+
+    const prefersReduced =
+      window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches ?? false;
+    if (prefersReduced) return;
+
+    const sunAnims: string[] = [
+      'sun-pulse',
+      'sun-spin',
+      'sun-shimmer',
+      'sun-morph',
+      'logo-sun-hero',
+      'sun-drift',
+      'sun-bloom',
+    ];
+
+    // Debe coincidir con `--logo-anim-duration` de `index.css`.
+    const stepMs = 5200;
+
+    let i = 0;
+    const setStep = () => {
+      root.setAttribute('data-logo-sun-anim', sunAnims[i % sunAnims.length]);
+      // Rayos con desfase para no tener sincronización rígida.
+      root.setAttribute('data-logo-rays-anim', sunAnims[(i + 2) % sunAnims.length]);
+      i += 1;
     };
-    root.setAttribute('data-sun-anim', pageToVariant[activePage] ?? 'pulse');
-  }, [activePage]);
+
+    setStep();
+    const intervalId = window.setInterval(setStep, stepMs);
+    return () => window.clearInterval(intervalId);
+  }, []);
   const [boards, setBoards] = useState<Board[]>([]);
   const [boardsLoaded, setBoardsLoaded] = useState(false);
   const [activeBoardId, setActiveBoardId] = useState<string | null>(null);
@@ -2439,12 +2455,50 @@ if (ok && data && typeof data.id === 'string') {
           <div className="fixed inset-0 z-[60]">
             <div className="absolute inset-0 bg-black/40" onClick={() => setSelectedItem(null)} aria-hidden />
             <div className="absolute left-0 right-0 bottom-0 max-h-[90dvh] flex flex-col panel-slide-in" style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}>
-              <ItemDetailsPanel item={selectedItem} onClose={() => setSelectedItem(null)} variant="sheet" />
+              <ItemDetailsPanel
+                item={selectedItem}
+                onClose={() => setSelectedItem(null)}
+                variant="sheet"
+                board={(() => {
+                  const byActive = boards.find(b => b.id === activeBoardId);
+                  if (byActive) return byActive;
+                  const byGroup = boards.find(b =>
+                    Array.isArray(b.groups) && b.groups.some(g => g.id === selectedItem.groupId)
+                  );
+                  if (byGroup) return byGroup;
+                  const byItem = boards.find(b =>
+                    Array.isArray(b.groups) &&
+                    b.groups.some(gr => Array.isArray(gr.items) && gr.items.some(it => it.id === selectedItem.id))
+                  );
+                  return byItem ?? null;
+                })()}
+              />
             </div>
           </div>
         ) : (
-          <div className="absolute top-0 right-0 h-full z-50 panel-slide-in">
-            <ItemDetailsPanel item={selectedItem} onClose={() => setSelectedItem(null)} />
+          <div className="absolute inset-0 z-[60]" onClick={() => setSelectedItem(null)} aria-hidden>
+            <div
+              className="absolute top-0 right-0 h-full z-50 panel-slide-in"
+              onClick={(e) => { e.stopPropagation(); }}
+            >
+              <ItemDetailsPanel
+                item={selectedItem}
+                onClose={() => setSelectedItem(null)}
+                board={(() => {
+                  const byActive = boards.find(b => b.id === activeBoardId);
+                  if (byActive) return byActive;
+                  const byGroup = boards.find(b =>
+                    Array.isArray(b.groups) && b.groups.some(g => g.id === selectedItem.groupId)
+                  );
+                  if (byGroup) return byGroup;
+                  const byItem = boards.find(b =>
+                    Array.isArray(b.groups) &&
+                    b.groups.some(gr => Array.isArray(gr.items) && gr.items.some(it => it.id === selectedItem.id))
+                  );
+                  return byItem ?? null;
+                })()}
+              />
+            </div>
           </div>
         )
       )}

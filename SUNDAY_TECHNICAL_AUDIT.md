@@ -842,6 +842,13 @@ Componentes clave:
 - `frontend/src/components/Board/*`:
   - `BoardContainer`, `ItemDetailsPanel`, etc.
   - Representación visual de tableros tipo Monday.com (grupos, items, columnas).
+  - `frontend/src/components/Board/ItemDetailsPanel.tsx` (actualización marzo 2026):
+    - Cambios realizados:
+      - Se reforzó la deduplicación de enlaces en la pestaña `Archivos` (Drive) usando normalización de URL y extracción del ID de Drive para evitar duplicados.
+      - Se mejoró el renderizado en la pestaña `Info` evitando que IDs/valores “en código” (UUIDs o JSON double-encoded) se muestren como texto crudo.
+    - Estado (bugs aún presentes):
+      - `Info`: siguen apareciendo UUIDs/valores crudos en campos como `Folio`, `Fecha`, `Enlace a Drive` y `colocación` (y al menos otro renglón cuyo contenido está en formato “código”).
+      - `Archivos`: persiste el enlace repetido de Drive (aunque ya se intentó deduplicar), por lo que hay que corregir ambos issues de forma definitiva.
 
 - `frontend/src/components/pages/*`:
   - `InboxPage`, `NotificationsPage`, `DocsPage`, `TeamPage`, `FacturacionPage`, `WorkspaceOverviewPage`, `MiTrabajoPage`.
