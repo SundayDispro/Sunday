@@ -13,7 +13,7 @@ const STORAGE_KEY = 'sunday_mobile_state';
 export function useMobileState(initialPage: string = 'home') {
   const [state, setState] = useState<MobileState>(() => {
     try {
-      const saved = sessionStorage.getItem(STORAGE_KEY);
+      const saved = localStorage.getItem(STORAGE_KEY);
       if (saved) {
         const parsed = JSON.parse(saved);
         return {
@@ -25,7 +25,7 @@ export function useMobileState(initialPage: string = 'home') {
         };
       }
     } catch (e) {
-      console.warn('Error reading mobile state from sessionStorage', e);
+      console.warn('Error reading mobile state from localStorage', e);
     }
     return {
       activePage: initialPage,
@@ -38,9 +38,9 @@ export function useMobileState(initialPage: string = 'home') {
 
   useEffect(() => {
     try {
-      sessionStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
     } catch (e) {
-      console.warn('Error saving mobile state to sessionStorage', e);
+      console.warn('Error saving mobile state to localStorage', e);
     }
   }, [state]);
 

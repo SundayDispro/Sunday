@@ -38,7 +38,7 @@ export const BandejaUnificadaPage: React.FC<BandejaUnificadaPageProps> = ({
 
   return (
     <div className="flex flex-col min-h-0">
-      <div className="shrink-0 flex border-b border-monday-border bg-white">
+      <div className="shrink-0 flex border-b border-monday-border bg-[var(--monday-surface)]">
         <button
           type="button"
           onClick={() => handleTab('actividad')}
@@ -64,7 +64,7 @@ export const BandejaUnificadaPage: React.FC<BandejaUnificadaPageProps> = ({
           Notificaciones
         </button>
       </div>
-      <div className="flex-1 min-h-0 overflow-hidden">
+      <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
         {tab === 'actividad' ? (
           <InboxPage onItemClick={onItemClick} />
         ) : (

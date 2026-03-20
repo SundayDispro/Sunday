@@ -49,26 +49,26 @@ export const SwipeableItemCard: React.FC<Props> = ({
     if (offset > swipeThreshold || velocity > 500) {
       // Swiped right (Complete action)
       if (onComplete) {
-        if (navigator.vibrate) navigator.vibrate(50);
+        if (navigator.vibrate) navigator.vibrate(20);
         setIsCompleting(true);
         await controls.start({ x: '100%', transition: { duration: 0.2 } });
         onComplete();
       } else {
-        controls.start({ x: 0, transition: { type: 'spring', bounce: 0.5 } });
+        controls.start({ x: 0, transition: { type: 'spring', stiffness: 480, damping: 36 } });
       }
     } else if (offset < -swipeThreshold || velocity < -500) {
       // Swiped left (Delete action)
       if (onDelete) {
-        if (navigator.vibrate) navigator.vibrate([50, 50, 50]); // Triple vibration for delete
+        if (navigator.vibrate) navigator.vibrate(25); // Pulso único dentro del rango nativo
         setIsDeleting(true);
         await controls.start({ x: '-100%', transition: { duration: 0.2 } });
         onDelete();
       } else {
-        controls.start({ x: 0, transition: { type: 'spring', bounce: 0.5 } });
+        controls.start({ x: 0, transition: { type: 'spring', stiffness: 480, damping: 36 } });
       }
     } else {
       // Snap back
-      controls.start({ x: 0, transition: { type: 'spring', bounce: 0.5 } });
+      controls.start({ x: 0, transition: { type: 'spring', stiffness: 480, damping: 36 } });
     }
   };
 
@@ -97,7 +97,7 @@ export const SwipeableItemCard: React.FC<Props> = ({
         dragListener={false}
         onPointerDown={handlePointerDown}
         dragConstraints={{ left: 0, right: 0 }}
-        dragElastic={0.4}
+        dragElastic={0.6}
         onDragEnd={handleDragEnd}
         animate={controls}
         className="relative z-10 bg-[var(--monday-surface)] w-full h-full shadow-monday-sm rounded-lg"

@@ -40,7 +40,7 @@ export const LayersPanel: React.FC<LayersPanelProps> = ({
           const displayLabel = label.charAt(0).toUpperCase() + label.slice(1);
           return (
             <div
-              key={obj.name ?? `${obj.type ?? 'obj'}-${index}`}
+              key={(obj as unknown as { name?: string }).name ?? `${obj.type ?? 'obj'}-${index}`}
               className={`group flex items-center gap-1 rounded-lg ${
                 isActive ? 'bg-monday-blue text-white' : 'hover:bg-monday-hover text-monday-text'
               }`}

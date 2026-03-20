@@ -127,7 +127,8 @@ export const VectorEditor: React.FC<VectorEditorProps> = ({
           evt.preventDefault();
           const active = c.getActiveObject();
           if (active) {
-            active.clone((cloned: fabric.Object) => {
+            (active as unknown as { clone: (cb: (cloned: fabric.Object) => void) => void }).clone(
+              (cloned: fabric.Object) => {
               cloned.set({
                 left: (active.left ?? 0) + 20,
                 top: (active.top ?? 0) + 20,
@@ -138,7 +139,8 @@ export const VectorEditor: React.FC<VectorEditorProps> = ({
               setIsDirty(true);
               syncObjects();
               c.requestRenderAll();
-            });
+              }
+            );
           }
           return;
         }
@@ -146,7 +148,7 @@ export const VectorEditor: React.FC<VectorEditorProps> = ({
           evt.preventDefault();
           const active = c.getActiveObject();
           if (active && (active instanceof fabric.ActiveSelection ? active.size() > 1 : false)) {
-            (active as fabric.ActiveSelection).toGroup();
+            (active as unknown as { toGroup: () => fabric.Group }).toGroup();
             setIsDirty(true);
             syncObjects();
             c.requestRenderAll();
@@ -304,18 +306,20 @@ export const VectorEditor: React.FC<VectorEditorProps> = ({
   const handleLayerDuplicate = (obj: fabric.Object) => {
     const canvas = fabricRef.current;
     if (!canvas) return;
-    obj.clone((cloned: fabric.Object) => {
-      cloned.set({
-        left: (obj.left ?? 0) + 20,
-        top: (obj.top ?? 0) + 20,
-      });
-      if (cloned.setCoords) cloned.setCoords();
-      canvas.add(cloned);
-      canvas.setActiveObject(cloned);
-      setIsDirty(true);
-      syncObjects();
-      canvas.requestRenderAll();
-    });
+    (obj as unknown as { clone: (cb: (cloned: fabric.Object) => void) => void }).clone(
+      (cloned: fabric.Object) => {
+        cloned.set({
+          left: (obj.left ?? 0) + 20,
+          top: (obj.top ?? 0) + 20,
+        });
+        if (cloned.setCoords) cloned.setCoords();
+        canvas.add(cloned);
+        canvas.setActiveObject(cloned);
+        setIsDirty(true);
+        syncObjects();
+        canvas.requestRenderAll();
+      }
+    );
   };
 
   const handleBringFront = (obj: fabric.Object) => {
@@ -369,7 +373,7 @@ export const VectorEditor: React.FC<VectorEditorProps> = ({
   const handleExportPNG = () => {
     const canvas = fabricRef.current;
     if (!canvas) return;
-    const dataUrl = canvas.toDataURL({ format: 'png', quality: 1 });
+    const dataUrl = canvas.toDataURL({ format: 'png', quality: 1, multiplier: 1 });
     const a = document.createElement('a');
     a.href = dataUrl;
     a.download = `${(name || 'diseño').replace(/\s+/g, '-')}.png`;

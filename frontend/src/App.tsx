@@ -57,7 +57,8 @@ import { FacturacionPage } from './components/pages/FacturacionPage';
 import { WorkspaceOverviewPage } from './components/pages/WorkspaceOverviewPage';
 import { MiTrabajoPage } from './components/pages/MiTrabajoPage';
 import { TodayPage } from './components/pages/TodayPage';
-import { MobileBottomNav, type MobileBottomTab } from './components/MobileBottomNav';
+import { type MobileBottomTab } from './components/MobileBottomNav';
+import { MobileLayout } from './components/layout/MobileLayout';
 import { MobileBoardHeaderMinimal } from './components/MobileBoardHeaderMinimal';
 import { BoardViewBottomSheet } from './components/Board/BoardViewBottomSheet';
 import { MobileMoreDrawer } from './components/MobileMoreDrawer';
@@ -257,7 +258,7 @@ function App() {
   const [selectedItemIdState, setSelectedItemIdState] = useState<string | null>(() => {
     if (typeof window !== 'undefined' && window.innerWidth <= 767) {
       try {
-        const saved = sessionStorage.getItem('sunday_mobile_state');
+        const saved = localStorage.getItem('sunday_mobile_state');
         if (saved) {
           const parsed = JSON.parse(saved);
           if (parsed.selectedItemId) return parsed.selectedItemId;
@@ -460,7 +461,7 @@ function App() {
   const [boardVistaSheetOpen, setBoardVistaSheetOpen] = useState(() => {
     if (typeof window !== 'undefined' && window.innerWidth <= 767) {
       try {
-        const saved = sessionStorage.getItem('sunday_mobile_state');
+        const saved = localStorage.getItem('sunday_mobile_state');
         if (saved) {
           const parsed = JSON.parse(saved);
           return !!parsed.bottomSheetOpen;
@@ -472,12 +473,12 @@ function App() {
 
   useEffect(() => {
     if (typeof window !== 'undefined' && window.innerWidth <= 767) {
-      const ms = sessionStorage.getItem('sunday_mobile_state');
+      const ms = localStorage.getItem('sunday_mobile_state');
       if (ms) {
         try {
           const parsed = JSON.parse(ms);
           parsed.bottomSheetOpen = boardVistaSheetOpen;
-          sessionStorage.setItem('sunday_mobile_state', JSON.stringify(parsed));
+          localStorage.setItem('sunday_mobile_state', JSON.stringify(parsed));
         } catch {}
       }
     }
@@ -637,7 +638,7 @@ function App() {
   const [activeBoardId, setActiveBoardId] = useState<string | null>(() => {
     if (typeof window !== 'undefined' && window.innerWidth <= 767) {
       try {
-        const saved = sessionStorage.getItem('sunday_mobile_state');
+        const saved = localStorage.getItem('sunday_mobile_state');
         if (saved) {
           const parsed = JSON.parse(saved);
           if (parsed.activeBoardId) return parsed.activeBoardId;
@@ -1391,6 +1392,536 @@ function App() {
       </div>
     );
   }
+
+  const routeTree = (
+    <>
+          {activePage === 'home' ? (
+            isMobile ? (
+              <MobileHomePage
+                userName={currentUser?.name ?? currentUser?.username ?? null}
+                onOpenSearch={() => {
+                  setActivePage('search');
+                  setSidebarOpen(false);
+                }}
+                onOpenKanban={() => {
+                  if (!activeBoardId && boards.length > 0) setActiveBoardId(boards[0].id);
+                  setCurrentView('kanban');
+                  setActivePage('board');
+                  setSidebarOpen(false);
+                }}
+                onOpenMentions={() => {
+                  setActivePage('notifications');
+                  setSidebarOpen(false);
+                }}
+              />
+            ) : (
+              <TodayPage
+                onGoSearch={() => {
+                  setActivePage('search');
+                  setSidebarOpen(false);
+                }}
+                onGoKanban={() => {
+                  // En Inicio, abrir directamente el Kanban del tablero actual (o el primero disponible).
+                  if (!activeBoardId && boards.length > 0) {
+                    setActiveBoardId(boards[0].id);
+                  }
+                  setCurrentView('kanban');
+                  setActivePage('board');
+                  setSidebarOpen(false);
+                }}
+                onGoInbox={() => {
+                  setActivePage('inbox');
+                  setSidebarOpen(false);
+                }}
+                onGoDocs={() => {
+                  setActivePage('docs');
+                  setSidebarOpen(false);
+                }}
+              />
+            )
+          ) : activePage === 'calendar' && !isMobile ? (
+            <>
+              <header className="shrink-0 border-b border-monday-border bg-white">
+                <div className="h-14 flex items-center px-4 sm:px-6 gap-3">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <Calendar size={20} className="text-monday-blue shrink-0" />
+                    <span className="text-[18px] font-semibold text-monday-text truncate">Calendario</span>
+                  </div>
+                  <Popover.Root open={calendarBoardPickerOpen} onOpenChange={setCalendarBoardPickerOpen}>
+                    <Popover.Trigger asChild>
+                      <button
+                        type="button"
+                        className="flex items-center gap-2 px-3 py-2 rounded-monday border border-monday-border bg-monday-pill/50 hover:bg-monday-hover text-[13px] font-medium text-monday-text min-w-0 max-w-[220px] sm:max-w-[280px]"
+                      >
+                        <span className="truncate">
+                          {activeBoardId ? (boards.find(b => b?.id === activeBoardId)?.name ?? 'Tablero') : 'Seleccionar tablero'}
+                        </span>
+                        <ChevronDown size={16} className="shrink-0 text-monday-subtext" />
+                      </button>
+                    </Popover.Trigger>
+                    <Popover.Portal>
+                      <Popover.Content
+                        className="z-50 bg-white rounded-xl shadow-monday-lg border border-monday-border w-64 max-h-[60vh] overflow-y-auto p-1"
+                        sideOffset={6}
+                        align="start"
+                      >
+                        {boards.length === 0 ? (
+                          <p className="px-3 py-2 text-[13px] text-monday-subtext">No hay tableros en este espacio.</p>
+                        ) : (
+                          boards.map((b) => (
+                            <button
+                              key={b.id}
+                              type="button"
+                              onClick={() => { setActiveBoardId(b.id); setCalendarBoardPickerOpen(false); }}
+                              className={`w-full text-left px-3 py-2.5 rounded-lg text-[13px] font-medium transition-colors ${
+                                activeBoardId === b.id ? 'bg-monday-blue text-white' : 'text-monday-text hover:bg-monday-hover'
+                              }`}
+                            >
+                              {b.name}
+                            </button>
+                          ))
+                        )}
+                      </Popover.Content>
+                    </Popover.Portal>
+                  </Popover.Root>
+                </div>
+              </header>
+              {activeBoardId ? (
+                <div className="flex-1 min-h-0 overflow-hidden flex flex-col">
+                  <BoardContainer
+                    boardId={activeBoardId}
+                    onRowClick={setSelectedItem}
+                    viewMode="calendar"
+                    calendarStandalone
+                  />
+                </div>
+              ) : boards.length === 0 ? (
+                <div className="flex-1 flex flex-col items-center justify-center text-monday-subtext p-8">
+                  <Calendar size={48} className="text-monday-subtext/50 mb-4" />
+                  <p className="text-[15px] font-medium text-monday-text mb-2">No hay tableros</p>
+                  <p className="text-[13px] text-center max-w-sm">Crea un tablero desde Inicio o el menú lateral para usar el calendario.</p>
+                </div>
+              ) : (
+                <div className="flex-1 flex flex-col items-center justify-center text-monday-subtext p-8">
+                  <Calendar size={48} className="text-monday-subtext/50 mb-4" />
+                  <p className="text-[13px]">Selecciona un tablero en la barra superior para ver el calendario.</p>
+                </div>
+              )}
+            </>
+          ) : activePage === 'calendar' && isMobile ? (
+            activeBoardId ? (
+              <div className="flex-1 flex flex-col min-h-0">
+                <BoardContainer boardId={activeBoardId} onRowClick={setSelectedItem} viewMode="calendar" mobileCalendarOnly isMobile />
+              </div>
+            ) : boards.length === 0 ? (
+              <div className="flex-1 flex flex-col items-center justify-center text-monday-subtext p-6">
+                <p className="text-[15px] font-medium text-monday-text mb-2">No hay tableros</p>
+                <p className="text-[13px]">Crea un tablero desde el menú Más para usar el calendario.</p>
+              </div>
+            ) : (
+              <div className="flex-1 flex flex-col items-center justify-center text-monday-subtext p-6">
+                <p className="text-[13px]">Selecciona un tablero desde Inicio o el menú Más.</p>
+              </div>
+            )
+          ) : isMobile && !isBootstrapping && (activePage === 'board' && activeBoardId || activePage === 'miTrabajo' && activeBoardId) ? (
+            <>
+              <motion.div
+                className="min-h-0 overflow-hidden shrink-0"
+                animate={{ height: mobileHeaderHidden ? 0 : Math.max(mobileHeaderHeight, 80) }}
+                initial={false}
+                transition={{ duration: 0.25, ease: 'easeInOut' }}
+              >
+                <div ref={mobileHeaderRef}>
+                  <MobileBoardHeaderMinimal
+                    boardName={boards.find(b => b?.id === activeBoardId)?.name ?? ''}
+                    onRename={() => {
+                      const board = boards.find(b => b?.id === activeBoardId);
+                      if (board) { setBoardNameDraft(board.name); setEditingBoardName(true); }
+                    }}
+                    editingName={editingBoardName}
+                    nameDraft={boardNameDraft}
+                    onNameDraftChange={setBoardNameDraft}
+                    onFinishEditName={() => {
+                      setEditingBoardName(false);
+                      if (boardNameDraft.trim() && activeBoardId) {
+                        socket.emit('rename_board', { boardId: activeBoardId, name: boardNameDraft.trim() });
+                        setBoards(prev => prev.map(b => b.id === activeBoardId ? { ...b, name: boardNameDraft.trim() } : b));
+                      }
+                    }}
+                    onOpenVistaSheet={() => setBoardVistaSheetOpen(true)}
+                    currentViewLabel={VIEW_LABELS[activePage === 'miTrabajo' ? 'miTrabajo' : currentView]}
+                    compact={isLandscapeShort}
+                  />
+                </div>
+              </motion.div>
+              {/* IMPORTANTE (scroll móvil): Cualquier wrapper nuevo que envuelva este contenido debe llevar min-h-0 para no romper la cadena flex/overflow y el scroll vertical. */}
+              <div className="flex-1 min-h-0 overflow-hidden relative flex flex-col">
+                <BoardContainer
+                  boardId={activeBoardId!}
+                  onRowClick={setSelectedItem}
+                  viewMode={activePage === 'miTrabajo' ? 'miTrabajo' : currentView}
+                  mobileOptimized
+                  isMobile
+                  onHeaderVisibilityChange={setMobileHeaderHidden}
+                />
+              </div>
+              <BoardViewBottomSheet
+                open={boardVistaSheetOpen}
+                onOpenChange={setBoardVistaSheetOpen}
+                currentView={activePage === 'miTrabajo' ? 'miTrabajo' : currentView}
+                onChangeView={setCurrentView}
+                enabledViews={enabledViews}
+                onAddView={(view) => {
+                  if (!enabledViews.includes(view)) {
+                    setEnabledViews([...enabledViews, view]);
+                    setCurrentView(view);
+                  }
+                }}
+                canSeeFacturacion={!!canSeeFacturacionView}
+                isTaller={!!isTaller}
+                onToggleStar={undefined}
+                onExportFolders={async () => {
+                  if (!currentUser || !activeBoardId) return;
+                  try {
+                    setExportingFolders(true);
+                    const res = await apiFetch(`${API_BASE}/api/export/folders`, {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ userId: currentUser.id, boardId: activeBoardId }),
+                    });
+                    const data = await res.json();
+                    if (!res.ok) throw new Error(data.error || 'Export failed');
+                    if (data.copied === 0 && data.skipped === 0) {
+                      toast('No hay archivos asignados a ti para exportar en este tablero.', 'info');
+                    } else if (data.copied === 0) {
+                      toast(`Todo al día — ${data.skipped} archivos ya estaban guardados.`, 'success');
+                    } else {
+                      toast(`${data.copied} archivos nuevos guardados. ${data.skipped} ya existían.`, 'success');
+                    }
+                    if (data.errors?.length) console.warn('Export warnings:', data.errors);
+                  } catch (e) {
+                    console.error('Error exporting folders', e);
+                    toast(e instanceof Error ? e.message : 'No se pudo exportar la estructura de carpetas.', 'error');
+                  } finally {
+                    setExportingFolders(false);
+                  }
+                }}
+                exportingFolders={exportingFolders}
+                onOpenSearch={() => { setActivePage('search'); }}
+              />
+            </>
+          ) : activePage === 'miTrabajo' ? (
+            <MiTrabajoPage
+              workspace={workspaces.find(w => w.id === activeWorkspaceId) ?? null}
+              workspaces={workspaces}
+              boards={boards}
+              activeBoardId={activeBoardId}
+              onSelectBoard={setActiveBoardId}
+              onRowClick={setSelectedItem}
+            />
+          ) : activePage === 'board' && !activeBoardId ? (
+            isMobile ? (
+              <MobileBoardsOverview
+                workspaces={workspaces}
+                activeWorkspaceId={activeWorkspaceId}
+                boards={boards}
+                onSelectWorkspace={(id) => {
+                  setActiveWorkspaceId(id);
+                  setActiveBoardId(null);
+                }}
+                onSelectBoard={(id) => {
+                  setActiveBoardId(id);
+                }}
+              />
+            ) : (
+              <WorkspaceOverviewPage
+                workspace={workspaces.find(w => w.id === activeWorkspaceId) ?? null}
+                workspaces={workspaces}
+                boards={boards}
+                onSelectBoard={setActiveBoardId}
+                onSelectWorkspace={(id) => {
+                  setActiveWorkspaceId(id);
+                  setActiveBoardId(null);
+                }}
+                onWorkspaceUpdated={(updated) => {
+                  setWorkspaces(prev => prev.map(w => w.id === updated.id ? { ...w, ...updated } : w));
+                }}
+                onWorkspaceDeleted={() => {
+                  apiFetch(`${API_BASE}/api/workspaces`)
+                    .then(r => (r.ok ? r.json() : Promise.resolve(null)))
+                    .then((data: Workspace[] | null) => {
+                      if (!data || !Array.isArray(data)) return;
+                      setWorkspaces(data);
+                      const stillExists = data.some(w => w.id === activeWorkspaceId);
+                      if (!stillExists) {
+                        setActiveWorkspaceId(data[0]?.id ?? null);
+                        setActiveBoardId(null);
+                        setBoards([]);
+                      }
+                    })
+                    .catch(() => {});
+                }}
+                onBoardDeleted={() => {
+                  const url = activeWorkspaceId
+                    ? `${API_BASE}/api/boards?workspaceId=${encodeURIComponent(
+                        activeWorkspaceId
+                      )}`
+                    : `${API_BASE}/api/boards`;
+
+                  apiFetch(url)
+                    .then(r => (r.ok ? r.json() : Promise.resolve(null)))
+                    .then((data: Board[] | null) => {
+                      if (!data || !Array.isArray(data)) return;
+                      setBoards(data);
+                      setActiveBoardId(prev => {
+                        if (!prev) return null;
+                        const exists = data.some(b => b.id === prev);
+                        return exists ? prev : data[0]?.id ?? null;
+                      });
+                    })
+                    .catch(() => {});
+                }}
+              />
+            )
+          ) : activePage === 'board' && boards.length === 0 ? (
+            <div className="flex-1 flex flex-col items-center justify-center text-monday-subtext p-8">
+              <p className="text-[15px] font-medium text-monday-text mb-2">No hay tableros</p>
+              <p className="text-[13px] mb-4">Crea uno desde el menÃƒÂº de la izquierda con &quot;Agregar tablero&quot;.</p>
+              <button
+                onClick={() => setShowAddBoard(true)}
+                className="px-4 py-2 bg-monday-blue text-white text-[13px] font-medium rounded-monday hover:bg-monday-blue/90"
+              >
+                <Plus size={16} className="inline mr-1.5 -mt-0.5" />
+                Agregar tablero
+              </button>
+            </div>
+          ) : activePage === 'board' && activeBoardId ? (
+            <>
+              <header className="shrink-0 border-b border-monday-border">
+                <div className="h-[56px] flex items-center px-4 sm:px-6 justify-between gap-2">
+                  <div className="flex items-center gap-2">
+                    {editingBoardName && activeBoardId ? (
+                      <input
+                        autoFocus
+                        value={boardNameDraft}
+                        onChange={e => setBoardNameDraft(e.target.value)}
+                        onBlur={() => {
+                          setEditingBoardName(false);
+                          if (boardNameDraft.trim()) {
+                            socket.emit('rename_board', { boardId: activeBoardId, name: boardNameDraft.trim() });
+                            setBoards(prev => prev.map(b => b.id === activeBoardId ? { ...b, name: boardNameDraft.trim() } : b));
+                          }
+                        }}
+                        onKeyDown={e => {
+                          if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
+                          if (e.key === 'Escape') setEditingBoardName(false);
+                        }}
+                        onClick={e => e.stopPropagation()}
+                        className="text-[20px] font-semibold text-monday-text bg-monday-hover rounded px-1 py-0.5 outline-none border border-monday-blue min-w-[120px]"
+                      />
+                    ) : (
+                      <h1
+                        className="text-[18px] sm:text-[20px] font-semibold text-monday-text cursor-pointer hover:bg-monday-hover rounded px-1 py-0.5 transition-colors truncate min-w-0 max-w-[180px] sm:max-w-none"
+                        onClick={() => {
+                          const board = boards.find(b => b && b.id === activeBoardId);
+                          if (board) {
+                            setBoardNameDraft(board.name);
+                            setEditingBoardName(true);
+                          }
+                        }}
+                        title="Clic para editar nombre del tablero"
+                      >
+                        {boards.find(b => b && b.id === activeBoardId)?.name || 'Cargando...'}
+                      </h1>
+                    )}
+                    <Star size={16} className="text-monday-subtext hover:text-monday-orange cursor-pointer transition-colors" />
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        if (!currentUser || !activeBoardId) return;
+                        try {
+                          setExportingFolders(true);
+                          const res = await apiFetch(`${API_BASE}/api/export/folders`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ userId: currentUser.id, boardId: activeBoardId }),
+                          });
+                          const data = await res.json();
+                          if (!res.ok) throw new Error(data.error || 'Export failed');
+                          if (data.copied === 0 && data.skipped === 0) {
+                            toast('No hay archivos asignados a ti para exportar en este tablero.', 'info');
+                          } else if (data.copied === 0) {
+                            toast(`Todo al día — ${data.skipped} archivos ya estaban guardados.`, 'success');
+                          } else {
+                            toast(`${data.copied} archivos nuevos guardados. ${data.skipped} ya existían.`, 'success');
+                          }
+                          if (data.errors?.length) {
+                            console.warn('Export warnings:', data.errors);
+                          }
+                        } catch (e) {
+                          console.error('Error exporting folders', e);
+                          const msg = e instanceof Error ? e.message : 'No se pudo exportar la estructura de carpetas.';
+                          toast(msg, 'error');
+                        } finally {
+                          setExportingFolders(false);
+                        }
+                      }}
+                      disabled={!activeBoardId || exportingFolders}
+                      className="toolbar-btn btn-export-folders"
+                      title="Exportar estructura de carpetas del tablero"
+                    >
+                      <Folder size={16} />
+                      <span>{exportingFolders ? 'Exportando...' : 'Exportar carpetas'}</span>
+                    </button>
+                    <div className="w-px h-5 bg-monday-border" />
+                    <button
+                      type="button"
+                      onClick={() => { setActivePage('search'); }}
+                      className="toolbar-btn"
+                      title="Buscar en la aplicación"
+                    >
+                      <Search size={16} />
+                      <span>Buscar</span>
+                    </button>
+                  </div>
+                </div>
+
+                <div
+                  className="flex items-center px-4 sm:px-6 gap-1 text-[13px] min-w-0 overflow-x-auto overflow-y-hidden scroll-touch custom-scrollbar pr-2"
+                  style={{ WebkitOverflowScrolling: 'touch', scrollbarWidth: 'thin' }}
+                >
+                  <div className="flex gap-1 flex-nowrap pb-px min-h-[44px] items-center">
+                  <DndContext sensors={boardTabSensors} collisionDetection={closestCenter} onDragEnd={handleBoardTabDragEnd}>
+                    <SortableContext items={orderedBoardTabs} strategy={horizontalListSortingStrategy}>
+                      {orderedBoardTabs.map((tabId, idx) => (
+                        <div key={tabId} className="flex items-center gap-1">
+                          <SortableBoardTab
+                            tabId={tabId}
+                            label={VIEW_TAB_META[tabId]}
+                            isActive={currentView === tabId}
+                            onSelect={setCurrentView}
+                          />
+                        </div>
+                      ))}
+                    </SortableContext>
+                  </DndContext>
+                  {!isTaller && (
+                  <AddViewDropdown
+                    enabledViews={enabledViews}
+                    onAddView={(view) => {
+                      if (!enabledViews.includes(view)) {
+                        setEnabledViews([...enabledViews, view]);
+                        setCurrentView(view);
+                      }
+                      setShowAddViewPopover(false);
+                    }}
+                    open={showAddViewPopover}
+                    onOpenChange={setShowAddViewPopover}
+                    canAddFacturacion={canSeeFacturacionView}
+                  />
+                  )}
+                  </div>
+                </div>
+              </header>
+
+              <div className="flex-1 min-h-0 overflow-hidden relative flex flex-col">
+                <BoardContainer boardId={activeBoardId} onRowClick={setSelectedItem} viewMode={currentView} />
+              </div>
+            </>
+          ) : isMobile && (activePage === 'inbox' || activePage === 'notifications') ? (
+            <BandejaUnificadaPage
+              onItemClick={setSelectedItem}
+              initialTab={activePage === 'notifications' ? 'notificaciones' : 'actividad'}
+              onOpenItem={(item, boardId) => {
+                setActivePage('board');
+                setActiveBoardId(boardId);
+                setSelectedItem(item);
+              }}
+              onNotificationsChange={fetchUnreadNotifications}
+            />
+          ) : activePage === 'inbox' ? (
+            <InboxPage
+              onItemClick={setSelectedItem}
+              initialUser={composeToUser}
+              onClearInitialUser={() => setComposeToUser(null)}
+            />
+          ) : activePage === 'notifications' ? (
+            <NotificationsPage
+              onOpenItem={(item, boardId) => {
+                setActivePage('board');
+                setActiveBoardId(boardId);
+                setSelectedItem(item);
+              }}
+              onOpenInbox={() => { setActivePage('inbox'); }}
+              onNotificationsChange={fetchUnreadNotifications}
+            />
+          ) : activePage === 'search' ? (
+            <SearchPage
+              onItemClick={setSelectedItem}
+              onResultClick={(item, boardId) => {
+                setActivePage('board');
+                setActiveBoardId(boardId);
+                setSelectedItem(item);
+              }}
+            />
+          ) : activePage === 'docs' ? (
+            isMobile ? (
+              <MobileDocsHub
+                workspaceId={activeWorkspaceId ?? workspaces[0]?.id ?? null}
+                boards={boards}
+                initialCreateFromBoard={pendingDocFromBoard}
+                onConsumeInitialCreateFromBoard={() => setPendingDocFromBoard(null)}
+                initialCreateDocType={pendingCreateDocType}
+                onConsumeInitialCreateDocType={() => setPendingCreateDocType(null)}
+                initialOpenDocId={openDocId}
+                onConsumeInitialOpenDocId={() => setOpenDocId(null)}
+                onRequestOpenDoc={(id) => setOpenDocId(id)}
+                onAddReminderWidget={ensureReminderWidgetVisible}
+              />
+            ) : (
+              <DocsPage
+                workspaceId={activeWorkspaceId ?? workspaces[0]?.id ?? null}
+                boards={boards}
+                initialCreateFromBoard={pendingDocFromBoard}
+                onConsumeInitialCreateFromBoard={() => setPendingDocFromBoard(null)}
+                initialCreateDocType={pendingCreateDocType}
+                onConsumeInitialCreateDocType={() => setPendingCreateDocType(null)}
+                initialOpenDocId={openDocId}
+                onConsumeInitialOpenDocId={() => setOpenDocId(null)}
+                onAddTaskList={addTaskWindow}
+                onAddCalculatorWidget={ensureCalculatorVisible}
+                onAddReminderWidget={ensureReminderWidgetVisible}
+              />
+            )
+          ) : activePage === 'team' ? (
+            <TeamPage
+              onOpenInboxForUser={(user) => {
+                setComposeToUser(user);
+                setActivePage('inbox');
+              }}
+            />
+          ) : activePage === 'facturacion' ? (
+            <FacturacionPage
+              boards={boards}
+              onOpenItem={(item, boardId) => {
+                setActivePage('board');
+                setActiveBoardId(boardId);
+                setSelectedItem(item);
+              }}
+            />
+          ) : (
+            <div className="flex-1 flex flex-col items-center justify-center text-monday-subtext">
+              <BarChart2 size={48} className="mb-4 opacity-50" />
+              <h2 className="text-xl font-semibold text-monday-text mb-2">Próximamente</h2>
+              <p className="text-[14px]">Esta vista "({activePage})" estarÃƒÂ¡ disponible en futuras actualizaciones.</p>
+            </div>
+          )}
+
+    </>
+  );
 
   return (
     <div className="flex min-h-[100dvh] h-screen max-h-[100dvh] bg-monday-bg overflow-hidden font-sans pt-[env(safe-area-inset-top)] pr-[env(safe-area-inset-right)] pb-[env(safe-area-inset-bottom)] pl-[env(safe-area-inset-left)]">
@@ -2280,7 +2811,7 @@ if (ok && data && typeof data.id === 'string') {
             className={[
               'shrink-0 h-14 flex items-center gap-2 px-3 sm:px-4',
               isMobile
-                ? 'border-b border-monday-border bg-white backdrop-blur-xl'
+                ? 'border-b border-monday-border bg-[var(--monday-surface)] backdrop-blur-xl'
                 : 'border-b border-monday-border',
             ].join(' ')}
           >
@@ -2354,546 +2885,101 @@ if (ok && data && typeof data.id === 'string') {
             )}
           </header>
 
-          <AnimatePresence mode="wait" initial={false}>
-            <motion.div
-              key={activePage}
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              transition={{ duration: 0.2, ease: [0.22, 1, 0.36, 1] }}
-              className="flex-1 flex flex-col min-h-0 overflow-hidden"
-            >
           {isMobile && isBootstrapping ? (
-            <div className="flex-1 flex items-center justify-center text-monday-subtext text-[13px] gap-2">
-              <div className="w-5 h-5 border-2 border-monday-blue border-t-transparent rounded-full animate-spin" />
-              Cargando Sunday...
-            </div>
-          ) : activePage === 'home' ? (
-            isMobile ? (
-              <MobileHomePage
-                userName={currentUser?.name ?? currentUser?.username ?? null}
-                onOpenSearch={() => {
-                  setActivePage('search');
-                  setSidebarOpen(false);
-                }}
-                onOpenKanban={() => {
-                  if (!activeBoardId && boards.length > 0) setActiveBoardId(boards[0].id);
-                  setCurrentView('kanban');
-                  setActivePage('board');
-                  setSidebarOpen(false);
-                }}
-                onOpenMentions={() => {
-                  setActivePage('notifications');
-                  setSidebarOpen(false);
-                }}
-              />
-            ) : (
-              <TodayPage
-                onGoSearch={() => {
-                  setActivePage('search');
-                  setSidebarOpen(false);
-                }}
-                onGoKanban={() => {
-                  // En Inicio, abrir directamente el Kanban del tablero actual (o el primero disponible).
-                  if (!activeBoardId && boards.length > 0) {
-                    setActiveBoardId(boards[0].id);
-                  }
-                  setCurrentView('kanban');
-                  setActivePage('board');
-                  setSidebarOpen(false);
-                }}
-                onGoInbox={() => {
-                  setActivePage('inbox');
-                  setSidebarOpen(false);
-                }}
-                onGoDocs={() => {
-                  setActivePage('docs');
-                  setSidebarOpen(false);
-                }}
-              />
-            )
-          ) : activePage === 'calendar' && !isMobile ? (
-            <>
-              <header className="shrink-0 border-b border-monday-border bg-white">
-                <div className="h-14 flex items-center px-4 sm:px-6 gap-3">
-                  <div className="flex items-center gap-2 min-w-0">
-                    <Calendar size={20} className="text-monday-blue shrink-0" />
-                    <span className="text-[18px] font-semibold text-monday-text truncate">Calendario</span>
-                  </div>
-                  <Popover.Root open={calendarBoardPickerOpen} onOpenChange={setCalendarBoardPickerOpen}>
-                    <Popover.Trigger asChild>
-                      <button
-                        type="button"
-                        className="flex items-center gap-2 px-3 py-2 rounded-monday border border-monday-border bg-monday-pill/50 hover:bg-monday-hover text-[13px] font-medium text-monday-text min-w-0 max-w-[220px] sm:max-w-[280px]"
-                      >
-                        <span className="truncate">
-                          {activeBoardId ? (boards.find(b => b?.id === activeBoardId)?.name ?? 'Tablero') : 'Seleccionar tablero'}
-                        </span>
-                        <ChevronDown size={16} className="shrink-0 text-monday-subtext" />
-                      </button>
-                    </Popover.Trigger>
-                    <Popover.Portal>
-                      <Popover.Content
-                        className="z-50 bg-white rounded-xl shadow-monday-lg border border-monday-border w-64 max-h-[60vh] overflow-y-auto p-1"
-                        sideOffset={6}
-                        align="start"
-                      >
-                        {boards.length === 0 ? (
-                          <p className="px-3 py-2 text-[13px] text-monday-subtext">No hay tableros en este espacio.</p>
-                        ) : (
-                          boards.map((b) => (
-                            <button
-                              key={b.id}
-                              type="button"
-                              onClick={() => { setActiveBoardId(b.id); setCalendarBoardPickerOpen(false); }}
-                              className={`w-full text-left px-3 py-2.5 rounded-lg text-[13px] font-medium transition-colors ${
-                                activeBoardId === b.id ? 'bg-monday-blue text-white' : 'text-monday-text hover:bg-monday-hover'
-                              }`}
-                            >
-                              {b.name}
-                            </button>
-                          ))
-                        )}
-                      </Popover.Content>
-                    </Popover.Portal>
-                  </Popover.Root>
-                </div>
-              </header>
-              {activeBoardId ? (
-                <div className="flex-1 min-h-0 overflow-hidden flex flex-col">
-                  <BoardContainer
-                    boardId={activeBoardId}
-                    onRowClick={setSelectedItem}
-                    viewMode="calendar"
-                    calendarStandalone
-                  />
-                </div>
-              ) : boards.length === 0 ? (
-                <div className="flex-1 flex flex-col items-center justify-center text-monday-subtext p-8">
-                  <Calendar size={48} className="text-monday-subtext/50 mb-4" />
-                  <p className="text-[15px] font-medium text-monday-text mb-2">No hay tableros</p>
-                  <p className="text-[13px] text-center max-w-sm">Crea un tablero desde Inicio o el menú lateral para usar el calendario.</p>
-                </div>
-              ) : (
-                <div className="flex-1 flex flex-col items-center justify-center text-monday-subtext p-8">
-                  <Calendar size={48} className="text-monday-subtext/50 mb-4" />
-                  <p className="text-[13px]">Selecciona un tablero en la barra superior para ver el calendario.</p>
-                </div>
-              )}
-            </>
-          ) : activePage === 'calendar' && isMobile ? (
-            activeBoardId ? (
-              <div className="flex-1 flex flex-col min-h-0">
-                <BoardContainer boardId={activeBoardId} onRowClick={setSelectedItem} viewMode="calendar" mobileCalendarOnly isMobile />
-              </div>
-            ) : boards.length === 0 ? (
-              <div className="flex-1 flex flex-col items-center justify-center text-monday-subtext p-6">
-                <p className="text-[15px] font-medium text-monday-text mb-2">No hay tableros</p>
-                <p className="text-[13px]">Crea un tablero desde el menú Más para usar el calendario.</p>
-              </div>
-            ) : (
-              <div className="flex-1 flex flex-col items-center justify-center text-monday-subtext p-6">
-                <p className="text-[13px]">Selecciona un tablero desde Inicio o el menú Más.</p>
-              </div>
-            )
-          ) : isMobile && !isBootstrapping && (activePage === 'board' && activeBoardId || activePage === 'miTrabajo' && activeBoardId) ? (
-            <>
-              <motion.div
-                className="min-h-0 overflow-hidden shrink-0"
-                animate={{ height: mobileHeaderHidden ? 0 : Math.max(mobileHeaderHeight, 80) }}
-                initial={false}
-                transition={{ duration: 0.25, ease: 'easeInOut' }}
-              >
-                <div ref={mobileHeaderRef}>
-                  <MobileBoardHeaderMinimal
-                    boardName={boards.find(b => b?.id === activeBoardId)?.name ?? ''}
-                    onRename={() => {
-                      const board = boards.find(b => b?.id === activeBoardId);
-                      if (board) { setBoardNameDraft(board.name); setEditingBoardName(true); }
-                    }}
-                    editingName={editingBoardName}
-                    nameDraft={boardNameDraft}
-                    onNameDraftChange={setBoardNameDraft}
-                    onFinishEditName={() => {
-                      setEditingBoardName(false);
-                      if (boardNameDraft.trim() && activeBoardId) {
-                        socket.emit('rename_board', { boardId: activeBoardId, name: boardNameDraft.trim() });
-                        setBoards(prev => prev.map(b => b.id === activeBoardId ? { ...b, name: boardNameDraft.trim() } : b));
-                      }
-                    }}
-                    onOpenVistaSheet={() => setBoardVistaSheetOpen(true)}
-                    currentViewLabel={VIEW_LABELS[activePage === 'miTrabajo' ? 'miTrabajo' : currentView]}
-                    compact={isLandscapeShort}
-                  />
-                </div>
-              </motion.div>
-              {/* IMPORTANTE (scroll móvil): Cualquier wrapper nuevo que envuelva este contenido debe llevar min-h-0 para no romper la cadena flex/overflow y el scroll vertical. */}
-              <div className="flex-1 min-h-0 overflow-hidden relative flex flex-col">
-                <BoardContainer
-                  boardId={activeBoardId!}
-                  onRowClick={setSelectedItem}
-                  viewMode={activePage === 'miTrabajo' ? 'miTrabajo' : currentView}
-                  mobileOptimized
-                  isMobile
-                  onHeaderVisibilityChange={setMobileHeaderHidden}
-                />
-              </div>
-              <BoardViewBottomSheet
-                open={boardVistaSheetOpen}
-                onOpenChange={setBoardVistaSheetOpen}
-                currentView={activePage === 'miTrabajo' ? 'miTrabajo' : currentView}
-                onChangeView={setCurrentView}
-                enabledViews={enabledViews}
-                onAddView={(view) => {
-                  if (!enabledViews.includes(view)) {
-                    setEnabledViews([...enabledViews, view]);
-                    setCurrentView(view);
-                  }
-                }}
-                canSeeFacturacion={!!canSeeFacturacionView}
-                isTaller={!!isTaller}
-                onToggleStar={undefined}
-                onExportFolders={async () => {
-                  if (!currentUser || !activeBoardId) return;
-                  try {
-                    setExportingFolders(true);
-                    const res = await apiFetch(`${API_BASE}/api/export/folders`, {
-                      method: 'POST',
-                      headers: { 'Content-Type': 'application/json' },
-                      body: JSON.stringify({ userId: currentUser.id, boardId: activeBoardId }),
-                    });
-                    const data = await res.json();
-                    if (!res.ok) throw new Error(data.error || 'Export failed');
-                    if (data.copied === 0 && data.skipped === 0) {
-                      toast('No hay archivos asignados a ti para exportar en este tablero.', 'info');
-                    } else if (data.copied === 0) {
-                      toast(`Todo al día — ${data.skipped} archivos ya estaban guardados.`, 'success');
-                    } else {
-                      toast(`${data.copied} archivos nuevos guardados. ${data.skipped} ya existían.`, 'success');
-                    }
-                    if (data.errors?.length) console.warn('Export warnings:', data.errors);
-                  } catch (e) {
-                    console.error('Error exporting folders', e);
-                    toast(e instanceof Error ? e.message : 'No se pudo exportar la estructura de carpetas.', 'error');
-                  } finally {
-                    setExportingFolders(false);
-                  }
-                }}
-                exportingFolders={exportingFolders}
-                onOpenSearch={() => { setActivePage('search'); }}
-              />
-            </>
-          ) : activePage === 'miTrabajo' ? (
-            <MiTrabajoPage
-              workspace={workspaces.find(w => w.id === activeWorkspaceId) ?? null}
-              workspaces={workspaces}
-              boards={boards}
-              activeBoardId={activeBoardId}
-              onSelectBoard={setActiveBoardId}
-              onRowClick={setSelectedItem}
-            />
-          ) : activePage === 'board' && !activeBoardId ? (
-            isMobile ? (
-              <MobileBoardsOverview
-                workspaces={workspaces}
-                activeWorkspaceId={activeWorkspaceId}
-                boards={boards}
-                onSelectWorkspace={(id) => {
-                  setActiveWorkspaceId(id);
-                  setActiveBoardId(null);
-                }}
-                onSelectBoard={(id) => {
-                  setActiveBoardId(id);
-                }}
-              />
-            ) : (
-              <WorkspaceOverviewPage
-                workspace={workspaces.find(w => w.id === activeWorkspaceId) ?? null}
-                workspaces={workspaces}
-                boards={boards}
-                onSelectBoard={setActiveBoardId}
-                onSelectWorkspace={(id) => {
-                  setActiveWorkspaceId(id);
-                  setActiveBoardId(null);
-                }}
-                onWorkspaceUpdated={(updated) => {
-                  setWorkspaces(prev => prev.map(w => w.id === updated.id ? { ...w, ...updated } : w));
-                }}
-                onWorkspaceDeleted={() => {
-                  apiFetch(`${API_BASE}/api/workspaces`)
-                    .then(r => (r.ok ? r.json() : Promise.resolve(null)))
-                    .then((data: Workspace[] | null) => {
-                      if (!data || !Array.isArray(data)) return;
-                      setWorkspaces(data);
-                      const stillExists = data.some(w => w.id === activeWorkspaceId);
-                      if (!stillExists) {
-                        setActiveWorkspaceId(data[0]?.id ?? null);
-                        setActiveBoardId(null);
-                        setBoards([]);
-                      }
-                    })
-                    .catch(() => {});
-                }}
-                onBoardDeleted={() => {
-                  const url = activeWorkspaceId
-                    ? `${API_BASE}/api/boards?workspaceId=${encodeURIComponent(
-                        activeWorkspaceId
-                      )}`
-                    : `${API_BASE}/api/boards`;
-
-                  apiFetch(url)
-                    .then(r => (r.ok ? r.json() : Promise.resolve(null)))
-                    .then((data: Board[] | null) => {
-                      if (!data || !Array.isArray(data)) return;
-                      setBoards(data);
-                      setActiveBoardId(prev => {
-                        if (!prev) return null;
-                        const exists = data.some(b => b.id === prev);
-                        return exists ? prev : data[0]?.id ?? null;
-                      });
-                    })
-                    .catch(() => {});
-                }}
-              />
-            )
-          ) : activePage === 'board' && boards.length === 0 ? (
-            <div className="flex-1 flex flex-col items-center justify-center text-monday-subtext p-8">
-              <p className="text-[15px] font-medium text-monday-text mb-2">No hay tableros</p>
-              <p className="text-[13px] mb-4">Crea uno desde el menÃƒÂº de la izquierda con &quot;Agregar tablero&quot;.</p>
-              <button
-                onClick={() => setShowAddBoard(true)}
-                className="px-4 py-2 bg-monday-blue text-white text-[13px] font-medium rounded-monday hover:bg-monday-blue/90"
-              >
-                <Plus size={16} className="inline mr-1.5 -mt-0.5" />
-                Agregar tablero
-              </button>
-            </div>
-          ) : activePage === 'board' && activeBoardId ? (
-            <>
-              <header className="shrink-0 border-b border-monday-border">
-                <div className="h-[56px] flex items-center px-4 sm:px-6 justify-between gap-2">
-                  <div className="flex items-center gap-2">
-                    {editingBoardName && activeBoardId ? (
-                      <input
-                        autoFocus
-                        value={boardNameDraft}
-                        onChange={e => setBoardNameDraft(e.target.value)}
-                        onBlur={() => {
-                          setEditingBoardName(false);
-                          if (boardNameDraft.trim()) {
-                            socket.emit('rename_board', { boardId: activeBoardId, name: boardNameDraft.trim() });
-                            setBoards(prev => prev.map(b => b.id === activeBoardId ? { ...b, name: boardNameDraft.trim() } : b));
-                          }
-                        }}
-                        onKeyDown={e => {
-                          if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
-                          if (e.key === 'Escape') setEditingBoardName(false);
-                        }}
-                        onClick={e => e.stopPropagation()}
-                        className="text-[20px] font-semibold text-monday-text bg-monday-hover rounded px-1 py-0.5 outline-none border border-monday-blue min-w-[120px]"
-                      />
-                    ) : (
-                      <h1
-                        className="text-[18px] sm:text-[20px] font-semibold text-monday-text cursor-pointer hover:bg-monday-hover rounded px-1 py-0.5 transition-colors truncate min-w-0 max-w-[180px] sm:max-w-none"
-                        onClick={() => {
-                          const board = boards.find(b => b && b.id === activeBoardId);
-                          if (board) {
-                            setBoardNameDraft(board.name);
-                            setEditingBoardName(true);
-                          }
-                        }}
-                        title="Clic para editar nombre del tablero"
-                      >
-                        {boards.find(b => b && b.id === activeBoardId)?.name || 'Cargando...'}
-                      </h1>
-                    )}
-                    <Star size={16} className="text-monday-subtext hover:text-monday-orange cursor-pointer transition-colors" />
-                  </div>
-
-                  <div className="flex items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={async () => {
-                        if (!currentUser || !activeBoardId) return;
-                        try {
-                          setExportingFolders(true);
-                          const res = await apiFetch(`${API_BASE}/api/export/folders`, {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ userId: currentUser.id, boardId: activeBoardId }),
-                          });
-                          const data = await res.json();
-                          if (!res.ok) throw new Error(data.error || 'Export failed');
-                          if (data.copied === 0 && data.skipped === 0) {
-                            toast('No hay archivos asignados a ti para exportar en este tablero.', 'info');
-                          } else if (data.copied === 0) {
-                            toast(`Todo al día — ${data.skipped} archivos ya estaban guardados.`, 'success');
-                          } else {
-                            toast(`${data.copied} archivos nuevos guardados. ${data.skipped} ya existían.`, 'success');
-                          }
-                          if (data.errors?.length) {
-                            console.warn('Export warnings:', data.errors);
-                          }
-                        } catch (e) {
-                          console.error('Error exporting folders', e);
-                          const msg = e instanceof Error ? e.message : 'No se pudo exportar la estructura de carpetas.';
-                          toast(msg, 'error');
-                        } finally {
-                          setExportingFolders(false);
-                        }
-                      }}
-                      disabled={!activeBoardId || exportingFolders}
-                      className="toolbar-btn btn-export-folders"
-                      title="Exportar estructura de carpetas del tablero"
-                    >
-                      <Folder size={16} />
-                      <span>{exportingFolders ? 'Exportando...' : 'Exportar carpetas'}</span>
-                    </button>
-                    <div className="w-px h-5 bg-monday-border" />
-                    <button
-                      type="button"
-                      onClick={() => { setActivePage('search'); }}
-                      className="toolbar-btn"
-                      title="Buscar en la aplicación"
-                    >
-                      <Search size={16} />
-                      <span>Buscar</span>
-                    </button>
-                  </div>
-                </div>
-
-                <div
-                  className="flex items-center px-4 sm:px-6 gap-1 text-[13px] min-w-0 overflow-x-auto overflow-y-hidden scroll-touch custom-scrollbar pr-2"
-                  style={{ WebkitOverflowScrolling: 'touch', scrollbarWidth: 'thin' }}
+            <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
+              <AnimatePresence mode="wait" initial={false}>
+                <motion.div
+                  key="__bootstrap__"
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  transition={{ duration: 0.2, ease: [0.22, 1, 0.36, 1] }}
+                  className="flex-1 flex flex-col min-h-0 overflow-hidden"
                 >
-                  <div className="flex gap-1 flex-nowrap pb-px min-h-[44px] items-center">
-                  <DndContext sensors={boardTabSensors} collisionDetection={closestCenter} onDragEnd={handleBoardTabDragEnd}>
-                    <SortableContext items={orderedBoardTabs} strategy={horizontalListSortingStrategy}>
-                      {orderedBoardTabs.map((tabId, idx) => (
-                        <div key={tabId} className="flex items-center gap-1">
-                          <SortableBoardTab
-                            tabId={tabId}
-                            label={VIEW_TAB_META[tabId]}
-                            isActive={currentView === tabId}
-                            onSelect={setCurrentView}
-                          />
-                        </div>
-                      ))}
-                    </SortableContext>
-                  </DndContext>
-                  {!isTaller && (
-                  <AddViewDropdown
-                    enabledViews={enabledViews}
-                    onAddView={(view) => {
-                      if (!enabledViews.includes(view)) {
-                        setEnabledViews([...enabledViews, view]);
-                        setCurrentView(view);
-                      }
-                      setShowAddViewPopover(false);
-                    }}
-                    open={showAddViewPopover}
-                    onOpenChange={setShowAddViewPopover}
-                    canAddFacturacion={canSeeFacturacionView}
-                  />
-                  )}
+                  <div className="flex-1 flex items-center justify-center text-monday-subtext text-[13px] gap-2">
+                    <div className="w-5 h-5 border-2 border-monday-blue border-t-transparent rounded-full animate-spin" />
+                    Cargando Sunday...
                   </div>
-                </div>
-              </header>
-
-              <div className="flex-1 min-h-0 overflow-hidden relative flex flex-col">
-                <BoardContainer boardId={activeBoardId} onRowClick={setSelectedItem} viewMode={currentView} />
-              </div>
-            </>
-          ) : isMobile && (activePage === 'inbox' || activePage === 'notifications') ? (
-            <BandejaUnificadaPage
-              onItemClick={setSelectedItem}
-              initialTab={activePage === 'notifications' ? 'notificaciones' : 'actividad'}
-              onOpenItem={(item, boardId) => {
-                setActivePage('board');
-                setActiveBoardId(boardId);
-                setSelectedItem(item);
-              }}
-              onNotificationsChange={fetchUnreadNotifications}
-            />
-          ) : activePage === 'inbox' ? (
-            <InboxPage
-              onItemClick={setSelectedItem}
-              initialUser={composeToUser}
-              onClearInitialUser={() => setComposeToUser(null)}
-            />
-          ) : activePage === 'notifications' ? (
-            <NotificationsPage
-              onOpenItem={(item, boardId) => {
-                setActivePage('board');
-                setActiveBoardId(boardId);
-                setSelectedItem(item);
-              }}
-              onOpenInbox={() => { setActivePage('inbox'); }}
-              onNotificationsChange={fetchUnreadNotifications}
-            />
-          ) : activePage === 'search' ? (
-            <SearchPage
-              onItemClick={setSelectedItem}
-              onResultClick={(item, boardId) => {
-                setActivePage('board');
-                setActiveBoardId(boardId);
-                setSelectedItem(item);
-              }}
-            />
-          ) : activePage === 'docs' ? (
-            isMobile ? (
-              <MobileDocsHub
-                workspaceId={activeWorkspaceId ?? workspaces[0]?.id ?? null}
-                boards={boards}
-                initialCreateFromBoard={pendingDocFromBoard}
-                onConsumeInitialCreateFromBoard={() => setPendingDocFromBoard(null)}
-                initialCreateDocType={pendingCreateDocType}
-                onConsumeInitialCreateDocType={() => setPendingCreateDocType(null)}
-                initialOpenDocId={openDocId}
-                onConsumeInitialOpenDocId={() => setOpenDocId(null)}
-                onRequestOpenDoc={(id) => setOpenDocId(id)}
-                onAddReminderWidget={ensureReminderWidgetVisible}
-              />
-            ) : (
-              <DocsPage
-                workspaceId={activeWorkspaceId ?? workspaces[0]?.id ?? null}
-                boards={boards}
-                initialCreateFromBoard={pendingDocFromBoard}
-                onConsumeInitialCreateFromBoard={() => setPendingDocFromBoard(null)}
-                initialCreateDocType={pendingCreateDocType}
-                onConsumeInitialCreateDocType={() => setPendingCreateDocType(null)}
-                initialOpenDocId={openDocId}
-                onConsumeInitialOpenDocId={() => setOpenDocId(null)}
-                onAddTaskList={addTaskWindow}
-                onAddCalculatorWidget={ensureCalculatorVisible}
-                onAddReminderWidget={ensureReminderWidgetVisible}
-              />
-            )
-          ) : activePage === 'team' ? (
-            <TeamPage
-              onOpenInboxForUser={(user) => {
-                setComposeToUser(user);
-                setActivePage('inbox');
-              }}
-            />
-          ) : activePage === 'facturacion' ? (
-            <FacturacionPage
-              boards={boards}
-              onOpenItem={(item, boardId) => {
-                setActivePage('board');
-                setActiveBoardId(boardId);
-                setSelectedItem(item);
-              }}
-            />
-          ) : (
-            <div className="flex-1 flex flex-col items-center justify-center text-monday-subtext">
-              <BarChart2 size={48} className="mb-4 opacity-50" />
-              <h2 className="text-xl font-semibold text-monday-text mb-2">Próximamente</h2>
-              <p className="text-[14px]">Esta vista "({activePage})" estarÃƒÂ¡ disponible en futuras actualizaciones.</p>
+                </motion.div>
+              </AnimatePresence>
             </div>
+          ) : isMobile ? (
+            <MobileLayout
+              pageKey={`${activePage}:${activeBoardId ?? ''}`}
+              showFAB={
+                !isBootstrapping &&
+                (activePage === 'home' || activePage === 'board' || activePage === 'calendar') &&
+                mobileHeaderHidden
+              }
+              onFABClick={() => window.dispatchEvent(new CustomEvent('sunday-fab-add-item'))}
+              isLandscapeShort={isLandscapeShort}
+              activeTab={
+                activePage === 'notifications'
+                  ? 'notifications'
+                  : activePage === 'inbox'
+                    ? 'inbox'
+                    : activePage === 'calendar'
+                      ? 'calendar'
+                      : (activePage === 'board' && !activeBoardId) ||
+                          activePage === 'docs' ||
+                          activePage === 'team' ||
+                          activePage === 'facturacion'
+                        ? 'more'
+                        : 'home'
+              }
+              onNavigate={(tab: MobileBottomTab) => {
+                if (tab === 'home') {
+                  setLastMainTab('home');
+                  setActivePage('home');
+                  return;
+                }
+                if (tab === 'notifications') {
+                  setLastMainTab(
+                    activePage === 'home' || activePage === 'board' || activePage === 'calendar'
+                      ? (activePage as 'home' | 'board' | 'calendar')
+                      : 'home'
+                  );
+                  setActivePage('notifications');
+                  return;
+                }
+                if (tab === 'inbox') {
+                  setLastMainTab(
+                    activePage === 'home' || activePage === 'board' || activePage === 'calendar'
+                      ? (activePage as 'home' | 'board' | 'calendar')
+                      : 'home'
+                  );
+                  setActivePage('inbox');
+                  return;
+                }
+                if (tab === 'calendar') {
+                  setLastMainTab('calendar');
+                  setActivePage('calendar');
+                  if (boards.length > 0 && !activeBoardId) setActiveBoardId(boards[0].id);
+                  return;
+                }
+                if (tab === 'more') {
+                  setSidebarOpen(true);
+                }
+              }}
+              compact={isLandscapeShort}
+              unreadNotifCount={unreadNotifCount}
+            >
+            {routeTree}
+            </MobileLayout>
+          ) : (
+            <AnimatePresence mode="wait" initial={false}>
+              <motion.div
+                key={activePage}
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: 0.2, ease: [0.22, 1, 0.36, 1] }}
+                className="flex-1 flex flex-col min-h-0 overflow-hidden"
+              >
+            {routeTree}
+              </motion.div>
+            </AnimatePresence>
           )}
-            </motion.div>
-          </AnimatePresence>
         </div>
       </main>
 
@@ -2999,62 +3085,6 @@ if (ok && data && typeof data.id === 'string') {
             </div>
           </Dialog.Content>
         </AnimatedDialog>
-      )}
-
-      {isMobile && !isBootstrapping && (activePage === 'home' || activePage === 'board' || activePage === 'calendar') && mobileHeaderHidden && (
-        <button
-          type="button"
-          onClick={() => window.dispatchEvent(new CustomEvent('sunday-fab-add-item'))}
-          className="fixed right-4 z-30 w-14 h-14 rounded-full bg-monday-blue text-white shadow-monday-lg flex items-center justify-center hover:bg-monday-blue/90 transition-colors safe-area-mr"
-          style={{
-            bottom: isLandscapeShort
-              ? 'max(52px, calc(env(safe-area-inset-bottom) + 44px))'
-              : 'max(72px, calc(env(safe-area-inset-bottom) + 56px))',
-          }}
-          aria-label="Añadir"
-        >
-          <Plus size={24} strokeWidth={2.5} />
-        </button>
-      )}
-
-      {isMobile && !isBootstrapping && (
-        <MobileBottomNav
-          activeTab={
-            activePage === 'notifications' ? 'notifications' :
-            activePage === 'inbox' ? 'inbox' :
-            activePage === 'calendar' ? 'calendar' :
-            (activePage === 'board' && !activeBoardId) || activePage === 'docs' || activePage === 'team' || activePage === 'facturacion' ? 'more' :
-            'home'
-          }
-          onNavigate={(tab: MobileBottomTab) => {
-            if (tab === 'home') {
-              setLastMainTab('home');
-              setActivePage('home');
-              return;
-            }
-            if (tab === 'notifications') {
-              setLastMainTab(activePage === 'home' || activePage === 'board' || activePage === 'calendar' ? activePage as any : 'home');
-              setActivePage('notifications');
-              return;
-            }
-            if (tab === 'inbox') {
-              setLastMainTab(activePage === 'home' || activePage === 'board' || activePage === 'calendar' ? activePage as any : 'home');
-              setActivePage('inbox');
-              return;
-            }
-            if (tab === 'calendar') {
-              setLastMainTab('calendar');
-              setActivePage('calendar');
-              if (boards.length > 0 && !activeBoardId) setActiveBoardId(boards[0].id);
-              return;
-            }
-            if (tab === 'more') {
-              setSidebarOpen(true);
-            }
-          }}
-          compact={isLandscapeShort}
-          unreadNotifCount={unreadNotifCount}
-        />
       )}
     </div>
   );
