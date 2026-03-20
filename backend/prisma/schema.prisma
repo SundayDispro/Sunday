@@ -16,6 +16,7 @@ model User {
   password             String
   role                 String                @default("USER") // 'ADMIN' | 'VENTAS' | 'DISENO' | 'TALLER' | 'USER'
   status               String                @default("offline") // 'available' | 'busy' | 'offline'
+  avatarUrl            String?
   createdAt            DateTime              @default(now())
   notifications        Notification[]
   feedPosts            FeedPost[]

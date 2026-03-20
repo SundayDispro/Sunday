@@ -16,9 +16,11 @@ type FeedPostMention = {
   createdAt: string;
 };
 
+type InboxOpenOpts = { postId?: string; tab?: 'all' | 'mentions' };
+
 interface NotificationsPageProps {
   onOpenItem?: (item: Item, boardId: string) => void;
-  onOpenInbox?: () => void;
+  onOpenInbox?: (opts?: InboxOpenOpts) => void;
   onNotificationsChange?: () => void;
 }
 
@@ -150,7 +152,7 @@ export const NotificationsPage: React.FC<NotificationsPageProps> = ({
 
   const handleMentionClick = (post?: FeedPostMention) => {
     if (post) markMentionAsRead(post);
-    onOpenInbox?.();
+    onOpenInbox?.({ postId: post?.id, tab: 'mentions' });
   };
 
   const unreadAssignmentsCount = notifications.filter(n => !n.read && (n.type === 'assigned' || n.item)).length;

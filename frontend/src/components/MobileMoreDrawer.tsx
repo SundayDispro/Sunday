@@ -2,13 +2,11 @@ import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   ChevronDown,
-  ChevronRight,
   Folder,
   LayoutGrid,
   Star,
   Plus,
   Search,
-  Bell,
   BookOpen,
   Users,
   Receipt,
@@ -16,7 +14,6 @@ import {
   Moon,
   Sparkles,
   X,
-  Inbox,
 } from 'lucide-react';
 import * as Popover from '@radix-ui/react-popover';
 import { UserPanel } from './UserPanel';
@@ -154,34 +151,6 @@ export function MobileMoreDrawer({
               </div>
 
               <div className="flex-1 overflow-y-auto overflow-x-hidden custom-scrollbar scroll-touch py-3 px-2">
-                {/* Bandeja y Notificaciones destacados (acceso rápido desde 4 tabs) */}
-                <div className="mb-4 p-2 rounded-xl bg-monday-pill/40 border border-monday-border/60">
-                  <p className="text-monday-subtext text-[11px] font-semibold px-2 mb-2 uppercase tracking-wider">
-                    Ir a
-                  </p>
-                  <div className="flex flex-col gap-0.5">
-                    <button
-                      onClick={() => handleNav('notifications')}
-                      className="w-full flex items-center gap-2.5 px-2.5 py-2.5 rounded-lg text-monday-text hover:bg-monday-hover transition-colors text-left text-[13px] font-medium"
-                    >
-                      <Bell size={18} className="text-monday-subtext shrink-0" />
-                      <span>Notificaciones</span>
-                      {unreadNotifCount > 0 && (
-                        <span className="ml-auto min-w-[18px] h-[18px] px-1 flex items-center justify-center bg-red-500 text-white text-[10px] font-bold rounded-full">
-                          {unreadNotifCount > 99 ? '99+' : unreadNotifCount}
-                        </span>
-                      )}
-                    </button>
-                    <button
-                      onClick={() => handleNav('inbox')}
-                      className="w-full flex items-center gap-2.5 px-2.5 py-2.5 rounded-lg text-monday-text hover:bg-monday-hover transition-colors text-left text-[13px] font-medium"
-                    >
-                      <Inbox size={18} className="text-monday-subtext shrink-0" />
-                      <span>Bandeja</span>
-                    </button>
-                  </div>
-                </div>
-
                 {/* Bloque Workspace + Tableros */}
                 <div className="mb-4">
                   <p className="text-monday-subtext text-[11px] font-semibold px-2 mb-2 uppercase tracking-wider">

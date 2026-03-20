@@ -92,6 +92,7 @@ export interface User {
   color: string;
   role: 'ADMIN' | 'VENTAS' | 'DISENO' | 'TALLER' | 'USER';
   status?: UserStatus;
+  avatarUrl?: string | null;
 }
 
 export interface Update {

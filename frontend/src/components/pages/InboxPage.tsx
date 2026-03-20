@@ -21,9 +21,11 @@ interface Props {
   onItemClick?: (item: Item) => void;
   initialUser?: User | null;
   onClearInitialUser?: () => void;
+  initialPostId?: string | null;
+  onClearInitialPostId?: () => void;
 }
 
-export const InboxPage: React.FC<Props> = ({ onItemClick, initialUser, onClearInitialUser }) => {
+export const InboxPage: React.FC<Props> = ({ onItemClick, initialUser, onClearInitialUser, initialPostId, onClearInitialPostId }) => {
   const { currentUser } = useUser();
   const [tab, setTab] = useState<TabId>('all');
   const [posts, setPosts] = useState<FeedPost[]>([]);
@@ -37,7 +39,9 @@ export const InboxPage: React.FC<Props> = ({ onItemClick, initialUser, onClearIn
   const [postError, setPostError] = useState<string | null>(null);
   const [onlyUnread, setOnlyUnread] = useState(false);
   const [readPostIds, setReadPostIds] = useState<string[]>([]);
+  const [highlightedPostId, setHighlightedPostId] = useState<string | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const postRefs = useRef<Record<string, HTMLLIElement | null>>({});
 
   const fetchFeed = () => {
     setLoading(true);
@@ -68,6 +72,23 @@ export const InboxPage: React.FC<Props> = ({ onItemClick, initialUser, onClearIn
     }, 0);
     onClearInitialUser?.();
   }, [initialUser, onClearInitialUser]);
+
+  useEffect(() => {
+    if (!initialPostId) return;
+    setTab('all');
+    setHighlightedPostId(initialPostId);
+    onClearInitialPostId?.();
+  }, [initialPostId, onClearInitialPostId]);
+
+  useEffect(() => {
+    if (!highlightedPostId || loading) return;
+    const el = postRefs.current[highlightedPostId];
+    if (el) {
+      el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+    const timer = setTimeout(() => setHighlightedPostId(null), 3000);
+    return () => clearTimeout(timer);
+  }, [highlightedPostId, loading]);
 
   useEffect(() => {
     apiFetch(`${API_BASE}/api/users`)
@@ -309,12 +330,16 @@ export const InboxPage: React.FC<Props> = ({ onItemClick, initialUser, onClearIn
           <ul className="space-y-4">
             {visiblePosts.map(post => {
               const isRead = readPostIds.includes(post.id);
+              const isHighlighted = highlightedPostId === post.id;
               return (
               <li
                 key={post.id}
-                className={`bg-white border border-monday-border rounded-monday p-4 shadow-monday-sm hover:border-monday-border/80 transition-colors ${
-                  isRead ? 'opacity-70' : ''
-                }`}
+                ref={el => { postRefs.current[post.id] = el; }}
+                className={`border rounded-monday p-4 shadow-monday-sm transition-all ${
+                  isHighlighted
+                    ? 'bg-monday-blue/10 border-monday-blue ring-2 ring-monday-blue/30'
+                    : 'bg-white border-monday-border hover:border-monday-border/80'
+                } ${isRead ? 'opacity-70' : ''}`}
               >
                 <div className="flex items-start gap-3">
                   <div

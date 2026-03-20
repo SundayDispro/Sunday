@@ -37,6 +37,7 @@
   "scripts": {
     "dev": "vite",
     "generate:pwa-icons": "node scripts/generate-pwa-icons.mjs",
+    "prebuild": "node scripts/generate-pwa-icons.mjs",
     "build": "tsc && vite build"
   },
   "type": "module"

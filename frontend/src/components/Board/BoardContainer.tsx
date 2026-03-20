@@ -692,12 +692,15 @@ const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode, mobile
     return board.columns
       .filter(c => !hiddenColumns.includes(c.id))
       .filter(c => {
-        // Estado Facturación y Documentos Facturación solo en vista Facturación, no en vista general
-        if (c.title === 'Estado Facturación') return false;
-        if (c.type === 'billing_docs' || c.title === 'Documentos Facturación') return false;
+        // Estado Taller solo visible para TALLER
+        if (c.title === 'Estado Taller') return false;
+        // Estado Facturación y Documentos Facturación: solo para ADMIN/VENTAS
+        if (c.title === 'Estado Facturación' || c.type === 'billing_docs' || c.title === 'Documentos Facturación') {
+          return isAdminOrVentas;
+        }
         return true;
       });
-  }, [board, hiddenColumns, isTaller]);
+  }, [board, hiddenColumns, isTaller, isAdminOrVentas]);
 
   // ─── Client-side search + sort filter ─────────────────────────────────────
   const filteredGroups = useMemo(() => {

@@ -825,7 +825,6 @@ export const BoardGroup: React.FC<Props> = ({
             const statusCol = columns.find(c => c.type === 'status');
             const card = (
               <motion.div
-                layoutId={`item-${item.id}`}
                 role="button"
                 tabIndex={0}
                 onClick={() => onRowClick(item)}

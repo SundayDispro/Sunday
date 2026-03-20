@@ -189,6 +189,19 @@ const upload = multer({
   },
 });
 
+const avatarUpload = multer({
+  storage,
+  limits: { fileSize: MAX_FILE_SIZE },
+  fileFilter: (_req, file, cb) => {
+    const imageTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/gif'];
+    if (imageTypes.includes(file.mimetype)) {
+      cb(null, true);
+    } else {
+      cb(new Error('Solo se aceptan imágenes (JPG, PNG, WEBP, GIF).'));
+    }
+  },
+});
+
 app.use(
   cors({
     origin: corsOriginOption,
@@ -1151,6 +1164,41 @@ app.patch('/api/users/:id/status', requireAuth, async (req, res) => {
     console.error(e);
     res.status(500).json({ error: 'Error al actualizar estado' });
   }
+});
+
+// Subir/actualizar foto de perfil del usuario
+app.patch('/api/users/:id/avatar', requireAuth, (req, res) => {
+  const { id } = req.params;
+  if (req.authUser?.id !== id) {
+    return res.status(403).json({ error: 'Solo puedes cambiar tu propio avatar' });
+  }
+  avatarUpload.single('avatar')(req, res, async (err: unknown) => {
+    if (err) {
+      if (err instanceof multer.MulterError) {
+        return res.status(400).json({ error: `Error de subida: ${err.message}` });
+      }
+      return res.status(400).json({ error: 'Archivo inválido o demasiado grande (máx 5 MB, solo imágenes)' });
+    }
+    if (!req.file) {
+      return res.status(400).json({ error: 'No se recibió ningún archivo' });
+    }
+    const avatarUrl = '/uploads/' + req.file.filename;
+    try {
+      const user = await prisma.user.findUnique({ where: { id } });
+      if (!user) return res.status(404).json({ error: 'Usuario no encontrado' });
+      const updated = await prisma.user.update({
+        where: { id },
+        data: { avatarUrl },
+      });
+      const { password: _p, ...safe } = updated;
+      // Notificar a los clientes conectados
+      io.emit('user_updated', safe);
+      res.json(safe);
+    } catch (e) {
+      console.error(e);
+      res.status(500).json({ error: 'Error al guardar avatar' });
+    }
+  });
 });
 
 // Eliminar usuario (solo ADMIN)

@@ -674,6 +674,7 @@ function App() {
   const [unreadNotifCount, setUnreadNotifCount] = useState(0);
   const [showCreateBoardModal, setShowCreateBoardModal] = useState(false);
   const [composeToUser, setComposeToUser] = useState<User | null>(null);
+  const [pendingInboxPostId, setPendingInboxPostId] = useState<string | null>(null);
   const [pendingDocFromBoard, setPendingDocFromBoard] = useState<{
     type: 'cotizacion' | 'levantamiento' | 'hoja_trabajo' | 'text' | 'sheet';
     boardId: string;
@@ -1831,22 +1832,13 @@ function App() {
                 <BoardContainer boardId={activeBoardId} onRowClick={setSelectedItem} viewMode={currentView} />
               </div>
             </>
-          ) : isMobile && (activePage === 'inbox' || activePage === 'notifications') ? (
-            <BandejaUnificadaPage
-              onItemClick={setSelectedItem}
-              initialTab={activePage === 'notifications' ? 'notificaciones' : 'actividad'}
-              onOpenItem={(item, boardId) => {
-                setActivePage('board');
-                setActiveBoardId(boardId);
-                setSelectedItem(item);
-              }}
-              onNotificationsChange={fetchUnreadNotifications}
-            />
           ) : activePage === 'inbox' ? (
             <InboxPage
               onItemClick={setSelectedItem}
               initialUser={composeToUser}
               onClearInitialUser={() => setComposeToUser(null)}
+              initialPostId={pendingInboxPostId}
+              onClearInitialPostId={() => setPendingInboxPostId(null)}
             />
           ) : activePage === 'notifications' ? (
             <NotificationsPage
@@ -1855,7 +1847,10 @@ function App() {
                 setActiveBoardId(boardId);
                 setSelectedItem(item);
               }}
-              onOpenInbox={() => { setActivePage('inbox'); }}
+              onOpenInbox={(opts) => {
+                if (opts?.postId) setPendingInboxPostId(opts.postId);
+                setActivePage('inbox');
+              }}
               onNotificationsChange={fetchUnreadNotifications}
             />
           ) : activePage === 'search' ? (

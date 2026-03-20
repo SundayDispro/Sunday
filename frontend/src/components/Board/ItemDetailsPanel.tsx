@@ -374,6 +374,10 @@ export const ItemDetailsPanel: React.FC<Props> = ({ item, onClose, variant = 'pa
         return raw;
       }
 
+      if (col.type === 'folio') {
+        return raw.trim() || '—';
+      }
+
       if (col.type === 'billing_docs') {
         const parsed = extractBillingDocsUrl(raw);
         return parsed?.name?.trim() || 'Documento enlazado';
@@ -445,8 +449,14 @@ export const ItemDetailsPanel: React.FC<Props> = ({ item, onClose, variant = 'pa
           }
 
           const cleaned = raw.startsWith('"') && raw.endsWith('"') ? raw.slice(1, -1) : raw;
-          const normalized = looksLikeMachineValue(cleaned) ? '—' : cleaned;
-          return { id: cv.id, label: 'Campo', value: normalized };
+          if (looksLikeMachineValue(cleaned)) return null;
+          // Inferir etiqueta semántica desde el valor
+          const inferredLabel = (() => {
+            if (/^\d{1,6}$/.test(cleaned.trim())) return 'Folio';
+            if (cleaned.startsWith('http') || cleaned.includes('drive.google')) return 'Archivo';
+            return 'Campo';
+          })();
+          return { id: cv.id, label: inferredLabel, value: cleaned };
         }
         return {
           id: cv.id,
@@ -805,7 +815,6 @@ export const ItemDetailsPanel: React.FC<Props> = ({ item, onClose, variant = 'pa
 
   const Wrapper = isSheet ? motion.div : 'div';
   const wrapperProps = isSheet ? {
-    layoutId: `item-${item.id}`,
     drag: 'y' as const,
     dragControls,
     dragListener: false,
@@ -814,7 +823,7 @@ export const ItemDetailsPanel: React.FC<Props> = ({ item, onClose, variant = 'pa
     onDragEnd: handleDragEnd as any,
     animate: animationControls,
     className: panelClassName,
-    style: { touchAction: 'none' as const } // Prevent scroll on the handle wrapper level? No, only handle should touch-none
+    style: { touchAction: 'none' as const },
   } : { className: panelClassName };
 
   return (

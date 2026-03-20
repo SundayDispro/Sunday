@@ -3061,6 +3061,17 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
   const [subgroupAssignments, setSubgroupAssignments] = useState<Record<string, string>>({}); // docId -> subgroupId
   const [docGroupsLoading, setDocGroupsLoading] = useState(false);
   const [collapsedDocGroups, setCollapsedDocGroups] = useState<Set<string>>(new Set());
+  const hasInitializedMobileCollapseRef = useRef(false);
+
+  useEffect(() => {
+    if (!isMobile || hasInitializedMobileCollapseRef.current) return;
+    const typeKeys = DOC_TYPE_OPTIONS.map((opt) => `type:${opt.id}`);
+    const customKeys = customGroups.map((grp) => `custom:${grp.id}`);
+    const allKeys = [...typeKeys, ...customKeys];
+    if (allKeys.length === 0) return;
+    hasInitializedMobileCollapseRef.current = true;
+    setCollapsedDocGroups(new Set(allKeys));
+  }, [isMobile, customGroups]);
 
   const toggleDocGroupCollapse = (key: string) => {
     setCollapsedDocGroups((prev) => {

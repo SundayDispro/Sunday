@@ -1,8 +1,10 @@
-import React from 'react';
+import React, { useRef, useState } from 'react';
 import { useUser } from '../store/UserContext';
 import { UserStatus } from '../types';
-import { LogOut, Circle, CircleDot, CircleOff, LayoutGrid, Settings } from 'lucide-react';
+import { LogOut, Circle, CircleDot, CircleOff, LayoutGrid, Settings, Camera, Loader2 } from 'lucide-react';
 import * as Popover from '@radix-ui/react-popover';
+
+const API_BASE = import.meta.env.DEV ? '' : (import.meta.env.VITE_API_URL || 'http://localhost:3001');
 
 const STATUS_OPTIONS: { value: UserStatus; label: string; icon: React.ReactNode }[] = [
   { value: 'available', label: 'Disponible', icon: <Circle size={14} className="text-green-500 fill-green-500" /> },
@@ -27,10 +29,34 @@ export const UserPanel: React.FC<UserPanelProps> = ({
   workspaceName = 'Workspace',
   onOpenAdmin,
 }) => {
-  const { currentUser, logout, setUserStatus } = useUser();
+  const { currentUser, logout, setUserStatus, updateAvatar } = useUser();
   const status = (currentUser?.status || 'offline') as UserStatus;
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [avatarLoading, setAvatarLoading] = useState(false);
+  const [avatarError, setAvatarError] = useState<string | null>(null);
+
+  const handleAvatarChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setAvatarError(null);
+    setAvatarLoading(true);
+    try {
+      await updateAvatar(file);
+    } catch (err: unknown) {
+      setAvatarError(err instanceof Error ? err.message : 'Error al subir imagen');
+    } finally {
+      setAvatarLoading(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  };
 
   if (!currentUser) return null;
+
+  const avatarSrc = currentUser.avatarUrl
+    ? currentUser.avatarUrl.startsWith('http')
+      ? currentUser.avatarUrl
+      : `${API_BASE}${currentUser.avatarUrl}`
+    : null;
 
   return (
     <Popover.Root open={open} onOpenChange={onOpenChange}>
@@ -47,11 +73,40 @@ export const UserPanel: React.FC<UserPanelProps> = ({
           {/* Header con avatar y nombre */}
           <div className="p-4 border-b border-monday-border bg-monday-bg/30">
             <div className="flex items-center gap-3">
-              <div
-                className="w-11 h-11 rounded-full flex items-center justify-center text-sm font-semibold text-white shadow-sm shrink-0"
-                style={{ backgroundColor: currentUser.color }}
-              >
-                {currentUser.initials}
+              <div className="relative shrink-0 group/avatar">
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  onChange={handleAvatarChange}
+                />
+                {avatarSrc ? (
+                  <img
+                    src={avatarSrc}
+                    alt={currentUser.name}
+                    className="w-11 h-11 rounded-full object-cover shadow-sm border border-monday-border/50"
+                  />
+                ) : (
+                  <div
+                    className="w-11 h-11 rounded-full flex items-center justify-center text-sm font-semibold text-white shadow-sm"
+                    style={{ backgroundColor: currentUser.color }}
+                  >
+                    {currentUser.initials}
+                  </div>
+                )}
+                <button
+                  type="button"
+                  title="Cambiar foto"
+                  disabled={avatarLoading}
+                  onClick={() => fileInputRef.current?.click()}
+                  className="absolute inset-0 rounded-full flex items-center justify-center bg-black/40 opacity-0 group-hover/avatar:opacity-100 transition-opacity cursor-pointer"
+                >
+                  {avatarLoading
+                    ? <Loader2 size={16} className="text-white animate-spin" />
+                    : <Camera size={16} className="text-white" />
+                  }
+                </button>
               </div>
               <div className="min-w-0 flex-1">
                 <p className="text-[15px] font-semibold text-monday-text truncate">{currentUser.name}</p>
@@ -59,6 +114,12 @@ export const UserPanel: React.FC<UserPanelProps> = ({
               </div>
             </div>
           </div>
+
+          {avatarError && (
+            <div className="px-4 py-2 text-[12px] text-red-600 bg-red-50 border-b border-red-100">
+              {avatarError}
+            </div>
+          )}
 
           {/* Estado */}
           <div className="p-3 border-b border-monday-border">

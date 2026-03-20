@@ -32,7 +32,7 @@
   - **Editor/PDF**: ~95% (flujo 1:1 de descarga consolidado; quedan detalles finos en edge cases).  
   - **Seguridad JWT**: middleware y manejo en frontend implementados; pendiente endurecer algunos valores por defecto (`JWT_SECRET`, rondas bcrypt).  
   - **PostgreSQL**: esquema y campos sombra en producción, con migración lógica desde strings; continúan tareas de eliminación de código puramente legacy.  
-- **Modo móvil/PWA**: ~88%, con micro-editor de plantillas PDF integrado como subvista embebida en Docs (sin modal superpuesto), foco de edición estabilizado, borrador de emergencia, cajas single-line reforzadas y mejor legibilidad de texto blanco; pendiente QA de campo en dispositivos reales y modo offline.
+- **Modo móvil/PWA (Roadmap V6 — completado 20 marzo 2026)**: ~95%, con todas las mejoras del Roadmap Mobile V6 implementadas (menú Más reducido, Bandeja/Notificaciones separadas, deep-link desde notificación a post de Bandeja, grupos Docs minimizados al entrar en móvil, foto de perfil persistente con `avatarUrl`, etiquetas Info corregidas en panel de detalle, visibilidad de columnas de estado por rol, ícono PWA definitivo); bug crítico de crash en Safari iOS al navegar desde notificación al tablero corregido (ver sección 7).
   - **Web Push + bandeja**: menciones/asignaciones sin leer unificadas en la bandeja móvil; deep-link desde push hacia la pestaña de `Notificaciones`; contador de badge sincronizado con notificaciones sin leer (cuando soportado por el navegador).
   - **PWA icon assets (iOS) — cierre operativo**: además del set inicial (`icon-180/192/512.v2`), se incorporaron generaciones `v5`/`v6`, `apple-touch-icon` en variantes canónicas (`apple-touch-icon*.png`) y `favicon.ico` real generado desde el logo de app para cortar fallback legacy.
   - **Estado final del ícono en iPhone**: validado funcional al instalar desde URL pública HTTPS de **Cloudflare Tunnel** (quick tunnel) con origen nuevo; iOS dejó de mostrar la “S” azul y tomó el icono correcto de la app.
@@ -1166,6 +1166,48 @@ Checklist operativo para dejar la app estable en el equipo que actuará como ser
 - **Fase 2 (Middleware REST):** En progreso — `requireRoles` en auth; aplicado a DELETE workspaces/boards/items; pendiente extender a rutas de facturación y otras escrituras sensibles.
 - **Fase 3 (Socket.IO):** Completa — RBAC por evento (`withSocketRoles`), `action_denied`, endurecimiento por columna en `update_column_value`, `authorId` forzado desde JWT en `add_update`.
 - **Fase 4 (Frontend guards UX):** Completa — `can(user, action)` en `authz/can.ts`; Facturación y botones de eliminar (tablero/grupo/columna/ítem) ocultos según rol.
+
+---
+
+### Roadmap Mobile V6 — Resumen de cambios (20 marzo 2026)
+
+Implementación completa del plan "Roadmap Mobile V6". Cambios aplicados:
+
+| Área | Cambio | Archivos |
+|------|--------|----------|
+| Menú "Más" móvil | Eliminado el sub-menú "Ir a" con los atajos de Bandeja y Notificaciones (ya accesibles desde la barra inferior) | `MobileMoreDrawer.tsx` |
+| Bandeja / Notificaciones | Separadas en componentes independientes (`InboxPage`, `NotificationsPage`) eliminando la página unificada `BandejaUnificadaPage` del flujo móvil | `App.tsx` |
+| Deep-link notificación → Bandeja | Al hacer clic en una mención desde `NotificationsPage`, la app navega a `InboxPage` con `initialPostId` para hacer scroll/highlight al post concreto | `App.tsx`, `InboxPage.tsx`, `NotificationsPage.tsx` |
+| Docs — grupos minimizados en móvil | Al entrar a la pantalla Docs en móvil, todos los grupos de tipos y grupos personalizados quedan colapsados por defecto (se expanden on-demand) | `DocsPage.tsx` |
+| Foto de perfil persistente | Campo `avatarUrl` en el modelo `User` de Prisma; endpoint `PATCH /api/users/:id/avatar` con Multer; UI de cámara/previsualización en `UserPanel.tsx`; `updateAvatar()` en `UserContext` | `schema.prisma`, `index.ts`, `UserPanel.tsx`, `UserContext.tsx`, `types/index.ts` |
+| Etiquetas Info en panel de detalle | Corrección de fallbacks y manejo del tipo de columna `folio` en `ItemDetailsPanel` | `ItemDetailsPanel.tsx` |
+| Visibilidad de columnas por rol | `BoardContainer` oculta "Estado Taller" a no-TALLER, y "Estado Facturación" / `billing_docs` a roles sin permiso `billing.view` | `BoardContainer.tsx` |
+| Ícono PWA definitivo | Script `generate-pwa-icons.mjs` genera assets `icon-192.v6.png`, `icon-512.v6.png` y `apple-touch-icon-180x180.png` desde SVG fuente; bump a `sunday-cache-v7` en service worker; `prebuild` en `package.json` para automatizar | `sw.js`, `generate-pwa-icons.mjs`, `package.json`, `manifest.webmanifest` |
+
+---
+
+### Bugs críticos corregidos — 20 marzo 2026
+
+#### Bug 1: Interfaz móvil no carga — "pantalla completa de color"
+
+- **Síntoma**: En móvil la app no cargaba y se mostraba una pantalla de fondo sólido de color (fondo del tema o pantalla de Login morado oscuro `#1a0828`).
+- **Causa raíz**: El plugin `@vitejs/plugin-basic-ssl` (`basicSsl()`) fue añadido al `vite.config.ts` como parte del Roadmap V6 (commit `0575800c`, 19 marzo). Esto cambió el servidor Vite de HTTP (`http://192.168.100.8:5173`) a HTTPS con certificado auto-firmado (`https://192.168.100.8:5173`).
+  - El certificado auto-firmado **no es confiable** por defecto en Safari iOS: el navegador bloqueaba los módulos JS del servidor Vite. Solo cargaban el HTML y el CSS del caché del Service Worker → el usuario veía únicamente el color de fondo del tema aplicado por CSS (`body { background-color: var(--monday-bg) }`).
+  - Adicionalmente, al cambiar de origen (HTTP → HTTPS), los tokens de sesión guardados en `localStorage` bajo el origen HTTP dejaban de ser accesibles → `currentUser = null` → se mostraba la pantalla de Login con su fondo morado (`bg-[#1a0828]`).
+- **Corrección**: Se eliminó `basicSsl()` y su import de `vite.config.ts`. El servidor Vite vuelve a servir en HTTP para acceso LAN. El HTTPS sigue disponible vía **Cloudflare Tunnel** (que termina TLS con certificado válido de Cloudflare) y es la vía recomendada para instalar la PWA y para acceso externo.
+- **Archivo**: `frontend/vite.config.ts`
+
+#### Bug 2: Crash total de Safari iOS al hacer clic en notificación de elemento
+
+- **Síntoma**: Al hacer clic en una notificación de asignación en la pestaña Notificaciones, la app navegaba al tablero pero crasheaba completamente (pestaña Safari requería cerrarse y reabrir).
+- **Causa raíz**: Conflicto de `layoutId` en Framer Motion.
+  - `BoardGroup.tsx` (vista kanban móvil) asignaba `layoutId=\`item-${item.id}\`` a cada tarjeta de elemento, habilitando la animación "morph" de tarjeta → panel.
+  - `ItemDetailsPanel.tsx` (modo sheet móvil) usaba el **mismo** `layoutId=\`item-${item.id}\`` en su `motion.div` envolvente.
+  - Al hacer clic en una notificación, `setActivePage('board')` y `setSelectedItem(item)` se llamaban **simultáneamente**: el `ItemDetailsPanel` montaba (con su `layoutId`) al mismo tiempo que el `BoardContainer` cargaba y `BoardGroup.tsx` renderizaba las tarjetas (con el mismo `layoutId`). Framer Motion detectaba dos elementos activos con el mismo `layoutId` y entraba en un ciclo de medición de layout que colapsaba el hilo principal de Safari iOS.
+- **Corrección**: Se eliminó `layoutId` de ambos componentes:
+  - `ItemDetailsPanel.tsx`: quitado `layoutId` del objeto `wrapperProps` en el modo sheet. El panel mantiene su animación de entrada vía CSS (`panel-slide-in`) y el gesto de swipe para cerrar.
+  - `BoardGroup.tsx`: quitado `layoutId` del `motion.div` de las tarjetas kanban.
+- **Archivos**: `frontend/src/components/Board/ItemDetailsPanel.tsx`, `frontend/src/components/Board/BoardGroup.tsx`
 
 ---
 
