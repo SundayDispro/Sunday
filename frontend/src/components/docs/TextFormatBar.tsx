@@ -374,6 +374,24 @@ export function TextFormatBarForTemplate({
     [selectedBoxId, templateConfig.customBoxes, onTemplateConfigChange]
   );
 
+  // Si hay cuadro seleccionado, aplica estilo al cuadro; si no, aplica estilo global del master.
+  const applyStyle = useCallback(
+    (updates: { fontSize?: number; fontColor?: string; fontFamily?: string; fontBold?: boolean; fontItalic?: boolean }) => {
+      if (hasSelection) {
+        updateSelectedBox(updates);
+        return;
+      }
+      onTemplateConfigChange({
+        ...(updates.fontFamily != null ? { fontFamily: updates.fontFamily } : {}),
+        ...(updates.fontSize != null ? { fontSize: updates.fontSize } : {}),
+        ...(updates.fontBold != null ? { fontBold: updates.fontBold } : {}),
+        ...(updates.fontItalic != null ? { fontItalic: updates.fontItalic } : {}),
+        ...(updates.fontColor != null ? { fontColor: updates.fontColor } : {}),
+      });
+    },
+    [hasSelection, onTemplateConfigChange, updateSelectedBox]
+  );
+
   const disabledCls = 'opacity-40 cursor-not-allowed pointer-events-none';
   const formatBarBtn =
     'p-2 rounded-monday border-0 transition-colors min-w-[32px]';
@@ -381,13 +399,7 @@ export function TextFormatBarForTemplate({
   const inactiveFormatBarBtn = `${formatBarBtn} text-monday-subtext ${disabledCls}`;
 
   return (
-    <div
-      className="shrink-0 flex items-center gap-0.5 px-3 py-2 bg-white border-b border-monday-border shadow-sm flex-wrap"
-      onMouseDownCapture={(e) => {
-        // En Focus Mode queremos minimizar blur del contentEditable al tocar botones.
-        e.preventDefault();
-      }}
-    >
+    <div className="shrink-0 flex items-center gap-0.5 px-3 py-2 bg-white border-b border-monday-border shadow-sm flex-wrap">
       {!isTextStyleOnly && (
         <>
           {/* Fuente */}
@@ -395,33 +407,30 @@ export function TextFormatBarForTemplate({
             <Popover.Trigger asChild>
               <button
                 type="button"
-                disabled={!hasSelection}
-                className={`px-2 py-1.5 text-[11px] border border-monday-border rounded-monday bg-white min-w-[5rem] text-left transition-colors ${hasSelection ? 'text-monday-text hover:bg-monday-hover' : 'text-monday-subtext ' + disabledCls}`}
-                title={hasSelection ? 'Fuente del cuadro' : 'Selecciona un cuadro primero'}
+                className="px-2 py-1.5 text-[11px] border border-monday-border rounded-monday bg-white min-w-[5rem] text-left transition-colors text-monday-text hover:bg-monday-hover"
+                title={hasSelection ? 'Fuente del cuadro' : 'Fuente global del master'}
               >
                 {FONT_OPTIONS.find((f) => f.value === effectiveFontFamily)?.label ?? effectiveFontFamily}
               </button>
             </Popover.Trigger>
-            {hasSelection && (
-              <Popover.Portal>
-                <Popover.Content
-                  className="z-50 p-1.5 rounded-lg shadow-lg border border-monday-border bg-white max-h-[240px] overflow-auto"
-                  sideOffset={4}
-                  onOpenAutoFocus={(e) => e.preventDefault()}
-                >
-                  {FONT_OPTIONS.map(({ label, value }) => (
-                    <button
-                      key={value}
-                      type="button"
-                      className={`block w-full px-3 py-1.5 text-left text-[12px] hover:bg-monday-hover rounded ${value === effectiveFontFamily ? 'text-monday-blue font-semibold' : 'text-monday-text'}`}
-                      onClick={() => updateSelectedBox({ fontFamily: value })}
-                    >
-                      {label}
-                    </button>
-                  ))}
-                </Popover.Content>
-              </Popover.Portal>
-            )}
+            <Popover.Portal>
+              <Popover.Content
+                className="z-50 p-1.5 rounded-lg shadow-lg border border-monday-border bg-white max-h-[240px] overflow-auto"
+                sideOffset={4}
+                onOpenAutoFocus={(e) => e.preventDefault()}
+              >
+                {FONT_OPTIONS.map(({ label, value }) => (
+                  <button
+                    key={value}
+                    type="button"
+                    className={`block w-full px-3 py-1.5 text-left text-[12px] hover:bg-monday-hover rounded ${value === effectiveFontFamily ? 'text-monday-blue font-semibold' : 'text-monday-text'}`}
+                    onClick={() => applyStyle({ fontFamily: value })}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </Popover.Content>
+            </Popover.Portal>
           </Popover.Root>
 
           <div className="w-px h-5 bg-monday-border mx-1" />
@@ -477,10 +486,9 @@ export function TextFormatBarForTemplate({
       {/* Negrita */}
       <button
         type="button"
-        disabled={!hasSelection}
-        onClick={() => hasSelection && updateSelectedBox({ fontBold: !effectiveBold })}
-        className={`${hasSelection ? activeFormatBarBtn : inactiveFormatBarBtn} ${effectiveBold && hasSelection ? 'bg-monday-hover' : ''}`}
-        title={hasSelection ? 'Negrita' : 'Selecciona un cuadro primero'}
+        onClick={() => applyStyle({ fontBold: !effectiveBold })}
+        className={`${activeFormatBarBtn} ${effectiveBold ? 'bg-monday-hover' : ''}`}
+        title={hasSelection ? 'Negrita del cuadro' : 'Negrita global del master'}
       >
         <span className="text-[13px] font-bold">B</span>
       </button>
@@ -488,10 +496,9 @@ export function TextFormatBarForTemplate({
       {/* Cursiva */}
       <button
         type="button"
-        disabled={!hasSelection}
-        onClick={() => hasSelection && updateSelectedBox({ fontItalic: !effectiveItalic })}
-        className={`${hasSelection ? activeFormatBarBtn : inactiveFormatBarBtn} ${effectiveItalic && hasSelection ? 'bg-monday-hover' : ''}`}
-        title={hasSelection ? 'Cursiva' : 'Selecciona un cuadro primero'}
+        onClick={() => applyStyle({ fontItalic: !effectiveItalic })}
+        className={`${activeFormatBarBtn} ${effectiveItalic ? 'bg-monday-hover' : ''}`}
+        title={hasSelection ? 'Cursiva del cuadro' : 'Cursiva global del master'}
       >
         <span className="text-[13px] italic font-serif">I</span>
       </button>
@@ -505,33 +512,30 @@ export function TextFormatBarForTemplate({
             <Popover.Trigger asChild>
               <button
                 type="button"
-                disabled={!hasSelection}
-                className={`px-2 py-1.5 text-[11px] border border-monday-border rounded-monday bg-white min-w-[4rem] text-left transition-colors ${hasSelection ? 'text-monday-text hover:bg-monday-hover' : 'text-monday-subtext ' + disabledCls}`}
-                title={hasSelection ? 'Tamaño del cuadro' : 'Selecciona un cuadro primero'}
+                className="px-2 py-1.5 text-[11px] border border-monday-border rounded-monday bg-white min-w-[4rem] text-left transition-colors text-monday-text hover:bg-monday-hover"
+                title={hasSelection ? 'Tamaño del cuadro' : 'Tamaño global del master'}
               >
                 {effectiveFontSize}pt
               </button>
             </Popover.Trigger>
-            {hasSelection && (
-              <Popover.Portal>
-                <Popover.Content
-                  className="z-50 p-1.5 rounded-lg shadow-lg border border-monday-border bg-white"
-                  sideOffset={4}
-                  onOpenAutoFocus={(e) => e.preventDefault()}
-                >
-                  {FONT_SIZE_PT_OPTIONS.map((pt) => (
-                    <button
-                      key={pt}
-                      type="button"
-                      className={`block w-full px-3 py-1.5 text-left text-[12px] hover:bg-monday-hover rounded ${pt === effectiveFontSize ? 'text-monday-blue font-semibold' : 'text-monday-text'}`}
-                      onClick={() => updateSelectedBox({ fontSize: pt })}
-                    >
-                      {pt}pt
-                    </button>
-                  ))}
-                </Popover.Content>
-              </Popover.Portal>
-            )}
+            <Popover.Portal>
+              <Popover.Content
+                className="z-50 p-1.5 rounded-lg shadow-lg border border-monday-border bg-white"
+                sideOffset={4}
+                onOpenAutoFocus={(e) => e.preventDefault()}
+              >
+                {FONT_SIZE_PT_OPTIONS.map((pt) => (
+                  <button
+                    key={pt}
+                    type="button"
+                    className={`block w-full px-3 py-1.5 text-left text-[12px] hover:bg-monday-hover rounded ${pt === effectiveFontSize ? 'text-monday-blue font-semibold' : 'text-monday-text'}`}
+                    onClick={() => applyStyle({ fontSize: pt })}
+                  >
+                    {pt}pt
+                  </button>
+                ))}
+              </Popover.Content>
+            </Popover.Portal>
           </Popover.Root>
 
           <div className="w-px h-5 bg-monday-border mx-1" />
@@ -543,41 +547,38 @@ export function TextFormatBarForTemplate({
         <Popover.Trigger asChild>
           <button
             type="button"
-            disabled={!hasSelection}
-            className={`px-2 py-1.5 text-[11px] border border-monday-border rounded-monday bg-white min-w-[4rem] text-left flex items-center gap-1 transition-colors ${hasSelection ? 'hover:bg-monday-hover' : disabledCls}`}
-            title={hasSelection ? 'Color del cuadro' : 'Selecciona un cuadro primero'}
+            className="px-2 py-1.5 text-[11px] border border-monday-border rounded-monday bg-white min-w-[4rem] text-left flex items-center gap-1 transition-colors hover:bg-monday-hover"
+            title={hasSelection ? 'Color del cuadro' : 'Color global del master'}
           >
             <span
               className="w-3 h-3 rounded border border-monday-border"
               style={{ backgroundColor: effectiveColor }}
             />
-            <span className={hasSelection ? 'text-monday-text' : 'text-monday-subtext'}>Color</span>
+            <span className="text-monday-text">Color</span>
           </button>
         </Popover.Trigger>
-        {hasSelection && (
-          <Popover.Portal>
-            <Popover.Content
-              className="z-50 p-1.5 rounded-lg shadow-lg border border-monday-border bg-white"
-              sideOffset={4}
-              onOpenAutoFocus={(e) => e.preventDefault()}
-            >
-              {[
-                { value: '#000000', label: 'Negro' },
-                { value: '#ffffff', label: 'Blanco' },
-              ].map(({ value, label }) => (
-                <button
-                  key={value}
-                  type="button"
-                  className={`flex items-center gap-2 w-full px-3 py-1.5 text-left text-[12px] hover:bg-monday-hover rounded ${value === effectiveColor ? 'text-monday-blue font-semibold' : 'text-monday-text'}`}
-                  onClick={() => updateSelectedBox({ fontColor: value })}
-                >
-                  <span className="w-4 h-4 rounded border border-gray-300" style={{ backgroundColor: value }} />
-                  {label}
-                </button>
-              ))}
-            </Popover.Content>
-          </Popover.Portal>
-        )}
+        <Popover.Portal>
+          <Popover.Content
+            className="z-50 p-1.5 rounded-lg shadow-lg border border-monday-border bg-white"
+            sideOffset={4}
+            onOpenAutoFocus={(e) => e.preventDefault()}
+          >
+            {[
+              { value: '#000000', label: 'Negro' },
+              { value: '#ffffff', label: 'Blanco' },
+            ].map(({ value, label }) => (
+              <button
+                key={value}
+                type="button"
+                className={`flex items-center gap-2 w-full px-3 py-1.5 text-left text-[12px] hover:bg-monday-hover rounded ${value === effectiveColor ? 'text-monday-blue font-semibold' : 'text-monday-text'}`}
+                onClick={() => applyStyle({ fontColor: value })}
+              >
+                <span className="w-4 h-4 rounded border border-gray-300" style={{ backgroundColor: value }} />
+                {label}
+              </button>
+            ))}
+          </Popover.Content>
+        </Popover.Portal>
       </Popover.Root>
 
       {!isTextStyleOnly && (
@@ -611,7 +612,7 @@ export function TextFormatBarForTemplate({
 
       {/* Indicador de estado */}
       <span className={`text-[11px] px-2 ${hasSelection ? 'text-monday-blue font-medium' : 'text-monday-subtext'}`}>
-        {hasSelection ? '✎ Cuadro seleccionado' : 'Haz clic en un cuadro para editar su formato'}
+        {hasSelection ? '✎ Cuadro seleccionado' : 'Sin selección: editando estilo global del master'}
       </span>
     </div>
   );

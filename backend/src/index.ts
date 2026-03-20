@@ -2169,34 +2169,56 @@ app.put('/api/templates/:kind/config', authenticateToken, async (req, res) => {
         ? JSON.stringify(fieldPositions)
         : '{}';
     const customBoxesStr = JSON.stringify(customBoxes);
-    await prisma.templateConfig.upsert({
-      where: { docType: kind },
-      create: {
-        docType: kind,
-        fieldPositions: fieldPositionsStr,
-        fieldPositionsJson: fieldPositions as unknown as Prisma.JsonValue,
-        fontColor,
-        fontFamily,
-        fontSize,
-        fontBold,
-        fontItalic,
-        customBoxes: customBoxesStr,
-        customBoxesJson: customBoxes as unknown as Prisma.JsonValue,
-        ...(defaultContentPayload !== undefined ? { defaultContentJson: defaultContentPayload } : {}),
-      },
-      update: {
-        fieldPositions: fieldPositionsStr,
-        fieldPositionsJson: fieldPositions as unknown as Prisma.JsonValue,
-        fontColor,
-        fontFamily,
-        fontSize,
-        fontBold,
-        fontItalic,
-        customBoxes: customBoxesStr,
-        customBoxesJson: customBoxes as unknown as Prisma.JsonValue,
-        ...(defaultContentPayload !== undefined ? { defaultContentJson: defaultContentPayload } : {}),
-      },
-    });
+    const baseCreate = {
+      docType: kind,
+      fieldPositions: fieldPositionsStr,
+      fieldPositionsJson: fieldPositions as unknown as Prisma.JsonValue,
+      fontColor,
+      fontFamily,
+      fontSize,
+      fontBold,
+      fontItalic,
+      customBoxes: customBoxesStr,
+      customBoxesJson: customBoxes as unknown as Prisma.JsonValue,
+    };
+    const baseUpdate = {
+      fieldPositions: fieldPositionsStr,
+      fieldPositionsJson: fieldPositions as unknown as Prisma.JsonValue,
+      fontColor,
+      fontFamily,
+      fontSize,
+      fontBold,
+      fontItalic,
+      customBoxes: customBoxesStr,
+      customBoxesJson: customBoxes as unknown as Prisma.JsonValue,
+    };
+    const createWithDefault =
+      defaultContentPayload !== undefined
+        ? { ...baseCreate, defaultContentJson: defaultContentPayload }
+        : baseCreate;
+    const updateWithDefault =
+      defaultContentPayload !== undefined
+        ? { ...baseUpdate, defaultContentJson: defaultContentPayload }
+        : baseUpdate;
+    try {
+      await prisma.templateConfig.upsert({
+        where: { docType: kind },
+        create: createWithDefault as Prisma.TemplateConfigCreateInput,
+        update: updateWithDefault as Prisma.TemplateConfigUpdateInput,
+      });
+    } catch (upsertErr) {
+      const msg = upsertErr instanceof Error ? upsertErr.message : String(upsertErr);
+      // Compatibilidad: algunos entornos siguen con Prisma Client sin `defaultContentJson`.
+      if (msg.includes('Unknown argument `defaultContentJson`')) {
+        await prisma.templateConfig.upsert({
+          where: { docType: kind },
+          create: baseCreate as Prisma.TemplateConfigCreateInput,
+          update: baseUpdate as Prisma.TemplateConfigUpdateInput,
+        });
+      } else {
+        throw upsertErr;
+      }
+    }
     return res.json({ ok: true });
   } catch (e) {
     console.error('Error saving template config:', e);

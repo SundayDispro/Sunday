@@ -1143,6 +1143,11 @@ Checklist operativo para dejar la app estable en el equipo que actuará como ser
 - **Configuraciones de CORS flexibles**:
   - El uso de `'*'` como origen permitido es aceptable en desarrollo, pero debe endurecerse en despliegue real a dominios concretos.
 
+- **Editor master de plantillas (fuente/tamaño) — incidencia abierta**:
+  - En el flujo de edición del **Master de plantillas** se detectó comportamiento intermitente/no funcional en los controles de **Fuente** y **Tamaño de fuente** (popover no abre o no aplica cambios de forma consistente en ciertos estados de selección/foco).
+  - Impacto: dificulta la edición tipográfica global del master (layout/estilos) aun cuando el guardado de configuración y la carga de plantillas funcionan.
+  - Acción recomendada: mantener esta incidencia en seguimiento QA (desktop + móvil), validar interacción con estados de foco/selección de caja y cubrir con pruebas E2E del flujo “abrir master → cambiar fuente/tamaño → guardar → recargar → verificar persistencia”.
+
 - **Parpadeo crítico de la UI (especialmente en móvil)** — corregido:
   - Se ha introducido un estado de arranque (`isBootstrapping`) en `App.tsx` que espera a que se carguen `currentUser`, workspaces y boards antes de montar las vistas pesadas en móvil.  
   - Mientras dura el bootstrap se muestra una pantalla de carga única y se ocultan `MobileBoardHeader`, FAB y `BottomNav`, evitando los cambios encadenados de `activePage`/`activeBoardId` y el parpadeo entre distintas pantallas.  
