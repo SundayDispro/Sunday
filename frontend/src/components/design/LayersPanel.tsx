@@ -1,6 +1,6 @@
 import React from 'react';
 import { Trash2, Copy, ArrowUp, ArrowDown } from 'lucide-react';
-import type { fabric } from 'fabric';
+import type * as fabric from 'fabric';
 
 interface LayersPanelProps {
   objects: fabric.Object[];
@@ -40,7 +40,7 @@ export const LayersPanel: React.FC<LayersPanelProps> = ({
           const displayLabel = label.charAt(0).toUpperCase() + label.slice(1);
           return (
             <div
-              key={obj.id ?? index}
+              key={obj.name ?? `${obj.type ?? 'obj'}-${index}`}
               className={`group flex items-center gap-1 rounded-lg ${
                 isActive ? 'bg-monday-blue text-white' : 'hover:bg-monday-hover text-monday-text'
               }`}

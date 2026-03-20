@@ -50,7 +50,10 @@ export function MobileHomePage({
           <div className="grid gap-3">
             <button
               type="button"
-              onClick={onOpenKanban}
+              onClick={() => {
+                if (navigator.vibrate) navigator.vibrate(20);
+                onOpenKanban();
+              }}
               className="w-full min-h-[56px] rounded-3xl border border-monday-border bg-white text-monday-text font-semibold text-[14px] flex items-center gap-3 px-5 transition-colors hover:bg-monday-hover"
             >
               <LayoutGrid size={20} />
@@ -59,7 +62,10 @@ export function MobileHomePage({
 
             <button
               type="button"
-              onClick={onOpenMentions}
+              onClick={() => {
+                if (navigator.vibrate) navigator.vibrate(20);
+                onOpenMentions();
+              }}
               className="w-full min-h-[56px] rounded-3xl border border-monday-border bg-white text-monday-text font-semibold text-[14px] flex items-center gap-3 px-5 transition-colors hover:bg-monday-hover"
             >
               <AtSign size={20} className="text-monday-subtext" />
@@ -68,7 +74,10 @@ export function MobileHomePage({
 
             <button
               type="button"
-              onClick={onOpenSearch}
+              onClick={() => {
+                if (navigator.vibrate) navigator.vibrate(20);
+                onOpenSearch();
+              }}
               className="w-full min-h-[56px] rounded-3xl border border-monday-border bg-white text-monday-text font-semibold text-[14px] flex items-center gap-3 px-5 transition-colors hover:bg-monday-hover"
             >
               <Search size={20} className="text-monday-subtext" />

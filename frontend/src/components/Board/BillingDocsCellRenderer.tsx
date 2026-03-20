@@ -6,6 +6,7 @@ import * as Popover from '@radix-ui/react-popover';
 import * as Dialog from '@radix-ui/react-dialog';
 import { FileText, ChevronDown, ExternalLink, Upload, Loader2, Trash2, FilePenLine } from 'lucide-react';
 import { apiFetch } from '../../api';
+import { compressImage } from '../../utils/imageCompression';
 
 const API_BASE = import.meta.env.DEV ? '' : (import.meta.env.VITE_API_URL || 'http://localhost:3001');
 
@@ -88,8 +89,12 @@ export const BillingDocsCellRenderer: React.FC<Props> = ({ item, column, value }
       setUploading(false);
       return;
     }
+    
+    // Comprimir imagen antes de subirla
+    const fileToUpload = await compressImage(file);
+    
     const formData = new FormData();
-    formData.append('file', file);
+    formData.append('file', fileToUpload);
     try {
       const res = await apiFetch(`${API_BASE}/api/upload`, {
         method: 'POST',

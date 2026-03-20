@@ -1,5 +1,5 @@
 import React from 'react';
-import type { fabric } from 'fabric';
+import type * as fabric from 'fabric';
 
 interface PropertiesPanelProps {
   activeObject: fabric.Object | null;
@@ -22,10 +22,10 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({ activeObject, 
   const stroke = (obj.get('stroke') ?? '#000000') as string;
   const strokeWidth = (obj.get('strokeWidth') ?? 1) as number;
   const opacity = (obj.get('opacity') ?? 1) as number;
-  const type = (obj.type ?? '') as string;
+  const type = ((activeObject as unknown as { type?: unknown })?.type ?? '') as string;
   const isText = type === 'i-text' || type === 'text' || type === 'textbox';
-  const fontSize = isText ? ((obj as fabric.IText).get('fontSize') ?? 24) as number : 0;
-  const fontFamily = isText ? ((obj as fabric.IText).get('fontFamily') ?? 'Arial') as string : '';
+  const fontSize = isText ? ((obj.get('fontSize') ?? 24) as number) : 0;
+  const fontFamily = isText ? ((obj.get('fontFamily') ?? 'Arial') as string) : '';
 
   return (
     <div className="bg-monday-sidebarPanel/90 border border-monday-border rounded-2xl p-3 w-64 text-xs text-monday-text flex flex-col gap-2">
@@ -114,7 +114,7 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({ activeObject, 
               onChange={(e) =>
                 onChange((o) => {
                   const v = Number(e.target.value) || 24;
-                  (o as fabric.IText).set('fontSize', v);
+                  (o as fabric.Object & { set: (k: string, v: unknown) => void }).set('fontSize', v);
                 })
               }
               className="w-16 px-1 py-0.5 rounded border border-monday-border bg-monday-bg text-[11px]"
@@ -126,7 +126,7 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({ activeObject, 
               value={fontFamily}
               onChange={(e) =>
                 onChange((o) => {
-                  (o as fabric.IText).set('fontFamily', e.target.value);
+                  (o as fabric.Object & { set: (k: string, v: unknown) => void }).set('fontFamily', e.target.value);
                 })
               }
               className="w-full px-2 py-1 rounded border border-monday-border bg-monday-bg text-[11px]"

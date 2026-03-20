@@ -20,7 +20,7 @@ function SegmentedControl({
 }) {
   return (
     <div className="shrink-0 px-4 pt-4 pb-3 bg-monday-bg">
-      <div className="mx-auto max-w-md rounded-3xl border border-monday-border bg-white/80 backdrop-blur-xl p-1">
+      <div className="mx-auto max-w-md rounded-3xl border border-monday-border bg-[var(--monday-surface)] shadow-sm p-1">
         <div className="grid grid-cols-2 gap-1">
           {([
             { id: 'explorar' as const, label: 'Explorar' },

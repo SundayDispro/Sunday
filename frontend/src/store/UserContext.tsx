@@ -143,10 +143,10 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const userId = currentUser?.id;
     if (!userId) return;
     try {
+      // Intentar suscribir a notificaciones push incluso si no es PWA standalone (útil en web también)
+      // Pero solo pedir permiso explícito si es PWA o si el usuario interactúa
       const standalone = window.matchMedia?.('(display-mode: standalone)')?.matches || (navigator as any).standalone === true;
-      if (!standalone) return;
-      // En PWA verificamos/actualizamos suscripción. Si falta permiso, intentamos solicitarlo.
-      ensurePushSubscription({ allowRequestPermission: true });
+      ensurePushSubscription({ allowRequestPermission: standalone });
     } catch {
       // ignore
     }

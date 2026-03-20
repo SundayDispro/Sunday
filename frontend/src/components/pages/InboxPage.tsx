@@ -185,7 +185,7 @@ export const InboxPage: React.FC<Props> = ({ onItemClick, initialUser, onClearIn
   const visiblePosts = (onlyUnread ? posts.filter(p => !readPostIds.includes(p.id)) : posts);
 
   return (
-    <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
+    <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden custom-scrollbar scroll-touch">
       <div className="p-4 sm:p-6 border-b border-monday-border shrink-0">
         <h1 className="text-[18px] sm:text-[20px] font-semibold text-monday-text flex items-center gap-2">
           <Inbox size={22} className="text-monday-blue shrink-0" />
@@ -288,7 +288,7 @@ export const InboxPage: React.FC<Props> = ({ onItemClick, initialUser, onClearIn
         </div>
       </div>
 
-      <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden custom-scrollbar scroll-touch p-4 sm:p-6">
+      <div className="p-4 sm:p-6 pb-32">
         {loading ? (
           <div className="flex justify-center py-12">
             <div className="w-8 h-8 border-2 border-monday-blue border-t-transparent rounded-full animate-spin" />

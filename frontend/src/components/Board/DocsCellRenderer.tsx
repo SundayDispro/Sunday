@@ -5,6 +5,7 @@ import { useUser } from '../../store/UserContext';
 import * as Popover from '@radix-ui/react-popover';
 import * as Dialog from '@radix-ui/react-dialog';
 import { FileText, ChevronDown, ExternalLink, Upload, Loader2, Trash2, FilePenLine } from 'lucide-react';
+import { compressImage } from '../../utils/imageCompression';
 
 import { apiFetch } from '../../api';
 
@@ -137,8 +138,11 @@ export const DocsCellRenderer: React.FC<Props> = ({ item, column, value }) => {
       setUploading(null);
       return;
     }
+    
+    const fileToUpload = await compressImage(file);
+    
     const formData = new FormData();
-    formData.append('file', file);
+    formData.append('file', fileToUpload);
     try {
       const res = await apiFetch(`${API_BASE}/api/upload`, {
         method: 'POST',

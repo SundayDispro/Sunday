@@ -29,6 +29,8 @@ import { StatusLabelsEditor } from './StatusLabelsEditor';
 import { HorizontalScrollArea } from '../HorizontalScrollArea';
 import { useUser } from '../../store/UserContext';
 import { can } from '../../authz/can';
+import { motion } from 'framer-motion';
+import { SwipeableItemCard } from './SwipeableItemCard';
 
 interface Props {
   group: Group;
@@ -54,6 +56,10 @@ interface Props {
   indentFromParent?: boolean;
   /** En viewport &lt; 640px: mostrar lista de tarjetas en lugar de tabla horizontal. */
   useCardView?: boolean;
+  enableSwipeActions?: boolean;
+
+  onOptimisticUpdate?: (itemId: string, columnId: string, value: string) => void;
+  onOptimisticDelete?: (itemId: string) => void;
 }
 
 const columnHelper = createColumnHelper<Item>();
@@ -407,6 +413,9 @@ export const BoardGroup: React.FC<Props> = ({
   stackIndex = 0,
   indentFromParent = false,
   useCardView = false,
+  enableSwipeActions = false,
+  onOptimisticUpdate,
+  onOptimisticDelete,
 }) => {
   const [newTaskName, setNewTaskName] = useState('');
   const [isAddingTask, setIsAddingTask] = useState(false);
@@ -417,7 +426,9 @@ export const BoardGroup: React.FC<Props> = ({
   const [cardColumnsExpanded, setCardColumnsExpanded] = useState(false);
   const addInputRef = useRef<HTMLInputElement>(null);
   const { currentUser } = useUser();
+  const isAdminOrVentas = currentUser?.role === 'ADMIN' || currentUser?.role === 'VENTAS';
   const canDeleteGroup = can(currentUser, 'group.delete');
+  const canDeleteItem = can(currentUser, 'item.delete');
 
   const {
     attributes,
@@ -427,6 +438,13 @@ export const BoardGroup: React.FC<Props> = ({
     transition,
     isDragging,
   } = useSortable({ id: group.id });
+
+  // Add haptic feedback on drag start
+  React.useEffect(() => {
+    if (isDragging && navigator.vibrate) {
+      navigator.vibrate(15);
+    }
+  }, [isDragging]);
 
   const isCollapsed = collapsed ?? false;
 
@@ -803,14 +821,16 @@ export const BoardGroup: React.FC<Props> = ({
         const colsToShow = cardColumnsExpanded ? visibleCols : visibleCols.slice(0, maxColsDefault);
         return (
         <div className="space-y-3">
-          {group.items.map((item) => (
-              <div
-                key={item.id}
+          {group.items.map((item) => {
+            const statusCol = columns.find(c => c.type === 'status');
+            const card = (
+              <motion.div
+                layoutId={`item-${item.id}`}
                 role="button"
                 tabIndex={0}
                 onClick={() => onRowClick(item)}
                 onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onRowClick(item); } }}
-                className="bg-[var(--monday-surface)] border border-monday-border rounded-lg shadow-monday-sm overflow-hidden text-left min-h-[48px] touch-manipulation active:bg-monday-hover/30"
+                className="bg-[var(--monday-surface)] border border-monday-border rounded-lg overflow-hidden text-left min-h-[48px] touch-manipulation active:bg-monday-hover/30"
               >
                 <div className="flex items-start gap-2 p-3">
                   {onToggleItem && (
@@ -862,8 +882,44 @@ export const BoardGroup: React.FC<Props> = ({
                     </div>
                   </div>
                 </div>
-              </div>
-          ))}
+              </motion.div>
+            );
+
+            if (!enableSwipeActions) return <React.Fragment key={item.id}>{card}</React.Fragment>;
+
+            return (
+              <SwipeableItemCard
+                key={item.id}
+                onDelete={canDeleteItem ? () => {
+                  onOptimisticDelete?.(item.id);
+                  socket.emit('delete_item', { boardId, itemId: item.id });
+                } : undefined}
+                onComplete={() => {
+                  if (statusCol) {
+                    let optionId = 'listo';
+                    try {
+                      if (statusCol.settings) {
+                        const settings = JSON.parse(statusCol.settings);
+                        const doneOpt = settings.options?.find((o: any) => o.label.toLowerCase() === 'listo' || o.label.toLowerCase() === 'hecho' || o.id === 'done' || o.id === 'listo');
+                        if (doneOpt) optionId = doneOpt.id;
+                      }
+                    } catch {}
+
+                    const valueStr = JSON.stringify({ optionId });
+                    onOptimisticUpdate?.(item.id, statusCol.id, valueStr);
+
+                    socket.emit('update_column_value', {
+                      itemId: item.id,
+                      columnId: statusCol.id,
+                      value: valueStr
+                    });
+                  }
+                }}
+              >
+                {card}
+              </SwipeableItemCard>
+            );
+          })}
           {hasMoreCols && (
             <button
               type="button"

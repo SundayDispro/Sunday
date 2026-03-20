@@ -65,7 +65,9 @@ import { AnimatedDialog } from './components/AnimatedDialog';
 import { useToast } from './components/Toast';
 import { MobileHomePage } from './components/mobile/MobileHomePage';
 import { MobileDocsHub } from './components/mobile/MobileDocsHub';
+import { MobileBoardsOverview } from './components/mobile/MobileBoardsOverview';
 import { useViewport } from './hooks/useViewport';
+import { useMobileState } from './hooks/useMobileState';
 import * as Popover from '@radix-ui/react-popover';
 import * as Dialog from '@radix-ui/react-dialog';
 import { DndContext, PointerSensor, closestCenter, useSensor, useSensors, type DragEndEvent } from '@dnd-kit/core';
@@ -243,11 +245,53 @@ function decodeJwtExpMs(token: string): number | null {
 
 function App() {
   const { currentUser, logout } = useUser();
+  const { isMobile, isLandscapeShort } = useViewport();
+  const { mobileState, updateMobileState } = useMobileState('board');
   const { toast } = useToast();
   const [jwtIsExpiringSoon, setJwtIsExpiringSoon] = useState(false);
   const [jwtIsExpired, setJwtIsExpired] = useState(false);
   const [jwtMinutesLeft, setJwtMinutesLeft] = useState<number | null>(null);
-  const [selectedItem, setSelectedItem] = useState<Item | null>(null);
+  const [boards, setBoards] = useState<Board[]>([]);
+  const [boardsLoaded, setBoardsLoaded] = useState(false);
+
+  const [selectedItemIdState, setSelectedItemIdState] = useState<string | null>(() => {
+    if (typeof window !== 'undefined' && window.innerWidth <= 767) {
+      try {
+        const saved = sessionStorage.getItem('sunday_mobile_state');
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          if (parsed.selectedItemId) return parsed.selectedItemId;
+        }
+      } catch {}
+    }
+    return null;
+  });
+
+  const [selectedItemObj, setSelectedItemObj] = useState<Item | null>(null);
+
+  // Computed selectedItem based on selectedItemIdState and the current board's items
+  const selectedItem = useMemo(() => {
+    if (selectedItemObj) return selectedItemObj;
+    if (!selectedItemIdState || !boards.length) return null;
+    for (const b of boards) {
+      for (const g of b.groups) {
+        const found = g.items.find(i => i.id === selectedItemIdState);
+        if (found) return found;
+      }
+    }
+    return null;
+  }, [selectedItemObj, selectedItemIdState, boards]);
+
+  const setSelectedItem = (item: Item | null) => {
+    setSelectedItemObj(item);
+    setSelectedItemIdState(item?.id || null);
+  };
+
+  useEffect(() => {
+    if (isMobile) {
+      updateMobileState({ selectedItemId: selectedItemIdState });
+    }
+  }, [selectedItemIdState, isMobile]);
   const canSeeFacturacionView = can(currentUser, 'billing.view');
   const isTaller = currentUser?.role === 'TALLER';
 
@@ -413,13 +457,37 @@ function App() {
 
   const [showAddViewPopover, setShowAddViewPopover] = useState(false);
   const [calendarBoardPickerOpen, setCalendarBoardPickerOpen] = useState(false);
-  const [boardVistaSheetOpen, setBoardVistaSheetOpen] = useState(false);
+  const [boardVistaSheetOpen, setBoardVistaSheetOpen] = useState(() => {
+    if (typeof window !== 'undefined' && window.innerWidth <= 767) {
+      try {
+        const saved = sessionStorage.getItem('sunday_mobile_state');
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          return !!parsed.bottomSheetOpen;
+        }
+      } catch {}
+    }
+    return false;
+  });
+
+  useEffect(() => {
+    if (typeof window !== 'undefined' && window.innerWidth <= 767) {
+      const ms = sessionStorage.getItem('sunday_mobile_state');
+      if (ms) {
+        try {
+          const parsed = JSON.parse(ms);
+          parsed.bottomSheetOpen = boardVistaSheetOpen;
+          sessionStorage.setItem('sunday_mobile_state', JSON.stringify(parsed));
+        } catch {}
+      }
+    }
+  }, [boardVistaSheetOpen]);
+
   const [lastMainTab, setLastMainTab] = useState<'home' | 'board' | 'calendar'>('home');
   const [mobileHeaderHidden, setMobileHeaderHidden] = useState(false);
   const [mobileHeaderHeight, setMobileHeaderHeight] = useState(120);
   const mobileHeaderRef = useRef<HTMLDivElement>(null);
   const [exportingFolders, setExportingFolders] = useState(false);
-  const { isMobile, isLandscapeShort } = useViewport();
   const [sidebarOpen, setSidebarOpen] = useState(() => typeof window !== 'undefined' && window.innerWidth >= 768);
   const [theme, setTheme] = useState<AppTheme>(() => {
     if (typeof window === 'undefined') return 'light';
@@ -484,8 +552,18 @@ function App() {
       // ignore
     }
     const isMobileInitial = window.innerWidth <= 767 || (window.matchMedia?.('(orientation: landscape) and (max-height: 500px)')?.matches ?? false);
+    if (isMobileInitial && mobileState.activePage) {
+      return mobileState.activePage as any;
+    }
     return isMobileInitial ? 'home' : 'board';
   });
+
+  // Sync mobile state
+  useEffect(() => {
+    if (isMobile) {
+      updateMobileState({ activePage });
+    }
+  }, [activePage, isMobile]);
 
   // Deep-link desde notificaciones push:
   // `/?tab=notifications` / `/?tab=inbox` (limpiamos el query param tras cargar).
@@ -556,9 +634,24 @@ function App() {
       // ignore
     }
   }, [activePage]);
-  const [boards, setBoards] = useState<Board[]>([]);
-  const [boardsLoaded, setBoardsLoaded] = useState(false);
-  const [activeBoardId, setActiveBoardId] = useState<string | null>(null);
+  const [activeBoardId, setActiveBoardId] = useState<string | null>(() => {
+    if (typeof window !== 'undefined' && window.innerWidth <= 767) {
+      try {
+        const saved = sessionStorage.getItem('sunday_mobile_state');
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          if (parsed.activeBoardId) return parsed.activeBoardId;
+        }
+      } catch {}
+    }
+    return null;
+  });
+
+  useEffect(() => {
+    if (isMobile) {
+      updateMobileState({ activeBoardId });
+    }
+  }, [activeBoardId, isMobile]);
   const [boardSearch, setBoardSearch] = useState('');
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
   const [workspacesLoaded, setWorkspacesLoaded] = useState(false);
@@ -2500,54 +2593,69 @@ if (ok && data && typeof data.id === 'string') {
               onRowClick={setSelectedItem}
             />
           ) : activePage === 'board' && !activeBoardId ? (
-            <WorkspaceOverviewPage
-              workspace={workspaces.find(w => w.id === activeWorkspaceId) ?? null}
-              workspaces={workspaces}
-              boards={boards}
-              onSelectBoard={setActiveBoardId}
-              onSelectWorkspace={(id) => {
-                setActiveWorkspaceId(id);
-                setActiveBoardId(null);
-              }}
-              onWorkspaceUpdated={(updated) => {
-                setWorkspaces(prev => prev.map(w => w.id === updated.id ? { ...w, ...updated } : w));
-              }}
-              onWorkspaceDeleted={() => {
-                apiFetch(`${API_BASE}/api/workspaces`)
-                  .then(r => (r.ok ? r.json() : Promise.resolve(null)))
-                  .then((data: Workspace[] | null) => {
-                    if (!data || !Array.isArray(data)) return;
-                    setWorkspaces(data);
-                    const stillExists = data.some(w => w.id === activeWorkspaceId);
-                    if (!stillExists) {
-                      setActiveWorkspaceId(data[0]?.id ?? null);
-                      setActiveBoardId(null);
-                      setBoards([]);
-                    }
-                  })
-                  .catch(() => {});
-              }}
-              onBoardDeleted={() => {
-                const url = activeWorkspaceId
-                  ? `${API_BASE}/api/boards?workspaceId=${encodeURIComponent(
-                      activeWorkspaceId
-                    )}`
-                  : `${API_BASE}/api/boards`;
+            isMobile ? (
+              <MobileBoardsOverview
+                workspaces={workspaces}
+                activeWorkspaceId={activeWorkspaceId}
+                boards={boards}
+                onSelectWorkspace={(id) => {
+                  setActiveWorkspaceId(id);
+                  setActiveBoardId(null);
+                }}
+                onSelectBoard={(id) => {
+                  setActiveBoardId(id);
+                }}
+              />
+            ) : (
+              <WorkspaceOverviewPage
+                workspace={workspaces.find(w => w.id === activeWorkspaceId) ?? null}
+                workspaces={workspaces}
+                boards={boards}
+                onSelectBoard={setActiveBoardId}
+                onSelectWorkspace={(id) => {
+                  setActiveWorkspaceId(id);
+                  setActiveBoardId(null);
+                }}
+                onWorkspaceUpdated={(updated) => {
+                  setWorkspaces(prev => prev.map(w => w.id === updated.id ? { ...w, ...updated } : w));
+                }}
+                onWorkspaceDeleted={() => {
+                  apiFetch(`${API_BASE}/api/workspaces`)
+                    .then(r => (r.ok ? r.json() : Promise.resolve(null)))
+                    .then((data: Workspace[] | null) => {
+                      if (!data || !Array.isArray(data)) return;
+                      setWorkspaces(data);
+                      const stillExists = data.some(w => w.id === activeWorkspaceId);
+                      if (!stillExists) {
+                        setActiveWorkspaceId(data[0]?.id ?? null);
+                        setActiveBoardId(null);
+                        setBoards([]);
+                      }
+                    })
+                    .catch(() => {});
+                }}
+                onBoardDeleted={() => {
+                  const url = activeWorkspaceId
+                    ? `${API_BASE}/api/boards?workspaceId=${encodeURIComponent(
+                        activeWorkspaceId
+                      )}`
+                    : `${API_BASE}/api/boards`;
 
-                apiFetch(url)
-                  .then(r => (r.ok ? r.json() : Promise.resolve(null)))
-                  .then((data: Board[] | null) => {
-                    if (!data || !Array.isArray(data)) return;
-                    setBoards(data);
-                    setActiveBoardId(prev => {
-                      if (!prev) return null;
-                      const exists = data.some(b => b.id === prev);
-                      return exists ? prev : data[0]?.id ?? null;
-                    });
-                  })
-                  .catch(() => {});
-              }}
-            />
+                  apiFetch(url)
+                    .then(r => (r.ok ? r.json() : Promise.resolve(null)))
+                    .then((data: Board[] | null) => {
+                      if (!data || !Array.isArray(data)) return;
+                      setBoards(data);
+                      setActiveBoardId(prev => {
+                        if (!prev) return null;
+                        const exists = data.some(b => b.id === prev);
+                        return exists ? prev : data[0]?.id ?? null;
+                      });
+                    })
+                    .catch(() => {});
+                }}
+              />
+            )
           ) : activePage === 'board' && boards.length === 0 ? (
             <div className="flex-1 flex flex-col items-center justify-center text-monday-subtext p-8">
               <p className="text-[15px] font-medium text-monday-text mb-2">No hay tableros</p>
@@ -2912,16 +3020,26 @@ if (ok && data && typeof data.id === 'string') {
       {isMobile && !isBootstrapping && (
         <MobileBottomNav
           activeTab={
-            activePage === 'calendar'
-              ? 'calendar'
-              : activePage === 'docs'
-                ? 'docs'
-                : 'home'
+            activePage === 'notifications' ? 'notifications' :
+            activePage === 'inbox' ? 'inbox' :
+            activePage === 'calendar' ? 'calendar' :
+            (activePage === 'board' && !activeBoardId) || activePage === 'docs' || activePage === 'team' || activePage === 'facturacion' ? 'more' :
+            'home'
           }
           onNavigate={(tab: MobileBottomTab) => {
             if (tab === 'home') {
               setLastMainTab('home');
               setActivePage('home');
+              return;
+            }
+            if (tab === 'notifications') {
+              setLastMainTab(activePage === 'home' || activePage === 'board' || activePage === 'calendar' ? activePage as any : 'home');
+              setActivePage('notifications');
+              return;
+            }
+            if (tab === 'inbox') {
+              setLastMainTab(activePage === 'home' || activePage === 'board' || activePage === 'calendar' ? activePage as any : 'home');
+              setActivePage('inbox');
               return;
             }
             if (tab === 'calendar') {
@@ -2930,13 +3048,12 @@ if (ok && data && typeof data.id === 'string') {
               if (boards.length > 0 && !activeBoardId) setActiveBoardId(boards[0].id);
               return;
             }
-            if (tab === 'docs') {
-              setLastMainTab('home');
-              setActivePage('docs');
-              return;
+            if (tab === 'more') {
+              setSidebarOpen(true);
             }
           }}
           compact={isLandscapeShort}
+          unreadNotifCount={unreadNotifCount}
         />
       )}
     </div>

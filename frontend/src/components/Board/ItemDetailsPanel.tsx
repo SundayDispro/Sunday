@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion, AnimatePresence, useAnimation, PanInfo, useDragControls } from 'framer-motion';
 import { Board, BoardColumn, ColumnValue, Item, Update } from '../../types';
 import { X, Image, Smile, AtSign, Paperclip, Send, Clock, FileText, ExternalLink, Activity, Info } from 'lucide-react';
 import { socket } from '../../store/socket';
@@ -791,11 +791,40 @@ export const ItemDetailsPanel: React.FC<Props> = ({ item, onClose, variant = 'pa
     onClose();
   };
 
+  const dragControls = useDragControls();
+  const animationControls = useAnimation();
+
+  const handleDragEnd = async (_event: MouseEvent | TouchEvent | PointerEvent, info: PanInfo) => {
+    if (info.offset.y > 100 || info.velocity.y > 500) {
+      await animationControls.start({ y: '100%', transition: { duration: 0.2 } });
+      onClose();
+    } else {
+      animationControls.start({ y: 0, transition: { type: 'spring', bounce: 0.5 } });
+    }
+  };
+
+  const Wrapper = isSheet ? motion.div : 'div';
+  const wrapperProps = isSheet ? {
+    layoutId: `item-${item.id}`,
+    drag: 'y' as const,
+    dragControls,
+    dragListener: false,
+    dragConstraints: { top: 0, bottom: 0 },
+    dragElastic: 0.2,
+    onDragEnd: handleDragEnd as any,
+    animate: animationControls,
+    className: panelClassName,
+    style: { touchAction: 'none' as const } // Prevent scroll on the handle wrapper level? No, only handle should touch-none
+  } : { className: panelClassName };
+
   return (
-    <div className={panelClassName}>
+    <Wrapper {...wrapperProps}>
       {/* Barra de agarre (solo sheet) para indicar que se puede cerrar */}
       {isSheet && (
-        <div className="shrink-0 flex justify-center pt-2 pb-1">
+        <div 
+          className="shrink-0 flex justify-center pt-2 pb-1 cursor-grab active:cursor-grabbing touch-none"
+          onPointerDown={(e) => dragControls.start(e)}
+        >
           <div className="w-10 h-1 rounded-full bg-monday-border/60" aria-hidden />
         </div>
       )}
@@ -935,6 +964,21 @@ export const ItemDetailsPanel: React.FC<Props> = ({ item, onClose, variant = 'pa
                   Elemento · ID #{item.id.slice(0, 8)}
                 </div>
               </div>
+
+              {(activitySummary.statusEntries.length > 0 || activitySummary.docEntries.length > 0) && (
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {[...activitySummary.statusEntries, ...activitySummary.docEntries].map((e) => (
+                    <div
+                      key={e.id}
+                      className="inline-flex items-center gap-1.5 rounded-full border border-monday-border bg-monday-pill px-3 py-1 text-[12px] min-h-[32px]"
+                    >
+                      <span className="text-monday-subtext font-semibold truncate max-w-[120px]">{e.title}</span>
+                      <span className="text-monday-border">·</span>
+                      <span className="text-monday-text font-medium truncate max-w-[180px]">{e.value}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
 
               <div className="mt-4 flex flex-col gap-2">
                 {infoRows.length === 0 ? (
@@ -1086,6 +1130,6 @@ export const ItemDetailsPanel: React.FC<Props> = ({ item, onClose, variant = 'pa
           </div>
         )}
       </div>
-    </div>
+    </Wrapper>
   );
 };

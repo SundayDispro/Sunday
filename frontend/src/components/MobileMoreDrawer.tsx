@@ -100,11 +100,13 @@ export function MobileMoreDrawer({
   };
 
   const handleSelectBoard = (id: string | null) => {
+    if (navigator.vibrate) navigator.vibrate(15);
     onSelectBoard(id);
     onOpenChange(false);
   };
 
   const handleNav = (page: 'notifications' | 'docs' | 'search' | 'team' | 'facturacion' | 'inbox') => {
+    if (navigator.vibrate) navigator.vibrate(15);
     onNavigate(page);
     onOpenChange(false);
   };
@@ -140,7 +142,10 @@ export function MobileMoreDrawer({
                 <span className="text-[15px] font-semibold text-monday-text">Más</span>
                 <button
                   type="button"
-                  onClick={() => onOpenChange(false)}
+                  onClick={() => {
+                    if (navigator.vibrate) navigator.vibrate(15);
+                    onOpenChange(false);
+                  }}
                   className="min-h-[44px] min-w-[44px] flex items-center justify-center rounded-lg text-monday-subtext hover:bg-monday-hover hover:text-monday-text transition-colors"
                   aria-label="Cerrar menú"
                 >

@@ -109,10 +109,16 @@ const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode, mobile
 
   /** FAB móvil: abrir menú "Nuevo elemento" desde fuera */
   useEffect(() => {
-    const handler = () => setNewMenuOpen(true);
+    const handler = () => {
+      if (!board || board.groups.length === 0) return;
+      setAddToProjectGroupId(board.groups[0].id);
+      setAddToProjectAfterItemId('');
+      setAddToProjectName('');
+      setAddToProjectOpen(true);
+    };
     window.addEventListener('sunday-fab-add-item', handler);
     return () => window.removeEventListener('sunday-fab-add-item', handler);
-  }, []);
+  }, [board]);
 
   /** Ref para abrir el modal de evento de calendario con tipo (desde la barra en vista calendario). */
   const openCalendarEventRef = useRef<((opts: { date: Date; eventType: CalendarEventKind }) => void) | null>(null);
@@ -587,6 +593,39 @@ const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode, mobile
     emitMoveItem({ itemId: movedItemId, newGroupId, newPosition: finalPosition });
   };
 
+  const handleOptimisticUpdate = (itemId: string, columnId: string, value: string) => {
+    setBoard((prev) => {
+      if (!prev) return prev;
+      const newGroups = prev.groups.map(g => ({
+        ...g,
+        items: g.items.map(i => {
+          if (i.id === itemId) {
+            const idx = i.columnValues.findIndex(cv => cv.columnId === columnId);
+            const newCv = [...i.columnValues];
+            if (idx !== -1) newCv[idx] = { ...newCv[idx], value };
+            else newCv.push({ id: crypto.randomUUID(), itemId, columnId, value });
+            return { ...i, columnValues: newCv };
+          }
+          return i;
+        })
+      }));
+      return { ...prev, groups: newGroups };
+    });
+  };
+
+  const handleOptimisticDelete = (itemId: string) => {
+    setBoard(prev => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        groups: prev.groups.map(g => ({
+          ...g,
+          items: g.items.filter(i => i.id !== itemId),
+        })),
+      };
+    });
+  };
+
   const isTaller = currentUser?.role === 'TALLER';
   const isAdminOrVentas = currentUser?.role === 'ADMIN' || currentUser?.role === 'VENTAS';
   const statusColumnIds = useMemo(
@@ -958,7 +997,8 @@ const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode, mobile
 
   const toolbarClass = `min-w-0 px-4 sm:px-6 py-2.5 border-b border-monday-border flex items-center gap-x-2 gap-y-2 shrink-0 bg-[var(--monday-surface)] ${mobileOptimized ? 'flex-nowrap' : 'flex-wrap'}`;
   const ToolbarWrapper = isMobile ? motion.div : 'div';
-  const toolbarHeightVisible = headerHidden ? 0 : Math.max(toolbarHeight, 48);
+  // En móvil aseguramos que la toolbar sea visible inicialmente en lugar de height 0 (causa colapso)
+  const toolbarHeightVisible = headerHidden ? 0 : 'auto';
   const toolbarWrapperProps = isMobile
     ? {
         className: 'min-h-0 overflow-hidden shrink-0',
@@ -972,13 +1012,43 @@ const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode, mobile
     <div className="h-full min-h-0 flex flex-col">
       {/* ── Action Toolbar: hide-on-scroll en móvil (altura animada para reclamar espacio) ─────────────────────────────────────── */}
       <ToolbarWrapper {...toolbarWrapperProps}>
-        <div ref={isMobile ? toolbarRef : undefined} className={toolbarClass} />
+        <div ref={isMobile ? toolbarRef : undefined} className={toolbarClass}>
+          {/* Quick Filters (Píldoras) en móvil */}
+          {isMobile && (
+            <div className="flex-1 min-w-0 overflow-x-auto hide-scrollbar scroll-touch flex items-center gap-2 py-1">
+              <button
+                onClick={() => setSearchQuery(searchQuery === 'mis tareas' ? '' : 'mis tareas')}
+                className={`shrink-0 px-3 py-1.5 rounded-full text-[12px] font-medium transition-colors border ${
+                  searchQuery === 'mis tareas' ? 'bg-monday-blue text-white border-monday-blue' : 'bg-[var(--monday-surface)] text-monday-text border-monday-border hover:bg-monday-hover'
+                }`}
+              >
+                Mis tareas
+              </button>
+              <button
+                onClick={() => setSearchQuery(searchQuery === 'pendiente' ? '' : 'pendiente')}
+                className={`shrink-0 px-3 py-1.5 rounded-full text-[12px] font-medium transition-colors border ${
+                  searchQuery === 'pendiente' ? 'bg-monday-blue text-white border-monday-blue' : 'bg-[var(--monday-surface)] text-monday-text border-monday-border hover:bg-monday-hover'
+                }`}
+              >
+                Pendientes
+              </button>
+              <button
+                onClick={() => setSearchQuery(searchQuery === 'urgente' ? '' : 'urgente')}
+                className={`shrink-0 px-3 py-1.5 rounded-full text-[12px] font-medium transition-colors border ${
+                  searchQuery === 'urgente' ? 'bg-monday-blue text-white border-monday-blue' : 'bg-[var(--monday-surface)] text-monday-text border-monday-border hover:bg-monday-hover'
+                }`}
+              >
+                Urgentes
+              </button>
+            </div>
+          )}
+        </div>
       </ToolbarWrapper>
 
       {/* ── Board Content: min-h-0 para que el flex permita scroll; touch para desplazamiento en móvil/horizontal ───────────────────────────────────────── */}
       <div
         ref={setScrollContainerRef}
-        className={`flex-1 min-h-0 overflow-y-auto overflow-x-hidden custom-scrollbar scroll-touch overscroll-y-contain ${
+        className={`flex-1 min-h-0 overflow-y-auto overflow-x-hidden custom-scrollbar scroll-touch overscroll-y-contain relative z-0 ${
           isPortrait ? 'px-4 sm:px-6 py-5' : isLandscapeShort ? 'px-2 sm:px-3 py-2' : 'px-2 sm:px-4 py-3'
         }`}
         style={{ WebkitOverflowScrolling: 'touch', overscrollBehaviorY: 'contain' }}
@@ -1042,6 +1112,8 @@ const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode, mobile
                           onToggleGroupAll={toggleGroupAll}
                           stackIndex={idx}
                           useCardView={useCardView}
+                          onOptimisticUpdate={handleOptimisticUpdate}
+                          onOptimisticDelete={handleOptimisticDelete}
                         />
                         {childGroups.map(sub => (
                           <div
@@ -1067,6 +1139,8 @@ const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode, mobile
                               onToggleGroupAll={toggleGroupAll}
                               stackIndex={idx}
                               useCardView={useCardView}
+                              onOptimisticUpdate={handleOptimisticUpdate}
+                              onOptimisticDelete={handleOptimisticDelete}
                             />
                           </div>
                         ))}

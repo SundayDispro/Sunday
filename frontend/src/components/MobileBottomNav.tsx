@@ -1,7 +1,7 @@
 import React from 'react';
-import { Home, Calendar, FileText } from 'lucide-react';
+import { Home, Bell, Inbox, Calendar, Menu } from 'lucide-react';
 
-export type MobileBottomTab = 'home' | 'calendar' | 'docs';
+export type MobileBottomTab = 'home' | 'notifications' | 'inbox' | 'calendar' | 'more';
 
 const TABS: Array<{
   id: MobileBottomTab;
@@ -9,18 +9,22 @@ const TABS: Array<{
   icon: React.ReactNode;
 }> = [
   { id: 'home', label: 'Inicio', icon: <Home size={22} strokeWidth={2.25} /> },
+  { id: 'notifications', label: 'Notificaciones', icon: <Bell size={22} strokeWidth={2.25} /> },
+  { id: 'inbox', label: 'Bandeja', icon: <Inbox size={22} strokeWidth={2.25} /> },
   { id: 'calendar', label: 'Calendario', icon: <Calendar size={22} strokeWidth={2.25} /> },
-  { id: 'docs', label: 'Docs', icon: <FileText size={22} strokeWidth={2.25} /> },
+  { id: 'more', label: 'Más', icon: <Menu size={22} strokeWidth={2.25} /> },
 ];
 
 export function MobileBottomNav({
   activeTab,
   onNavigate,
   compact = false,
+  unreadNotifCount = 0,
 }: {
   activeTab: MobileBottomTab;
   onNavigate: (tab: MobileBottomTab) => void;
   compact?: boolean;
+  unreadNotifCount?: number;
 }) {
   return (
     <nav
@@ -28,12 +32,15 @@ export function MobileBottomNav({
       className={[
         'fixed bottom-0 left-0 right-0 z-40',
         'safe-area-pb',
-        // Liquid glass
-        'bg-[var(--monday-surface)]/95 backdrop-blur-xl',
+        // Optimizado para 60fps: sin backdrop-blur
+        'bg-[var(--monday-surface)]',
         'border-t border-monday-border',
-        'shadow-monday-lg',
+        'shadow-sm',
       ].join(' ')}
-      style={{ paddingBottom: 'max(0.5rem, env(safe-area-inset-bottom))' }}
+      style={{ 
+        paddingBottom: 'max(0.5rem, env(safe-area-inset-bottom))',
+        willChange: 'transform'
+      }}
     >
       <div className="mx-auto w-full max-w-md px-2">
         <div className="flex items-center justify-between">
@@ -43,7 +50,10 @@ export function MobileBottomNav({
               <button
                 key={t.id}
                 type="button"
-                onClick={() => onNavigate(t.id)}
+                onClick={() => {
+                  if (navigator.vibrate && activeTab !== t.id) navigator.vibrate(15);
+                  onNavigate(t.id);
+                }}
                 className={[
                   'relative flex-1',
                   'flex flex-col items-center justify-center',
@@ -68,6 +78,11 @@ export function MobileBottomNav({
                     aria-hidden
                   />
                   <span className="relative">{t.icon}</span>
+                  {t.id === 'notifications' && unreadNotifCount > 0 && (
+                    <span className="absolute top-0 right-0 -mt-1 -mr-1 flex h-4 min-w-[16px] items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-bold text-white shadow-sm ring-2 ring-white">
+                      {unreadNotifCount > 99 ? '99+' : unreadNotifCount}
+                    </span>
+                  )}
                 </span>
                 {!compact && (
                   <span className="relative mt-0.5 text-[10px] font-medium tracking-wide">
