@@ -168,6 +168,7 @@ export const PdfTemplateEditor: React.FC<Props> = ({
   const containerRef = useRef<HTMLDivElement>(null);
   const wrapperRef = useRef<HTMLDivElement>(null);
   const [scale, setScale] = useState(1);
+  const [templatePdfWaitedTooLong, setTemplatePdfWaitedTooLong] = useState(false);
   const pixelScale = exportPixelScale ?? 1;
   const PAGE_WIDTH_PX = Math.round(PAGE_WIDTH_PX_96DPI * pixelScale);
   const PAGE_HEIGHT_PX = Math.round(PAGE_HEIGHT_PX_96DPI * pixelScale);
@@ -211,6 +212,9 @@ export const PdfTemplateEditor: React.FC<Props> = ({
   // Cargar URL de plantilla PDF para usarla como fondo (solo si el padre no pasa templatePdfUrlProp)
   useEffect(() => {
     if (templatePdfUrlProp != null) return;
+    // En viewerOnly el padre suele proveer `templatePdfUrlProp` asíncrono.
+    // Para evitar duplicar fetch y saltos, no hacemos fetch interno en modo viewer-only.
+    if (viewerOnly) return;
     let revoked = false;
     let objectUrl: string | null = null;
     apiFetch(`${API_BASE}/api/templates/${docType}`)
@@ -235,11 +239,30 @@ export const PdfTemplateEditor: React.FC<Props> = ({
         setTimeout(() => URL.revokeObjectURL(url), 500);
       }
     };
-  }, [docType, templatePdfUrlProp]);
+  }, [docType, templatePdfUrlProp, viewerOnly]);
+
+  // Placeholder premium mientras el viewerOnly espera a que el padre cargue la plantilla.
+  useEffect(() => {
+    if (!viewerOnly) return;
+    if (templatePdfUrlProp != null) return;
+    setTemplatePdfWaitedTooLong(false);
+    const t = window.setTimeout(() => setTemplatePdfWaitedTooLong(true), 900);
+    return () => window.clearTimeout(t);
+  }, [viewerOnly, templatePdfUrlProp, docType]);
 
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [pdfRenderError, setPdfRenderError] = useState<string | null>(null);
   const editableRefs = useRef<Record<string, HTMLDivElement | null>>({});
+
+  const vibrate = useCallback((ms: number) => {
+    try {
+      if (typeof navigator !== 'undefined' && typeof navigator.vibrate === 'function') {
+        navigator.vibrate(ms);
+      }
+    } catch {
+      // ignore
+    }
+  }, []);
 
   useEffect(() => {
     if (exportPixelScale) return;
@@ -357,8 +380,9 @@ export const PdfTemplateEditor: React.FC<Props> = ({
 
   const handleCustomBoxMouseDown = useCallback((e: React.MouseEvent, box: CustomBoxDef) => {
     e.preventDefault();
+    vibrate(8);
     setDragging({ fieldKey: box.id, startX: e.clientX, startY: e.clientY, startLeft: box.x, startTop: box.y });
-  }, []);
+  }, [vibrate]);
 
   const addCustomBox = useCallback((singleLine = false) => {
     if (!onTemplateConfigChange || !currentUser?.id) return;
@@ -512,8 +536,9 @@ export const PdfTemplateEditor: React.FC<Props> = ({
   const handleResizeStart = useCallback((e: React.MouseEvent, box: CustomBoxDef, axis: ResizeAxis) => {
     e.preventDefault();
     e.stopPropagation();
+    vibrate(10);
     setResizing({ boxId: box.id, axis, startX: e.clientX, startY: e.clientY, startW: box.width, startH: box.height });
-  }, []);
+  }, [vibrate]);
 
   useEffect(() => {
     if (!resizing) return;
@@ -828,9 +853,15 @@ export const PdfTemplateEditor: React.FC<Props> = ({
                   </div>
                 )}
               </>
-            ) : (
+            ) : !viewerOnly || templatePdfWaitedTooLong ? (
               <div className="w-full h-full bg-white flex items-center justify-center text-monday-subtext text-sm">
                 Sin plantilla PDF. Coloca {docType}.pdf en backend/templates/
+              </div>
+            ) : (
+              <div className="w-full h-full bg-white flex items-center justify-center">
+                <div className="w-[72%] h-[18px] rounded-full bg-monday-border/60 overflow-hidden relative">
+                  <div className="absolute inset-0 bg-gradient-to-r from-monday-blue/10 via-monday-blue/25 to-monday-blue/10 animate-pulse" />
+                </div>
               </div>
             )}
           </div>
@@ -894,7 +925,15 @@ export const PdfTemplateEditor: React.FC<Props> = ({
                     <div
                       role={viewerOnly ? undefined : 'button'}
                       tabIndex={viewerOnly ? undefined : 0}
-                      onClick={viewerOnly ? undefined : () => canFormatBox && setSelectedBoxId(box.id)}
+                      onClick={
+                        viewerOnly
+                          ? undefined
+                          : () => {
+                              if (!canFormatBox) return;
+                              vibrate(6);
+                              setSelectedBoxId(box.id);
+                            }
+                      }
                       className={`flex-1 min-w-0 flex flex-col transition-all overflow-hidden box-border relative ${
                         showFrame
                           ? canMoveOrDelete
@@ -936,6 +975,7 @@ export const PdfTemplateEditor: React.FC<Props> = ({
                           onClick={viewerOnly ? undefined : (e) => {
                             e.stopPropagation();
                             if (canFormatBox) {
+                              vibrate(6);
                               setSelectedBoxId(box.id);
                               onActiveBoxChange?.({
                                 boxId: box.id,
@@ -988,6 +1028,7 @@ export const PdfTemplateEditor: React.FC<Props> = ({
                             update({ fecha: iso ? isoToFechaDraft(iso) : '' });
                           }}
                           onFocus={() => {
+                            vibrate(4);
                             setSelectedBoxId(box.id);
                             onActiveBoxChange?.({
                               boxId: box.id,
@@ -1003,7 +1044,10 @@ export const PdfTemplateEditor: React.FC<Props> = ({
                           }}
                           onClick={(e) => {
                             e.stopPropagation();
-                            if (canFormatBox) setSelectedBoxId(box.id);
+                            if (canFormatBox) {
+                              vibrate(4);
+                              setSelectedBoxId(box.id);
+                            }
                           }}
                           onMouseDown={(e) => e.stopPropagation()}
                           style={{
@@ -1049,6 +1093,7 @@ export const PdfTemplateEditor: React.FC<Props> = ({
                           onFocus={() => {
                             // Mientras el cuadro tiene foco, evitamos sobrescribir su contenido desde React
                             // para que no salte el cursor al principio.
+                            vibrate(4);
                             setSelectedBoxId(box.id);
                             onActiveBoxChange?.({
                               boxId: box.id,

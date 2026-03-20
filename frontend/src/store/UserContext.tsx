@@ -8,6 +8,7 @@ interface UserContextType {
   login: (username: string, password: string) => Promise<void>;
   logout: () => void;
   setUserStatus: (status: UserStatus) => Promise<void>;
+  updateAvatar: (file: File) => Promise<void>;
   users: User[];
   fetchUsers: () => Promise<void>;
   ensurePushSubscription: () => Promise<void>;
@@ -16,22 +17,25 @@ interface UserContextType {
 const UserContext = createContext<UserContextType | undefined>(undefined);
 
 export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [currentUser, setCurrentUser] = useState<User | null>(() => {
+    try {
+      const savedUser = localStorage.getItem('sunday_user');
+      const savedToken = localStorage.getItem('sunday_token');
+      if (savedUser && savedToken) {
+        return JSON.parse(savedUser) as User;
+      }
+
+      // Estado inconsistente: limpiar sesión almacenada para evitar parpadeos de login/app
+      localStorage.removeItem('sunday_user');
+      localStorage.removeItem('sunday_token');
+      return null;
+    } catch {
+      return null;
+    }
+  });
   const [users, setUsers] = useState<User[]>([]);
 
   useEffect(() => {
-    const savedUser = localStorage.getItem('sunday_user');
-    const savedToken = localStorage.getItem('sunday_token');
-    if (savedUser && savedToken) {
-      setCurrentUser(JSON.parse(savedUser));
-    } else {
-      // Estado inconsistente: limpiar sesión almacenada para evitar parpadeos de login/app
-      try {
-        localStorage.removeItem('sunday_user');
-        localStorage.removeItem('sunday_token');
-      } catch {/* ignore */}
-      setCurrentUser(null);
-    }
     fetchUsers();
   }, []);
 
@@ -219,8 +223,25 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
+  const updateAvatar = async (file: File) => {
+    const userId = currentUser?.id;
+    if (!userId) return;
+    const formData = new FormData();
+    formData.append('avatar', file);
+    const res = await apiFetch(`${API_BASE}/api/users/${userId}/avatar`, {
+      method: 'PATCH',
+      body: formData,
+    });
+    const updated = await parseResponse<User>(res);
+    if (updated != null) {
+      setCurrentUser(updated);
+      localStorage.setItem('sunday_user', JSON.stringify(updated));
+      await fetchUsers();
+    }
+  };
+
   return (
-    <UserContext.Provider value={{ currentUser, login, logout, setUserStatus, users, fetchUsers, ensurePushSubscription }}>
+    <UserContext.Provider value={{ currentUser, login, logout, setUserStatus, updateAvatar, users, fetchUsers, ensurePushSubscription }}>
       {children}
     </UserContext.Provider>
   );
