@@ -42,6 +42,8 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const fetchUsers = async () => {
     try {
       const res = await apiFetch(`${API_BASE}/api/users`);
+      // Sin sesión es normal recibir 401; no spamear consola en la pantalla de login.
+      if (res.status === 401) return;
       const data = await parseResponse<User[]>(res);
       if (data != null) setUsers(Array.isArray(data) ? data : []);
     } catch (e) {

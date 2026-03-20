@@ -1,2 +1,8 @@
 # Carpeta anidada del mismo repo (evita submódulo fantasma)
 Sunday/
+
+# Secretos y entorno local
+backend/.env
+.env
+.env.local
+.env.*.local

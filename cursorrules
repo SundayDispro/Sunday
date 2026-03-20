@@ -2,7 +2,7 @@
 Aplicación tipo Monday.com. Código y comentarios en español.
 
 ## Stack
-- **Backend** (`backend/`): Node.js + TypeScript + Express 5 + Prisma 5 (SQLite) + Socket.IO + multer + web-push + pdf-lib + Puppeteer
+- **Backend** (`backend/`): Node.js + TypeScript + Express 5 + Prisma 5 (PostgreSQL) + Socket.IO + multer + web-push + pdf-lib + Puppeteer
 - **Frontend** (`frontend/`): Vite 7 + React 19 + TypeScript + Tailwind CSS 3 (tema "monday") + Radix + @dnd-kit + TanStack Table + Lucide React
 - **Puertos**: Backend 3001 · Frontend dev 5173/5174
 - **No hay package.json raíz** — backend y frontend son proyectos npm independientes

@@ -112,6 +112,13 @@ Q4 2025–Q1 2026 ─── Endurecimiento general y preparación Fases 3–5
             fuente de verdad arquitectónica principal del proyecto.
 ```
 
+#### 0.1.2 Documentación del repositorio y PostgreSQL en servidor (marzo 2026)
+
+- **README operativos**: `README.md` en la raíz del monorepo, `backend/README.md` y `frontend/README.md` con instrucciones de arranque, variables de entorno y enlaces a la guía de base de datos.
+- **Guía de base de datos**: `docs/DEV_SETUP_POSTGRES.md` describe el flujo con **PostgreSQL instalado nativamente en Windows** (desarrollo y servidor final): creación de usuario/base (`ops/setup-local-postgres.sql`), `npx prisma migrate deploy`, `npm run seed`, comprobación con Prisma Studio, y notas de firewall/secretos/backups para producción.
+- **Variables de entorno**: `backend/src/env.ts` carga `backend/.env` con **`override: true`** respecto al proceso, de modo que la configuración del proyecto no quede oculta por una `DATABASE_URL` u otras variables heredadas en el entorno del sistema Windows.
+- **Contenedores**: la implementación final prevista **no** depende de Docker para PostgreSQL; el repositorio no incluye `docker-compose` en el flujo documentado de despliegue (histórico opcional de desarrollo eliminado de la documentación activa).
+
 #### 0.2 Alcance de esta auditoría
 
 Esta auditoría cubre **todo el programa Sunday** desde el punto de vista técnico:
@@ -1214,6 +1221,7 @@ Implementación completa del plan "Roadmap Mobile V6". Cambios aplicados:
 ### 8. Conclusión
 
 Sunday presenta una arquitectura moderna basada en React + Node.js + PostgreSQL, con un diseño orientado a trabajo en tiempo real (Sockets) y una cuidadosa transición desde modelos legacy a JSONB.  
+La documentación de instalación local y servidor se centraliza en los **README** del repositorio y en `docs/DEV_SETUP_POSTGRES.md`, alineada con PostgreSQL nativo en Windows para el equipo servidor.  
 Las capas de seguridad (bcrypt + JWT + middlewares) y la segmentación de tráfico por rooms sientan las bases para operación segura en entornos LAN/VPN/móviles.  
 Las siguientes fases de ingeniería (optimización de sockets, endurecimiento de consultas Prisma y hardening de seguridad/event loop) permitirán escalar el sistema manteniendo una experiencia fluida para los usuarios finales.
 

@@ -1,4 +1,4 @@
-import 'dotenv/config';
+import './env';
 import crypto from 'crypto';
 import express from 'express';
 import { createServer } from 'http';
@@ -15,6 +15,22 @@ import * as notificationsService from './services/notifications';
 
 const prisma = new PrismaClient();
 const app = express();
+
+/** Errores típicos de Prisma/pg cuando la BD no está accesible o las credenciales fallan. */
+function isPrismaDbUnavailable(err: unknown): boolean {
+  if (!err || typeof err !== 'object') return false;
+  const name = 'name' in err && typeof (err as { name: string }).name === 'string' ? (err as { name: string }).name : '';
+  if (name === 'PrismaClientInitializationError') return true;
+  const msg = err instanceof Error ? err.message : String(err);
+  return (
+    msg.includes("Can't reach database server") ||
+    msg.includes('P1001') ||
+    msg.includes('P1000') ||
+    msg.includes('ECONNREFUSED') ||
+    msg.includes('password authentication failed') ||
+    msg.includes('28P01')
+  );
+}
 const httpServer = createServer(app);
 
 function toValueJson(legacyValue: string): Prisma.JsonValue | null {
@@ -1021,6 +1037,12 @@ app.post('/api/login', async (req, res) => {
     res.json({ user: userWithoutPassword, token });
   } catch (err) {
     console.error(err);
+    if (isPrismaDbUnavailable(err)) {
+      return res.status(503).json({
+        error:
+          'No se pudo conectar a PostgreSQL. Revisa DATABASE_URL en backend/.env y que el servidor esté en marcha. Guía: docs/DEV_SETUP_POSTGRES.md',
+      });
+    }
     res.status(500).json({ error: 'Error en el login' });
   }
 });
