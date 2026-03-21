@@ -1,4 +1,4 @@
-import React, { useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Group, BoardColumn, Item } from '../../types';
 import {
   createColumnHelper,
@@ -394,6 +394,140 @@ const ColumnHeader: React.FC<{ col: BoardColumn; onEditLabels?: (col: BoardColum
   );
 };
 
+/** Añade canal alpha hex (#rrggbbaa) a un color #rrggbb */
+function withAlphaHex(hex: string, alphaByte: string): string {
+  const t = hex.trim();
+  if (/^#[0-9A-Fa-f]{6}$/.test(t)) return `${t}${alphaByte}`;
+  return t;
+}
+
+/** Móvil / vista tarjeta: una columna por pantalla con swipe horizontal (scroll-snap), sin botón “ver más columnas”. */
+function MobileCardColumnPager({
+  visibleCols,
+  item,
+  groupColor,
+}: {
+  visibleCols: BoardColumn[];
+  item: Item;
+  groupColor: string;
+}) {
+  const scrollerRef = useRef<HTMLDivElement>(null);
+  const [page, setPage] = useState(0);
+
+  const syncPage = useCallback(() => {
+    const el = scrollerRef.current;
+    if (!el || visibleCols.length === 0) return;
+    const w = el.clientWidth;
+    if (w <= 0) return;
+    const i = Math.max(0, Math.min(visibleCols.length - 1, Math.round(el.scrollLeft / w)));
+    setPage(i);
+  }, [visibleCols.length]);
+
+  useEffect(() => {
+    const el = scrollerRef.current;
+    if (!el) return;
+    el.addEventListener('scroll', syncPage, { passive: true });
+    const ro = new ResizeObserver(() => syncPage());
+    ro.observe(el);
+    syncPage();
+    return () => {
+      el.removeEventListener('scroll', syncPage);
+      ro.disconnect();
+    };
+  }, [syncPage]);
+
+  if (visibleCols.length === 0) return null;
+
+  const renderColumnBody = (col: BoardColumn) => {
+    const cv = item.columnValues.find(v => v.columnId === col.id);
+    if (col.type === 'status' || col.type === 'priority') {
+      return <StatusCellRenderer item={item} column={col} value={cv} />;
+    }
+    if (col.type === 'date') {
+      return <DateCellRenderer item={item} column={col} value={cv} />;
+    }
+    if (col.type === 'person') {
+      return <PersonCellRenderer item={item} column={col} value={cv} />;
+    }
+    if (col.type === 'timeline') {
+      return <TimelineCellRenderer item={item} column={col} value={cv} />;
+    }
+    if (col.type === 'text' || col.type === 'folio') {
+      return <TextCell content={cv?.value ?? ''} item={item} column={col} />;
+    }
+    if (col.type === 'contact' || col.type === 'number') {
+      return <ContactCellRenderer item={item} column={col} value={cv} />;
+    }
+    if (col.type === 'excel') {
+      return <ExcelCellRenderer item={item} column={col} value={cv} />;
+    }
+    if (col.type === 'docs') {
+      return <DocsCellRenderer item={item} column={col} value={cv} />;
+    }
+    if (col.type === 'billing_docs') {
+      return <BillingDocsCellRenderer item={item} column={col} value={cv} />;
+    }
+    if (col.type === 'file') {
+      return <FileCellRenderer item={item} column={col} value={cv} />;
+    }
+    return <span className="text-monday-subtext">—</span>;
+  };
+
+  return (
+    <div className="mt-2" onClick={(e) => e.stopPropagation()}>
+      <div
+        ref={scrollerRef}
+        className="flex overflow-x-auto overflow-y-hidden scroll-touch mobile-col-pager-hide-scrollbar -mx-0.5 px-0.5"
+        style={{
+          WebkitOverflowScrolling: 'touch',
+          scrollSnapType: 'x mandatory',
+          touchAction: 'pan-x pinch-zoom',
+        }}
+      >
+        {visibleCols.map((col) => (
+          <div
+            key={col.id}
+            className="w-full min-w-full shrink-0 px-0.5 box-border"
+            style={{ scrollSnapAlign: 'start' }}
+          >
+            <div
+              className="rounded-xl px-3 py-2.5 border border-monday-border/40"
+              style={{
+                background: `linear-gradient(125deg, ${withAlphaHex(groupColor, '22')} 0%, var(--monday-surface) 48%, var(--monday-hover) 100%)`,
+                boxShadow: `0 2px 10px ${withAlphaHex(groupColor, '14')}, 0 0 0 1px ${withAlphaHex(groupColor, '24')}`,
+              }}
+            >
+              <div
+                className="text-[10px] font-semibold uppercase tracking-wider mb-1.5 truncate"
+                style={{ color: groupColor }}
+              >
+                {col.title}
+              </div>
+              <div className="min-w-0 text-[12px] text-monday-text [&_.min-h-\[38px\]]:min-h-0">{renderColumnBody(col)}</div>
+            </div>
+          </div>
+        ))}
+      </div>
+      {visibleCols.length > 1 && (
+        <div className="flex items-center justify-center gap-1 mt-2" aria-hidden>
+          {visibleCols.map((col, i) => (
+            <span
+              key={col.id}
+              title={col.title}
+              className="rounded-full transition-all duration-200"
+              style={
+                i === page
+                  ? { width: 16, height: 4, backgroundColor: groupColor }
+                  : { width: 4, height: 4, backgroundColor: withAlphaHex(groupColor, '55') }
+              }
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Main BoardGroup ────────────────────────────────────────────────────────
 export const BoardGroup: React.FC<Props> = ({
   group,
@@ -423,7 +557,6 @@ export const BoardGroup: React.FC<Props> = ({
   const [groupNameDraft, setGroupNameDraft] = useState(group.name);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [columnEditingLabels, setColumnEditingLabels] = useState<BoardColumn | null>(null);
-  const [cardColumnsExpanded, setCardColumnsExpanded] = useState(false);
   const addInputRef = useRef<HTMLInputElement>(null);
   const { currentUser } = useUser();
   const isAdminOrVentas = currentUser?.role === 'ADMIN' || currentUser?.role === 'VENTAS';
@@ -663,10 +796,14 @@ export const BoardGroup: React.FC<Props> = ({
       className={`mb-6 relative ${isDragging ? 'opacity-0 pointer-events-none' : ''}`}
       style={{ zIndex: effectiveZIndex }}
     >
-      {/* ── Group Header (sticky): siempre visible por encima de las filas; cada grupo tiene su propio scroll en vista tabla. */}
+      {/* ── Group Header: sticky en vista tabla, fluye en vista tarjeta (móvil) */}
       <div
-        className={`sticky top-0 z-10 isolate flex items-center gap-1.5 py-1.5 pt-2 pb-2 mb-1.5 bg-[var(--monday-surface)] border-b border-monday-border shadow-[0_2px_6px_0_rgba(0,0,0,0.08)] group/header ${isSubgroup && !indentFromParent ? 'ml-6' : ''}`}
-        style={{ transform: 'translateZ(0)', backfaceVisibility: 'hidden' as const }}
+        className={`flex items-center gap-1.5 py-1.5 pt-2 pb-2 mb-1.5 group/header ${
+          useCardView
+            ? 'relative'
+            : `sticky top-0 isolate z-10 bg-[var(--monday-surface)] border-b border-monday-border shadow-[0_2px_6px_0_rgba(0,0,0,0.08)]`
+        } ${isSubgroup && !indentFromParent ? 'ml-6' : ''}`}
+        style={useCardView ? undefined : { transform: 'translateZ(0)', backfaceVisibility: 'hidden' as const }}
       >
         <div 
           {...attributes} 
@@ -813,23 +950,24 @@ export const BoardGroup: React.FC<Props> = ({
         />
       )}
 
-      {/* ── Vista tarjetas (móvil): columnas limitadas por defecto para muchas columnas ───────────────────────────────────────────────────── */}
+      {/* ── Vista tarjetas (móvil): columnas con swipe horizontal (scroll-snap) ───────────────────────────────────────────────────── */}
       {!isCollapsed && useCardView && (() => {
         const visibleCols = columns.filter(col => !hiddenColumns?.includes(col.id));
-        const maxColsDefault = 4;
-        const hasMoreCols = visibleCols.length > maxColsDefault;
-        const colsToShow = cardColumnsExpanded ? visibleCols : visibleCols.slice(0, maxColsDefault);
         return (
         <div className="space-y-3">
           {group.items.map((item) => {
-            const statusCol = columns.find(c => c.type === 'status');
             const card = (
-              <motion.div
+              <div
                 role="button"
                 tabIndex={0}
                 onClick={() => onRowClick(item)}
                 onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onRowClick(item); } }}
-                className="bg-[var(--monday-surface)] border border-monday-border rounded-lg overflow-hidden text-left min-h-[48px] touch-manipulation active:bg-monday-hover/30"
+                className="rounded-lg overflow-hidden text-left min-h-[48px] touch-manipulation border border-monday-border/70 bg-[var(--monday-surface)] shadow-monday-sm active:bg-monday-hover/25"
+                style={{
+                  borderLeftWidth: 4,
+                  borderLeftStyle: 'solid',
+                  borderLeftColor: group.color,
+                }}
               >
                 <div className="flex items-start gap-2 p-3">
                   {onToggleItem && (
@@ -842,50 +980,17 @@ export const BoardGroup: React.FC<Props> = ({
                       />
                     </div>
                   )}
-                  <div className="flex-1 min-w-0">
-                    <div className="font-medium text-monday-text text-[14px] mb-2 truncate">{item.name}</div>
-                    <div className="flex flex-col gap-1.5">
-                      {colsToShow.map((col) => {
-                        const cv = item.columnValues.find(v => v.columnId === col.id);
-                        return (
-                          <div key={col.id} className="flex flex-col gap-0.5 sm:flex-row sm:items-center sm:gap-2 text-[12px]">
-                            <span className="text-monday-subtext shrink-0 font-medium">{col.title}</span>
-                            <div className="min-w-0 [&_.min-h-\[38px\]]:min-h-0">
-                              {col.type === 'status' || col.type === 'priority' ? (
-                                <StatusCellRenderer item={item} column={col} value={cv} />
-                              ) : col.type === 'date' ? (
-                                <DateCellRenderer item={item} column={col} value={cv} />
-                              ) : col.type === 'person' ? (
-                                <PersonCellRenderer item={item} column={col} value={cv} />
-                              ) : col.type === 'timeline' ? (
-                                <TimelineCellRenderer item={item} column={col} value={cv} />
-                              ) : col.type === 'text' || col.type === 'folio' ? (
-                                <TextCell content={cv?.value ?? ''} item={item} column={col} />
-                              ) : col.type === 'contact' || col.type === 'number' ? (
-                                <ContactCellRenderer item={item} column={col} value={cv} />
-                              ) : col.type === 'excel' ? (
-                                <ExcelCellRenderer item={item} column={col} value={cv} />
-                              ) : col.type === 'docs' ? (
-                                <DocsCellRenderer item={item} column={col} value={cv} />
-                              ) : col.type === 'billing_docs' ? (
-                                <BillingDocsCellRenderer item={item} column={col} value={cv} />
-                              ) : col.type === 'file' ? (
-                                <FileCellRenderer item={item} column={col} value={cv} />
-                              ) : (
-                                <span className="text-monday-subtext">—</span>
-                              )}
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
+                  <div className="flex-1 min-w-0 min-h-0">
+                    <div className="font-medium text-monday-text text-[14px] mb-1 truncate">{item.name}</div>
+                    <MobileCardColumnPager visibleCols={visibleCols} item={item} groupColor={group.color} />
                   </div>
                 </div>
-              </motion.div>
+              </div>
             );
 
             if (!enableSwipeActions) return <React.Fragment key={item.id}>{card}</React.Fragment>;
 
+            const statusCol = columns.find(c => c.type === 'status');
             return (
               <SwipeableItemCard
                 key={item.id}
@@ -899,10 +1004,10 @@ export const BoardGroup: React.FC<Props> = ({
                     try {
                       if (statusCol.settings) {
                         const settings = JSON.parse(statusCol.settings);
-                        const doneOpt = settings.options?.find((o: any) => o.label.toLowerCase() === 'listo' || o.label.toLowerCase() === 'hecho' || o.id === 'done' || o.id === 'listo');
+                        const doneOpt = settings.options?.find((o: { label?: string; id?: string }) => o.label?.toLowerCase() === 'listo' || o.label?.toLowerCase() === 'hecho' || o.id === 'done' || o.id === 'listo');
                         if (doneOpt) optionId = doneOpt.id;
                       }
-                    } catch {}
+                    } catch { /* ignore */ }
 
                     const valueStr = JSON.stringify({ optionId });
                     onOptimisticUpdate?.(item.id, statusCol.id, valueStr);
@@ -919,17 +1024,15 @@ export const BoardGroup: React.FC<Props> = ({
               </SwipeableItemCard>
             );
           })}
-          {hasMoreCols && (
-            <button
-              type="button"
-              onClick={(e) => { e.stopPropagation(); setCardColumnsExpanded((v) => !v); }}
-              className="text-[13px] text-monday-blue hover:underline font-medium"
-            >
-              {cardColumnsExpanded ? 'Ver menos columnas' : `Ver más columnas (${visibleCols.length - maxColsDefault})`}
-            </button>
-          )}
           {showAddRow && (
-            <div className="border border-dashed border-monday-border rounded-lg p-3 bg-monday-hover/20">
+            <div
+              className="border border-dashed border-monday-border/80 rounded-lg p-3 bg-monday-hover/25"
+              style={{
+                borderLeftWidth: 3,
+                borderLeftStyle: 'solid',
+                borderLeftColor: group.color,
+              }}
+            >
               {isAddingTask ? (
                 <input
                   ref={addInputRef}

@@ -38,6 +38,7 @@
   - **Estado final del ícono en iPhone**: validado funcional al instalar desde URL pública HTTPS de **Cloudflare Tunnel** (quick tunnel) con origen nuevo; iOS dejó de mostrar la “S” azul y tomó el icono correcto de la app.
   - **Residuo conocido en iOS**: al cambiar de origen (IP LAN/puerto/URL temporal/dominio fijo), iOS no migra el WebClip existente; requiere eliminar acceso directo previo y reinstalar “Agregar a inicio”.
   - **Ajustes UX móviles**: header/banners estilo login en Inicio móvil y correcciones de layout en `BandejaUnificadaPage` para estabilizar el desplazamiento al alternar pestañas.
+  - **Menú móvil “Más” (refinamiento posterior al V6)**: el drawer lateral de ajustes se sustituyó por un **bottom sheet** compacto, alineado a la **derecha**, ancho acotado (~208px máx.), pestaña **Más** en la barra inferior con **toggle** abrir/cerrar; en la pestaña **Inicio** se ocultó el botón de menú del header (los ajustes quedan solo vía **Más**). Acciones rápidas en Inicio reordenadas: Tableros → Kanban → Docs → Buscar.
 
 #### 0.1.1 Línea de tiempo detallada (vista histórica)
 
@@ -118,6 +119,13 @@ Q4 2025–Q1 2026 ─── Endurecimiento general y preparación Fases 3–5
 - **Guía de base de datos**: `docs/DEV_SETUP_POSTGRES.md` describe el flujo con **PostgreSQL instalado nativamente en Windows** (desarrollo y servidor final): creación de usuario/base (`ops/setup-local-postgres.sql`), `npx prisma migrate deploy`, `npm run seed`, comprobación con Prisma Studio, y notas de firewall/secretos/backups para producción.
 - **Variables de entorno**: `backend/src/env.ts` carga `backend/.env` con **`override: true`** respecto al proceso, de modo que la configuración del proyecto no quede oculta por una `DATABASE_URL` u otras variables heredadas en el entorno del sistema Windows.
 - **Contenedores**: la implementación final prevista **no** depende de Docker para PostgreSQL; el repositorio no incluye `docker-compose` en el flujo documentado de despliegue (histórico opcional de desarrollo eliminado de la documentación activa).
+
+#### 0.1.3 Personalización de login — usuario de prueba `pipo` (temporal)
+
+- **Qué hay en código**: En `frontend/src/components/Login.tsx`, si el **nombre de usuario** del formulario coincide en minúsculas con **`pipo`**, el titular de bienvenida deja de ser **“Bienvenido / a Sunday”** y se muestra el mensaje de prueba **“Webos ese Pipo xD”** (tanto en layout **vertical** como **horizontal**).
+- **Naturaleza**: Es un cambio **solo de prueba / test** (p. ej. para el usuario de demo “hola pipo”), **no** define el copy oficial del producto.
+- **Mientras tanto**: **Se deja el código activo**; esta anotación deja constancia de que **está pero se quitará** cuando deje de ser necesario.
+- **Cuando se borre ese usuario de la base de datos o se cierre la prueba**: Hay que **eliminar toda referencia en el código**: la condición `isPipoWelcome`, las ramas que renderizan el mensaje alternativo y **cualquier mención en esta auditoría** vinculada a esta excepción. El login debe quedar **únicamente** con el mensaje estándar para todos los usuarios.
 
 #### 0.2 Alcance de esta auditoría
 
@@ -878,7 +886,7 @@ Componentes clave:
 
 - `frontend/src/components/Login.tsx`:
   - Pantalla de login (skin vertical principal):
-    - Encabezado del hero con **“Bienvenido / a Sunday”** alineado a la izquierda en dos renglones.
+    - Encabezado del hero con **“Bienvenido / a Sunday”** alineado a la izquierda en dos renglones (copy estándar; **excepción temporal de prueba** para el usuario `pipo` — ver **§0.1.3**: al eliminarse la prueba/usuario, retirar esa rama del código).
     - `AnimatedLogo` pequeño: render SVG por capas (sol + rayos) usando un “grupo rotante” de keyframes.
       - El par activo (una variante para sol y otra para rayos) se asigna al entrar a una pestaña y se mantiene hasta cambiar a otra (`activePage`).
       - Se evita desincronía rígida aplicando desfase entre sol/rayos, manteniendo el mismo eje centrado.

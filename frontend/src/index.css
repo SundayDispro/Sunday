@@ -254,6 +254,16 @@
     background: var(--scrollbar-track, rgba(0, 0, 0, 0.04));
   }
 
+  /* Carrusel de columnas en tarjetas móvil (BoardGroup): sin barra nativa */
+  .mobile-col-pager-hide-scrollbar {
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+  .mobile-col-pager-hide-scrollbar::-webkit-scrollbar {
+    display: none;
+    height: 0;
+  }
+
   /* Mejor inercia de scroll en iOS cuando el contenedor tiene overflow-auto */
   .scroll-touch {
     -webkit-overflow-scrolling: touch;

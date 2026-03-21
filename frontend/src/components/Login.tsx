@@ -93,6 +93,8 @@ export const Login: React.FC<LoginProps> = ({ theme, layout = 'horizontal' }) =>
     : `${INPUT_LIGHT_CLASS} text-[#2a1c33]`;
   const verticalButtonClass = LOGIN_PRIMARY_BUTTON_CLASS;
 
+  const isPipoWelcome = username.trim().toLowerCase() === 'pipo';
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!username.trim() || !password.trim()) {
@@ -116,7 +118,7 @@ export const Login: React.FC<LoginProps> = ({ theme, layout = 'horizontal' }) =>
   };
 
   return (
-    <div className="min-h-screen bg-[#1a0828] flex items-center justify-center p-4 font-sans overflow-hidden">
+    <div className="min-h-screen bg-[#1a0828] flex items-start sm:items-center justify-center px-4 pt-12 pb-8 sm:py-4 font-sans overflow-y-auto">
       <div className="absolute inset-0 pointer-events-none bg-[radial-gradient(circle_at_20%_20%,rgba(255,255,255,0.05),transparent_30%),radial-gradient(circle_at_80%_80%,rgba(255,255,255,0.04),transparent_24%)]" />
 
       {/* Skin vertical inspirado en referencia: tarjeta clara + header degradado + separador curvo */}
@@ -140,9 +142,15 @@ export const Login: React.FC<LoginProps> = ({ theme, layout = 'horizontal' }) =>
             <div className="relative h-[270px] bg-[radial-gradient(circle_at_20%_20%,#ff4aa8,transparent_55%),radial-gradient(circle_at_80%_15%,#7c3aed,transparent_58%),radial-gradient(circle_at_60%_85%,#ffb100,transparent_55%),linear-gradient(135deg,#ff2f7d,#6d28d9,#ffb100)]">
               <div className="absolute inset-x-0 top-0 p-5 flex items-start justify-between gap-4">
                 <h1 className={`text-left text-[44px] leading-[1.02] font-semibold tracking-tight ${verticalTitleTopClass}`}>
-                  Bienvenido
-                  <br />
-                  <span className={verticalTitleBottomClass}>a Sunday</span>
+                  {isPipoWelcome ? (
+                    <>Webos ese Pipo xD</>
+                  ) : (
+                    <>
+                      Bienvenido
+                      <br />
+                      <span className={verticalTitleBottomClass}>a Sunday</span>
+                    </>
+                  )}
                 </h1>
                 <div className={`shrink-0 ${logoEntered ? 'login-logo-idle' : 'login-logo-enter'}`} aria-hidden="true">
                   <AnimatedLogo size={34} color={verticalLogoColor} />
@@ -204,9 +212,15 @@ export const Login: React.FC<LoginProps> = ({ theme, layout = 'horizontal' }) =>
 
             <div className="px-6 py-7 lg:px-7 lg:py-8 flex flex-col justify-center">
               <h1 className="text-[28px] lg:text-[34px] leading-[1.05] font-medium tracking-tight text-white">
-                Bienvenido
-                <br />
-                a Sunday
+                {isPipoWelcome ? (
+                  <>Webos ese Pipo xD</>
+                ) : (
+                  <>
+                    Bienvenido
+                    <br />
+                    a Sunday
+                  </>
+                )}
               </h1>
 
               <form onSubmit={handleSubmit} className="mt-5 flex flex-col gap-3">

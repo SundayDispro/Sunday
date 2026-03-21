@@ -78,7 +78,8 @@ export function MobileBoardsOverview({
   }, [boards, activeWorkspace?.id]);
 
   return (
-    <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden custom-scrollbar scroll-touch bg-monday-bg px-4 pt-4 pb-32">
+    <div className="flex-1 min-h-0 flex flex-col overflow-hidden bg-monday-bg">
+      <div className="shrink-0 px-4 pt-4 pb-3 space-y-3 bg-monday-bg border-b border-monday-border/60">
       <div className="flex items-center gap-2">
         <Popover.Root open={workspacePickerOpen} onOpenChange={setWorkspacePickerOpen}>
           <Popover.Trigger asChild>
@@ -138,7 +139,12 @@ export function MobileBoardsOverview({
           className="w-full pl-9 pr-3 py-2.5 min-h-[44px] rounded-2xl border border-monday-border bg-[var(--monday-surface)] text-[13px] text-monday-text placeholder:text-monday-subtext focus:outline-none focus:ring-2 focus:ring-monday-blue"
         />
       </div>
+      </div>
 
+      <div
+        className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden custom-scrollbar scroll-touch px-4 pb-32"
+        style={{ WebkitOverflowScrolling: 'touch', overscrollBehavior: 'contain' }}
+      >
       {lastBoard && (
         <div className="mt-4">
           <div className="text-[11px] font-semibold text-monday-subtext uppercase tracking-wider px-1 mb-2">
@@ -228,6 +234,7 @@ export function MobileBoardsOverview({
             })}
           </div>
         )}
+      </div>
       </div>
     </div>
   );

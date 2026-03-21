@@ -486,7 +486,8 @@ function App() {
 
   const [lastMainTab, setLastMainTab] = useState<'home' | 'board' | 'calendar'>('home');
   const [mobileHeaderHidden, setMobileHeaderHidden] = useState(false);
-  const [mobileHeaderHeight, setMobileHeaderHeight] = useState(120);
+  /** Altura real del subencabezado (Ejemplo + Tabla principal); evitar 120px iniciales que dejan hueco vacío hasta el primer ResizeObserver. */
+  const [mobileHeaderHeight, setMobileHeaderHeight] = useState(52);
   const mobileHeaderRef = useRef<HTMLDivElement>(null);
   const [exportingFolders, setExportingFolders] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(() => typeof window !== 'undefined' && window.innerWidth >= 768);
@@ -1410,8 +1411,13 @@ function App() {
                   setActivePage('board');
                   setSidebarOpen(false);
                 }}
-                onOpenMentions={() => {
-                  setActivePage('notifications');
+                onOpenBoardsOverview={() => {
+                  setActiveBoardId(null);
+                  setActivePage('board');
+                  setSidebarOpen(false);
+                }}
+                onOpenDocs={() => {
+                  setActivePage('docs');
                   setSidebarOpen(false);
                 }}
               />
@@ -1521,14 +1527,14 @@ function App() {
               </div>
             ) : (
               <div className="flex-1 flex flex-col items-center justify-center text-monday-subtext p-6">
-                <p className="text-[13px]">Selecciona un tablero desde Inicio o el menú Más.</p>
+                <p className="text-[13px]">Selecciona un tablero desde Inicio o el menú (icono de menú).</p>
               </div>
             )
           ) : isMobile && !isBootstrapping && (activePage === 'board' && activeBoardId || activePage === 'miTrabajo' && activeBoardId) ? (
             <>
               <motion.div
                 className="min-h-0 overflow-hidden shrink-0"
-                animate={{ height: mobileHeaderHidden ? 0 : Math.max(mobileHeaderHeight, 80) }}
+                animate={{ height: mobileHeaderHidden ? 0 : mobileHeaderHeight }}
                 initial={false}
                 transition={{ duration: 0.25, ease: 'easeInOut' }}
               >
@@ -1970,46 +1976,28 @@ function App() {
             setActiveWorkspaceId(id);
             setActiveBoardId(null);
           }}
-          boards={boards}
-          boardSearch={boardSearch}
-          onBoardSearchChange={setBoardSearch}
-          activeBoardId={activeBoardId}
-          onSelectBoard={(id) => {
-            setActiveBoardId(id);
-            setActivePage('board');
-          }}
-          onNavigate={(page) => {
-            if (page === 'inbox' || page === 'notifications') {
-              if (activePage === 'home') setLastMainTab('home');
-              else if (activePage === 'board' || activePage === 'miTrabajo') setLastMainTab('board');
-              else if (activePage === 'calendar') setLastMainTab('calendar');
-              else if (activePage === 'docs') setLastMainTab('home');
-              setActivePage(page === 'inbox' ? 'inbox' : 'notifications');
-            } else {
-              setActivePage(page);
-            }
-          }}
           theme={theme}
           onThemeChange={setTheme}
-          canSeeFacturacion={!!canSeeFacturacionView}
-          isTaller={!!isTaller}
-          onRequestAddBoard={() => {
-            setShowCreateBoardModal(true);
-          }}
-          unreadNotifCount={unreadNotifCount}
           userPanelTrigger={
             currentUser ? (
               <button
                 type="button"
-                className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-monday-text hover:bg-monday-hover transition-colors text-left text-[13px]"
+                className="w-full flex items-center gap-2 min-h-[44px] px-2.5 rounded-2xl text-monday-text hover:bg-monday-hover/80 active:bg-monday-hover transition-colors text-left"
               >
                 <div
-                  className="w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-semibold shrink-0"
+                  className="w-8 h-8 rounded-xl flex items-center justify-center text-white text-[11px] font-semibold shrink-0"
                   style={{ backgroundColor: currentUser.color }}
                 >
                   {currentUser.initials}
                 </div>
-                <span>Cuenta</span>
+                <div className="flex-1 min-w-0">
+                  <div className="text-[10px] font-semibold text-monday-subtext uppercase tracking-wide leading-tight">
+                    Cuenta
+                  </div>
+                  <div className="text-[13px] font-semibold text-monday-text truncate leading-snug">
+                    {currentUser.name || currentUser.username}
+                  </div>
+                </div>
               </button>
             ) : (
               <span />
@@ -2827,6 +2815,8 @@ if (ok && data && typeof data.id === 'string') {
                 >
                   <ChevronLeft size={22} />
                 </button>
+              ) : activePage === 'home' ? (
+                <span className="min-h-[44px] min-w-[44px] shrink-0" aria-hidden />
               ) : (
                 <button
                   type="button"
@@ -2926,6 +2916,7 @@ if (ok && data && typeof data.id === 'string') {
                 if (tab === 'home') {
                   setLastMainTab('home');
                   setActivePage('home');
+                  setSidebarOpen(false);
                   return;
                 }
                 if (tab === 'notifications') {
@@ -2953,7 +2944,7 @@ if (ok && data && typeof data.id === 'string') {
                   return;
                 }
                 if (tab === 'more') {
-                  setSidebarOpen(true);
+                  setSidebarOpen((open) => !open);
                 }
               }}
               compact={isLandscapeShort}

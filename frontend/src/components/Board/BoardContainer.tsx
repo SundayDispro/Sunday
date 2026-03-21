@@ -82,8 +82,10 @@ const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode, mobile
   const { useCardView, isLandscapeShort, isPortrait } = useViewport();
   const { toast } = useToast();
   const [board, setBoard] = useState<Board | null>(null);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [showSearch, setShowSearch] = useState(false);
+  /** Texto libre: filtra por nombre de elemento (móvil: barra de búsqueda). */
+  const [itemTextFilter, setItemTextFilter] = useState('');
+  /** Atajos móviles: se combinan con itemTextFilter (AND). */
+  const [mobileQuickFilter, setMobileQuickFilter] = useState<null | 'mis tareas' | 'pendiente'>(null);
   
   // Toolbar states
   const [hiddenColumns, setHiddenColumns] = useState<string[]>([]);
@@ -133,7 +135,9 @@ const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode, mobile
     setScrollContainerEl(el);
   }, []);
   const toolbarRef = useRef<HTMLDivElement>(null);
-  const { isHidden: scrollHidden } = useHideOnScroll(scrollContainerEl, 10, 40);
+  /** Sin hide-on-scroll en tablero móvil principal: la animación de altura del toolbar provoca saltos al desplazar (Docs no colapsa esa barra). */
+  const hideOnScrollTarget = isMobile && mobileOptimized ? null : scrollContainerEl;
+  const { isHidden: scrollHidden } = useHideOnScroll(hideOnScrollTarget, 10, 40);
   const headerHidden = isMobile ? scrollHidden : false;
   const [toolbarHeight, setToolbarHeight] = useState(56);
 
@@ -151,6 +155,11 @@ const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode, mobile
   useEffect(() => {
     scrollContainerRef.current?.scrollTo(0, 0);
   }, []);
+
+  useEffect(() => {
+    setItemTextFilter('');
+    setMobileQuickFilter(null);
+  }, [boardId]);
 
   useEffect(() => {
     if (isMobile && onHeaderVisibilityChange) onHeaderVisibilityChange(headerHidden);
@@ -713,16 +722,22 @@ const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode, mobile
         .filter(g => g.items.length > 0);
     }
 
-    // 1. Filter by search query
-    if (searchQuery.trim()) {
-      const q = searchQuery.toLowerCase();
-      result = result
-        .map(g => ({
-          ...g,
-          items: g.items.filter(i => i.name.toLowerCase().includes(q)),
-        }))
-        .filter(g => g.items.length > 0);
-    }
+    // 1. Filter by nombre (texto libre + atajos móvil)
+    const applyNameFilters = (items: typeof result[0]['items']) => {
+      let itemsOut = items;
+      if (itemTextFilter.trim()) {
+        const q = itemTextFilter.toLowerCase();
+        itemsOut = itemsOut.filter(i => i.name.toLowerCase().includes(q));
+      }
+      if (mobileQuickFilter) {
+        const q = mobileQuickFilter.toLowerCase();
+        itemsOut = itemsOut.filter(i => i.name.toLowerCase().includes(q));
+      }
+      return itemsOut;
+    };
+    result = result
+      .map(g => ({ ...g, items: applyNameFilters(g.items) }))
+      .filter(g => g.items.length > 0);
 
     // 2. Filter by status (si hay columna de estado y se eligió una opción)
     if (filterByStatusOptionId && statusColumnIds.length > 0) {
@@ -767,7 +782,7 @@ const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode, mobile
     }
 
     return result;
-  }, [board, searchQuery, sortConfig, filterByStatusOptionId, statusColumnIds, isTaller, isItemApproved]);
+  }, [board, itemTextFilter, mobileQuickFilter, sortConfig, filterByStatusOptionId, statusColumnIds, isTaller, isItemApproved]);
 
   const rootFilteredGroups = useMemo(
     () => filteredGroups.filter(g => !g.parentGroupId),
@@ -998,7 +1013,7 @@ const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode, mobile
     );
   }
 
-  const toolbarClass = `min-w-0 px-4 sm:px-6 py-2.5 border-b border-monday-border flex items-center gap-x-2 gap-y-2 shrink-0 bg-[var(--monday-surface)] ${mobileOptimized ? 'flex-nowrap' : 'flex-wrap'}`;
+  const toolbarClass = `min-w-0 px-4 sm:px-6 ${isMobile && mobileOptimized ? 'py-1.5' : 'py-2.5'} border-b border-monday-border flex items-center gap-x-2 gap-y-2 shrink-0 bg-[var(--monday-surface)] ${mobileOptimized ? 'flex-nowrap' : 'flex-wrap'}`;
   const ToolbarWrapper = isMobile ? motion.div : 'div';
   // En móvil aseguramos que la toolbar sea visible inicialmente en lugar de height 0 (causa colapso)
   const toolbarHeightVisible = headerHidden ? 0 : 'auto';
@@ -1018,31 +1033,41 @@ const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode, mobile
         <div ref={isMobile ? toolbarRef : undefined} className={toolbarClass}>
           {/* Quick Filters (Píldoras) en móvil */}
           {isMobile && (
-            <div className="flex-1 min-w-0 overflow-x-auto hide-scrollbar scroll-touch flex items-center gap-2 py-1">
-              <button
-                onClick={() => setSearchQuery(searchQuery === 'mis tareas' ? '' : 'mis tareas')}
-                className={`shrink-0 px-3 py-1.5 rounded-full text-[12px] font-medium transition-colors border ${
-                  searchQuery === 'mis tareas' ? 'bg-monday-blue text-white border-monday-blue' : 'bg-[var(--monday-surface)] text-monday-text border-monday-border hover:bg-monday-hover'
-                }`}
-              >
-                Mis tareas
-              </button>
-              <button
-                onClick={() => setSearchQuery(searchQuery === 'pendiente' ? '' : 'pendiente')}
-                className={`shrink-0 px-3 py-1.5 rounded-full text-[12px] font-medium transition-colors border ${
-                  searchQuery === 'pendiente' ? 'bg-monday-blue text-white border-monday-blue' : 'bg-[var(--monday-surface)] text-monday-text border-monday-border hover:bg-monday-hover'
-                }`}
-              >
-                Pendientes
-              </button>
-              <button
-                onClick={() => setSearchQuery(searchQuery === 'urgente' ? '' : 'urgente')}
-                className={`shrink-0 px-3 py-1.5 rounded-full text-[12px] font-medium transition-colors border ${
-                  searchQuery === 'urgente' ? 'bg-monday-blue text-white border-monday-blue' : 'bg-[var(--monday-surface)] text-monday-text border-monday-border hover:bg-monday-hover'
-                }`}
-              >
-                Urgentes
-              </button>
+            <div className="flex-1 min-w-0 flex items-center gap-2 py-0.5">
+              <div className="shrink-0 flex items-center gap-1.5 overflow-x-auto hide-scrollbar scroll-touch max-w-[48%] sm:max-w-none">
+                <button
+                  type="button"
+                  onClick={() => setMobileQuickFilter(mobileQuickFilter === 'mis tareas' ? null : 'mis tareas')}
+                  className={`shrink-0 px-3 py-1.5 rounded-full text-[12px] font-medium transition-colors border ${
+                    mobileQuickFilter === 'mis tareas' ? 'bg-monday-blue text-white border-monday-blue' : 'bg-[var(--monday-surface)] text-monday-text border-monday-border hover:bg-monday-hover'
+                  }`}
+                >
+                  Mis tareas
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setMobileQuickFilter(mobileQuickFilter === 'pendiente' ? null : 'pendiente')}
+                  className={`shrink-0 px-3 py-1.5 rounded-full text-[12px] font-medium transition-colors border ${
+                    mobileQuickFilter === 'pendiente' ? 'bg-monday-blue text-white border-monday-blue' : 'bg-[var(--monday-surface)] text-monday-text border-monday-border hover:bg-monday-hover'
+                  }`}
+                >
+                  Pendientes
+                </button>
+              </div>
+              <div className="relative flex-1 min-w-0 group/msearch">
+                <Search size={15} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-monday-subtext pointer-events-none" aria-hidden />
+                <input
+                  type="search"
+                  enterKeyHint="search"
+                  autoComplete="off"
+                  value={itemTextFilter}
+                  onChange={(e) => setItemTextFilter(e.target.value)}
+                  placeholder="Buscar en tabla…"
+                  className="w-full min-w-0 min-h-[36px] pl-8 pr-2.5 rounded-full border border-monday-border bg-[var(--monday-surface)] text-[13px] text-monday-text placeholder:text-monday-subtext focus:outline-none focus:ring-2 focus:ring-monday-blue/35"
+                  style={{ fontSize: 16 }}
+                  aria-label="Buscar elementos en el tablero"
+                />
+              </div>
             </div>
           )}
         </div>
@@ -1051,8 +1076,20 @@ const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode, mobile
       {/* ── Board Content: min-h-0 para que el flex permita scroll; touch para desplazamiento en móvil/horizontal ───────────────────────────────────────── */}
       <div
         ref={setScrollContainerRef}
-        className={`flex-1 min-h-0 overflow-y-auto overflow-x-hidden custom-scrollbar scroll-touch overscroll-y-contain relative z-0 ${
-          isPortrait ? 'px-4 sm:px-6 py-5' : isLandscapeShort ? 'px-2 sm:px-3 py-2' : 'px-2 sm:px-4 py-3'
+        className={`flex-1 min-h-0 overflow-y-auto custom-scrollbar scroll-touch overscroll-y-contain relative z-0 ${
+          isMobile ? 'overflow-x-clip' : 'overflow-x-hidden'
+        } ${
+          isMobile && mobileOptimized
+            ? isPortrait
+              ? 'px-4 sm:px-6 pt-1 pb-4'
+              : isLandscapeShort
+                ? 'px-2 sm:px-3 py-1.5'
+                : 'px-2 sm:px-4 pt-1 pb-3'
+            : isPortrait
+              ? 'px-4 sm:px-6 py-5'
+              : isLandscapeShort
+                ? 'px-2 sm:px-3 py-2'
+                : 'px-2 sm:px-4 py-3'
         }`}
         style={{ WebkitOverflowScrolling: 'touch', overscrollBehaviorY: 'contain' }}
       >
@@ -1097,7 +1134,7 @@ const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode, mobile
                     <React.Fragment key={group.id}>
                       {/* Vista tabla / Mi trabajo: una sección por grupo raíz. Scroll único en el panel (sin scroll por grupo). */}
                       <section
-                        className="min-h-0 min-w-0 flex flex-col mb-6 rounded-lg border border-monday-border"
+                        className={`min-h-0 min-w-0 flex flex-col mb-6 ${useCardView ? '' : 'rounded-lg border border-monday-border'}`}
                       >
                         <BoardGroup
                           group={group}
@@ -1153,7 +1190,7 @@ const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode, mobile
                 })}
               </SortableContext>
 
-              {searchQuery.trim() === '' && !isTaller && (
+              {!mobileQuickFilter && !itemTextFilter.trim() && !isTaller && (
                 <button
                   onClick={handleAddGroup}
                   className="toolbar-btn border border-dashed border-monday-border hover:border-monday-blue w-max px-4 py-2 rounded-monday text-[13px] mt-2 group"

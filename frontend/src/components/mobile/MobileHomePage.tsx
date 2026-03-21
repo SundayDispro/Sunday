@@ -1,15 +1,17 @@
 import React from 'react';
-import { LayoutGrid, Search, AtSign } from 'lucide-react';
+import { LayoutGrid, Search, BookOpen, PanelsTopLeft } from 'lucide-react';
 
 export function MobileHomePage({
   userName,
   onOpenKanban,
-  onOpenMentions,
+  onOpenBoardsOverview,
+  onOpenDocs,
   onOpenSearch,
 }: {
   userName?: string | null;
   onOpenKanban: () => void;
-  onOpenMentions: () => void;
+  onOpenBoardsOverview: () => void;
+  onOpenDocs: () => void;
   onOpenSearch: () => void;
 }) {
   return (
@@ -25,7 +27,6 @@ export function MobileHomePage({
           className="absolute -bottom-[6px] left-0 w-full h-[72px]"
           aria-hidden="true"
         >
-          {/* Cierre más recto (menos curvo) para un look más limpio */}
           <path d="M0,20 C30,24 70,24 100,20 L100,30 L0,30 Z" fill="var(--monday-bg)" />
         </svg>
 
@@ -52,6 +53,18 @@ export function MobileHomePage({
               type="button"
               onClick={() => {
                 if (navigator.vibrate) navigator.vibrate(20);
+                onOpenBoardsOverview();
+              }}
+              className="w-full min-h-[56px] rounded-3xl border border-monday-border bg-white text-monday-text font-semibold text-[14px] flex items-center gap-3 px-5 transition-colors hover:bg-monday-hover"
+            >
+              <PanelsTopLeft size={20} className="text-monday-blue" />
+              Tableros
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                if (navigator.vibrate) navigator.vibrate(20);
                 onOpenKanban();
               }}
               className="w-full min-h-[56px] rounded-3xl border border-monday-border bg-white text-monday-text font-semibold text-[14px] flex items-center gap-3 px-5 transition-colors hover:bg-monday-hover"
@@ -64,12 +77,12 @@ export function MobileHomePage({
               type="button"
               onClick={() => {
                 if (navigator.vibrate) navigator.vibrate(20);
-                onOpenMentions();
+                onOpenDocs();
               }}
               className="w-full min-h-[56px] rounded-3xl border border-monday-border bg-white text-monday-text font-semibold text-[14px] flex items-center gap-3 px-5 transition-colors hover:bg-monday-hover"
             >
-              <AtSign size={20} className="text-monday-subtext" />
-              Menciones
+              <BookOpen size={20} className="text-monday-subtext" />
+              Docs
             </button>
 
             <button
@@ -89,4 +102,3 @@ export function MobileHomePage({
     </div>
   );
 }
-
