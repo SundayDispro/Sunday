@@ -4172,6 +4172,7 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
                       pushSheetHistory={pushSheetHistory}
                       undoSheet={undoSheet}
                       redoSheet={redoSheet}
+                      layoutVariant={isMobile ? 'mobile' : 'desktop'}
                     />
                   ) : (
                     <WordLikeEditor
@@ -4705,14 +4706,25 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
                   )}
                 </div>
               ) : selectedDoc?.type === 'sheet' ? (
-                <div className="flex-1 min-h-0 overflow-auto scroll-touch custom-scrollbar">
+                <div
+                  className={
+                    isMobile
+                      ? 'flex-1 min-h-0 min-w-0 flex flex-col overflow-hidden'
+                      : 'flex-1 min-h-0 overflow-auto scroll-touch custom-scrollbar'
+                  }
+                >
                   <ExcelLikeSheet
                     tableDraft={tableDraft}
                     setTableDraft={setTableDraft}
-                    ensureTableSize={ensureTableSize}
+                    ensureTableSize={isMobile ? ensureTableSizeWithHistory : ensureTableSize}
                     cellStyles={cellStylesDraft}
+                    setCellStyles={isMobile ? setCellStylesDraft : undefined}
                     documentTitle={selectedDoc.title}
-                    readOnly
+                    readOnly={!isMobile}
+                    pushSheetHistory={isMobile ? pushSheetHistory : undefined}
+                    undoSheet={isMobile ? undoSheet : undefined}
+                    redoSheet={isMobile ? redoSheet : undefined}
+                    layoutVariant={isMobile ? 'mobile' : 'desktop'}
                   />
                 </div>
               ) : selectedDoc?.type === 'text' ? (

@@ -95,6 +95,22 @@ export interface User {
   avatarUrl?: string | null;
 }
 
+/** Subconjunto del autor usado en listados de menciones (NotificationsPage). */
+export type FeedPostAuthorPreview = Pick<User, 'id' | 'name' | 'initials' | 'color'>;
+
+/**
+ * Elemento devuelto por GET /api/feed (y creación POST): menciones vienen como string[] parseado en servidor.
+ * Campos extra de Prisma (p. ej. mentionedUserIdsJson) pueden llegar en JSON pero la UI no los usa → no los incluimos.
+ */
+export interface FeedPost {
+  id: string;
+  content: string;
+  authorId: string;
+  author?: User | FeedPostAuthorPreview;
+  mentionedUserIds: string[];
+  createdAt: string;
+}
+
 export interface Update {
   id: string;
   content: string;
@@ -112,4 +128,32 @@ export interface Notification {
   read: boolean;
   createdAt: string;
   item?: Item & { group?: { id: string; name: string; board?: { id: string; name: string } } };
+}
+
+// Contrato API plantillas PDF: ver
+// TemplateConfigState en
+// components/pages/docs/pdfTemplateConfig.ts
+
+export interface Design {
+  id: string;
+  workspaceId: string;
+  name: string;
+  content: string;
+  contentJson?: unknown;
+  thumbnailUrl?: string | null;
+  boardId?: string | null;
+  createdBy?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/**
+ * Cuerpo de POST /api/push/subscribe.
+ * El navegador envía el objeto PushSubscription serializado (JSON.stringify).
+ */
+export interface WebPushSubscribeRequestBody {
+  subscription: {
+    endpoint: string;
+    keys: { p256dh: string; auth: string };
+  };
 }

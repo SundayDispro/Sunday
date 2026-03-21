@@ -1,8 +1,18 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Palette, Download, Upload } from 'lucide-react';
+import {
+  Palette,
+  Download,
+  Upload,
+  Undo2,
+  Redo2,
+  ChevronDown,
+  MoreHorizontal,
+  Type,
+} from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { FONT_OPTIONS, FONT_SIZES } from '../../docs/TextFormatBar';
 import type { CellStyleDef, CellStylesMap } from './sheetCellTypes';
+import { SHEET_THEME } from '../../mobile/docs/sheetExcelTheme';
 
 // --- Fórmulas tipo Excel para la hoja (suma, resta, multiplicación, división, SUM) ---
 function parseCellRef(ref: string): { r: number; c: number } | null {
@@ -255,6 +265,7 @@ export function ExcelLikeSheet({
   pushSheetHistory,
   undoSheet,
   redoSheet,
+  layoutVariant = 'desktop',
 }: {
   tableDraft: string[][];
   setTableDraft: React.Dispatch<React.SetStateAction<string[][]>>;
@@ -266,13 +277,24 @@ export function ExcelLikeSheet({
   pushSheetHistory?: () => void;
   undoSheet?: () => void;
   redoSheet?: () => void;
+  /** Variante móvil estilo hoja de cálculo (chrome oscuro, rejilla compacta). Escritorio: `desktop`. */
+  layoutVariant?: 'desktop' | 'mobile';
 }) {
+  const isMobileLayout = layoutVariant === 'mobile';
   const cols = tableDraft[0]?.length ?? 1;
   const rows = tableDraft.length;
   const [focusedCell, setFocusedCell] = useState<{ r: number; c: number } | null>(null);
   const [selectionRange, setSelectionRange] = useState<{ start: { r: number; c: number }; end: { r: number; c: number } } | null>(null);
+  /** Celda cuyo input tiene el foco real (edición en rejilla). */
+  const [inlineEditKey, setInlineEditKey] = useState<string | null>(null);
+  /** Foco en la barra de fórmulas: mostrar valor crudo de la celda seleccionada. */
+  const [formulaBarFocused, setFormulaBarFocused] = useState(false);
   const gridContainerRef = useRef<HTMLDivElement>(null);
   const isDraggingRef = useRef(false);
+  /** Durante arrastre de rango: touch-action none en celdas para no perder el gesto frente al scroll. */
+  const [dragSelectActive, setDragSelectActive] = useState(false);
+  const formulaBarDesktopRef = useRef<HTMLDivElement>(null);
+  const formulaBarMobileRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const formatTargetRef = useRef<{ cell: { r: number; c: number } | null; range: { start: { r: number; c: number }; end: { r: number; c: number } } | null }>({ cell: null, range: null });
   const [colorMenuOpen, setColorMenuOpen] = useState(false);
@@ -283,6 +305,10 @@ export function ExcelLikeSheet({
   const fontMenuRef = useRef<HTMLDivElement>(null);
   const fontSizeMenuRef = useRef<HTMLDivElement>(null);
   const fontColorMenuRef = useRef<HTMLDivElement>(null);
+  const mobileFormatRef = useRef<HTMLDivElement>(null);
+  const mobileMoreRef = useRef<HTMLDivElement>(null);
+  const [mobileFormatOpen, setMobileFormatOpen] = useState(false);
+  const [mobileMoreOpen, setMobileMoreOpen] = useState(false);
   const formulaBarValue = focusedCell != null ? (tableDraft[focusedCell.r]?.[focusedCell.c] ?? '') : '';
 
   const colLetters = (n: number) => {
@@ -378,6 +404,32 @@ export function ExcelLikeSheet({
 
   const applyTextColorToTarget = (color: string) => {
     applyToCellsInTarget((_, prev) => ({ ...prev, color }));
+  };
+
+  const toggleBoldTarget = () => {
+    if (!setCellStyles) return;
+    applyToCellsInTarget((_, prev) => {
+      const next = { ...prev };
+      if (next.fontWeight === '700') {
+        delete next.fontWeight;
+      } else {
+        next.fontWeight = '700';
+      }
+      return next;
+    });
+  };
+
+  const toggleItalicTarget = () => {
+    if (!setCellStyles) return;
+    applyToCellsInTarget((_, prev) => {
+      const next = { ...prev };
+      if (next.fontStyle === 'italic') {
+        delete next.fontStyle;
+      } else {
+        next.fontStyle = 'italic';
+      }
+      return next;
+    });
   };
 
   const insertRowAbove = () => {
@@ -527,23 +579,42 @@ export function ExcelLikeSheet({
     }
   }, [readOnly, rows, cols, tableDraft, selectionRange, focusedCell, ensureTableSize, focusCell, undoSheet, redoSheet]);
 
-  const handleCellMouseDown = useCallback((r: number, c: number) => {
+  const blurFormulaBarInputs = useCallback(() => {
+    const d = formulaBarDesktopRef.current?.querySelector('input');
+    const m = formulaBarMobileRef.current?.querySelector('input');
+    (d as HTMLInputElement | undefined)?.blur();
+    (m as HTMLInputElement | undefined)?.blur();
+    setFormulaBarFocused(false);
+  }, []);
+
+  const handleCellPointerDown = useCallback((r: number, c: number, e: React.PointerEvent) => {
     if (readOnly) return;
+    if (!e.isPrimary) return;
+    if (e.pointerType === 'mouse' && e.button !== 0) return;
+    blurFormulaBarInputs();
+    setInlineEditKey(null);
     isDraggingRef.current = true;
+    setDragSelectActive(true);
     setFocusedCell({ r, c });
     setSelectionRange({ start: { r, c }, end: { r, c } });
-  }, [readOnly]);
+  }, [readOnly, blurFormulaBarInputs]);
 
-  const handleCellMouseEnter = useCallback((r: number, c: number) => {
-    if (!readOnly && isDraggingRef.current) {
-      setSelectionRange(prev => prev ? { ...prev, end: { r, c } } : null);
-    }
+  const handleCellPointerEnter = useCallback((r: number, c: number) => {
+    if (readOnly || !isDraggingRef.current) return;
+    setSelectionRange(prev => (prev ? { ...prev, end: { r, c } } : null));
   }, [readOnly]);
 
   useEffect(() => {
-    const onMouseUp = () => { isDraggingRef.current = false; };
-    window.addEventListener('mouseup', onMouseUp);
-    return () => window.removeEventListener('mouseup', onMouseUp);
+    const endDrag = () => {
+      isDraggingRef.current = false;
+      setDragSelectActive(false);
+    };
+    window.addEventListener('pointerup', endDrag);
+    window.addEventListener('pointercancel', endDrag);
+    return () => {
+      window.removeEventListener('pointerup', endDrag);
+      window.removeEventListener('pointercancel', endDrag);
+    };
   }, []);
 
   useEffect(() => {
@@ -559,6 +630,18 @@ export function ExcelLikeSheet({
     document.addEventListener('mousedown', onDocMouseDown);
     return () => document.removeEventListener('mousedown', onDocMouseDown);
   }, [colorMenuOpen, fontMenuOpen, fontSizeMenuOpen, fontColorMenuOpen]);
+
+  useEffect(() => {
+    if (!mobileFormatOpen && !mobileMoreOpen) return;
+    const onDocPointerDown = (e: PointerEvent) => {
+      const t = e.target as Node;
+      if (mobileFormatRef.current?.contains(t) || mobileMoreRef.current?.contains(t)) return;
+      setMobileFormatOpen(false);
+      setMobileMoreOpen(false);
+    };
+    document.addEventListener('pointerdown', onDocPointerDown);
+    return () => document.removeEventListener('pointerdown', onDocPointerDown);
+  }, [mobileFormatOpen, mobileMoreOpen]);
 
   const handleImportExcel = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -603,25 +686,421 @@ export function ExcelLikeSheet({
   }, [focusedCell, rows, cols, ensureTableSize]);
 
   const sheetBtn = 'px-2.5 py-1.5 rounded-monday border border-monday-border bg-white text-[12px] text-monday-text hover:bg-monday-hover transition-colors';
+  const mobileIconBtn =
+    'min-w-[44px] min-h-[44px] shrink-0 flex items-center justify-center rounded-xl text-zinc-200 hover:bg-white/10 active:bg-white/15 touch-manipulation';
+
+  const exportXlsx = () => {
+    const ws = XLSX.utils.aoa_to_sheet(tableDraft);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Hoja1');
+    const name = (documentTitle || 'Hoja').replace(/[^\w\s-]/g, '').trim() || 'Hoja';
+    XLSX.writeFile(wb, `${name}.xlsx`);
+  };
+
+  const rowHdrW = 36;
+
+  if (isMobileLayout) {
+    return (
+      <div className="flex-1 flex flex-col min-h-0 overflow-hidden bg-zinc-950">
+        {!readOnly && (
+          <>
+            <div
+              className="shrink-0 flex items-center justify-between gap-1 px-1.5 border-b border-white/10"
+              style={{ backgroundColor: SHEET_THEME.toolbarBg, minHeight: SHEET_THEME.touchTargetMin }}
+            >
+              <div className="flex items-center gap-0.5 min-w-0">
+                <button type="button" className={mobileIconBtn} title="Deshacer" aria-label="Deshacer" onClick={() => undoSheet?.()}>
+                  <Undo2 size={22} strokeWidth={2} />
+                </button>
+                <button type="button" className={mobileIconBtn} title="Rehacer" aria-label="Rehacer" onClick={() => redoSheet?.()}>
+                  <Redo2 size={22} strokeWidth={2} />
+                </button>
+                {setCellStyles && (
+                  <div className="relative shrink-0" ref={mobileFormatRef}>
+                    <button
+                      type="button"
+                      className={`${mobileIconBtn} ${mobileFormatOpen ? 'bg-white/15' : ''}`}
+                      title="Formato"
+                      aria-expanded={mobileFormatOpen}
+                      onClick={() => {
+                        formatTargetRef.current = { cell: focusedCell, range: selectionRange };
+                        setMobileFormatOpen((v) => !v);
+                        setMobileMoreOpen(false);
+                      }}
+                    >
+                      <Type size={22} strokeWidth={2} />
+                    </button>
+                    {mobileFormatOpen && (
+                      <div className="absolute left-0 top-full mt-1 z-[220] w-[min(100vw-24px,280px)] rounded-xl border border-white/10 bg-zinc-900 shadow-xl p-3 space-y-3">
+                        <p className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Formato</p>
+                        <div className="flex gap-2">
+                          <button
+                            type="button"
+                            className="flex-1 min-h-[44px] rounded-lg bg-zinc-800 text-white font-bold border border-white/10"
+                            onClick={() => toggleBoldTarget()}
+                          >
+                            B
+                          </button>
+                          <button
+                            type="button"
+                            className="flex-1 min-h-[44px] rounded-lg bg-zinc-800 text-white italic border border-white/10"
+                            onClick={() => toggleItalicTarget()}
+                          >
+                            I
+                          </button>
+                        </div>
+                        <div>
+                          <p className="text-[11px] text-zinc-500 mb-1">Fondo</p>
+                          <div className="grid grid-cols-6 gap-1">
+                            {SHEET_COLOR_PALETTE.map((hex) => (
+                              <button
+                                key={hex}
+                                type="button"
+                                className="w-8 h-8 rounded border border-white/20"
+                                style={{ backgroundColor: hex }}
+                                onClick={() => { applyColorToTarget(hex); }}
+                                title={hex}
+                              />
+                            ))}
+                          </div>
+                          <button type="button" className="mt-2 text-[12px] text-zinc-400" onClick={() => applyColorToTarget('')}>
+                            Quitar fondo
+                          </button>
+                        </div>
+                        <div>
+                          <p className="text-[11px] text-zinc-500 mb-1">Color texto</p>
+                          <div className="grid grid-cols-6 gap-1">
+                            {SHEET_TEXT_COLOR_PALETTE.map((hex) => (
+                              <button
+                                key={hex}
+                                type="button"
+                                className="w-8 h-8 rounded border border-white/20"
+                                style={{ backgroundColor: hex }}
+                                onClick={() => { applyTextColorToTarget(hex); }}
+                                title={hex}
+                              />
+                            ))}
+                          </div>
+                        </div>
+                        <div>
+                          <p className="text-[11px] text-zinc-500 mb-1">Fuente</p>
+                          <select
+                            className="w-full min-h-[44px] rounded-lg bg-zinc-800 border border-white/10 text-[13px] text-white px-2"
+                            onChange={(e) => { applyFontToTarget(e.target.value); e.target.selectedIndex = 0; }}
+                            defaultValue=""
+                          >
+                            <option value="" disabled>Elegir…</option>
+                            {FONT_OPTIONS.map(({ label, value }) => (
+                              <option key={value} value={value}>{label}</option>
+                            ))}
+                          </select>
+                        </div>
+                        <div>
+                          <p className="text-[11px] text-zinc-500 mb-1">Tamaño</p>
+                          <select
+                            className="w-full min-h-[44px] rounded-lg bg-zinc-800 border border-white/10 text-[13px] text-white px-2"
+                            onChange={(e) => { applyFontSizeToTarget(e.target.value); e.target.selectedIndex = 0; }}
+                            defaultValue=""
+                          >
+                            <option value="" disabled>Elegir…</option>
+                            {FONT_SIZES.map(({ label, value }) => (
+                              <option key={value} value={value}>{label}</option>
+                            ))}
+                          </select>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+              <div className="flex items-center gap-0.5 shrink-0">
+                <div className="relative" ref={mobileMoreRef}>
+                  <button
+                    type="button"
+                    className={`${mobileIconBtn} ${mobileMoreOpen ? 'bg-white/15' : ''}`}
+                    title="Más"
+                    aria-expanded={mobileMoreOpen}
+                    onClick={() => {
+                      setMobileMoreOpen((v) => !v);
+                      setMobileFormatOpen(false);
+                    }}
+                  >
+                    <MoreHorizontal size={22} strokeWidth={2} />
+                  </button>
+                  {mobileMoreOpen && (
+                    <div className="absolute right-0 top-full mt-1 z-[220] min-w-[200px] rounded-xl border border-white/10 bg-zinc-900 shadow-xl py-1">
+                      <button
+                        type="button"
+                        className="w-full text-left px-4 py-3 text-[14px] text-zinc-200 hover:bg-white/10 min-h-[44px]"
+                        onClick={() => { fileInputRef.current?.click(); setMobileMoreOpen(false); }}
+                      >
+                        Importar…
+                      </button>
+                      <button
+                        type="button"
+                        className="w-full text-left px-4 py-3 text-[14px] text-zinc-200 hover:bg-white/10 min-h-[44px]"
+                        onClick={() => { exportXlsx(); setMobileMoreOpen(false); }}
+                      >
+                        Exportar Excel
+                      </button>
+                      <button
+                        type="button"
+                        className="w-full text-left px-4 py-3 text-[14px] text-zinc-200 hover:bg-white/10 min-h-[44px]"
+                        onClick={() => { ensureTableSize(tableDraft.length + 1, tableDraft[0]?.length || 1); setMobileMoreOpen(false); }}
+                      >
+                        + Fila final
+                      </button>
+                      <button
+                        type="button"
+                        className="w-full text-left px-4 py-3 text-[14px] text-zinc-200 hover:bg-white/10 min-h-[44px]"
+                        onClick={() => { ensureTableSize(tableDraft.length, (tableDraft[0]?.length || 0) + 1); setMobileMoreOpen(false); }}
+                      >
+                        + Columna final
+                      </button>
+                      {focusedCell != null && (
+                        <>
+                          <button
+                            type="button"
+                            className="w-full text-left px-4 py-3 text-[14px] text-zinc-200 hover:bg-white/10 min-h-[44px]"
+                            onClick={() => { insertRowAbove(); setMobileMoreOpen(false); }}
+                          >
+                            Insertar fila arriba
+                          </button>
+                          <button
+                            type="button"
+                            className="w-full text-left px-4 py-3 text-[14px] text-zinc-200 hover:bg-white/10 min-h-[44px]"
+                            onClick={() => { insertColLeft(); setMobileMoreOpen(false); }}
+                          >
+                            Insertar columna izquierda
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+            <div
+              ref={formulaBarMobileRef}
+              className="shrink-0 flex items-center gap-2 px-2 py-2 border-b border-white/5"
+              style={{ backgroundColor: SHEET_THEME.formulaBarBg }}
+            >
+              <span className="text-zinc-500 font-mono text-[12px] w-7 shrink-0">fx</span>
+              <input
+                type="text"
+                value={formulaBarValue}
+                onChange={(e) => setFocusedCellValue(e.target.value)}
+                readOnly={focusedCell == null}
+                onFocus={() => setFormulaBarFocused(true)}
+                onBlur={() => setFormulaBarFocused(false)}
+                placeholder="Escribe aquí texto o fórmula"
+                className="flex-1 min-w-0 rounded-md bg-zinc-700/60 border border-white/10 px-2.5 py-2 text-[14px] text-white placeholder:text-zinc-500"
+              />
+              <ChevronDown size={18} className="text-zinc-500 shrink-0 opacity-50" aria-hidden />
+            </div>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".xlsx,.xls,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel,text/csv"
+              className="hidden"
+              onChange={handleImportExcel}
+            />
+          </>
+        )}
+        <div
+          className="flex-1 min-h-0 overflow-x-auto overflow-y-auto scroll-touch bg-white"
+          ref={gridContainerRef}
+          onPaste={(e) => {
+            if (!readOnly && focusedCell != null) {
+              e.preventDefault();
+              handlePaste(e, focusedCell.r, focusedCell.c);
+            }
+          }}
+        >
+          <table className="border-collapse w-max min-w-full text-[13px]" style={{ borderColor: SHEET_THEME.gridBorder }}>
+            <thead>
+              <tr>
+                <th
+                  className="p-0 text-center text-[11px] font-semibold text-zinc-600 border"
+                  style={{
+                    width: rowHdrW,
+                    minWidth: rowHdrW,
+                    backgroundColor: SHEET_THEME.headerBg,
+                    borderColor: SHEET_THEME.headerBorder,
+                    position: 'sticky',
+                    top: 0,
+                    left: 0,
+                    zIndex: 50,
+                  }}
+                />
+                {Array.from({ length: cols }, (_, i) => (
+                  <th
+                    key={i}
+                    className="px-1 text-center text-[11px] font-semibold text-zinc-600 border"
+                    style={{
+                      minWidth: SHEET_THEME.cellMinWidthMobile,
+                      backgroundColor: SHEET_THEME.headerBg,
+                      borderColor: SHEET_THEME.headerBorder,
+                      position: 'sticky',
+                      top: 0,
+                      zIndex: 40,
+                    }}
+                  >
+                    {colLetters(i)}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {tableDraft.map((row, rIdx) => (
+                <tr key={rIdx}>
+                  <td
+                    className="p-0 text-center text-[11px] font-medium text-zinc-600 border"
+                    style={{
+                      width: rowHdrW,
+                      minWidth: rowHdrW,
+                      backgroundColor: SHEET_THEME.headerBg,
+                      borderColor: SHEET_THEME.headerBorder,
+                      position: 'sticky',
+                      left: 0,
+                      zIndex: 30,
+                    }}
+                  >
+                    {rIdx + 1}
+                  </td>
+                  {row.map((cell, cIdx) => {
+                    const isSelected = !readOnly && focusedCell?.r === rIdx && focusedCell?.c === cIdx;
+                    const showRaw = isSelected && (inlineEditKey === `${rIdx},${cIdx}` || formulaBarFocused);
+                    const editingInline = isSelected && inlineEditKey === `${rIdx},${cIdx}`;
+                    const inSelection = selectionRange && (() => {
+                      const minR = Math.min(selectionRange.start.r, selectionRange.end.r);
+                      const maxR = Math.max(selectionRange.start.r, selectionRange.end.r);
+                      const minC = Math.min(selectionRange.start.c, selectionRange.end.c);
+                      const maxC = Math.max(selectionRange.start.c, selectionRange.end.c);
+                      return rIdx >= minR && rIdx <= maxR && cIdx >= minC && cIdx <= maxC;
+                    })();
+                    const displayVal = getCellDisplayValue(tableDraft, rIdx, cIdx, showRaw, focusedCell);
+                    const cellStyle = cellStyles[`${rIdx},${cIdx}`] ?? {};
+                    const bgStyle = cellStyle.bg;
+                    const cellBg = bgStyle ?? 'transparent';
+                    const cellTypography = {
+                      fontFamily: cellStyle.fontFamily,
+                      fontSize: cellStyle.fontSize ?? '13px',
+                      color: cellStyle.color,
+                      fontWeight: cellStyle.fontWeight as React.CSSProperties['fontWeight'],
+                      fontStyle: cellStyle.fontStyle as React.CSSProperties['fontStyle'],
+                    };
+                    return (
+                      <td
+                        key={cIdx}
+                        className="border p-0 touch-manipulation"
+                        style={{
+                          borderColor: SHEET_THEME.gridBorder,
+                          touchAction: dragSelectActive ? 'none' : undefined,
+                          ...(cellBg !== 'transparent' ? { backgroundColor: cellBg } : undefined),
+                        }}
+                        onPointerDown={(e) => handleCellPointerDown(rIdx, cIdx, e)}
+                        onPointerEnter={() => handleCellPointerEnter(rIdx, cIdx)}
+                      >
+                        {readOnly ? (
+                          <div
+                            className="w-full px-1.5 flex items-center box-border"
+                            style={{
+                              minWidth: SHEET_THEME.cellMinWidthMobile,
+                              minHeight: SHEET_THEME.cellMinHeightMobile,
+                              ...(cellBg !== 'transparent' ? { backgroundColor: cellBg } : { backgroundColor: '#fff' }),
+                              ...cellTypography,
+                            }}
+                          >
+                            {displayVal}
+                          </div>
+                        ) : (
+                          <input
+                            data-cell={`${rIdx},${cIdx}`}
+                            value={displayVal}
+                            onChange={(e) => {
+                              const v = e.target.value;
+                              setTableDraft((prev) => {
+                                const next = prev.map((rr) => [...rr]);
+                                next[rIdx][cIdx] = v;
+                                return next;
+                              });
+                            }}
+                            onFocus={() => {
+                              setFocusedCell({ r: rIdx, c: cIdx });
+                              setInlineEditKey(`${rIdx},${cIdx}`);
+                              setFormulaBarFocused(false);
+                            }}
+                            onBlur={(e) => {
+                              const next = e.relatedTarget as Node | null;
+                              if (next instanceof Node && (formulaBarDesktopRef.current?.contains(next) || formulaBarMobileRef.current?.contains(next))) {
+                                setFormulaBarFocused(true);
+                              }
+                              setInlineEditKey(null);
+                            }}
+                            onPaste={(e) => handlePaste(e, rIdx, cIdx)}
+                            onKeyDown={(e) => handleKeyDown(e, rIdx, cIdx)}
+                            readOnly={!editingInline}
+                            className={`w-full box-border px-1.5 text-zinc-900 outline-none touch-manipulation ${!editingInline ? 'cursor-cell' : ''}`}
+                            style={{
+                              minWidth: SHEET_THEME.cellMinWidthMobile,
+                              minHeight: SHEET_THEME.cellMinHeightMobile,
+                              ...(cellBg !== 'transparent' ? { backgroundColor: cellBg } : inSelection ? { backgroundColor: SHEET_THEME.activeCellBg } : { backgroundColor: '#fff' }),
+                              ...cellTypography,
+                              touchAction: dragSelectActive ? 'none' : undefined,
+                              boxShadow: isSelected ? `inset 0 0 0 2px ${SHEET_THEME.activeCellBorder}` : undefined,
+                            }}
+                          />
+                        )}
+                      </td>
+                    );
+                  })}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <div
+          className="shrink-0 flex items-center justify-center gap-2 border-t border-white/10"
+          style={{
+            backgroundColor: SHEET_THEME.toolbarBg,
+            paddingBottom: 'max(8px, env(safe-area-inset-bottom))',
+            paddingTop: 10,
+          }}
+        >
+          <span
+            className="text-[13px] font-semibold text-white pb-1 px-4 border-b-2"
+            style={{ borderColor: SHEET_THEME.activeCellBorder }}
+          >
+            Hoja1
+          </span>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="flex-1 flex flex-col min-h-0 overflow-hidden bg-monday-bg/50">
       {!readOnly && (
         <div className="shrink-0 flex items-center gap-2 px-3 py-2 bg-white border-b border-monday-border shadow-sm flex-wrap">
-          <span className="text-[11px] text-monday-subtext font-mono w-8">fx</span>
-          <input
-            type="text"
-            value={formulaBarValue}
-            onChange={e => setFocusedCellValue(e.target.value)}
-            readOnly={focusedCell == null}
-            className="flex-1 max-w-md px-2.5 py-1.5 text-[12px] font-averta bg-monday-hover/50 border border-monday-border rounded-monday text-monday-text placeholder:text-monday-subtext"
-            placeholder={focusedCell ? "Fórmula o valor (ej: =A1+B1, =SUM(A1:A5))" : "Selecciona una celda"}
-          />
-          {focusedCell != null && (
-            <span className="text-[11px] text-monday-subtext font-mono shrink-0">
-              {colLetters(focusedCell.c)}{focusedCell.r + 1}
-            </span>
-          )}
+          <div ref={formulaBarDesktopRef} className="flex items-center gap-2 flex-1 max-w-md min-w-0">
+            <span className="text-[11px] text-monday-subtext font-mono w-8 shrink-0">fx</span>
+            <input
+              type="text"
+              value={formulaBarValue}
+              onChange={e => setFocusedCellValue(e.target.value)}
+              readOnly={focusedCell == null}
+              onFocus={() => setFormulaBarFocused(true)}
+              onBlur={() => setFormulaBarFocused(false)}
+              className="flex-1 min-w-0 px-2.5 py-1.5 text-[12px] font-averta bg-monday-hover/50 border border-monday-border rounded-monday text-monday-text placeholder:text-monday-subtext"
+              placeholder={focusedCell ? "Fórmula o valor (ej: =A1+B1, =SUM(A1:A5))" : "Selecciona una celda"}
+            />
+            {focusedCell != null && (
+              <span className="text-[11px] text-monday-subtext font-mono shrink-0">
+                {colLetters(focusedCell.c)}{focusedCell.r + 1}
+              </span>
+            )}
+          </div>
           <div className="w-px h-5 bg-monday-border" />
           <button type="button" onClick={() => ensureTableSize(tableDraft.length + 1, tableDraft[0]?.length || 1)} className={sheetBtn}>
             + Fila
@@ -806,7 +1285,9 @@ export function ExcelLikeSheet({
                     {rIdx + 1}
                   </td>
                   {row.map((cell, cIdx) => {
-                    const isFocused = !readOnly && focusedCell?.r === rIdx && focusedCell?.c === cIdx;
+                    const isSelected = !readOnly && focusedCell?.r === rIdx && focusedCell?.c === cIdx;
+                    const showRaw = isSelected && (inlineEditKey === `${rIdx},${cIdx}` || formulaBarFocused);
+                    const editingInline = isSelected && inlineEditKey === `${rIdx},${cIdx}`;
                     const inSelection = selectionRange && (() => {
                       const minR = Math.min(selectionRange.start.r, selectionRange.end.r);
                       const maxR = Math.max(selectionRange.start.r, selectionRange.end.r);
@@ -814,20 +1295,23 @@ export function ExcelLikeSheet({
                       const maxC = Math.max(selectionRange.start.c, selectionRange.end.c);
                       return rIdx >= minR && rIdx <= maxR && cIdx >= minC && cIdx <= maxC;
                     })();
-                    const displayVal = getCellDisplayValue(tableDraft, rIdx, cIdx, isFocused, focusedCell);
+                    const displayVal = getCellDisplayValue(tableDraft, rIdx, cIdx, showRaw, focusedCell);
                     const cellStyle = cellStyles[`${rIdx},${cIdx}`] ?? {};
                     const bgStyle = cellStyle.bg;
                     const cellBg = bgStyle ?? 'transparent';
                     return (
                       <td
                         key={cIdx}
-                        className="border border-monday-border p-0"
-                        style={cellBg !== 'transparent' ? { backgroundColor: cellBg } : undefined}
-                        onMouseDown={() => handleCellMouseDown(rIdx, cIdx)}
-                        onMouseEnter={() => handleCellMouseEnter(rIdx, cIdx)}
+                        className="border border-monday-border p-0 touch-manipulation"
+                        style={{
+                          ...(cellBg !== 'transparent' ? { backgroundColor: cellBg } : undefined),
+                          touchAction: dragSelectActive ? 'none' : undefined,
+                        }}
+                        onPointerDown={(e) => handleCellPointerDown(rIdx, cIdx, e)}
+                        onPointerEnter={() => handleCellPointerEnter(rIdx, cIdx)}
                       >
                         {readOnly ? (
-                          <div className="w-full min-w-[110px] min-h-8 h-8 px-2 py-1 text-monday-text flex items-center" style={{ ...(cellBg !== 'transparent' ? { backgroundColor: cellBg } : { backgroundColor: '#fff' }), fontFamily: cellStyle.fontFamily ?? undefined, fontSize: cellStyle.fontSize ?? '12px', color: cellStyle.color ?? undefined }}>
+                          <div className="w-full min-w-[110px] min-h-8 h-8 px-2 py-1 text-monday-text flex items-center" style={{ ...(cellBg !== 'transparent' ? { backgroundColor: cellBg } : { backgroundColor: '#fff' }), fontFamily: cellStyle.fontFamily ?? undefined, fontSize: cellStyle.fontSize ?? '12px', color: cellStyle.color ?? undefined, fontWeight: cellStyle.fontWeight as React.CSSProperties['fontWeight'], fontStyle: cellStyle.fontStyle as React.CSSProperties['fontStyle'] }}>
                             {displayVal}
                           </div>
                         ) : (
@@ -842,17 +1326,30 @@ export function ExcelLikeSheet({
                                 return next;
                               });
                             }}
-                            onFocus={() => { setFocusedCell({ r: rIdx, c: cIdx }); }}
-                            onBlur={() => { setFocusedCell(null); }}
+                            onFocus={() => {
+                              setFocusedCell({ r: rIdx, c: cIdx });
+                              setInlineEditKey(`${rIdx},${cIdx}`);
+                              setFormulaBarFocused(false);
+                            }}
+                            onBlur={(e) => {
+                              const next = e.relatedTarget as Node | null;
+                              if (next instanceof Node && (formulaBarDesktopRef.current?.contains(next) || formulaBarMobileRef.current?.contains(next))) {
+                                setFormulaBarFocused(true);
+                              }
+                              setInlineEditKey(null);
+                            }}
                             onPaste={e => handlePaste(e, rIdx, cIdx)}
                             onKeyDown={e => handleKeyDown(e, rIdx, cIdx)}
-                            readOnly={!isFocused}
-                            className={`w-full min-w-[110px] h-8 px-2 text-monday-text outline-none focus:ring-1 focus:ring-inset focus:ring-monday-blue focus:border-monday-blue ${!isFocused ? 'cursor-cell' : ''}`}
+                            readOnly={!editingInline}
+                            className={`w-full min-w-[110px] h-8 px-2 text-monday-text outline-none focus:ring-1 focus:ring-inset focus:ring-monday-blue focus:border-monday-blue ${!editingInline ? 'cursor-cell' : ''}`}
                             style={{
                               ...(cellBg !== 'transparent' ? { backgroundColor: cellBg } : inSelection ? { backgroundColor: 'rgba(25, 118, 210, 0.12)' } : { backgroundColor: '#fff' }),
                               fontFamily: cellStyle.fontFamily ?? undefined,
                               fontSize: cellStyle.fontSize ?? '12px',
                               color: cellStyle.color ?? undefined,
+                              fontWeight: cellStyle.fontWeight as React.CSSProperties['fontWeight'],
+                              fontStyle: cellStyle.fontStyle as React.CSSProperties['fontStyle'],
+                              touchAction: dragSelectActive ? 'none' : undefined,
                             }}
                           />
                         )}

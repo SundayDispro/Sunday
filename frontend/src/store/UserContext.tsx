@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import { User, UserStatus } from '../types';
+import { User, UserStatus, type WebPushSubscribeRequestBody } from '../types';
 import { API_BASE, apiFetch, buildAuthHeaders, clearAuthStorage, parseResponse } from '../api';
 import { reconnectSocketWithAuth, socket } from './socket';
 
@@ -118,11 +118,20 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
 
       if (subscription) {
-        await apiFetch(`${API_BASE}/api/push/subscribe`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ subscription }),
-        });
+        const subJs = subscription.toJSON();
+        if (subJs.endpoint && subJs.keys?.p256dh != null && subJs.keys?.auth != null) {
+          const body: WebPushSubscribeRequestBody = {
+            subscription: {
+              endpoint: subJs.endpoint,
+              keys: { p256dh: String(subJs.keys.p256dh), auth: String(subJs.keys.auth) },
+            },
+          };
+          await apiFetch(`${API_BASE}/api/push/subscribe`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+          });
+        }
       }
 
       // Depuración: confirmar que backend ve la suscripción.

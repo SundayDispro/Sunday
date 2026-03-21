@@ -1,15 +1,4 @@
-export interface Design {
-  id: string;
-  workspaceId: string;
-  name: string;
-  content: string;
-  contentJson?: unknown;
-  thumbnailUrl?: string | null;
-  boardId?: string | null;
-  createdBy?: string | null;
-  createdAt: string;
-  updatedAt: string;
-}
+export type { Design } from '../../types';
 
 export type DesignTool =
   | 'select'
@@ -18,4 +7,3 @@ export type DesignTool =
   | 'ellipse'
   | 'text'
   | 'image';
-

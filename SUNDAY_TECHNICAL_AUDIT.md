@@ -932,7 +932,7 @@ Componentes clave:
       - Flujo móvil de **Crear** unificado para abrir el documento recién creado en el mismo contexto de Docs (sin rebotes al menú de creación).
       - En **overview**, el bloque superior de creación se oculta cuando hay documento/borrador activo para evitar que el editor quede “debajo” y requiera scroll.
       - Cabeceras de grupo en **Explorar móvil** optimizadas: contador de elementos más pequeño y reposicionado bajo el título; se eliminó el botón **Añadir subgrupo** para priorizar visibilidad del nombre completo del grupo.
-      - La hoja nueva (`sheet`) se presenta en formato visual **US Letter** para una edición más controlada.
+      - **Sheets / hojas de cálculo (móvil, marzo 2026)**: el editor `ExcelLikeSheet` vive en `frontend/src/components/pages/docs/ExcelLikeSheet.tsx` con `layoutVariant="mobile"` (barra superior y barra de fórmulas oscuras, rejilla con cabeceras sticky, tokens en `sheetExcelTheme.ts` alineados a la miniatura `DocTypeThumbnail`). En el visor móvil (doc abierto desde lista) la hoja es **editable** con `ensureTableSizeWithHistory`, estilos de celda y deshacer/rehacer; selección por **pointer events** y foco barra de fórmulas coordinado (`inlineEditKey` / `formulaBarFocused`). Detalle y QA: `docs/AUDITORIA_SHEETS_MOVIL.md`.
   - La página **DesignPage (Estudio)** fue retirada de la navegación; el código puede seguir en el repo pero no se monta desde `App.tsx`.
   - Cada página corresponde a una "vista" de datos de negocio específica.
 

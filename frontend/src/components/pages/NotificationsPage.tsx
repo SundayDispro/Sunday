@@ -1,20 +1,12 @@
 import React, { useEffect, useState } from 'react';
 import { Bell, Check, CheckCheck, ExternalLink, AtSign, UserPlus } from 'lucide-react';
 import { useUser } from '../../store/UserContext';
-import { Notification as NotificationType, Item } from '../../types';
+import { FeedPost, Notification as NotificationType, Item } from '../../types';
 import { apiFetch } from '../../api';
 
 const API_BASE = import.meta.env.DEV ? '' : (import.meta.env.VITE_API_URL || 'http://localhost:3001');
 
 type TabId = 'all' | 'mentions' | 'assignments';
-
-type FeedPostMention = {
-  id: string;
-  content: string;
-  authorId: string;
-  author?: { id: string; name: string; initials: string; color: string };
-  createdAt: string;
-};
 
 type InboxOpenOpts = { postId?: string; tab?: 'all' | 'mentions' };
 
@@ -32,7 +24,7 @@ export const NotificationsPage: React.FC<NotificationsPageProps> = ({
   const { currentUser } = useUser();
   const [tab, setTab] = useState<TabId>('all');
   const [notifications, setNotifications] = useState<NotificationType[]>([]);
-  const [mentions, setMentions] = useState<FeedPostMention[]>([]);
+  const [mentions, setMentions] = useState<FeedPost[]>([]);
   const [loading, setLoading] = useState(true);
   const [onlyUnread, setOnlyUnread] = useState(false);
   const [showRead, setShowRead] = useState(false);
@@ -41,13 +33,13 @@ export const NotificationsPage: React.FC<NotificationsPageProps> = ({
 
   const getMentionsReadAtKey = (userId: string) => `sunday_mentions_read_at_${userId}`;
 
-  const isMentionRead = (post: FeedPostMention) => {
+  const isMentionRead = (post: FeedPost) => {
     const ts = new Date(post.createdAt).getTime();
     if (!Number.isFinite(ts)) return true; // si no hay fecha válida, lo tratamos como "leído"
     return ts <= mentionsReadAt;
   };
 
-  const markMentionAsRead = (post: FeedPostMention) => {
+  const markMentionAsRead = (post: FeedPost) => {
     if (!currentUser?.id) return;
     const ts = new Date(post.createdAt).getTime();
     if (!Number.isFinite(ts)) return;
@@ -150,7 +142,7 @@ export const NotificationsPage: React.FC<NotificationsPageProps> = ({
     }
   };
 
-  const handleMentionClick = (post?: FeedPostMention) => {
+  const handleMentionClick = (post?: FeedPost) => {
     if (post) markMentionAsRead(post);
     onOpenInbox?.({ postId: post?.id, tab: 'mentions' });
   };

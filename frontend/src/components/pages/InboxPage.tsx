@@ -1,19 +1,10 @@
 import React, { useEffect, useState, useRef, useMemo } from 'react';
 import { Inbox, Send, AtSign, CheckSquare } from 'lucide-react';
-import { Item, User } from '../../types';
+import { FeedPost, Item, User } from '../../types';
 import { useUser } from '../../store/UserContext';
 import { apiFetch } from '../../api';
 
 const API_BASE = import.meta.env.DEV ? '' : (import.meta.env.VITE_API_URL || 'http://localhost:3001');
-
-type FeedPost = {
-  id: string;
-  content: string;
-  authorId: string;
-  author: User;
-  mentionedUserIds: string[];
-  createdAt: string;
-};
 
 type TabId = 'all' | 'mentions';
 
