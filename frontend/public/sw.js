@@ -1,6 +1,6 @@
 /* Service Worker para Sunday – PWA + Web Push + Offline Cache */
 
-const CACHE_NAME = 'sunday-cache-v7';
+const CACHE_NAME = 'sunday-cache-v8';
 const OFFLINE_URLS = [
   '/',
   '/index.html',
@@ -34,46 +34,63 @@ self.addEventListener('activate', (event) => {
 });
 
 self.addEventListener('fetch', (event) => {
-  // TODO: migrar a network-first para navegación y stale-while-revalidate
-  // para assets. Bump manual de versión hasta implementar build hash.
-  // Solo manejamos requests HTTP(s) GET para evitar errores de respuesta inválida.
+  // Solo manejamos requests HTTP(s) GET
   if (event.request.method !== 'GET') return;
   const reqUrl = event.request.url || '';
   if (!reqUrl.startsWith('http://') && !reqUrl.startsWith('https://')) return;
 
-  // Ignorar peticiones a la API o web sockets para no cachearlas incorrectamente
+  // Ignorar peticiones a la API o web sockets
   if (reqUrl.includes('/api/') || reqUrl.includes('/socket.io/')) {
     return;
   }
 
+  // 1. Network-First para navegación (HTML) - Asegura ver la última versión si hay red
+  if (event.request.mode === 'navigate') {
+    event.respondWith(
+      fetch(event.request).then((networkResponse) => {
+        const responseToCache = networkResponse.clone();
+        caches.open(CACHE_NAME).then((cache) => {
+          cache.put(event.request, responseToCache);
+        });
+        return networkResponse;
+      }).catch(() => {
+        return caches.match(event.request).then((cachedResponse) => {
+          return cachedResponse || caches.match('/');
+        });
+      })
+    );
+    return;
+  }
+
+  // 2. Stale-While-Revalidate para estáticos (js, css, imágenes, fuentes)
+  if (reqUrl.match(/\.(js|css|woff2|png|jpg|jpeg|svg|ico)$/)) {
+    event.respondWith(
+      caches.match(event.request).then((cachedResponse) => {
+        const fetchPromise = fetch(event.request).then((networkResponse) => {
+          if (networkResponse && networkResponse.ok) {
+            const responseToCache = networkResponse.clone();
+            caches.open(CACHE_NAME).then((cache) => {
+              cache.put(event.request, responseToCache);
+            });
+          }
+          return networkResponse;
+        }).catch(() => {
+          // Fallback silencioso si falla la red durante la revalidación
+        });
+
+        return cachedResponse || fetchPromise;
+      })
+    );
+    return;
+  }
+
+  // 3. Cache-First por defecto para el resto de recursos cacheados (manifest, etc.)
   event.respondWith(
     caches.match(event.request).then((cachedResponse) => {
       if (cachedResponse) {
         return cachedResponse;
       }
-      return fetch(event.request).then((networkResponse) => {
-        // Cachear estáticos (js, css, woff2) automáticamente
-        if (networkResponse && networkResponse.ok && reqUrl.match(/\.(js|css|woff2|png|jpg|jpeg|svg)$/)) {
-          const responseToCache = networkResponse.clone();
-          caches.open(CACHE_NAME).then((cache) => {
-            cache.put(event.request, responseToCache);
-          });
-        }
-        return networkResponse;
-      }).catch(() => {
-        // Fallback a index.html para SPA routing offline
-        if (event.request.mode === 'navigate') {
-          return caches.match('/').then((fallback) => {
-            if (fallback) return fallback;
-            return new Response('Offline', {
-              status: 503,
-              statusText: 'Offline',
-              headers: { 'Content-Type': 'text/plain; charset=utf-8' },
-            });
-          });
-        }
-        return Response.error();
-      });
+      return fetch(event.request);
     })
   );
 });

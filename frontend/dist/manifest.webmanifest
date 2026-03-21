@@ -1,8 +1,8 @@
 {
-  "name": "Sunday App V6",
-  "short_name": "SundayV6",
-  "start_url": "/?pwa=v6-home",
-  "id": "/?pwa=v6-home",
+  "name": "Sunday App V8",
+  "short_name": "SundayV8",
+  "start_url": "/?pwa=v8-home",
+  "id": "/?pwa=v8-home",
   "display": "standalone",
   "background_color": "#ffffff",
   "theme_color": "#0055ff",

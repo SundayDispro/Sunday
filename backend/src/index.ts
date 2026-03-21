@@ -2304,7 +2304,24 @@ app.post('/api/templates/:kind/generate', authenticateToken, async (req, res) =>
 // Asume que el build vive en ../frontend/dist relativo al backend.
 if (process.env.NODE_ENV === 'production') {
   const frontendDist = path.join(process.cwd(), '..', 'frontend', 'dist');
-  app.use(express.static(frontendDist));
+
+  // Middleware para evitar cache de sw.js y index.html
+  app.use((req, res, next) => {
+    const filename = req.path.split('/').pop();
+    if (filename === 'sw.js') {
+      res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+    } else if (filename === 'index.html' || req.path === '/') {
+      res.setHeader('Cache-Control', 'no-cache');
+    } else if (req.path.includes('/assets/')) {
+      // Los assets de Vite tienen hash, se pueden cachear agresivamente
+      res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+    }
+    next();
+  });
+
+  app.use(express.static(frontendDist, {
+    index: false, // Desactivamos el index automático para manejarlo abajo
+  }));
 
   // Express 5 / path-to-regexp: no usar app.get('*'). SPA fallback solo para GET/HEAD.
   app.use((req, res, next) => {
