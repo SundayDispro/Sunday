@@ -1,11 +1,12 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { GripVertical, Plus, Trash2, Type, Save, Maximize2, Upload, Loader2, Pencil } from 'lucide-react';
+import { GripVertical, Plus, Trash2, Type, Save, Maximize2, Upload, Loader2, Pencil, ImageIcon } from 'lucide-react';
 import * as Dialog from '@radix-ui/react-dialog';
 import {
   type PdfDocType,
   type TemplateConfigState,
   type CustomBoxDef,
 } from './pdfTemplateConfig';
+import { WordLikeImageHandles, type WordImageHandleKind } from './WordLikeImageHandles';
 import { TextFormatBarForTemplate } from '../../docs/TextFormatBar';
 import { useUser } from '../../../store/UserContext';
 import { apiFetch } from '../../../api';
@@ -172,11 +173,82 @@ export const PdfTemplateEditor: React.FC<Props> = ({
   const pixelScale = exportPixelScale ?? 1;
   const PAGE_WIDTH_PX = Math.round(PAGE_WIDTH_PX_96DPI * pixelScale);
   const PAGE_HEIGHT_PX = Math.round(PAGE_HEIGHT_PX_96DPI * pixelScale);
-  const [dragging, setDragging] = useState<{ fieldKey: string; startX: number; startY: number; startLeft: number; startTop: number } | null>(null);
+  const [dragging, setDragging] = useState<{
+    fieldKey: string;
+    pointerId: number;
+    startX: number;
+    startY: number;
+    startLeft: number;
+    startTop: number;
+  } | null>(null);
+  const [dragCandidate, setDragCandidate] = useState<{
+    fieldKey: string;
+    pointerId: number;
+    startX: number;
+    startY: number;
+    startLeft: number;
+    startTop: number;
+  } | null>(null);
   const [dragPreview, setDragPreview] = useState<{ x: number; y: number } | null>(null);
+  const skipNextBoxClickRef = useRef(false);
   type ResizeAxis = 'e' | 's' | 'se';
-  const [resizing, setResizing] = useState<{ boxId: string; axis: ResizeAxis; startX: number; startY: number; startW: number; startH: number } | null>(null);
+  const [resizing, setResizing] = useState<{
+    boxId: string;
+    pointerId: number;
+    axis: ResizeAxis;
+    startX: number;
+    startY: number;
+    startW: number;
+    startH: number;
+  } | null>(null);
   const [resizePreview, setResizePreview] = useState<{ width: number; height: number } | null>(null);
+  const [pinching, setPinching] = useState<{
+    boxId: string;
+    pointerIds: [number, number];
+    startDistancePx: number;
+    startW: number;
+    startH: number;
+    startCx: number;
+    startCy: number;
+  } | null>(null);
+  const [pinchPreview, setPinchPreview] = useState<{ x: number; y: number; w: number; h: number } | null>(null);
+  const pinchPreviewRef = useRef(pinchPreview);
+  useEffect(() => {
+    pinchPreviewRef.current = pinchPreview;
+  }, [pinchPreview]);
+  const activeImagePointersRef = useRef<{
+    boxId: string | null;
+    pointers: Map<number, { x: number; y: number }>;
+  }>({ boxId: null, pointers: new Map() });
+
+  /** Redimensionar / rotar imagen con marcas estilo Word (sustituye pinch en imágenes). */
+  type WordImageGestureState = {
+    boxId: string;
+    kind: WordImageHandleKind;
+    pointerId: number;
+    startX: number;
+    startY: number;
+    start: { x: number; y: number; w: number; h: number; rotationDeg: number };
+    centerX: number;
+    centerY: number;
+    startPointerAngle: number;
+  };
+  const [wordImageGesture, setWordImageGesture] = useState<WordImageGestureState | null>(null);
+  const [wordImagePreview, setWordImagePreview] = useState<{
+    x: number;
+    y: number;
+    w: number;
+    h: number;
+    rotationDeg: number;
+  } | null>(null);
+  const wordImageLiveRef = useRef<{
+    x: number;
+    y: number;
+    w: number;
+    h: number;
+    rotationDeg: number;
+  } | null>(null);
+
   const [adminMenuOpen, setAdminMenuOpen] = useState(false);
   const [selectedBoxId, setSelectedBoxId] = useState<string | null>(null);
   const prevSelectedBoxIdRef = useRef<string | null>(null);
@@ -192,6 +264,11 @@ export const PdfTemplateEditor: React.FC<Props> = ({
   const onCanvasDoubleTapRef = useRef(onCanvasDoubleTap);
   onCanvasDoubleTapRef.current = onCanvasDoubleTap;
   const lastCanvasTapRef = useRef<{ t: number; x: number; y: number } | null>(null);
+  const DRAG_START_THRESHOLD_PX = 7;
+  const PINCH_MIN_W_PCT = 0.08;
+  const PINCH_MAX_W_PCT = 0.95;
+  const PINCH_MIN_H_PCT = 0.04;
+  const PINCH_MAX_H_PCT = 0.9;
 
   const update = useCallback(
     (updates: Record<string, unknown>) => onChange({ ...value, ...updates }),
@@ -375,11 +452,185 @@ export const PdfTemplateEditor: React.FC<Props> = ({
     return () => el.removeEventListener('touchend', handler);
   }, [viewerOnly, exportPixelScale]);
 
-  const handleCustomBoxMouseDown = useCallback((e: React.MouseEvent, box: CustomBoxDef) => {
+  const handleCustomBoxPointerDown = useCallback((e: React.PointerEvent, box: CustomBoxDef) => {
+    if (!e.isPrimary) return;
     e.preventDefault();
+    e.stopPropagation();
     vibrate(8);
-    setDragging({ fieldKey: box.id, startX: e.clientX, startY: e.clientY, startLeft: box.x, startTop: box.y });
-  }, [vibrate]);
+    try {
+      e.currentTarget.setPointerCapture(e.pointerId);
+    } catch {
+      // ignore
+    }
+
+    setSelectedBoxId(box.id);
+    onActiveBoxChange?.({
+      boxId: box.id,
+      boxKind: box.kind === 'image' ? 'image' : 'text',
+      xPct: box.x,
+      yPct: box.y,
+      wPct: typeof box.width === 'number' ? box.width : 0.3,
+      hPct: typeof box.height === 'number' ? box.height : 0.05,
+    });
+
+    // Imágenes: arrastre con un dedo; redimensión/rotación con marcas Word (sin pinch, evita conflicto con handles).
+    if (box.kind === 'image' && allowBoxEditing) {
+      activeImagePointersRef.current.boxId = null;
+      activeImagePointersRef.current.pointers.clear();
+      setDragCandidate({
+        fieldKey: box.id,
+        pointerId: e.pointerId,
+        startX: e.clientX,
+        startY: e.clientY,
+        startLeft: box.x,
+        startTop: box.y,
+      });
+      return;
+    }
+
+    // Texto u otras cajas: drag normal
+    setDragCandidate({
+      fieldKey: box.id,
+      pointerId: e.pointerId,
+      startX: e.clientX,
+      startY: e.clientY,
+      startLeft: box.x,
+      startTop: box.y,
+    });
+  }, [vibrate, onActiveBoxChange, allowBoxEditing]);
+
+  useEffect(() => {
+    if (!dragCandidate) return;
+    const onMove = (e: PointerEvent) => {
+      if (e.pointerId !== dragCandidate.pointerId) return;
+      const dxPx = e.clientX - dragCandidate.startX;
+      const dyPx = e.clientY - dragCandidate.startY;
+      const dist2 = dxPx * dxPx + dyPx * dyPx;
+      if (dist2 < DRAG_START_THRESHOLD_PX * DRAG_START_THRESHOLD_PX) return;
+
+      const el = containerRef.current;
+      if (!el) return;
+      const rect = el.getBoundingClientRect();
+      const w = rect.width;
+      const h = rect.height;
+      if (!w || !h) return;
+
+      const dx = (e.clientX - dragCandidate.startX) / w;
+      const dy = (e.clientY - dragCandidate.startY) / h;
+      let nx = dragCandidate.startLeft + dx;
+      let ny = dragCandidate.startTop + dy;
+      nx = Math.max(0, Math.min(1 - 0.1, nx));
+      ny = Math.max(0, Math.min(1 - 0.04, ny));
+
+      skipNextBoxClickRef.current = true;
+      setDragging({
+        fieldKey: dragCandidate.fieldKey,
+        pointerId: dragCandidate.pointerId,
+        startX: dragCandidate.startX,
+        startY: dragCandidate.startY,
+        startLeft: dragCandidate.startLeft,
+        startTop: dragCandidate.startTop,
+      });
+      setDragPreview({ x: nx, y: ny });
+      setDragCandidate(null);
+    };
+
+    const onUp = (e: PointerEvent) => {
+      if (e.pointerId !== dragCandidate.pointerId) return;
+      setDragCandidate(null);
+    };
+
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+    window.addEventListener('pointercancel', onUp);
+    return () => {
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+      window.removeEventListener('pointercancel', onUp);
+    };
+  }, [dragCandidate]);
+
+  useEffect(() => {
+    if (!pinching) return;
+
+    const { boxId, pointerIds, startDistancePx, startW, startH, startCx, startCy } = pinching;
+    const [idA, idB] = pointerIds;
+
+    const computeScale = (distPx: number) => {
+      const rawScale = distPx / Math.max(1, startDistancePx);
+      const scaleMin = Math.max(PINCH_MIN_W_PCT / startW, PINCH_MIN_H_PCT / startH);
+      const scaleMax = Math.min(PINCH_MAX_W_PCT / startW, PINCH_MAX_H_PCT / startH);
+      return Math.max(scaleMin, Math.min(scaleMax, rawScale));
+    };
+
+    const onMove = (e: PointerEvent) => {
+      if (e.pointerId !== idA && e.pointerId !== idB) return;
+      const ptrState = activeImagePointersRef.current;
+      if (ptrState.boxId !== boxId) return;
+      ptrState.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      const pA = ptrState.pointers.get(idA);
+      const pB = ptrState.pointers.get(idB);
+      if (!pA || !pB) return;
+
+      const dx = pB.x - pA.x;
+      const dy = pB.y - pA.y;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      const scale = computeScale(dist);
+
+      const newW = startW * scale;
+      const newH = startH * scale;
+      const newX = Math.max(0, Math.min(1 - newW, startCx - newW / 2));
+      const newY = Math.max(0, Math.min(1 - newH, startCy - newH / 2));
+
+      setPinchPreview({ x: newX, y: newY, w: newW, h: newH });
+    };
+
+    const commitAndEnd = () => {
+      const preview = pinchPreviewRef.current;
+      if (!preview || !onTemplateConfigChange) {
+        setPinching(null);
+        setPinchPreview(null);
+        return;
+      }
+
+      const nextBoxes = customBoxes.map((b) =>
+        b.id === boxId ? { ...b, x: preview.x, y: preview.y, width: preview.w, height: preview.h } : b
+      );
+      onTemplateConfigChange({ ...effectiveConfig, customBoxes: nextBoxes });
+      setPinching(null);
+      setPinchPreview(null);
+      activeImagePointersRef.current.boxId = null;
+      activeImagePointersRef.current.pointers.clear();
+      setDragCandidate(null);
+      setDragging(null);
+      setDragPreview(null);
+      setResizing(null);
+      setResizePreview(null);
+    };
+
+    const onUpOrCancel = (e: PointerEvent) => {
+      if (e.pointerId !== idA && e.pointerId !== idB) return;
+      commitAndEnd();
+    };
+
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUpOrCancel);
+    window.addEventListener('pointercancel', onUpOrCancel);
+    return () => {
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUpOrCancel);
+      window.removeEventListener('pointercancel', onUpOrCancel);
+    };
+  }, [
+    pinching,
+    customBoxes,
+    effectiveConfig,
+    onTemplateConfigChange,
+    PINCH_MIN_W_PCT,
+    PINCH_MAX_W_PCT,
+    PINCH_MIN_H_PCT,
+    PINCH_MAX_H_PCT,
+  ]);
 
   const addCustomBox = useCallback((singleLine = false) => {
     if (!onTemplateConfigChange || !currentUser?.id) return;
@@ -497,7 +748,8 @@ export const PdfTemplateEditor: React.FC<Props> = ({
 
   useEffect(() => {
     if (!dragging) return;
-    const onMove = (e: MouseEvent) => {
+    const onMove = (e: PointerEvent) => {
+      if (e.pointerId !== dragging.pointerId) return;
       const el = containerRef.current;
       if (!el) return;
       const rect = el.getBoundingClientRect();
@@ -511,8 +763,8 @@ export const PdfTemplateEditor: React.FC<Props> = ({
       ny = Math.max(0, Math.min(1 - 0.04, ny));
       setDragPreview({ x: nx, y: ny });
     };
-    const onUp = () => {
-      if (!dragging) return;
+    const onUp = (e: PointerEvent) => {
+      if (e.pointerId !== dragging.pointerId) return;
       if (dragPreview !== null && onTemplateConfigChange) {
         const nextBoxes = customBoxes.map((b) =>
           b.id === dragging.fieldKey ? { ...b, x: dragPreview.x, y: dragPreview.y } : b
@@ -522,24 +774,33 @@ export const PdfTemplateEditor: React.FC<Props> = ({
       setDragging(null);
       setDragPreview(null);
     };
-    window.addEventListener('mousemove', onMove);
-    window.addEventListener('mouseup', onUp);
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+    window.addEventListener('pointercancel', onUp);
     return () => {
-      window.removeEventListener('mousemove', onMove);
-      window.removeEventListener('mouseup', onUp);
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+      window.removeEventListener('pointercancel', onUp);
     };
   }, [dragging, dragPreview, customBoxes, effectiveConfig, onTemplateConfigChange]);
 
-  const handleResizeStart = useCallback((e: React.MouseEvent, box: CustomBoxDef, axis: ResizeAxis) => {
+  const handleResizeStart = useCallback((e: React.PointerEvent, box: CustomBoxDef, axis: ResizeAxis) => {
+    if (!e.isPrimary) return;
     e.preventDefault();
     e.stopPropagation();
     vibrate(10);
-    setResizing({ boxId: box.id, axis, startX: e.clientX, startY: e.clientY, startW: box.width, startH: box.height });
+    try {
+      e.currentTarget.setPointerCapture(e.pointerId);
+    } catch {
+      // ignore
+    }
+    setResizing({ boxId: box.id, pointerId: e.pointerId, axis, startX: e.clientX, startY: e.clientY, startW: box.width, startH: box.height });
   }, [vibrate]);
 
   useEffect(() => {
     if (!resizing) return;
-    const onMove = (e: MouseEvent) => {
+    const onMove = (e: PointerEvent) => {
+      if (e.pointerId !== resizing.pointerId) return;
       const el = containerRef.current;
       if (!el) return;
       const rect = el.getBoundingClientRect();
@@ -554,8 +815,8 @@ export const PdfTemplateEditor: React.FC<Props> = ({
       h = Math.max(0.04, Math.min(0.9, h));
       setResizePreview({ width: w, height: h });
     };
-    const onUp = () => {
-      if (!resizing) return;
+    const onUp = (e: PointerEvent) => {
+      if (e.pointerId !== resizing.pointerId) return;
       if (resizePreview !== null && onTemplateConfigChange) {
         const nextBoxes = customBoxes.map((b) =>
           b.id === resizing.boxId ? { ...b, width: resizePreview.width, height: resizePreview.height } : b
@@ -565,13 +826,209 @@ export const PdfTemplateEditor: React.FC<Props> = ({
       setResizing(null);
       setResizePreview(null);
     };
-    window.addEventListener('mousemove', onMove);
-    window.addEventListener('mouseup', onUp);
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+    window.addEventListener('pointercancel', onUp);
     return () => {
-      window.removeEventListener('mousemove', onMove);
-      window.removeEventListener('mouseup', onUp);
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+      window.removeEventListener('pointercancel', onUp);
     };
   }, [resizing, resizePreview, customBoxes, effectiveConfig, onTemplateConfigChange]);
+
+  const onWordImageHandlePointerDown = useCallback(
+    (box: CustomBoxDef, kind: WordImageHandleKind, e: React.PointerEvent) => {
+      if (!onTemplateConfigChange || !e.isPrimary || viewerOnly) return;
+      e.preventDefault();
+      e.stopPropagation();
+      vibrate(8);
+      try {
+        e.currentTarget.setPointerCapture(e.pointerId);
+      } catch {
+        /* ignore */
+      }
+      const el = containerRef.current;
+      if (!el) return;
+      const rect = el.getBoundingClientRect();
+      const bw = typeof box.width === 'number' ? box.width : 0.3;
+      const bh = typeof box.height === 'number' ? box.height : 0.15;
+      const bx = box.x;
+      const by = box.y;
+      const rotationDeg =
+        typeof box.rotationDeg === 'number' && !Number.isNaN(box.rotationDeg) ? box.rotationDeg : 0;
+      const cx = rect.left + (bx + bw / 2) * rect.width;
+      const cy = rect.top + (by + bh / 2) * rect.height;
+      const startPointerAngle = kind === 'rotate' ? Math.atan2(e.clientY - cy, e.clientX - cx) : 0;
+      const initial = { x: bx, y: by, w: bw, h: bh, rotationDeg };
+      wordImageLiveRef.current = initial;
+      setWordImageGesture({
+        boxId: box.id,
+        kind,
+        pointerId: e.pointerId,
+        startX: e.clientX,
+        startY: e.clientY,
+        start: { x: bx, y: by, w: bw, h: bh, rotationDeg },
+        centerX: cx,
+        centerY: cy,
+        startPointerAngle,
+      });
+      setWordImagePreview(initial);
+    },
+    [onTemplateConfigChange, viewerOnly, vibrate],
+  );
+
+  useEffect(() => {
+    if (!wordImageGesture) return;
+    const g = wordImageGesture;
+    const clampPct = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
+
+    const onMove = (e: PointerEvent) => {
+      if (e.pointerId !== g.pointerId) return;
+      const el = containerRef.current;
+      if (!el) return;
+      const rect = el.getBoundingClientRect();
+      const pw = rect.width;
+      const ph = rect.height;
+      const dx = (e.clientX - g.startX) / pw;
+      const dy = (e.clientY - g.startY) / ph;
+      const px = clampPct((e.clientX - rect.left) / pw, 0, 1);
+      const py = clampPct((e.clientY - rect.top) / ph, 0, 1);
+      const { kind, start } = g;
+      const ar = start.w / Math.max(start.h, 1e-6);
+
+      if (kind === 'rotate') {
+        const angle = Math.atan2(e.clientY - g.centerY, e.clientX - g.centerX);
+        let deltaDeg = ((angle - g.startPointerAngle) * 180) / Math.PI;
+        let nextRot = start.rotationDeg + deltaDeg;
+        while (nextRot > 180) nextRot -= 360;
+        while (nextRot <= -180) nextRot += 360;
+        const next = { ...start, rotationDeg: nextRot };
+        wordImageLiveRef.current = next;
+        setWordImagePreview(next);
+        return;
+      }
+
+      if (kind === 'e') {
+        const nw = clampPct(start.w + dx, 0.05, 0.95 - start.x);
+        const next = { ...start, w: nw };
+        wordImageLiveRef.current = next;
+        setWordImagePreview(next);
+        return;
+      }
+      if (kind === 'w') {
+        const nx = clampPct(start.x + dx, 0, start.x + start.w - 0.05);
+        const nw = start.x + start.w - nx;
+        const next = { ...start, x: nx, w: nw };
+        wordImageLiveRef.current = next;
+        setWordImagePreview(next);
+        return;
+      }
+      if (kind === 's') {
+        const nh = clampPct(start.h + dy, 0.04, 0.95 - start.y);
+        const next = { ...start, h: nh };
+        wordImageLiveRef.current = next;
+        setWordImagePreview(next);
+        return;
+      }
+      if (kind === 'n') {
+        const ny = clampPct(start.y + dy, 0, start.y + start.h - 0.04);
+        const nh = start.y + start.h - ny;
+        const next = { ...start, y: ny, h: nh };
+        wordImageLiveRef.current = next;
+        setWordImagePreview(next);
+        return;
+      }
+
+      if (kind === 'se') {
+        const nx = start.x;
+        const ny = start.y;
+        let nw = clampPct(start.w + dx, 0.05, 0.95 - nx);
+        let nh = nw / ar;
+        if (ny + nh > 0.96) nh = Math.max(0.04, 0.96 - ny);
+        nw = nh * ar;
+        const next = { x: nx, y: ny, w: nw, h: nh, rotationDeg: start.rotationDeg };
+        wordImageLiveRef.current = next;
+        setWordImagePreview(next);
+        return;
+      }
+      if (kind === 'nw') {
+        const fx = start.x + start.w;
+        const fy = start.y + start.h;
+        let nw = clampPct(fx - px, 0.05, fx);
+        let nh = nw / ar;
+        let ny = fy - nh;
+        let nx = fx - nw;
+        nx = clampPct(nx, 0, fx - 0.05);
+        ny = clampPct(ny, 0, fy - 0.04);
+        nw = fx - nx;
+        nh = fy - ny;
+        const next = { x: nx, y: ny, w: nw, h: nh, rotationDeg: start.rotationDeg };
+        wordImageLiveRef.current = next;
+        setWordImagePreview(next);
+        return;
+      }
+      if (kind === 'ne') {
+        const fx = start.x;
+        const fy = start.y + start.h;
+        let nw = clampPct(px - fx, 0.05, 0.95 - fx);
+        let nh = nw / ar;
+        let ny = fy - nh;
+        ny = clampPct(ny, 0, fy - 0.04);
+        nh = fy - ny;
+        nw = nh * ar;
+        const next = { x: fx, y: ny, w: nw, h: nh, rotationDeg: start.rotationDeg };
+        wordImageLiveRef.current = next;
+        setWordImagePreview(next);
+        return;
+      }
+      if (kind === 'sw') {
+        const fx = start.x + start.w;
+        const fy = start.y;
+        let nw = clampPct(fx - px, 0.05, fx);
+        let nh = nw / ar;
+        let nx = fx - nw;
+        nx = clampPct(nx, 0, fx - 0.05);
+        nw = fx - nx;
+        nh = clampPct(nh, 0.04, 0.96 - fy);
+        const next = { x: nx, y: fy, w: nw, h: nh, rotationDeg: start.rotationDeg };
+        wordImageLiveRef.current = next;
+        setWordImagePreview(next);
+        return;
+      }
+    };
+
+    const onUp = (e: PointerEvent) => {
+      if (e.pointerId !== g.pointerId) return;
+      const prev = wordImageLiveRef.current;
+      if (prev && onTemplateConfigChange) {
+        const nextBoxes = customBoxes.map((b) =>
+          b.id === g.boxId
+            ? {
+                ...b,
+                x: prev.x,
+                y: prev.y,
+                width: prev.w,
+                height: prev.h,
+                rotationDeg: prev.rotationDeg,
+              }
+            : b
+        );
+        onTemplateConfigChange({ ...effectiveConfig, customBoxes: nextBoxes });
+      }
+      wordImageLiveRef.current = null;
+      setWordImageGesture(null);
+      setWordImagePreview(null);
+    };
+
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+    window.addEventListener('pointercancel', onUp);
+    return () => {
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+      window.removeEventListener('pointercancel', onUp);
+    };
+  }, [wordImageGesture, customBoxes, effectiveConfig, onTemplateConfigChange]);
 
   const normalizedColor = fontColor.toLowerCase() === '#ffffff' ? '#ffffff' : '#000000';
   const getBoxTextValue = useCallback((box: CustomBoxDef) => {
@@ -798,7 +1255,8 @@ export const PdfTemplateEditor: React.FC<Props> = ({
                         overflow: 'hidden' as const,
                       }),
                 }),
-            ...(!exportPixelScale && canvasTouchPanY ? { touchAction: 'pan-y' as const } : {}),
+            ...(!exportPixelScale && (dragging || resizing || pinching) ? { touchAction: 'none' as const } : {}),
+            ...(!exportPixelScale && !(dragging || resizing || pinching) && canvasTouchPanY ? { touchAction: 'pan-y' as const } : {}),
           }}
         >
           <div
@@ -883,11 +1341,40 @@ export const PdfTemplateEditor: React.FC<Props> = ({
                 const canFormatBox = !viewerOnly;
                 const isDraggingThis = dragging?.fieldKey === box.id && dragPreview;
                 const isResizingThis = resizing?.boxId === box.id && resizePreview;
-                const isTransformingThisBox = Boolean(isDraggingThis || isResizingThis);
-                const x = isDraggingThis ? dragPreview.x : box.x;
-                const y = isDraggingThis ? dragPreview.y : box.y;
-                let w = isResizingThis ? resizePreview.width : (box.width ?? 0.3);
-                let h = isResizingThis ? resizePreview.height : (box.height ?? 0.05);
+                const isPinchingThis = pinching?.boxId === box.id && pinchPreview;
+                const isWordImageLive =
+                  wordImageGesture?.boxId === box.id && wordImagePreview !== null;
+                const isTransformingThisBox = Boolean(
+                  isDraggingThis || isResizingThis || isPinchingThis || isWordImageLive
+                );
+                const x = isWordImageLive && wordImagePreview
+                  ? wordImagePreview.x
+                  : isDraggingThis
+                    ? dragPreview!.x
+                    : isPinchingThis
+                      ? pinchPreview!.x
+                      : box.x;
+                const y = isWordImageLive && wordImagePreview
+                  ? wordImagePreview.y
+                  : isDraggingThis
+                    ? dragPreview!.y
+                    : isPinchingThis
+                      ? pinchPreview!.y
+                      : box.y;
+                let w = isWordImageLive && wordImagePreview
+                  ? wordImagePreview.w
+                  : isResizingThis
+                    ? resizePreview!.width
+                    : isPinchingThis
+                      ? pinchPreview!.w
+                      : (box.width ?? 0.3);
+                let h = isWordImageLive && wordImagePreview
+                  ? wordImagePreview.h
+                  : isResizingThis
+                    ? resizePreview!.height
+                    : isPinchingThis
+                      ? pinchPreview!.h
+                      : (box.height ?? 0.05);
                 // Recortar al área de la plantilla: que ningún cuadro sobresalga por la derecha o por abajo
                 w = Math.min(Number(w) || 0.3, Math.max(0, 1 - (Number(x) || 0)));
                 h = Math.min(Number(h) || 0.05, Math.max(0, 1 - (Number(y) || 0)));
@@ -904,6 +1391,13 @@ export const PdfTemplateEditor: React.FC<Props> = ({
                 const isTotalBox = box.fieldKey === 'total';
                 const isSingleLineInput = box.singleLine === true || box.semantic === 'folio';
                 const isWhiteText = String(boxTextStyle.color ?? '').toLowerCase() === '#ffffff';
+                const rotationDeg =
+                  isWordImageLive && wordImagePreview
+                    ? wordImagePreview.rotationDeg
+                    : typeof box.rotationDeg === 'number' && !Number.isNaN(box.rotationDeg)
+                      ? box.rotationDeg
+                      : 0;
+                const useWordImageUi = box.kind === 'image' && isSelected && canMoveOrDelete;
                 return (
                   <div
                     key={box.id}
@@ -937,17 +1431,17 @@ export const PdfTemplateEditor: React.FC<Props> = ({
                             ? isSelected
                               ? bp
                                 ? 'rounded border-2 border-dashed border-monday-blue bg-white/40 shadow-none ring-0'
-                                : 'rounded border border-monday-blue ring-2 ring-monday-blue/30 bg-white shadow-md'
+                                : 'rounded border border-monday-blue ring-2 ring-monday-blue/35 bg-transparent shadow-none'
                               : bp
                                 ? 'rounded border-2 border-dashed border-slate-400 bg-white/30 hover:bg-white/45'
-                                : 'rounded border border-monday-border bg-white/95 hover:bg-white'
+                                : 'rounded border border-monday-border/70 bg-transparent hover:ring-1 hover:ring-monday-blue/20'
                             : isSelected
                               ? bp
                                 ? 'rounded border-2 border-dashed border-monday-blue bg-white/35 shadow-none ring-0'
-                                : 'rounded border-2 border-monday-blue/30 border-dashed ring-2 ring-monday-blue/20 bg-white/70'
+                                : 'rounded border-2 border-monday-blue/35 border-dashed ring-2 ring-monday-blue/25 bg-transparent'
                               : bp
                                 ? 'rounded border border-dashed border-slate-400 bg-white/25'
-                                : 'rounded border border-monday-border/60 border-dashed bg-white/60'
+                                : 'rounded border border-monday-border/50 border-dashed bg-transparent'
                           : bp
                             ? 'rounded border border-dashed border-slate-300/50 bg-white/15'
                             : ''
@@ -958,33 +1452,65 @@ export const PdfTemplateEditor: React.FC<Props> = ({
                         bp
                           ? 'bg-white/40 focus-within:bg-white/55 focus-within:ring-1 focus-within:ring-monday-blue/35'
                           : canMoveOrDelete
-                            ? 'bg-white/95 focus-within:bg-white focus-within:ring-1 focus-within:ring-monday-blue/40'
+                            ? 'bg-transparent focus-within:ring-1 focus-within:ring-monday-blue/50'
                             : isLocked
-                              ? 'bg-white/70 focus-within:bg-white focus-within:ring-1 focus-within:ring-monday-blue/30'
+                              ? 'bg-transparent focus-within:ring-1 focus-within:ring-monday-blue/35'
                               : 'bg-transparent'
                       }`}
                     >
                       {box.kind === 'image' ? (
-                        <img
-                          src={box.imageUrl || ''}
-                          alt=""
-                          className={`w-full h-full object-contain select-none ${bp ? 'opacity-[0.42]' : ''}`}
-                          onClick={viewerOnly ? undefined : (e) => {
-                            e.stopPropagation();
-                            if (canFormatBox) {
-                              vibrate(6);
-                              setSelectedBoxId(box.id);
-                              onActiveBoxChange?.({
-                                boxId: box.id,
-                                boxKind: 'image',
-                                xPct: x,
-                                yPct: y,
-                                wPct: w,
-                                hPct: h,
-                              });
-                            }
+                        <div
+                          className="w-full h-full flex items-center justify-center pointer-events-auto"
+                          style={{
+                            transform: `rotate(${rotationDeg}deg)`,
+                            transformOrigin: 'center center',
                           }}
-                        />
+                        >
+                          <img
+                            src={box.imageUrl || ''}
+                            alt=""
+                            className={`w-full h-full object-contain select-none ${bp ? 'opacity-[0.42]' : ''}`}
+                            style={{ touchAction: 'none' }}
+                            onPointerDown={
+                              viewerOnly
+                                ? undefined
+                                : (e) => {
+                                    if (!canMoveOrDelete) return;
+                                    handleCustomBoxPointerDown(e, {
+                                      ...box,
+                                      x,
+                                      y,
+                                      width: w,
+                                      height: h,
+                                      rotationDeg,
+                                    });
+                                  }
+                            }
+                            onClick={
+                              viewerOnly
+                                ? undefined
+                                : (e) => {
+                                    e.stopPropagation();
+                                    if (skipNextBoxClickRef.current) {
+                                      skipNextBoxClickRef.current = false;
+                                      return;
+                                    }
+                                    if (canFormatBox) {
+                                      vibrate(6);
+                                      setSelectedBoxId(box.id);
+                                      onActiveBoxChange?.({
+                                        boxId: box.id,
+                                        boxKind: 'image',
+                                        xPct: x,
+                                        yPct: y,
+                                        wPct: w,
+                                        hPct: h,
+                                      });
+                                    }
+                                  }
+                            }
+                          />
+                        </div>
                       ) : viewerOnly ? (
                         <div
                           style={boxTextStyle}
@@ -992,10 +1518,10 @@ export const PdfTemplateEditor: React.FC<Props> = ({
                             isTotalBox
                               ? 'flex items-center justify-end py-0'
                               : isDescripcionCorta
-                                ? 'flex flex-col justify-center pt-5 pb-1'
+                                ? 'flex flex-col justify-start pt-5 pb-1'
                                 : isFolio || isSingleLineOrFolio
                                   ? 'flex items-center py-0'
-                                  : 'flex flex-col justify-center pt-1.5 pb-1'
+                                  : 'flex flex-col justify-start pt-1.5 pb-1'
                           }`}
                         >
                           {isTotalBox ? (
@@ -1053,11 +1579,7 @@ export const PdfTemplateEditor: React.FC<Props> = ({
                               ? canMoveOrDelete || isLocked
                                 ? 'rgba(255,255,255,0.42)'
                                 : 'rgba(255,255,255,0.18)'
-                              : canMoveOrDelete
-                                ? 'rgba(255,255,255,0.95)'
-                                : isLocked
-                                  ? 'rgba(255,255,255,0.65)'
-                                  : 'rgba(255,255,255,0.92)',
+                              : 'transparent',
                           }}
                           className={`w-full min-h-0 max-h-full border-0 outline-none focus:ring-0 px-1.5 box-border ${
                             isFolio || isSingleLineOrFolio ? 'py-2' : 'py-1.5'
@@ -1122,11 +1644,7 @@ export const PdfTemplateEditor: React.FC<Props> = ({
                               ? canMoveOrDelete || isLocked
                                 ? 'rgba(255,255,255,0.42)'
                                 : 'rgba(255,255,255,0.18)'
-                              : canMoveOrDelete
-                                ? 'rgba(255,255,255,0.95)'
-                                : isLocked
-                                  ? 'rgba(255,255,255,0.65)'
-                                  : 'transparent',
+                              : 'transparent',
                             textShadow: isWhiteText ? '0 1px 2px rgba(0,0,0,0.78)' : undefined,
                             caretColor: isWhiteText ? '#ffffff' : undefined,
                           }}
@@ -1149,21 +1667,81 @@ export const PdfTemplateEditor: React.FC<Props> = ({
                         />
                       )}
                     </div>
-                    {canMoveOrDelete && (
+                    {useWordImageUi && (
+                      <WordLikeImageHandles
+                        onHandlePointerDown={(kind, e) =>
+                          onWordImageHandlePointerDown(
+                            {
+                              ...box,
+                              x,
+                              y,
+                              width: w,
+                              height: h,
+                              rotationDeg,
+                            },
+                            kind,
+                            e
+                          )
+                        }
+                      />
+                    )}
+                    {useWordImageUi && (
+                      <div
+                        className="absolute left-1/2 -translate-x-1/2 bottom-3 z-[38] flex items-center gap-1 rounded-2xl bg-zinc-900/93 border border-white/10 px-2 py-1.5 shadow-2xl pointer-events-auto"
+                        onClick={(ev) => ev.stopPropagation()}
+                      >
+                        <button
+                          type="button"
+                          className="flex flex-col items-center justify-center min-w-[44px] py-1 px-1 rounded-xl text-white/90 hover:bg-white/10 touch-manipulation"
+                          onClick={() =>
+                            openEditImageDialog({
+                              ...box,
+                              x,
+                              y,
+                              width: w,
+                              height: h,
+                              rotationDeg,
+                            })
+                          }
+                        >
+                          <ImageIcon size={18} />
+                          <span className="text-[9px] font-medium mt-0.5">Reemplazar</span>
+                        </button>
+                        <button
+                          type="button"
+                          className="flex flex-col items-center justify-center min-w-[44px] py-1 px-1 rounded-xl text-red-300 hover:bg-red-500/20 touch-manipulation"
+                          onClick={() => {
+                            if (!onTemplateConfigChange) return;
+                            onTemplateConfigChange({
+                              ...effectiveConfig,
+                              customBoxes: customBoxes.filter((b) => b.id !== box.id),
+                            });
+                            setSelectedBoxId(null);
+                          }}
+                        >
+                          <Trash2 size={18} />
+                          <span className="text-[9px] font-medium mt-0.5">Quitar</span>
+                        </button>
+                      </div>
+                    )}
+                    {canMoveOrDelete && !(box.kind === 'image' && isSelected) && (
                       <>
                         <div
                           className="absolute top-0 right-0 w-2 bottom-4 z-10 cursor-ew-resize hover:bg-monday-blue/20 transition-colors"
-                          onMouseDown={(e) => handleResizeStart(e, box, 'e')}
+                          onPointerDown={(e) => handleResizeStart(e, box, 'e')}
+                          style={{ touchAction: 'none' }}
                           title="Redimensionar ancho"
                         />
                         <div
                           className="absolute bottom-0 left-0 right-4 h-2 z-10 cursor-ns-resize hover:bg-monday-blue/20 transition-colors"
-                          onMouseDown={(e) => handleResizeStart(e, box, 's')}
+                          onPointerDown={(e) => handleResizeStart(e, box, 's')}
+                          style={{ touchAction: 'none' }}
                           title="Redimensionar alto"
                         />
                         <div
                           className="absolute bottom-0 right-0 w-4 h-4 cursor-se-resize flex items-center justify-center text-monday-subtext hover:text-monday-blue border-t border-l border-monday-border/40 rounded-tl bg-white/90 z-20"
-                          onMouseDown={(e) => handleResizeStart(e, box, 'se')}
+                          onPointerDown={(e) => handleResizeStart(e, box, 'se')}
+                          style={{ touchAction: 'none' }}
                           title="Redimensionar ancho y alto"
                         >
                           <Maximize2 size={10} />
@@ -1171,7 +1749,7 @@ export const PdfTemplateEditor: React.FC<Props> = ({
                       </>
                     )}
                     </div>
-                    {canMoveOrDelete && (
+                    {canMoveOrDelete && !(box.kind === 'image' && isSelected) && (
                       <div
                         className="absolute top-0 right-0 bottom-0 w-10 flex flex-col gap-1 pl-1.5 pr-1 py-1 justify-start items-center bg-white/95 rounded-r border border-l-0 border-monday-border/50 z-10"
                         style={{ width: '40px' }}
@@ -1179,7 +1757,8 @@ export const PdfTemplateEditor: React.FC<Props> = ({
                       >
                         <div
                           className="cursor-grab active:cursor-grabbing text-monday-subtext hover:text-monday-blue p-1.5 rounded hover:bg-monday-hover shrink-0"
-                          onMouseDown={(e) => canMoveOrDelete && handleCustomBoxMouseDown(e, box)}
+                          onPointerDown={(e) => canMoveOrDelete && handleCustomBoxPointerDown(e, box)}
+                          style={{ touchAction: 'none' }}
                           title="Mover"
                         >
                           <GripVertical size={14} />

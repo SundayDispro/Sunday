@@ -47,6 +47,7 @@ export interface CustomBoxForPdf {
   fieldKey?: string;
   imageUrl?: string;
   backgroundColor?: string;
+  rotationDeg?: number;
 }
 
 export interface DocumentPageForPdfProps {
@@ -180,21 +181,35 @@ export const DocumentPageForPdf: React.FC<DocumentPageForPdfProps> = ({
 
     if (box.kind === 'image' && box.imageUrl) {
       const heightPt = (box.height ?? 0.15) * PAGE_H_PT;
+      const rot =
+        typeof box.rotationDeg === 'number' && !Number.isNaN(box.rotationDeg) ? box.rotationDeg : 0;
       return (
-        <img
+        <div
           key={box.id}
-          src={box.imageUrl}
-          alt=""
           style={{
             position: 'absolute',
             left: `${leftPt}pt`,
             top: `${topPt}pt`,
             width: `${widthPt}pt`,
             height: `${heightPt}pt`,
-            objectFit: 'contain',
-            objectPosition: 'left top',
+            transform: rot !== 0 ? `rotate(${rot}deg)` : undefined,
+            transformOrigin: 'center center',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
           }}
-        />
+        >
+          <img
+            src={box.imageUrl}
+            alt=""
+            style={{
+              width: '100%',
+              height: '100%',
+              objectFit: 'contain',
+              objectPosition: 'center center',
+            }}
+          />
+        </div>
       );
     }
 
@@ -273,9 +288,10 @@ export const DocumentPageForPdf: React.FC<DocumentPageForPdfProps> = ({
 
     const isWhiteText = textCol === PDF_WHITE_COLOR;
     const innerStyle: React.CSSProperties = {
-      display: isTotalBox ? 'flex' : 'block',
-      justifyContent: isTotalBox ? 'flex-end' : undefined,
-      alignItems: isTotalBox ? 'center' : undefined,
+      display: isTotalBox ? 'flex' : 'flex',
+      flexDirection: isTotalBox ? 'row' : 'column',
+      justifyContent: isTotalBox ? 'flex-end' : 'flex-start',
+      alignItems: isTotalBox ? 'center' : 'stretch',
       width: '100%',
       height: '100%',
       minWidth: 0,

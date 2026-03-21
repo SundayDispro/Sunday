@@ -1,6 +1,10 @@
-import React, { useCallback, useRef } from 'react';
+import React, { useCallback, useRef, useState } from 'react';
 import * as Popover from '@radix-ui/react-popover';
+import { ImagePlus } from 'lucide-react';
+import { apiFetch } from '../../api';
 import type { CustomBoxDef } from '../pages/docs/pdfTemplateConfig';
+
+const UPLOAD_API_BASE = import.meta.env.DEV ? '' : (import.meta.env.VITE_API_URL || 'http://localhost:3001');
 
 /** Opciones de fuente compartidas entre docs y plantillas (incl. Averta Std) */
 export const FONT_OPTIONS = [
@@ -23,6 +27,12 @@ export const FONT_SIZES = [
 
 const COLOR_OPTIONS = [
   { value: '#000000', label: 'Negro' },
+  { value: '#374151', label: 'Gris oscuro' },
+  { value: '#6b7280', label: 'Gris' },
+  { value: '#2563eb', label: 'Azul' },
+  { value: '#16a34a', label: 'Verde' },
+  { value: '#dc2626', label: 'Rojo' },
+  { value: '#ca8a04', label: 'Amarillo / oro' },
   { value: '#ffffff', label: 'Blanco' },
 ];
 
@@ -37,6 +47,8 @@ export interface TextFormatBarForEditorProps {
 
 export function TextFormatBarForEditor({ editorRef, reportContent }: TextFormatBarForEditorProps) {
   const savedRangeRef = useRef<Range | null>(null);
+  const imageInputRef = useRef<HTMLInputElement>(null);
+  const [imageUploading, setImageUploading] = useState(false);
 
   const saveSelection = useCallback(() => {
     const sel = window.getSelection();
@@ -116,6 +128,47 @@ export function TextFormatBarForEditor({ editorRef, reportContent }: TextFormatB
     [restoreSelection]
   );
 
+  const insertImageAtSelection = useCallback(
+    async (file: File) => {
+      if (!/^image\/jpe?g$/i.test(file.type)) {
+        window.alert('Solo se aceptan imágenes JPG para insertar en el documento (mismo criterio que el encabezado).');
+        return;
+      }
+      setImageUploading(true);
+      try {
+        const formData = new FormData();
+        formData.append('file', file);
+        const res = await apiFetch(`${UPLOAD_API_BASE}/api/upload`, {
+          method: 'POST',
+          body: formData,
+        });
+        const text = await res.text();
+        let data: { error?: string; url?: string } = {};
+        try {
+          data = text ? JSON.parse(text) : {};
+        } catch {
+          data = { error: `Error del servidor (${res.status})` };
+        }
+        if (!res.ok) throw new Error(data.error || 'No se pudo subir la imagen');
+        const url = data.url;
+        if (!url) throw new Error('Sin URL de imagen');
+        const abs = url.trim().startsWith('/') ? UPLOAD_API_BASE + url : url;
+        editorRef.current?.focus();
+        restoreSelection();
+        const img = `<p><img src="${abs}" alt="" style="max-width:100%;height:auto;border-radius:6px;display:block;margin:0.5em 0;" /></p>`;
+        document.execCommand('insertHTML', false, img);
+        reportContent();
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : 'Error al subir';
+        window.alert(msg);
+      } finally {
+        setImageUploading(false);
+        if (imageInputRef.current) imageInputRef.current.value = '';
+      }
+    },
+    [editorRef, reportContent, restoreSelection],
+  );
+
   const insertList = useCallback(
     (tag: 'ul' | 'ol') => () => {
       const cmd = tag === 'ul' ? 'insertUnorderedList' : 'insertOrderedList';
@@ -158,8 +211,18 @@ export function TextFormatBarForEditor({ editorRef, reportContent }: TextFormatB
   );
 
   return (
-    <div className="shrink-0 flex items-center gap-0.5 px-3 py-2 bg-white border-b border-monday-border shadow-sm flex-wrap">
-      <Popover.Root>
+    <div className="shrink-0 flex items-center gap-0.5 px-2 sm:px-3 py-2 bg-[var(--monday-surface)] border-b border-monday-border shadow-sm overflow-x-auto overflow-y-hidden flex-nowrap max-w-full touch-pan-x">
+      <input
+        ref={imageInputRef}
+        type="file"
+        accept="image/jpeg,image/jpg"
+        className="hidden"
+        onChange={(e) => {
+          const f = e.target.files?.[0];
+          if (f) void insertImageAtSelection(f);
+        }}
+      />
+      <Popover.Root modal={false}>
         <Popover.Trigger asChild>
           <button
             type="button"
@@ -167,7 +230,7 @@ export function TextFormatBarForEditor({ editorRef, reportContent }: TextFormatB
               e.preventDefault();
               saveSelection();
             }}
-            className="px-2 py-1.5 text-[11px] border border-monday-border rounded-monday bg-white text-monday-text hover:bg-monday-hover min-w-[5rem] text-left"
+            className="shrink-0 px-2 py-1.5 text-[11px] border border-monday-border rounded-monday bg-[var(--monday-surface)] text-monday-text hover:bg-monday-hover min-w-[4.5rem] text-left touch-manipulation"
             title="Fuente"
           >
             Fuente
@@ -175,7 +238,7 @@ export function TextFormatBarForEditor({ editorRef, reportContent }: TextFormatB
         </Popover.Trigger>
         <Popover.Portal>
           <Popover.Content
-            className="z-50 p-1.5 rounded-lg shadow-lg border border-monday-border bg-white max-h-[240px] overflow-auto"
+            className="z-[80] p-1.5 rounded-lg shadow-lg border border-monday-border bg-[var(--monday-surface)] max-h-[240px] overflow-auto"
             sideOffset={4}
             onOpenAutoFocus={(e) => e.preventDefault()}
           >
@@ -196,21 +259,21 @@ export function TextFormatBarForEditor({ editorRef, reportContent }: TextFormatB
           </Popover.Content>
         </Popover.Portal>
       </Popover.Root>
-      <div className="w-px h-5 bg-monday-border mx-1" />
-      <button type="button" onMouseDown={keepFocus(() => exec('bold'))} className={formatBarBtn} title="Negrita">
+      <div className="w-px h-5 bg-monday-border mx-0.5 shrink-0" />
+      <button type="button" onMouseDown={keepFocus(() => exec('bold'))} className={`${formatBarBtn} shrink-0 touch-manipulation`} title="Negrita">
         <span className="text-[13px] font-bold">B</span>
       </button>
-      <button type="button" onMouseDown={keepFocus(() => exec('italic'))} className={formatBarBtn} title="Cursiva">
+      <button type="button" onMouseDown={keepFocus(() => exec('italic'))} className={`${formatBarBtn} shrink-0 touch-manipulation`} title="Cursiva">
         <span className="text-[13px] italic font-serif">I</span>
       </button>
-      <button type="button" onMouseDown={keepFocus(() => exec('strikeThrough'))} className={formatBarBtn} title="Tachado">
+      <button type="button" onMouseDown={keepFocus(() => exec('strikeThrough'))} className={`${formatBarBtn} shrink-0 touch-manipulation`} title="Tachado">
         <span className="text-[13px] line-through">S</span>
       </button>
-      <button type="button" onMouseDown={keepFocus(() => exec('underline'))} className={formatBarBtn} title="Subrayado">
+      <button type="button" onMouseDown={keepFocus(() => exec('underline'))} className={`${formatBarBtn} shrink-0 touch-manipulation`} title="Subrayado">
         <span className="text-[13px] underline">U</span>
       </button>
-      <div className="w-px h-5 bg-monday-border mx-1" />
-      <Popover.Root>
+      <div className="w-px h-5 bg-monday-border mx-0.5 shrink-0" />
+      <Popover.Root modal={false}>
         <Popover.Trigger asChild>
           <button
             type="button"
@@ -218,7 +281,7 @@ export function TextFormatBarForEditor({ editorRef, reportContent }: TextFormatB
               e.preventDefault();
               saveSelection();
             }}
-            className="px-2 py-1.5 text-[11px] border border-monday-border rounded-monday bg-white text-monday-text hover:bg-monday-hover min-w-[4rem] text-left"
+            className="shrink-0 px-2 py-1.5 text-[11px] border border-monday-border rounded-monday bg-[var(--monday-surface)] text-monday-text hover:bg-monday-hover min-w-[3.75rem] text-left touch-manipulation"
             title="Tamaño de texto"
           >
             Tamaño
@@ -226,7 +289,7 @@ export function TextFormatBarForEditor({ editorRef, reportContent }: TextFormatB
         </Popover.Trigger>
         <Popover.Portal>
           <Popover.Content
-            className="z-50 p-1.5 rounded-lg shadow-lg border border-monday-border bg-white"
+            className="z-[80] p-1.5 rounded-lg shadow-lg border border-monday-border bg-[var(--monday-surface)]"
             sideOffset={4}
             onOpenAutoFocus={(e) => e.preventDefault()}
           >
@@ -246,15 +309,15 @@ export function TextFormatBarForEditor({ editorRef, reportContent }: TextFormatB
           </Popover.Content>
         </Popover.Portal>
       </Popover.Root>
-      <div className="w-px h-5 bg-monday-border mx-1" />
-      <button type="button" onMouseDown={keepFocus(insertList('ul'))} className={formatBarBtn} title="Lista con viñetas">
+      <div className="w-px h-5 bg-monday-border mx-0.5 shrink-0" />
+      <button type="button" onMouseDown={keepFocus(insertList('ul'))} className={`${formatBarBtn} shrink-0 touch-manipulation`} title="Lista con viñetas">
         <span className="text-[14px]">•</span>
       </button>
-      <button type="button" onMouseDown={keepFocus(insertList('ol'))} className={formatBarBtn} title="Lista numerada">
+      <button type="button" onMouseDown={keepFocus(insertList('ol'))} className={`${formatBarBtn} shrink-0 touch-manipulation`} title="Lista numerada">
         <span className="text-[13px] font-medium">1.</span>
       </button>
-      <div className="w-px h-5 bg-monday-border mx-1" />
-      <Popover.Root>
+      <div className="w-px h-5 bg-monday-border mx-0.5 shrink-0" />
+      <Popover.Root modal={false}>
         <Popover.Trigger asChild>
           <button
             type="button"
@@ -262,7 +325,7 @@ export function TextFormatBarForEditor({ editorRef, reportContent }: TextFormatB
               e.preventDefault();
               saveSelection();
             }}
-            className="px-2 py-1.5 text-[11px] border border-monday-border rounded-monday bg-white hover:bg-monday-hover min-w-[4rem] text-left flex items-center gap-1"
+            className="shrink-0 px-2 py-1.5 text-[11px] border border-monday-border rounded-monday bg-[var(--monday-surface)] hover:bg-monday-hover min-w-[3.75rem] text-left flex items-center gap-1 touch-manipulation"
             title="Color de texto"
           >
             <span className="w-3 h-3 rounded border border-monday-border bg-monday-text" />
@@ -271,7 +334,7 @@ export function TextFormatBarForEditor({ editorRef, reportContent }: TextFormatB
         </Popover.Trigger>
         <Popover.Portal>
           <Popover.Content
-            className="z-50 p-1.5 rounded-lg shadow-lg border border-monday-border bg-white"
+            className="z-[80] p-1.5 rounded-lg shadow-lg border border-monday-border bg-[var(--monday-surface)] max-h-[220px] overflow-y-auto"
             sideOffset={4}
             onOpenAutoFocus={(e) => e.preventDefault()}
           >
@@ -293,8 +356,23 @@ export function TextFormatBarForEditor({ editorRef, reportContent }: TextFormatB
           </Popover.Content>
         </Popover.Portal>
       </Popover.Root>
-      <div className="w-px h-5 bg-monday-border mx-1" />
-      <span className="text-[11px] text-monday-subtext px-2">Documento</span>
+      <div className="w-px h-5 bg-monday-border mx-0.5 shrink-0" />
+      <button
+        type="button"
+        disabled={imageUploading}
+        onMouseDown={(e) => {
+          e.preventDefault();
+          saveSelection();
+          editorRef.current?.focus();
+          imageInputRef.current?.click();
+        }}
+        className="shrink-0 inline-flex items-center gap-1 px-2 py-1.5 text-[11px] border border-monday-border rounded-monday bg-[var(--monday-surface)] text-monday-text hover:bg-monday-hover touch-manipulation disabled:opacity-50"
+        title="Insertar imagen (JPG)"
+      >
+        <ImagePlus size={14} className="shrink-0" />
+        Imagen
+      </button>
+      <span className="text-[11px] text-monday-subtext px-1 shrink-0 whitespace-nowrap hidden sm:inline">Doc</span>
     </div>
   );
 }
@@ -563,10 +641,7 @@ export function TextFormatBarForTemplate({
             sideOffset={4}
             onOpenAutoFocus={(e) => e.preventDefault()}
           >
-            {[
-              { value: '#000000', label: 'Negro' },
-              { value: '#ffffff', label: 'Blanco' },
-            ].map(({ value, label }) => (
+            {COLOR_OPTIONS.map(({ value, label }) => (
               <button
                 key={value}
                 type="button"

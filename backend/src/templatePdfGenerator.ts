@@ -1,6 +1,16 @@
 import fs from 'fs';
 import path from 'path';
-import { PDFDocument, rgb, RGB } from 'pdf-lib';
+import {
+  PDFDocument,
+  rgb,
+  RGB,
+  pushGraphicsState,
+  popGraphicsState,
+  translate,
+  rotateRadians,
+  scale,
+  drawObject,
+} from 'pdf-lib';
 
 /** Convierte color hex (#000000 o #fff) a RGB para pdf-lib */
 function hexToRgb(hex: string): RGB {
@@ -388,12 +398,14 @@ export async function generatePdfFromTemplate(
       height?: number;
       kind?: 'text' | 'image';
       imageUrl?: string;
+      rotationDeg?: number;
       fontSize?: number;
       fontBold?: boolean;
       fontItalic?: boolean;
       fontFamily?: string;
       fontColor?: string;
       fieldKey?: string;
+      backgroundColor?: string;
     }
   >;
   const customFieldValues = (content.customFieldValues ?? {}) as Record<string, string>;
@@ -421,12 +433,31 @@ export async function generatePdfFromTemplate(
           const embedded = resolved.isPng
             ? await pdfDoc.embedPng(resolved.buffer)
             : await pdfDoc.embedJpg(resolved.buffer);
-          page.drawImage(embedded, {
-            x: xPts,
-            y: yFromBottom,
-            width: wPts,
-            height: hPts,
-          });
+          const rotDeg =
+            typeof box.rotationDeg === 'number' && !Number.isNaN(box.rotationDeg) ? box.rotationDeg : 0;
+          if (Math.abs(rotDeg) < 0.01) {
+            page.drawImage(embedded, {
+              x: xPts,
+              y: yFromBottom,
+              width: wPts,
+              height: hPts,
+            });
+          } else {
+            const cx = xPts + wPts / 2;
+            const cy = yFromBottom + hPts / 2;
+            const xObjectKey = page.node.newXObject('Image', embedded.ref);
+            // Alineado con CSS (positivo = horario en pantalla Y-abajo): invertir en PDF (Y-arriba).
+            const rad = (-rotDeg * Math.PI) / 180;
+            page.pushOperators(
+              pushGraphicsState(),
+              translate(cx, cy),
+              rotateRadians(rad),
+              translate(-wPts / 2, -hPts / 2),
+              scale(wPts, hPts),
+              drawObject(xObjectKey),
+              popGraphicsState(),
+            );
+          }
         } catch {
           // Ignorar imágenes que no se puedan incrustar
         }

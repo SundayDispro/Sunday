@@ -127,6 +127,8 @@ export interface CustomBoxDef {
   kind?: 'text' | 'image';
   /** URL de la imagen cuando kind === 'image' */
   imageUrl?: string;
+  /** Rotación en grados (sentido horario como en CSS); solo imágenes. */
+  rotationDeg?: number;
   /** ID del usuario que creó este cuadro (para permisos en UI) */
   ownerId?: string;
   /** true = una sola línea (input); false/undefined = multilínea (textarea) */

@@ -34,6 +34,9 @@ import { GROUP_PALETTE } from '../Board/GroupColorPicker';
 import * as Popover from '@radix-ui/react-popover';
 import * as Dialog from '@radix-ui/react-dialog';
 import { Board, Doc, DocType } from '../../types';
+import { MobileDocsShell, type WordShellTab } from '../mobile/docs/MobileDocsShell';
+import { DocsHomeFeed } from '../mobile/docs/DocsHomeFeed';
+import { DocsCreateGallery } from '../mobile/docs/DocsCreateGallery';
 import {
   getInitialContentForType,
   mergeInitialPdfContentWithMasterDefaults,
@@ -83,6 +86,8 @@ interface Props {
   mobileLayout?: boolean;
   /** En móvil hub: el scroll lo hace el contenedor padre; la lista no debe tener overflow propio (arregla iOS Safari). */
   scrollListInParent?: boolean;
+  /** Shell tipo Word iOS: Inicio / Crear / Explorar + barra inferior flotante (solo con mobileLayout + isMobile). */
+  mobileWordShell?: boolean;
 }
 
 export interface TaskItem {
@@ -275,17 +280,32 @@ function WordLikeEditor({
   setTextDraft,
   headerImageUrl,
   setHeaderImageUrl,
+  documentTitle = 'Documento',
+  enableMobileViewEditMode = false,
 }: {
   textDraft: string;
   setTextDraft: (v: string) => void;
   headerImageUrl: string | null;
   setHeaderImageUrl: (v: string | null) => void;
+  documentTitle?: string;
+  /** Modo Word iOS: visor (solo lectura) / edición con Listo y doble toque. */
+  enableMobileViewEditMode?: boolean;
 }) {
   const editorRef = useRef<HTMLDivElement>(null);
   const lastSyncedRef = useRef<string>(textDraft);
   const headerFileInputRef = useRef<HTMLInputElement | null>(null);
   const [uploadingHeader, setUploadingHeader] = useState(false);
   const [headerError, setHeaderError] = useState<string | null>(null);
+  const [mobileMode, setMobileMode] = useState<'view' | 'edit'>(() => (enableMobileViewEditMode ? 'view' : 'edit'));
+  const lastTouchEndRef = useRef(0);
+
+  useEffect(() => {
+    if (!enableMobileViewEditMode) {
+      setMobileMode('edit');
+      return;
+    }
+    setMobileMode('view');
+  }, [enableMobileViewEditMode]);
 
   useEffect(() => {
     const el = editorRef.current;
@@ -353,88 +373,161 @@ function WordLikeEditor({
     [setHeaderImageUrl],
   );
 
+  const headerPopover = (
+    <Popover.Root>
+      <Popover.Trigger asChild>
+        <button
+          type="button"
+          className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-monday border border-monday-border text-[11px] text-monday-subtext hover:bg-monday-hover sm:text-[11px]"
+        >
+          <Palette size={12} className="text-monday-subtext" />
+          <span>Encabezado</span>
+        </button>
+      </Popover.Trigger>
+      <Popover.Portal>
+        <Popover.Content
+          className="z-50 p-3 rounded-lg shadow-lg border border-monday-border bg-white w-72"
+          sideOffset={6}
+          onOpenAutoFocus={e => e.preventDefault()}
+        >
+          <p className="text-[12px] text-monday-subtext mb-2">
+            Sube un archivo <span className="font-semibold">JPG</span> que se mostrará como encabezado del documento.
+          </p>
+          <input
+            ref={headerFileInputRef}
+            type="file"
+            accept="image/jpeg,image/jpg"
+            className="hidden"
+            id="docs-header-file"
+            onChange={handleHeaderFileChange}
+          />
+          <div className="flex items-center gap-2 mb-2">
+            <label
+              htmlFor="docs-header-file"
+              className="inline-flex items-center justify-center gap-1.5 px-2.5 py-1.5 rounded-monday bg-monday-blue text-white text-[12px] cursor-pointer hover:bg-monday-blue/90"
+            >
+              {uploadingHeader ? (
+                <>
+                  <Loader2 size={14} className="animate-spin" />
+                  <span>Subiendo…</span>
+                </>
+              ) : (
+                <>
+                  <Upload size={14} />
+                  <span>Elegir JPG</span>
+                </>
+              )}
+            </label>
+            {headerImageUrl && (
+              <button
+                type="button"
+                onClick={() => setHeaderImageUrl(null)}
+                className="text-[11px] text-monday-subtext hover:text-monday-red"
+              >
+                Quitar encabezado
+              </button>
+            )}
+          </div>
+          {headerError && (
+            <p className="text-[11px] text-red-600 mb-2" role="alert">
+              {headerError}
+            </p>
+          )}
+          {headerImageUrl && (
+            <div className="mt-1 rounded-md border border-monday-border bg-monday-hover/40 p-1 flex justify-center">
+              <img
+                src={previewUrl(headerImageUrl)}
+                alt="Vista previa encabezado"
+                className="max-h-20 w-auto object-contain"
+              />
+            </div>
+          )}
+        </Popover.Content>
+      </Popover.Portal>
+    </Popover.Root>
+  );
+
+  const finishMobileEdit = useCallback(() => {
+    reportContent();
+    setMobileMode('view');
+    editorRef.current?.blur();
+  }, [reportContent]);
+
+  const onEditorTouchEnd = useCallback(
+    (e: React.TouchEvent) => {
+      if (!enableMobileViewEditMode || mobileMode === 'edit') return;
+      const now = Date.now();
+      if (now - lastTouchEndRef.current < 300) {
+        e.preventDefault();
+        lastTouchEndRef.current = 0;
+        setMobileMode('edit');
+        requestAnimationFrame(() => {
+          editorRef.current?.focus();
+        });
+      } else {
+        lastTouchEndRef.current = now;
+      }
+    },
+    [enableMobileViewEditMode, mobileMode],
+  );
+
   return (
     <div className="flex-1 flex flex-col min-h-0 overflow-hidden bg-monday-bg/50">
-      <div className="border-b border-monday-border bg-white">
-        <div className="flex items-center justify-between gap-3 px-3 py-2">
-          <TextFormatBarForEditor editorRef={editorRef} reportContent={reportContent} />
-          <div className="shrink-0 flex items-center gap-2 pr-2">
-            <Popover.Root>
-              <Popover.Trigger asChild>
-                <button
-                  type="button"
-                  className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-monday border border-monday-border text-[11px] text-monday-subtext hover:bg-monday-hover"
-                >
-                  <Palette size={12} className="text-monday-subtext" />
-                  <span>Encabezado</span>
-                </button>
-              </Popover.Trigger>
-              <Popover.Portal>
-                <Popover.Content
-                  className="z-50 p-3 rounded-lg shadow-lg border border-monday-border bg-white w-72"
-                  sideOffset={6}
-                  onOpenAutoFocus={e => e.preventDefault()}
-                >
-                  <p className="text-[12px] text-monday-subtext mb-2">
-                    Sube un archivo <span className="font-semibold">JPG</span> que se mostrará como encabezado del documento.
-                  </p>
-                  <input
-                    ref={headerFileInputRef}
-                    type="file"
-                    accept="image/jpeg,image/jpg"
-                    className="hidden"
-                    id="docs-header-file"
-                    onChange={handleHeaderFileChange}
-                  />
-                  <div className="flex items-center gap-2 mb-2">
-                    <label
-                      htmlFor="docs-header-file"
-                      className="inline-flex items-center justify-center gap-1.5 px-2.5 py-1.5 rounded-monday bg-monday-blue text-white text-[12px] cursor-pointer hover:bg-monday-blue/90"
-                    >
-                      {uploadingHeader ? (
-                        <>
-                          <Loader2 size={14} className="animate-spin" />
-                          <span>Subiendo…</span>
-                        </>
-                      ) : (
-                        <>
-                          <Upload size={14} />
-                          <span>Elegir JPG</span>
-                        </>
-                      )}
-                    </label>
-                    {headerImageUrl && (
-                      <button
-                        type="button"
-                        onClick={() => setHeaderImageUrl(null)}
-                        className="text-[11px] text-monday-subtext hover:text-monday-red"
-                      >
-                        Quitar encabezado
-                      </button>
-                    )}
-                  </div>
-                  {headerError && (
-                    <p className="text-[11px] text-red-600 mb-2" role="alert">
-                      {headerError}
-                    </p>
-                  )}
-                  {headerImageUrl && (
-                    <div className="mt-1 rounded-md border border-monday-border bg-monday-hover/40 p-1 flex justify-center">
-                      <img
-                        src={previewUrl(headerImageUrl)}
-                        alt="Vista previa encabezado"
-                        className="max-h-20 w-auto object-contain"
-                      />
-                    </div>
-                  )}
-                </Popover.Content>
-              </Popover.Portal>
-            </Popover.Root>
+      {enableMobileViewEditMode ? (
+        <>
+          <div className="shrink-0 flex items-center justify-between gap-2 px-3 py-2.5 bg-zinc-900 border-b border-zinc-800 pt-[env(safe-area-inset-top)]">
+            {mobileMode === 'edit' ? (
+              <button
+                type="button"
+                className="text-[17px] text-sky-400 font-normal min-w-[52px] text-left touch-manipulation py-1"
+                onClick={finishMobileEdit}
+              >
+                Listo
+              </button>
+            ) : (
+              <span className="w-[52px]" aria-hidden />
+            )}
+            <span className="flex-1 text-center text-[15px] font-semibold text-white truncate px-1">
+              {documentTitle}
+            </span>
+            {mobileMode === 'view' ? (
+              <button
+                type="button"
+                className="text-[17px] text-sky-400 font-normal min-w-[52px] text-right touch-manipulation py-1"
+                onClick={() => {
+                  setMobileMode('edit');
+                  requestAnimationFrame(() => editorRef.current?.focus());
+                }}
+              >
+                Editar
+              </button>
+            ) : (
+              <div className="shrink-0 min-w-[52px] flex justify-end [&_button]:border-zinc-600 [&_button]:text-zinc-200 [&_span]:text-zinc-200">
+                {headerPopover}
+              </div>
+            )}
+          </div>
+          {mobileMode === 'edit' && (
+            <div className="border-b border-monday-border bg-[var(--monday-surface)] shrink-0 overflow-x-auto">
+              <div className="flex items-center gap-2 px-1 py-1.5 min-w-min">
+                <TextFormatBarForEditor editorRef={editorRef} reportContent={reportContent} />
+              </div>
+            </div>
+          )}
+        </>
+      ) : (
+        <div className="border-b border-monday-border bg-[var(--monday-surface)]">
+          <div className="flex items-stretch sm:items-center justify-between gap-2 px-1 sm:px-3 py-2 min-h-0">
+            <div className="min-w-0 flex-1 overflow-hidden">
+              <TextFormatBarForEditor editorRef={editorRef} reportContent={reportContent} />
+            </div>
+            <div className="shrink-0 flex items-center gap-2 pr-1 sm:pr-2 self-center">{headerPopover}</div>
           </div>
         </div>
-      </div>
-      <div className="flex-1 min-h-0 overflow-auto scroll-touch custom-scrollbar p-4 sm:p-6 flex justify-center">
-        <div className="w-full max-w-[21cm] min-h-[29.7cm] bg-white rounded-lg border border-monday-border shadow-monday-lg px-12 py-10 font-averta">
+      )}
+      <div className="flex-1 min-h-0 overflow-auto scroll-touch custom-scrollbar p-3 sm:p-6 flex justify-center">
+        {/* Carta US 8.5×11 in; en móvil altura mínima acotada para no forzar scroll excesivo */}
+        <div className="w-full max-w-[8.5in] min-h-[min(11in,82dvh)] sm:min-h-[11in] bg-white rounded-lg border border-monday-border shadow-monday-lg px-6 py-8 sm:px-12 sm:py-10 font-averta box-border">
           {headerImageUrl && (
             <div className="mb-4 flex justify-center">
               <img
@@ -446,12 +539,22 @@ function WordLikeEditor({
           )}
           <div
             ref={editorRef}
-            contentEditable
+            contentEditable={!enableMobileViewEditMode || mobileMode === 'edit'}
             suppressContentEditableWarning
             data-placeholder="Empieza a escribir..."
             onInput={reportContent}
             onBlur={reportContent}
-            className="w-full min-h-[calc(29.7cm-3.5rem)] outline-none text-[11pt] text-monday-text leading-relaxed font-averta [&:empty::before]:content-[attr(data-placeholder)] [&:empty::before]:text-monday-subtext [&_span]:font-averta [&_ul]:list-disc [&_ul]:ml-4 [&_ul]:my-1 [&_ol]:list-decimal [&_ol]:ml-4 [&_ol]:my-1 [&_li]:pl-0.5"
+            onDoubleClick={() => {
+              if (enableMobileViewEditMode && mobileMode === 'view') {
+                setMobileMode('edit');
+                requestAnimationFrame(() => editorRef.current?.focus());
+              }
+            }}
+            onTouchEnd={onEditorTouchEnd}
+            className={[
+              'w-full min-h-[180px] sm:min-h-[calc(11in-5.5rem)] outline-none text-[11pt] text-monday-text leading-relaxed font-averta [&:empty::before]:content-[attr(data-placeholder)] [&:empty::before]:text-monday-subtext [&_span]:font-averta [&_ul]:list-disc [&_ul]:ml-4 [&_ul]:my-1 [&_ol]:list-decimal [&_ol]:ml-4 [&_ol]:my-1 [&_li]:pl-0.5 [&_img]:max-w-full [&_img]:h-auto',
+              enableMobileViewEditMode && mobileMode === 'view' ? 'select-text cursor-default' : '',
+            ].join(' ')}
             style={{ backgroundColor: 'transparent' }}
           />
         </div>
@@ -2236,7 +2339,7 @@ function ExcelLikeSheet({
   );
 }
 
-export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFromBoard, onConsumeInitialCreateFromBoard, initialOpenDocId, onConsumeInitialOpenDocId, initialCreateDocType, onConsumeInitialCreateDocType, onAddTaskList, onAddCalculatorWidget, onAddReminderWidget, mobileLayout = false, scrollListInParent = false }) => {
+export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFromBoard, onConsumeInitialCreateFromBoard, initialOpenDocId, onConsumeInitialOpenDocId, initialCreateDocType, onConsumeInitialCreateDocType, onAddTaskList, onAddCalculatorWidget, onAddReminderWidget, mobileLayout = false, scrollListInParent = false, mobileWordShell = false }) => {
   const { currentUser } = useUser();
   const currentUserId = currentUser?.id ?? null;
   const isAdmin = !!(currentUser && String(currentUser.role || '').toUpperCase() === 'ADMIN');
@@ -2258,6 +2361,8 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
   const [reminderDraftSound, setReminderDraftSound] = useState<ReminderSound>('beep');
 
   const { isMobile } = useViewport();
+  const [wordShellTab, setWordShellTab] = useState<WordShellTab>('inicio');
+  const useWordMobileShell = Boolean(mobileLayout && mobileWordShell && isMobile);
 
   const selectedDoc = useMemo(
     () => docs.find(d => d.id === selectedId) ?? null,
@@ -4642,6 +4747,7 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
         </Dialog.Portal>
       </Dialog.Root>
 
+      {!(useWordMobileShell && isMobile) && (
       <div className="p-3 sm:p-4 border-b border-monday-border flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <h1 className="text-[18px] sm:text-[20px] font-semibold text-monday-text flex items-center gap-2 shrink-0">
           <BookOpen size={20} className="text-monday-blue sm:w-[22px] sm:h-[22px]" />
@@ -4674,6 +4780,7 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
           </div>
         )}
       </div>
+      )}
 
       {effectiveViewMode === 'overview' ? (
         <div className="flex-1 flex flex-col min-h-0 overflow-hidden bg-monday-bg">
@@ -4808,13 +4915,13 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
                 </div>
               ) : (
                 <>
-                  <div className="flex items-center justify-between px-5 py-3 border-b border-monday-border bg-monday-hover/30 rounded-t-2xl">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 px-3 sm:px-5 py-3 border-b border-monday-border bg-monday-hover/30 rounded-t-2xl">
                     <div className="flex flex-col">
                       <h2 className="text-[16px] font-semibold text-monday-text truncate">
                         {selectedDoc?.title ?? newDocDraft?.title ?? 'Sin título'}
                       </h2>
                     </div>
-                  <div className="flex items-center gap-2">
+                  <div className="flex flex-wrap sm:flex-nowrap items-center gap-2 justify-end mt-2 sm:mt-0">
                     <button
                       type="button"
                       onClick={handleSave}
@@ -4940,6 +5047,8 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
                       setTextDraft={setTextDraft}
                       headerImageUrl={headerImageUrlDraft}
                       setHeaderImageUrl={setHeaderImageUrlDraft}
+                      documentTitle={selectedDoc?.title ?? newDocDraft?.title ?? 'Documento'}
+                      enableMobileViewEditMode={useWordMobileShell && isMobile}
                     />
                   )}
                 </>
@@ -5078,7 +5187,7 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
         {/* Panel izquierdo: lista de docs. En móvil solo visible cuando mobileDocOpen === false. */}
         {(!isMobile || !mobileDocOpen) && (
         <div
-          className={`flex-1 min-h-0 px-4 sm:px-6 py-4 sm:py-5 min-w-0 overscroll-contain pb-28 ${scrollListInParent ? 'overflow-visible' : 'overflow-y-auto overflow-x-hidden custom-scrollbar scroll-touch'}`}
+          className={`flex-1 min-h-0 px-4 sm:px-6 py-4 sm:py-5 min-w-0 overscroll-contain ${useWordMobileShell ? 'pb-44' : 'pb-28'} ${scrollListInParent ? 'overflow-visible' : 'overflow-y-auto overflow-x-hidden custom-scrollbar scroll-touch'}`}
           style={scrollListInParent ? undefined : { WebkitOverflowScrolling: 'touch' }}
         >
           {!workspaceId && (
@@ -5086,6 +5195,113 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
               Selecciona un workspace en la barra lateral para ver y crear documentos.
             </div>
           )}
+          {useWordMobileShell ? (
+            <>
+              {wordShellTab === 'inicio' && (
+                <DocsHomeFeed
+                  docs={workspaceId ? docsForDisplay : []}
+                  selectedId={selectedId}
+                  onOpenDoc={handleOpenExistingDoc}
+                  onDeleteDoc={handleDeleteClick}
+                  loading={!!workspaceId && loading}
+                />
+              )}
+              {wordShellTab === 'crear' && (
+                <DocsCreateGallery
+                  workspaceId={workspaceId}
+                  saving={saving}
+                  error={error}
+                  onCreate={async (type) => {
+                    await handleCreate(type);
+                    setWordShellTab('inicio');
+                  }}
+                />
+              )}
+              {wordShellTab === 'explorar' && (
+                <>
+                  {workspaceId && loading && (
+                    <div className="p-4 text-[13px] text-monday-subtext">Cargando documentos…</div>
+                  )}
+                  {workspaceId && !loading && (
+                    <>
+                      {DOC_TYPE_OPTIONS.map((opt) => {
+                        const groupDocs = docsForDisplay.filter((d) => d.type === opt.id);
+                        const typeGroupTitle = opt.id === 'text' ? 'Documentos de texto' : opt.id === 'sheet' ? 'Hojas' : getDocTypeLabel(opt.id as DocType);
+                        const groupKey = `type:${opt.id}`;
+                        const typeSubgroups = subgroupsByType[opt.id] ?? [];
+                        return (
+                          <DocGroupSection
+                            key={groupKey}
+                            id={groupKey}
+                            title={typeGroupTitle}
+                            color={DOC_TYPE_GROUP_COLORS[opt.id] ?? GROUP_PALETTE[0]}
+                            collapsed={collapsedDocGroups.has(groupKey)}
+                            onToggleCollapse={() => toggleDocGroupCollapse(groupKey)}
+                            docs={groupDocs}
+                            selectedId={selectedId}
+                            onSelectDoc={handleOpenExistingDoc}
+                            onDeleteDoc={(id) => handleDeleteClick(id)}
+                            customGroups={customGroups}
+                            assignments={assignments}
+                            onAssign={assignDocToCustomGroup}
+                            getDocTypeLabel={getDocTypeLabel}
+                            isPdfDocType={isPdfDocType}
+                            docType={opt.id}
+                            subgroups={typeSubgroups}
+                            subgroupAssignments={subgroupAssignments}
+                            onAddSubgroup={addSubgroup}
+                            onRenameSubgroup={renameSubgroup}
+                            onRequestRenameSubgroup={openRenameSubgroupPrompt}
+                            onRemoveSubgroup={removeSubgroup}
+                            onAssignSubgroup={assignDocToSubgroup}
+                          />
+                        );
+                      })}
+                      {customGroups.map((grp) => {
+                        const groupDocs = docsForDisplay.filter((d) => assignments[d.id] === grp.id);
+                        const groupKey = `custom:${grp.id}`;
+                        const color = GROUP_PALETTE[customGroups.indexOf(grp) % GROUP_PALETTE.length];
+                        return (
+                          <DocGroupSection
+                            key={groupKey}
+                            id={groupKey}
+                            title={grp.name}
+                            color={color}
+                            collapsed={collapsedDocGroups.has(groupKey)}
+                            onToggleCollapse={() => toggleDocGroupCollapse(groupKey)}
+                            onRemove={() => removeCustomGroup(grp.id)}
+                            docs={groupDocs}
+                            selectedId={selectedId}
+                            onSelectDoc={handleOpenExistingDoc}
+                            onDeleteDoc={(id) => handleDeleteClick(id)}
+                            customGroups={customGroups}
+                            assignments={assignments}
+                            onAssign={assignDocToCustomGroup}
+                            getDocTypeLabel={getDocTypeLabel}
+                            isPdfDocType={isPdfDocType}
+                          />
+                        );
+                      })}
+                      <button
+                        type="button"
+                        onClick={addCustomGroup}
+                        className="flex items-center gap-2 px-4 py-2 rounded-monday border border-dashed border-monday-border hover:border-monday-blue text-[13px] text-monday-subtext hover:text-monday-blue mt-2 transition-colors"
+                      >
+                        <Plus size={16} className="text-monday-subtext" />
+                        Agregar grupo nuevo
+                      </button>
+                    </>
+                  )}
+                  {!workspaceId && (
+                    <p className="text-center text-[13px] text-zinc-500 py-8 px-2">
+                      Selecciona un workspace para explorar documentos por grupos.
+                    </p>
+                  )}
+                </>
+              )}
+            </>
+          ) : (
+            <>
           {workspaceId && loading && (
             <div className="p-4 text-[13px] text-monday-subtext">Cargando documentos…</div>
           )}
@@ -5161,6 +5377,8 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
               </button>
             </>
           )}
+            </>
+          )}
         </div>
         )}
 
@@ -5190,6 +5408,7 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
                   {selectedDoc.title || 'Sin título'}
                 </h2>
                 <div className="flex items-center gap-1.5 sm:gap-2 flex-shrink-0">
+                  {!isMobile && (
                   <select
                     value={getDocWorkflowStatus(selectedDoc)}
                     onChange={(e) => setDocWorkflowStatus(selectedDoc.id, e.target.value as WorkflowStatus)}
@@ -5200,6 +5419,7 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
                     <option value="en_progreso">En progreso</option>
                     <option value="listo_pdf">Listo para PDF</option>
                   </select>
+                  )}
                   <button
                     type="button"
                     onClick={() => { setSelectedId(null); if (isMobile) setMobileDocOpen(false); }}
@@ -5362,6 +5582,19 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
                     readOnly
                   />
                 </div>
+              ) : selectedDoc?.type === 'text' ? (
+                <div className="flex-1 flex flex-col min-h-0 min-w-0 overflow-hidden">
+                  {/* Lista+visor: editor siempre editable (el modo Listo/Editar solo en «Vista general»). */}
+                  <WordLikeEditor
+                    key={selectedDoc.id}
+                    textDraft={textDraft}
+                    setTextDraft={setTextDraft}
+                    headerImageUrl={headerImageUrlDraft}
+                    setHeaderImageUrl={setHeaderImageUrlDraft}
+                    documentTitle={selectedDoc.title || 'Documento'}
+                    enableMobileViewEditMode={false}
+                  />
+                </div>
               ) : (
                 <div
                   className="flex-1 min-h-0 overflow-auto scroll-touch custom-scrollbar p-4 sm:p-6 bg-monday-bg/50 prose prose-sm max-w-none font-averta [&_h1]:text-xl [&_h2]:text-lg [&_h3]:text-base [&_ul]:list-disc [&_ol]:list-decimal [&_li]:ml-4"
@@ -5502,6 +5735,9 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
         </>
       )}
     </AnimatePresence>
+    {useWordMobileShell && !mobileDocOpen && (
+      <MobileDocsShell active={wordShellTab} onChange={setWordShellTab} />
+    )}
     </>
   );
 };

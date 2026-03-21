@@ -14,6 +14,8 @@ export type MobileLayoutProps = {
   showFAB?: boolean;
   onFABClick?: () => void;
   isLandscapeShort?: boolean;
+  /** Oculta la barra inferior global (p. ej. Docs usa su propia navegación fija). */
+  hideBottomNav?: boolean;
 };
 
 /**
@@ -30,6 +32,7 @@ export function MobileLayout({
   showFAB = false,
   onFABClick,
   isLandscapeShort = false,
+  hideBottomNav = false,
 }: MobileLayoutProps) {
   return (
     <>
@@ -69,12 +72,14 @@ export function MobileLayout({
         </button>
       )}
 
-      <MobileBottomNav
-        activeTab={activeTab}
-        onNavigate={onNavigate}
-        compact={compact}
-        unreadNotifCount={unreadNotifCount}
-      />
+      {!hideBottomNav && (
+        <MobileBottomNav
+          activeTab={activeTab}
+          onNavigate={onNavigate}
+          compact={compact}
+          unreadNotifCount={unreadNotifCount}
+        />
+      )}
     </>
   );
 }
