@@ -37,23 +37,26 @@ export function AnimatedDialog({ open, onOpenChange, children }: AnimatedDialogP
   return (
     <Dialog.Root open={radixOpen} onOpenChange={handleOpenChange}>
       <Dialog.Portal>
+        {/* Capa inferior: fondo oscuro (por debajo del contenido). */}
         <motion.div
           initial={{ opacity: 0 }}
           animate={isClosing ? { opacity: 0 } : { opacity: 1 }}
           transition={{ duration: DURATION, ease: EASE }}
-          className="fixed inset-0 z-[150]"
+          className="fixed inset-0 z-[300]"
         >
           {overlay}
         </motion.div>
+        {/* Capa superior: el panel recibe clics; el resto deja pasar al overlay (Radix cierra al pulsar fuera). */}
         <motion.div
           initial={{ opacity: 0 }}
           animate={isClosing ? { opacity: 0 } : { opacity: 1 }}
           transition={{ duration: DURATION, ease: EASE }}
+          className="fixed inset-0 z-[301] flex items-center justify-center pointer-events-none"
           onAnimationComplete={() => {
             if (isClosing) handleExitComplete();
           }}
         >
-          {content}
+          <div className="pointer-events-auto">{content}</div>
         </motion.div>
       </Dialog.Portal>
     </Dialog.Root>

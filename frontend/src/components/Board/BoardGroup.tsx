@@ -29,6 +29,8 @@ import { StatusLabelsEditor } from './StatusLabelsEditor';
 import { HorizontalScrollArea } from '../HorizontalScrollArea';
 import { useUser } from '../../store/UserContext';
 import { can } from '../../authz/can';
+import { apiFetch, parseResponse } from '../../api';
+import { useToast } from '../Toast';
 import { motion } from 'framer-motion';
 import { SwipeableItemCard } from './SwipeableItemCard';
 
@@ -60,6 +62,8 @@ interface Props {
 
   onOptimisticUpdate?: (itemId: string, columnId: string, value: string) => void;
   onOptimisticDelete?: (itemId: string) => void;
+  /** Tras crear subgrupo por API, actualiza el estado del tablero en el contenedor. */
+  onGroupCreated?: (group: Group) => void;
 }
 
 const columnHelper = createColumnHelper<Item>();
@@ -550,7 +554,10 @@ export const BoardGroup: React.FC<Props> = ({
   enableSwipeActions = false,
   onOptimisticUpdate,
   onOptimisticDelete,
+  onGroupCreated,
 }) => {
+  const { toast } = useToast();
+  const API_BASE_BG = import.meta.env.DEV ? '' : (import.meta.env.VITE_API_URL || 'http://localhost:3001');
   const [newTaskName, setNewTaskName] = useState('');
   const [isAddingTask, setIsAddingTask] = useState(false);
   const [isRenamingGroup, setIsRenamingGroup] = useState(false);
@@ -875,16 +882,25 @@ export const BoardGroup: React.FC<Props> = ({
         {!isSubgroup && (
           <button
             type="button"
-            onClick={() => {
+            onClick={async () => {
               const randomColor = GROUP_PALETTE[Math.floor(Math.random() * GROUP_PALETTE.length)];
               const newPosition = (group.position || 0) + 0.5;
-              socket.emit('add_group', {
-                boardId,
-                name: 'Nuevo cliente',
-                color: randomColor,
-                position: newPosition,
-                parentGroupId: group.id,
-              });
+              try {
+                const res = await apiFetch(`${API_BASE_BG}/api/boards/${boardId}/groups`, {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    name: 'Nuevo cliente',
+                    color: randomColor,
+                    position: newPosition,
+                    parentGroupId: group.id,
+                  }),
+                });
+                const created = await parseResponse<Group>(res);
+                if (created) onGroupCreated?.(created);
+              } catch (e) {
+                toast(e instanceof Error ? e.message : 'No se pudo crear el subgrupo', 'error');
+              }
             }}
             className="ml-2 px-2 py-1 text-[11px] rounded-md border border-monday-border text-monday-subtext hover:text-monday-blue hover:border-monday-blue transition-colors"
           >

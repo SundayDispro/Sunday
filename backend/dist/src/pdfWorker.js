@@ -150,11 +150,11 @@ function loadRenderDocumentHtml() {
     }
 }
 async function runInWorker(payload) {
-    const { options, apiBaseUrl } = payload;
+    const { options } = payload;
     const { content, format = 'A4', templatePdfPath } = options;
     const { buildDocumentHtml } = await Promise.resolve().then(() => __importStar(require('./documentHtmlBuilder')));
     const browser = await puppeteer_1.default.launch({
-        headless: 'new',
+        headless: true,
         args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-pdf-viewer-hud'],
     });
     try {
@@ -181,7 +181,6 @@ async function runInWorker(payload) {
         });
         await page.setContent(html, {
             waitUntil: 'load',
-            baseURL: apiBaseUrl || 'http://localhost:3001',
             timeout: 60000,
         });
         await Promise.race([

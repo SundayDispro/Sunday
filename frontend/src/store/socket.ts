@@ -17,7 +17,10 @@ const SOCKET_URL: string | undefined = import.meta.env.VITE_API_URL
 
 export const socket: Socket = io(SOCKET_URL, {
   autoConnect: true,
-  auth: { token: getSocketToken() },
+  // Token fresco en cada conexión/reconexión (evita handshake sin JWT si el módulo cargó antes de localStorage).
+  auth: (cb) => {
+    cb({ token: getSocketToken() });
+  },
   transports: ['websocket', 'polling'],
   reconnection: true,
   reconnectionAttempts: 10,
@@ -28,7 +31,7 @@ export const socket: Socket = io(SOCKET_URL, {
 
 /** Tras login, reconectar el socket para que el handshake lleve el nuevo JWT y el servidor una al room user:<userId>. */
 export function reconnectSocketWithAuth(): void {
-  socket.auth = { token: getSocketToken() };
+  // Con `auth` en forma de callback, cada connect vuelve a leer el token de localStorage.
   socket.disconnect();
   socket.connect();
 }

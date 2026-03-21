@@ -10,7 +10,7 @@ let activeBrowsers = 0;
 const queue = [];
 async function launchBrowser() {
     return puppeteer_1.default.launch({
-        headless: 'new',
+        headless: true,
         args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-pdf-viewer-hud'],
     });
 }

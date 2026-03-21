@@ -27,7 +27,7 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
 ));
 var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: true }), mod);
 
-// frontend/src/renderDocumentToHtml.tsx
+// ../frontend/src/renderDocumentToHtml.tsx
 var renderDocumentToHtml_exports = {};
 __export(renderDocumentToHtml_exports, {
   renderDocumentHtml: () => renderDocumentHtml
@@ -36,7 +36,7 @@ module.exports = __toCommonJS(renderDocumentToHtml_exports);
 var import_react = __toESM(require("react"), 1);
 var import_server = require("react-dom/server");
 
-// frontend/src/components/pages/docs/DocumentPageForPdf.tsx
+// ../frontend/src/components/pages/docs/DocumentPageForPdf.tsx
 var import_jsx_runtime = require("react/jsx-runtime");
 var PAGE_W_PT = 612;
 var PAGE_H_PT = 792;
@@ -135,20 +135,35 @@ var DocumentPageForPdf = ({
     const widthPt = (box.width ?? 0.3) * PAGE_W_PT;
     if (box.kind === "image" && box.imageUrl) {
       const heightPt2 = (box.height ?? 0.15) * PAGE_H_PT;
+      const rot = typeof box.rotationDeg === "number" && !Number.isNaN(box.rotationDeg) ? box.rotationDeg : 0;
       return /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
-        "img",
+        "div",
         {
-          src: box.imageUrl,
-          alt: "",
           style: {
             position: "absolute",
             left: `${leftPt}pt`,
             top: `${topPt}pt`,
             width: `${widthPt}pt`,
             height: `${heightPt2}pt`,
-            objectFit: "contain",
-            objectPosition: "left top"
-          }
+            transform: rot !== 0 ? `rotate(${rot}deg)` : void 0,
+            transformOrigin: "center center",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center"
+          },
+          children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+            "img",
+            {
+              src: box.imageUrl,
+              alt: "",
+              style: {
+                width: "100%",
+                height: "100%",
+                objectFit: "contain",
+                objectPosition: "center center"
+              }
+            }
+          )
         },
         box.id
       );
@@ -203,9 +218,10 @@ var DocumentPageForPdf = ({
     };
     const isWhiteText = textCol === PDF_WHITE_COLOR;
     const innerStyle = {
-      display: isTotalBox ? "flex" : "block",
-      justifyContent: isTotalBox ? "flex-end" : void 0,
-      alignItems: isTotalBox ? "center" : void 0,
+      display: isTotalBox ? "flex" : "flex",
+      flexDirection: isTotalBox ? "row" : "column",
+      justifyContent: isTotalBox ? "flex-end" : "flex-start",
+      alignItems: isTotalBox ? "center" : "stretch",
       width: "100%",
       height: "100%",
       minWidth: 0,
@@ -235,7 +251,7 @@ var DocumentPageForPdf = ({
   return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: pageStyle, children: boxes });
 };
 
-// frontend/src/renderDocumentToHtml.tsx
+// ../frontend/src/renderDocumentToHtml.tsx
 function renderDocumentHtml(props) {
   return (0, import_server.renderToStaticMarkup)(import_react.default.createElement(DocumentPageForPdf, props));
 }

@@ -2618,6 +2618,39 @@ app.get('/api/admin/backups', authenticateToken, requireAdmin, async (_req, res)
 const boardRoom = (boardId: string) => `board:${boardId}`;
 const userRoom = (userId: string) => `user:${userId}`;
 
+// Crear grupo por HTTP (fuente de verdad para la UI; Socket.IO sigue notificando a otros clientes).
+app.post(
+  '/api/boards/:boardId/groups',
+  authenticateToken,
+  requireRoles(['VENTAS', 'DISENO', 'USER', 'TALLER']),
+  async (req, res) => {
+    try {
+      const boardId = queryParamToString(req.params.boardId);
+      if (!boardId) return res.status(400).json({ error: 'boardId inválido' });
+      const exists = await prisma.board.findUnique({ where: { id: boardId }, select: { id: true } });
+      if (!exists) return res.status(404).json({ error: 'Tablero no encontrado' });
+      const body = req.body ?? {};
+      const name =
+        typeof body.name === 'string' && body.name.trim() ? body.name.trim() : 'Nuevo grupo';
+      const color = typeof body.color === 'string' && body.color ? body.color : '#1d60f5';
+      const position = Number.isFinite(Number(body.position)) ? Number(body.position) : 1024;
+      const parentGroupId =
+        typeof body.parentGroupId === 'string' && body.parentGroupId.trim()
+          ? body.parentGroupId.trim()
+          : null;
+      const newGroup = await prisma.group.create({
+        data: { boardId, name, color, position, parentGroupId },
+        include: { items: { orderBy: { position: 'asc' }, include: { columnValues: true } } },
+      });
+      io.to(boardRoom(boardId)).emit('group_added', newGroup);
+      res.status(201).json(newGroup);
+    } catch (e) {
+      console.error('POST /api/boards/:boardId/groups', e);
+      res.status(500).json({ error: 'No se pudo crear el grupo' });
+    }
+  }
+);
+
 // Socket.io real-time connection handler
 io.on('connection', (socket) => {
   socketConnectionCount += 1;
@@ -2678,10 +2711,9 @@ io.on('connection', (socket) => {
   socket.on('join_board', (data: { boardId?: string }) => {
     const boardId = typeof data?.boardId === 'string' ? data.boardId : null;
     if (!boardId) return;
-    const socketUserId = typeof (socket as unknown as { data?: any }).data?.userId === 'string'
-      ? (socket as unknown as { data?: any }).data.userId
-      : null;
-    if (!socketUserId) {
+    // Misma lógica que el resto de handlers: JWT en handshake puede rellenar socket.data si el bloque de connection falló.
+    const auth = getSocketAuth();
+    if (!auth) {
       socket.emit('action_denied', { event: 'join_board', reason: 'unauthenticated' });
       return;
     }
@@ -2696,7 +2728,10 @@ io.on('connection', (socket) => {
 
   // ── ITEM EVENTS ──────────────────────────────────────────────────────────
 
-  socket.on('update_item_name', withSocketRoles('update_item_name', ['VENTAS', 'DISENO'], async (_auth, data: any) => {
+  // Miembros del tablero: pueden crear/editar/mover elementos y grupos (ADMIN ya tiene bypass en withSocketRoles).
+  const BOARD_EDIT_ROLES = ['VENTAS', 'DISENO', 'USER', 'TALLER'] as const;
+
+  socket.on('update_item_name', withSocketRoles('update_item_name', [...BOARD_EDIT_ROLES], async (_auth, data: any) => {
     try {
       const updated = await prisma.item.update({
         where: { id: data.itemId },
@@ -2713,7 +2748,7 @@ io.on('connection', (socket) => {
     }
   }));
 
-  socket.on('add_item', withSocketRoles('add_item', ['VENTAS', 'DISENO'], async (_auth, data: any) => {
+  socket.on('add_item', withSocketRoles('add_item', [...BOARD_EDIT_ROLES], async (_auth, data: any) => {
     try {
       const { groupId, name, position, initialColumnValues } = data as {
         groupId: string;
@@ -2754,7 +2789,7 @@ io.on('connection', (socket) => {
     }
   }));
 
-  socket.on('move_item', withSocketRoles('move_item', ['VENTAS', 'DISENO'], async (_auth, data: any) => {
+  socket.on('move_item', withSocketRoles('move_item', [...BOARD_EDIT_ROLES], async (_auth, data: any) => {
     try {
       const { itemId, newGroupId, newPosition } = data;
       const updated = await prisma.item.update({
@@ -3241,7 +3276,7 @@ io.on('connection', (socket) => {
 
   // ── GROUP EVENTS ──────────────────────────────────────────────────────────
 
-  socket.on('delete_group', withSocketRoles('delete_group', [], async (_auth, data: any) => {
+  socket.on('delete_group', withSocketRoles('delete_group', [...BOARD_EDIT_ROLES], async (_auth, data: any) => {
     try {
       const { groupId } = data;
       const group = await prisma.group.findUnique({
@@ -3261,20 +3296,35 @@ io.on('connection', (socket) => {
     }
   }));
 
-  socket.on('add_group', withSocketRoles('add_group', ['VENTAS', 'DISENO'], async (_auth, data: any) => {
+  socket.on('add_group', withSocketRoles('add_group', [...BOARD_EDIT_ROLES], async (_auth, data: any) => {
     try {
       const { boardId, name, color, position, parentGroupId } = data;
+      if (!boardId || typeof boardId !== 'string') {
+        socket.emit('group_add_failed', { error: 'boardId inválido' });
+        return;
+      }
+      const pos = typeof position === 'number' && Number.isFinite(position) ? position : 1024;
       const newGroup = await prisma.group.create({
-        data: { boardId, name, color, position, parentGroupId: parentGroupId || null },
-        include: { items: { include: { columnValues: true } } }
+        data: {
+          boardId,
+          name: typeof name === 'string' && name.trim() ? name.trim() : 'Nuevo grupo',
+          color: typeof color === 'string' && color ? color : '#1d60f5',
+          position: pos,
+          parentGroupId: parentGroupId || null,
+        },
+        include: { items: { include: { columnValues: true } } },
       });
+      // Asegurar que el cliente que creó el grupo esté en la sala (si join_board llegó tarde o hubo reconnect).
+      socket.join(boardRoom(boardId));
       io.to(boardRoom(boardId)).emit('group_added', newGroup);
     } catch (e) {
       console.error('Error adding group:', e);
+      const msg = e instanceof Error ? e.message : 'No se pudo crear el grupo';
+      socket.emit('group_add_failed', { error: msg });
     }
   }));
 
-  socket.on('rename_group', withSocketRoles('rename_group', ['VENTAS', 'DISENO'], async (_auth, data: any) => {
+  socket.on('rename_group', withSocketRoles('rename_group', [...BOARD_EDIT_ROLES], async (_auth, data: any) => {
     try {
       const { groupId, name, color } = data;
       const updateData: { name?: string; color?: string } = {};
@@ -3297,7 +3347,7 @@ io.on('connection', (socket) => {
     }
   }));
 
-  socket.on('move_group', withSocketRoles('move_group', ['VENTAS', 'DISENO'], async (_auth, data: any) => {
+  socket.on('move_group', withSocketRoles('move_group', [...BOARD_EDIT_ROLES], async (_auth, data: any) => {
     try {
       const { groupId, newPosition } = data;
       const updated = await prisma.group.update({ where: { id: groupId }, data: { position: newPosition } });
@@ -3315,7 +3365,7 @@ io.on('connection', (socket) => {
     }
   }));
 
-  socket.on('reorder_groups', withSocketRoles('reorder_groups', ['VENTAS', 'DISENO'], async (_auth, data: any) => {
+  socket.on('reorder_groups', withSocketRoles('reorder_groups', [...BOARD_EDIT_ROLES], async (_auth, data: any) => {
     try {
       const boardId = typeof data?.boardId === 'string' ? data.boardId : '';
       const updates = Array.isArray(data?.updates) ? data.updates : [];

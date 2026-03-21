@@ -162,7 +162,7 @@ async function getTemplatePdfFirstPageAsDataUrlWithBrowser(browser, templatePdfP
 async function generatePdfFromHtml(html, options = {}) {
     const { default: puppeteer } = await Promise.resolve().then(() => __importStar(require('puppeteer')));
     const browser = await puppeteer.launch({
-        headless: 'new',
+        headless: true,
         args: ['--no-sandbox', '--disable-setuid-sandbox'],
     });
     try {
@@ -270,7 +270,7 @@ async function generatePdfFromExportPreview(options) {
         url.searchParams.set('contentKey', options.contentKey);
     url.searchParams.set('scale', String(scale));
     const browser = await puppeteer.launch({
-        headless: 'new',
+        headless: true,
         args: ['--no-sandbox', '--disable-setuid-sandbox'],
     });
     try {

@@ -39,7 +39,7 @@ import * as Dialog from '@radix-ui/react-dialog';
 import { motion } from 'framer-motion';
 import { useHideOnScroll } from '../../hooks/useHideOnScroll';
 import { useViewport } from '../../hooks/useViewport';
-import { apiFetch } from '../../api';
+import { apiFetch, parseResponse } from '../../api';
 import { can } from '../../authz/can';
 
 const API_BASE = import.meta.env.DEV ? '' : (import.meta.env.VITE_API_URL || 'http://localhost:3001');
@@ -215,6 +215,30 @@ const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode, mobile
     };
     socket.on('connect', handleSocketConnect);
 
+    const onActionDenied = (payload: { event?: string; reason?: string }) => {
+      const reason = payload?.reason;
+      const ev = payload?.event ?? '';
+      let msg = 'No se pudo completar la acción.';
+      if (reason === 'unauthenticated') {
+        msg = 'Sesión no válida o caducada. Cierra sesión y vuelve a entrar.';
+      } else if (reason === 'unauthorized') {
+        if (ev === 'add_group' || ev === 'rename_group' || ev === 'move_group' || ev === 'reorder_groups') {
+          msg = 'Tu rol no permite modificar grupos en este tablero.';
+        } else if (ev === 'add_item' || ev === 'move_item' || ev === 'update_item_name') {
+          msg = 'Tu rol no permite modificar elementos en este tablero.';
+        } else {
+          msg = 'No tienes permiso para esta acción.';
+        }
+      }
+      toast(msg, 'error');
+    };
+    socket.on('action_denied', onActionDenied);
+
+    const onGroupAddFailed = (payload: { error?: string }) => {
+      toast(payload?.error || 'No se pudo crear el grupo.', 'error');
+    };
+    socket.on('group_add_failed', onGroupAddFailed);
+
     fetchBoard();
 
     socket.on('column_value_updated', (updatedValue) => {
@@ -341,6 +365,8 @@ const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode, mobile
     return () => {
       socket.emit('leave_board', { boardId });
       socket.off('connect', handleSocketConnect);
+      socket.off('action_denied', onActionDenied);
+      socket.off('group_add_failed', onGroupAddFailed);
       socket.off('column_value_updated');
       socket.off('group_added');
       socket.off('item_added');
@@ -355,7 +381,7 @@ const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode, mobile
       socket.off('group_deleted');
       socket.off('groups_reordered');
     };
-  }, [boardId]);
+  }, [boardId, toast]);
 
   const toggleItemSelection = (itemId: string, checked: boolean) => {
     setSelectedItemIds(prev => {
@@ -461,11 +487,37 @@ const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode, mobile
     try { localStorage.setItem('sunday-multiselect-hint', 'dismissed'); } catch {}
   };
 
-  const handleAddGroup = () => {
+  const mergeGroupIntoBoard = useCallback((created: Group) => {
+    setBoard((prev) => {
+      if (!prev) return prev;
+      if (prev.groups.some((g) => g.id === created.id)) return prev;
+      const groups = [...prev.groups, created].sort((a, b) => a.position - b.position);
+      return { ...prev, groups };
+    });
+  }, []);
+
+  const handleAddGroup = async () => {
     if (!board) return;
     const randomColor = GROUP_PALETTE[Math.floor(Math.random() * GROUP_PALETTE.length)];
-    const newPosition = board.groups.length > 0 ? board.groups.reduce((max, g) => Math.max(max, g.position), 0) + 1024 : 1024;
-    socket.emit('add_group', { boardId: board.id, name: 'Nuevo grupo', color: randomColor, position: newPosition });
+    const newPosition =
+      board.groups.length > 0
+        ? board.groups.reduce((max, g) => Math.max(max, g.position), 0) + 1024
+        : 1024;
+    try {
+      const res = await apiFetch(`${API_BASE}/api/boards/${board.id}/groups`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: 'Nuevo grupo',
+          color: randomColor,
+          position: newPosition,
+        }),
+      });
+      const created = await parseResponse<Group>(res);
+      if (created) mergeGroupIntoBoard(created);
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'No se pudo crear el grupo', 'error');
+    }
   };
 
   const handleAddItemFromToolbar = () => {
@@ -755,9 +807,12 @@ const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode, mobile
       }
       return itemsOut;
     };
-    result = result
-      .map(g => ({ ...g, items: applyNameFilters(g.items) }))
-      .filter(g => g.items.length > 0);
+    result = result.map(g => ({ ...g, items: applyNameFilters(g.items) }));
+    // Sin búsqueda por nombre, los grupos vacíos deben seguir visibles (p. ej. recién creados con «Agregar grupo»).
+    const searchingByName = itemTextFilter.trim().length > 0 || !!mobileQuickFilter;
+    if (searchingByName) {
+      result = result.filter(g => g.items.length > 0);
+    }
 
     // 2. Filter by status (si hay columna de estado y se eligió una opción)
     if (filterByStatusOptionId && statusColumnIds.length > 0) {
@@ -1177,6 +1232,7 @@ const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode, mobile
                           useCardView={useCardView}
                           onOptimisticUpdate={handleOptimisticUpdate}
                           onOptimisticDelete={handleOptimisticDelete}
+                          onGroupCreated={mergeGroupIntoBoard}
                         />
                         {childGroups.map(sub => (
                           <div
@@ -1204,6 +1260,7 @@ const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode, mobile
                               useCardView={useCardView}
                               onOptimisticUpdate={handleOptimisticUpdate}
                               onOptimisticDelete={handleOptimisticDelete}
+                              onGroupCreated={mergeGroupIntoBoard}
                             />
                           </div>
                         ))}
@@ -1215,7 +1272,8 @@ const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode, mobile
 
               {!mobileQuickFilter && !itemTextFilter.trim() && !isTaller && (
                 <button
-                  onClick={handleAddGroup}
+                  type="button"
+                  onClick={() => void handleAddGroup()}
                   className="toolbar-btn border border-dashed border-monday-border hover:border-monday-blue w-max px-4 py-2 rounded-monday text-[13px] mt-2 group"
                 >
                   <div className="bg-monday-hover group-hover:bg-blue-100 p-1 rounded-md transition-colors">

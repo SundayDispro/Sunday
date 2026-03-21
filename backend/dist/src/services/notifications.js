@@ -4,6 +4,7 @@ exports.findManyByUserId = findManyByUserId;
 exports.markAsRead = markAsRead;
 exports.markAllAsRead = markAllAsRead;
 async function findManyByUserId(prisma, userId) {
+    // TODO(db/perf): reemplazar include profundo por select mínimo y payload acotado.
     return prisma.notification.findMany({
         where: { userId },
         orderBy: { createdAt: 'desc' },

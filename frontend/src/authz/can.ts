@@ -20,9 +20,12 @@ export function can(user: User | null | undefined, action: Action): boolean {
     case 'billing.view':
       return role === 'VENTAS';
 
-    // Destructivos (alineado con hardening backend actual: deletes estrictos)
-    case 'board.delete':
+    // Misma capacidad de edición de tablero que add_group / rename_group (socket BOARD_EDIT_ROLES).
     case 'group.delete':
+      return role === 'VENTAS' || role === 'DISENO' || role === 'USER' || role === 'TALLER';
+
+    // Destructivos globales del tablero / columnas: solo ADMIN en backend.
+    case 'board.delete':
     case 'column.delete':
       return false;
 

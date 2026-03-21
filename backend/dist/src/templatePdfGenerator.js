@@ -406,12 +406,23 @@ async function generatePdfFromTemplate(kind, content) {
                     const embedded = resolved.isPng
                         ? await pdfDoc.embedPng(resolved.buffer)
                         : await pdfDoc.embedJpg(resolved.buffer);
-                    page.drawImage(embedded, {
-                        x: xPts,
-                        y: yFromBottom,
-                        width: wPts,
-                        height: hPts,
-                    });
+                    const rotDeg = typeof box.rotationDeg === 'number' && !Number.isNaN(box.rotationDeg) ? box.rotationDeg : 0;
+                    if (Math.abs(rotDeg) < 0.01) {
+                        page.drawImage(embedded, {
+                            x: xPts,
+                            y: yFromBottom,
+                            width: wPts,
+                            height: hPts,
+                        });
+                    }
+                    else {
+                        const cx = xPts + wPts / 2;
+                        const cy = yFromBottom + hPts / 2;
+                        const xObjectKey = page.node.newXObject('Image', embedded.ref);
+                        // Alineado con CSS (positivo = horario en pantalla Y-abajo): invertir en PDF (Y-arriba).
+                        const rad = (-rotDeg * Math.PI) / 180;
+                        page.pushOperators((0, pdf_lib_1.pushGraphicsState)(), (0, pdf_lib_1.translate)(cx, cy), (0, pdf_lib_1.rotateRadians)(rad), (0, pdf_lib_1.translate)(-wPts / 2, -hPts / 2), (0, pdf_lib_1.scale)(wPts, hPts), (0, pdf_lib_1.drawObject)(xObjectKey), (0, pdf_lib_1.popGraphicsState)());
+                    }
                 }
                 catch {
                     // Ignorar imágenes que no se puedan incrustar
