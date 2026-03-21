@@ -2306,7 +2306,9 @@ if (process.env.NODE_ENV === 'production') {
   const frontendDist = path.join(process.cwd(), '..', 'frontend', 'dist');
   app.use(express.static(frontendDist));
 
-  app.get('*', (req, res, next) => {
+  // Express 5 / path-to-regexp: no usar app.get('*'). SPA fallback solo para GET/HEAD.
+  app.use((req, res, next) => {
+    if (req.method !== 'GET' && req.method !== 'HEAD') return next();
     if (req.path.startsWith('/api') || req.path.startsWith('/uploads') || req.path.startsWith('/socket.io')) {
       return next();
     }

@@ -31,7 +31,7 @@ Documento vivo para agentes: qué existe, decisiones recientes y enlaces a códi
 - Editor: [`frontend/src/components/pages/docs/ExcelLikeSheet.tsx`](../frontend/src/components/pages/docs/ExcelLikeSheet.tsx) (importado por `DocsPage`).
 - Tema / miniatura alineados: [`sheetExcelTheme.ts`](../frontend/src/components/mobile/docs/sheetExcelTheme.ts), [`DocTypeThumbnail.tsx`](../frontend/src/components/mobile/docs/DocTypeThumbnail.tsx).
 - Móvil: `layoutVariant="mobile"` (chrome oscuro, barra de fórmulas, rejilla sticky, pestaña «Hoja1»); visor lista+móvil con hoja **editable** e historial como escritorio.
-- Auditoría y pendientes fase 2: [`docs/AUDITORIA_SHEETS_MOVIL.md`](AUDITORIA_SHEETS_MOVIL.md). Prompt de referencia UX: [`docs/PROMPT_AGENT_SHEETS_EXCEL_IOS.md`](PROMPT_AGENT_SHEETS_EXCEL_IOS.md).
+- Auditoría y pendientes fase 2: [`docs/AUDITORIA_SHEETS_MOVIL.md`](AUDITORIA_SHEETS_MOVIL.md).
 
 ## Inicio móvil (landscape)
 

@@ -15,7 +15,7 @@ Fecha referencia: marzo 2026.
 |--------|------------|
 | PDF real en thumbnail | Hoy es ilustración SVG; rasterizar 1ª página con pdf.js sería mejora opcional |
 | `documentViewBundle` | Tras cambios en `DocumentPageForPdf`, recompilar bundle para PDF servidor |
-| Sheets no alineado a Docs | Plan en `PROMPT_AGENT_SHEETS_EXCEL_IOS.md` |
+| Sheets no alineado a Docs | Ver plan y checklist en [`docs/AUDITORIA_SHEETS_MOVIL.md`](AUDITORIA_SHEETS_MOVIL.md) |
 
 ## Plantillas PDF y control de versiones (GitHub)
 

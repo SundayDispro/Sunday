@@ -78,5 +78,4 @@ Definidos en [`sheetExcelTheme.ts`](../frontend/src/components/mobile/docs/sheet
 ## Referencias
 
 - Contexto móvil general: [`docs/IA_CONTEXT_MOBILE.md`](IA_CONTEXT_MOBILE.md)
-- Prompt histórico del agente: [`docs/PROMPT_AGENT_SHEETS_EXCEL_IOS.md`](PROMPT_AGENT_SHEETS_EXCEL_IOS.md)
 - Docs móvil (Word-like): [`docs/AUDITORIA_DOCS_MOVIL.md`](AUDITORIA_DOCS_MOVIL.md)
