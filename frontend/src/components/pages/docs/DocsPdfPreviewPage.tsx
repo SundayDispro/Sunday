@@ -14,9 +14,22 @@ import { apiFetch } from '../../../api';
 
 const API_BASE = import.meta.env.DEV ? '' : (import.meta.env.VITE_API_URL || 'http://localhost:3001');
 const STORAGE_KEY = 'sunday_pdf_preview';
+const PDF_EXPORT_TIMEOUT_MS = 90_000;
 
 /** Escala para captura a ~300 dpi (300/96). */
 const CAPTURE_SCALE = 300 / 96;
+
+function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<T>((_, reject) => {
+      const timeoutId = window.setTimeout(() => {
+        window.clearTimeout(timeoutId);
+        reject(new Error('PDF_EXPORT_TIMEOUT'));
+      }, timeoutMs);
+    }),
+  ]);
+}
 
 type StoredPayload = {
   docType: PdfDocType;
@@ -102,23 +115,35 @@ export default function DocsPdfPreviewPage() {
     setSaving(true);
     setError(null);
     try {
-      const canvas = await html2canvas(el, {
-        scale: CAPTURE_SCALE,
-        useCORS: true,
-        allowTaint: true,
-        logging: false,
-        backgroundColor: '#ffffff',
-      });
-      const imgData = canvas.toDataURL('image/png');
-      const pdf = new jsPDF({
-        orientation: 'portrait',
-        unit: 'pt',
-        format: 'letter',
-      });
-      pdf.addImage(imgData, 'PNG', 0, 0, 612, 792);
-      pdf.save(`${payload.docType}.pdf`);
+      await withTimeout(
+        (async () => {
+          const canvas = await html2canvas(el, {
+            scale: CAPTURE_SCALE,
+            useCORS: true,
+            allowTaint: true,
+            logging: false,
+            backgroundColor: '#ffffff',
+          });
+          const imgData = canvas.toDataURL('image/png');
+          const pdf = new jsPDF({
+            orientation: 'portrait',
+            unit: 'pt',
+            format: 'letter',
+          });
+          pdf.addImage(imgData, 'PNG', 0, 0, 612, 792);
+          pdf.save(`${payload.docType}.pdf`);
+        })(),
+        PDF_EXPORT_TIMEOUT_MS
+      );
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Error al generar el PDF.');
+      const isTimeout = e instanceof Error && e.message === 'PDF_EXPORT_TIMEOUT';
+      setError(
+        isTimeout
+          ? 'La exportación tardó demasiado. Intenta de nuevo.'
+          : e instanceof Error
+            ? e.message
+            : 'Error al generar el PDF.'
+      );
     } finally {
       setSaving(false);
     }

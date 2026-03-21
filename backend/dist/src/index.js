@@ -36,12 +36,13 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-require("dotenv/config");
+require("./env");
 const crypto_1 = __importDefault(require("crypto"));
 const express_1 = __importDefault(require("express"));
 const http_1 = require("http");
 const socket_io_1 = require("socket.io");
 const cors_1 = __importDefault(require("cors"));
+const node_cron_1 = __importDefault(require("node-cron"));
 const path_1 = __importDefault(require("path"));
 const fs_1 = __importDefault(require("fs"));
 const multer_1 = __importDefault(require("multer"));
@@ -50,8 +51,24 @@ const auth_1 = require("./auth");
 const web_push_1 = __importDefault(require("web-push"));
 const templatePdfGenerator_1 = require("./templatePdfGenerator");
 const notificationsService = __importStar(require("./services/notifications"));
+const backupService_1 = require("./backupService");
 const prisma = new client_1.PrismaClient();
 const app = (0, express_1.default)();
+/** Errores típicos de Prisma/pg cuando la BD no está accesible o las credenciales fallan. */
+function isPrismaDbUnavailable(err) {
+    if (!err || typeof err !== 'object')
+        return false;
+    const name = 'name' in err && typeof err.name === 'string' ? err.name : '';
+    if (name === 'PrismaClientInitializationError')
+        return true;
+    const msg = err instanceof Error ? err.message : String(err);
+    return (msg.includes("Can't reach database server") ||
+        msg.includes('P1001') ||
+        msg.includes('P1000') ||
+        msg.includes('ECONNREFUSED') ||
+        msg.includes('password authentication failed') ||
+        msg.includes('28P01'));
+}
 const httpServer = (0, http_1.createServer)(app);
 function toValueJson(legacyValue) {
     const v = (legacyValue ?? '').toString();
@@ -95,9 +112,44 @@ const io = new socket_io_1.Server(httpServer, {
 });
 let socketConnectionCount = 0;
 // Configuración Web Push (VAPID)
-const VAPID_PUBLIC_KEY = process.env.VAPID_PUBLIC_KEY;
-const VAPID_PRIVATE_KEY = process.env.VAPID_PRIVATE_KEY;
+let VAPID_PUBLIC_KEY = process.env.VAPID_PUBLIC_KEY;
+let VAPID_PRIVATE_KEY = process.env.VAPID_PRIVATE_KEY;
 const VAPID_SUBJECT = process.env.VAPID_SUBJECT || 'mailto:admin@example.com';
+// Si falta configuración de VAPID (por ejemplo en tu entorno local),
+// generamos y persistimos claves para que Web Push funcione sin editar env manualmente.
+// Nota: si ya existían suscripciones con otras claves, habrá que re-suscribir.
+const VAPID_KEYS_PATH = path_1.default.join(process.cwd(), 'vapid-keys.json');
+(() => {
+    if (VAPID_PUBLIC_KEY && VAPID_PRIVATE_KEY)
+        return;
+    try {
+        const raw = fs_1.default.readFileSync(VAPID_KEYS_PATH, 'utf8');
+        const parsed = JSON.parse(raw);
+        if (parsed?.publicKey && parsed?.privateKey) {
+            VAPID_PUBLIC_KEY = parsed.publicKey;
+            VAPID_PRIVATE_KEY = parsed.privateKey;
+            process.env.VAPID_PUBLIC_KEY = parsed.publicKey;
+            process.env.VAPID_PRIVATE_KEY = parsed.privateKey;
+            return;
+        }
+    }
+    catch {
+        // ignore (archivo no existe o JSON inválido)
+    }
+    try {
+        const keys = web_push_1.default.generateVAPIDKeys();
+        if (keys?.publicKey && keys?.privateKey) {
+            fs_1.default.writeFileSync(VAPID_KEYS_PATH, JSON.stringify(keys, null, 2), 'utf8');
+            VAPID_PUBLIC_KEY = keys.publicKey;
+            VAPID_PRIVATE_KEY = keys.privateKey;
+            process.env.VAPID_PUBLIC_KEY = keys.publicKey;
+            process.env.VAPID_PRIVATE_KEY = keys.privateKey;
+        }
+    }
+    catch (e) {
+        console.warn('No se pudieron generar/leer claves VAPID para Web Push:', e);
+    }
+})();
 if (VAPID_PUBLIC_KEY && VAPID_PRIVATE_KEY) {
     web_push_1.default.setVapidDetails(VAPID_SUBJECT, VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY);
 }
@@ -107,7 +159,10 @@ async function sendWebPushToUser(userId, payload) {
         return;
     try {
         const subs = await prisma.pushSubscription.findMany({ where: { userId } });
-        const data = JSON.stringify(payload);
+        // Badging API (si está disponible) necesita un número.
+        // Aquí contamos solo notificaciones persistidas en BD (asignaciones/actualizaciones con Notification en tabla).
+        const unreadCount = await prisma.notification.count({ where: { userId, read: false } }).catch(() => 0);
+        const data = JSON.stringify({ ...payload, badgeCount: unreadCount });
         await Promise.all(subs.map(async (sub) => {
             try {
                 await web_push_1.default.sendNotification({
@@ -167,6 +222,19 @@ const upload = (0, multer_1.default)({
         }
         else {
             cb(new Error('Tipo de archivo no permitido. Solo se aceptan JPG, PDF o Excel (xlsx/xls).'));
+        }
+    },
+});
+const avatarUpload = (0, multer_1.default)({
+    storage,
+    limits: { fileSize: MAX_FILE_SIZE },
+    fileFilter: (_req, file, cb) => {
+        const imageTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/gif'];
+        if (imageTypes.includes(file.mimetype)) {
+            cb(null, true);
+        }
+        else {
+            cb(new Error('Solo se aceptan imágenes (JPG, PNG, WEBP, GIF).'));
         }
     },
 });
@@ -257,7 +325,11 @@ app.post('/api/workspaces', auth_1.authenticateToken, (0, auth_1.requireRoles)([
 app.get('/api/workspaces/:workspaceId/panel-notes', auth_1.authenticateToken, async (req, res) => {
     try {
         const { workspaceId } = req.params;
-        const userId = typeof req.query.userId === 'string' ? req.query.userId : null;
+        const authUser = req.authUser;
+        if (!authUser)
+            return res.status(401).json({ error: 'No autenticado' });
+        const requestedUserId = typeof req.query.userId === 'string' ? req.query.userId : null;
+        const effectiveUserId = authUser.role === 'ADMIN' && requestedUserId ? requestedUserId : authUser.id;
         const w = await prisma.workspace.findUnique({ where: { id: workspaceId }, select: { panelNotes: true } });
         if (!w)
             return res.status(404).json({ error: 'Workspace no encontrado' });
@@ -266,12 +338,7 @@ app.get('/api/workspaces/:workspaceId/panel-notes', auth_1.authenticateToken, as
             try {
                 const parsed = JSON.parse(w.panelNotes);
                 const all = Array.isArray(parsed) ? parsed : [];
-                if (userId) {
-                    panelNotes = all.filter((item) => item && String(item.ownerId) === userId);
-                }
-                else {
-                    panelNotes = all;
-                }
+                panelNotes = all.filter((item) => item && String(item.ownerId) === effectiveUserId);
             }
             catch {
                 panelNotes = [];
@@ -289,34 +356,33 @@ app.patch('/api/workspaces/:workspaceId/panel-notes', auth_1.authenticateToken, 
         const { workspaceId } = req.params;
         const body = req.body ?? {};
         const panelNotes = Array.isArray(body.panelNotes) ? body.panelNotes : undefined;
-        const userId = typeof body.userId === 'string' ? body.userId : null;
+        const authUser = req.authUser;
+        if (!authUser)
+            return res.status(401).json({ error: 'No autenticado' });
+        const requestedUserId = typeof body.userId === 'string' ? body.userId : null;
+        const effectiveUserId = authUser.role === 'ADMIN' && requestedUserId ? requestedUserId : authUser.id;
         if (panelNotes === undefined)
             return res.status(400).json({ error: 'panelNotes es obligatorio (array)' });
         let merged;
-        if (userId) {
-            const w = await prisma.workspace.findUnique({ where: { id: workspaceId }, select: { panelNotes: true } });
-            if (!w)
-                return res.status(404).json({ error: 'Workspace no encontrado' });
-            let current = [];
-            if (w.panelNotes && String(w.panelNotes).trim()) {
-                try {
-                    const parsed = JSON.parse(w.panelNotes);
-                    current = Array.isArray(parsed) ? parsed : [];
-                }
-                catch {
-                    current = [];
-                }
+        const w = await prisma.workspace.findUnique({ where: { id: workspaceId }, select: { panelNotes: true } });
+        if (!w)
+            return res.status(404).json({ error: 'Workspace no encontrado' });
+        let current = [];
+        if (w.panelNotes && String(w.panelNotes).trim()) {
+            try {
+                const parsed = JSON.parse(w.panelNotes);
+                current = Array.isArray(parsed) ? parsed : [];
             }
-            const others = current.filter((item) => item && String(item.ownerId) !== userId);
-            const withOwner = panelNotes.map((n) => ({
-                ...n,
-                ownerId: n.ownerId ?? userId,
-            }));
-            merged = [...others, ...withOwner];
+            catch {
+                current = [];
+            }
         }
-        else {
-            merged = panelNotes;
-        }
+        const others = current.filter((item) => item && String(item.ownerId) !== effectiveUserId);
+        const withOwner = panelNotes.map((n) => ({
+            ...n,
+            ownerId: n.ownerId ?? effectiveUserId,
+        }));
+        merged = [...others, ...withOwner];
         const workspace = await prisma.workspace.update({
             where: { id: workspaceId },
             data: {
@@ -325,7 +391,7 @@ app.patch('/api/workspaces/:workspaceId/panel-notes', auth_1.authenticateToken, 
             },
         });
         const saved = JSON.parse(workspace.panelNotes || '[]');
-        const toReturn = userId ? saved.filter((item) => String(item?.ownerId) === userId) : saved;
+        const toReturn = saved.filter((item) => String(item?.ownerId) === effectiveUserId);
         res.json({ panelNotes: toReturn });
     }
     catch (e) {
@@ -403,7 +469,10 @@ app.get('/api/workspaces/:workspaceId/doc-groups', auth_1.authenticateToken, asy
     };
     try {
         const { workspaceId } = req.params;
-        const userId = typeof req.query.userId === 'string' ? req.query.userId : null;
+        const authUser = req.authUser;
+        if (!authUser)
+            return res.status(401).json({ error: 'No autenticado' });
+        const effectiveUserId = authUser.id;
         const w = await prisma.workspace.findUnique({
             where: { id: workspaceId },
             select: { id: true, docGroups: true, docGroupsJson: true },
@@ -425,7 +494,7 @@ app.get('/api/workspaces/:workspaceId/doc-groups', auth_1.authenticateToken, asy
             parsed = docGroupsJsonRaw;
         }
         if (parsed) {
-            const userData = userId && parsed[userId] ? parsed[userId] : null;
+            const userData = parsed[effectiveUserId] ? parsed[effectiveUserId] : null;
             if (userData) {
                 defaultPayload.groups = Array.isArray(userData.groups) ? userData.groups : [];
                 defaultPayload.assignments =
@@ -448,9 +517,10 @@ app.patch('/api/workspaces/:workspaceId/doc-groups', auth_1.authenticateToken, a
     try {
         const { workspaceId } = req.params;
         const body = req.body ?? {};
-        const userId = typeof body.userId === 'string' ? body.userId : null;
-        if (!userId)
-            return res.status(400).json({ error: 'userId es obligatorio' });
+        const authUser = req.authUser;
+        if (!authUser)
+            return res.status(401).json({ error: 'No autenticado' });
+        const effectiveUserId = authUser.id;
         const w = await prisma.workspace.findUnique({ where: { id: workspaceId }, select: { docGroups: true } });
         if (!w)
             return res.status(404).json({ error: 'Workspace no encontrado' });
@@ -465,7 +535,7 @@ app.patch('/api/workspaces/:workspaceId/doc-groups', auth_1.authenticateToken, a
                 all = {};
             }
         }
-        let current = all[userId];
+        let current = all[effectiveUserId];
         if (!current || typeof current !== 'object') {
             current = { groups: [], assignments: {}, subgroupsByType: {}, subgroupAssignments: {} };
         }
@@ -485,7 +555,7 @@ app.patch('/api/workspaces/:workspaceId/doc-groups', auth_1.authenticateToken, a
         if (body.subgroupAssignments !== undefined && typeof body.subgroupAssignments === 'object') {
             current.subgroupAssignments = body.subgroupAssignments;
         }
-        all[userId] = current;
+        all[effectiveUserId] = current;
         await prisma.workspace.update({
             where: { id: workspaceId },
             data: {
@@ -864,7 +934,9 @@ app.get('/api/items/:itemId/updates', auth_1.authenticateToken, async (req, res)
 app.get('/api/feed', auth_1.authenticateToken, async (req, res) => {
     try {
         const filter = req.query.filter; // 'mentions' = solo donde me mencionaron
-        const userId = req.query.userId;
+        const authUserId = req.authUser?.id;
+        if (!authUserId)
+            return res.status(401).json({ error: 'No autenticado' });
         const posts = await prisma.feedPost.findMany({
             orderBy: { createdAt: 'desc' },
             include: { author: true },
@@ -883,10 +955,10 @@ app.get('/api/feed', auth_1.authenticateToken, async (req, res) => {
                 } })(),
             };
         });
-        if (filter === 'mentions' && userId) {
+        if (filter === 'mentions') {
             list = list.filter(p => {
                 const ids = p.mentionedUserIds;
-                return Array.isArray(ids) && ids.includes(userId);
+                return Array.isArray(ids) && ids.includes(authUserId);
             });
         }
         res.json(list);
@@ -899,10 +971,21 @@ app.get('/api/feed', auth_1.authenticateToken, async (req, res) => {
 app.post('/api/feed', auth_1.authenticateToken, async (req, res) => {
     try {
         const { content, authorId, mentionedUserIds } = req.body ?? {};
+        const authUserId = req.authUser?.id;
+        if (!authUserId)
+            return res.status(401).json({ error: 'No autenticado' });
         if (!content || typeof content !== 'string' || !authorId) {
             return res.status(400).json({ error: 'content y authorId son obligatorios' });
         }
-        const ids = Array.isArray(mentionedUserIds) ? mentionedUserIds : [];
+        if (authorId !== authUserId) {
+            return res.status(403).json({ error: 'authorId no autorizado' });
+        }
+        const ids = Array.isArray(mentionedUserIds)
+            ? Array.from(new Set(mentionedUserIds
+                .filter((id) => typeof id === 'string' && !!id.trim())
+                .map((id) => id.trim())
+                .filter((id) => id !== authorId)))
+            : [];
         const post = await prisma.feedPost.create({
             data: {
                 content: content.trim(),
@@ -927,7 +1010,7 @@ app.post('/api/feed', auth_1.authenticateToken, async (req, res) => {
                         await sendWebPushToUser(mu.id, {
                             title: 'Te mencionaron en Sunday',
                             body: preview,
-                            url: '/inbox',
+                            url: '/?tab=notifications',
                             tag: `mention-${post.id}`,
                         });
                     }
@@ -971,6 +1054,11 @@ app.post('/api/login', async (req, res) => {
     }
     catch (err) {
         console.error(err);
+        if (isPrismaDbUnavailable(err)) {
+            return res.status(503).json({
+                error: 'No se pudo conectar a PostgreSQL. Revisa DATABASE_URL en backend/.env y que el servidor esté en marcha. Guía: docs/DEV_SETUP_POSTGRES.md',
+            });
+        }
         res.status(500).json({ error: 'Error en el login' });
     }
 });
@@ -1097,6 +1185,42 @@ app.patch('/api/users/:id/status', auth_1.requireAuth, async (req, res) => {
         res.status(500).json({ error: 'Error al actualizar estado' });
     }
 });
+// Subir/actualizar foto de perfil del usuario
+app.patch('/api/users/:id/avatar', auth_1.requireAuth, (req, res) => {
+    const { id } = req.params;
+    if (req.authUser?.id !== id) {
+        return res.status(403).json({ error: 'Solo puedes cambiar tu propio avatar' });
+    }
+    avatarUpload.single('avatar')(req, res, async (err) => {
+        if (err) {
+            if (err instanceof multer_1.default.MulterError) {
+                return res.status(400).json({ error: `Error de subida: ${err.message}` });
+            }
+            return res.status(400).json({ error: 'Archivo inválido o demasiado grande (máx 5 MB, solo imágenes)' });
+        }
+        if (!req.file) {
+            return res.status(400).json({ error: 'No se recibió ningún archivo' });
+        }
+        const avatarUrl = '/uploads/' + req.file.filename;
+        try {
+            const user = await prisma.user.findUnique({ where: { id } });
+            if (!user)
+                return res.status(404).json({ error: 'Usuario no encontrado' });
+            const updated = await prisma.user.update({
+                where: { id },
+                data: { avatarUrl },
+            });
+            const { password: _p, ...safe } = updated;
+            // Notificar por room de usuario para evitar broadcast global.
+            io.to(userRoom(safe.id)).emit('user_updated', safe);
+            res.json(safe);
+        }
+        catch (e) {
+            console.error(e);
+            res.status(500).json({ error: 'Error al guardar avatar' });
+        }
+    });
+});
 // Eliminar usuario (solo ADMIN)
 app.delete('/api/users/:id', auth_1.requireAuth, auth_1.requireAdmin, async (req, res) => {
     try {
@@ -1168,6 +1292,15 @@ app.patch('/api/notifications/read-all', auth_1.authenticateToken, async (req, r
     }
 });
 // --- Web Push API (suscripciones PWA) ---
+// Debug público: valida si el backend tiene configurado VAPID.
+// (No devuelve llaves, solo estado para ayudarte a depurar PWA/Web Push en móvil.)
+app.get('/api/push/config', (_req, res) => {
+    res.json({
+        vapidConfigured: Boolean(VAPID_PUBLIC_KEY && VAPID_PRIVATE_KEY),
+        hasVapidPublicKey: Boolean(VAPID_PUBLIC_KEY),
+        hasVapidPrivateKey: Boolean(VAPID_PRIVATE_KEY),
+    });
+});
 // Devuelve la clave pública VAPID para que el frontend pueda suscribirse
 app.get('/api/push/public-key', (_req, res) => {
     if (!VAPID_PUBLIC_KEY) {
@@ -1178,13 +1311,25 @@ app.get('/api/push/public-key', (_req, res) => {
 // Registrar/actualizar una suscripción Web Push para un usuario
 app.post('/api/push/subscribe', auth_1.authenticateToken, async (req, res) => {
     try {
-        const { userId, subscription } = req.body ?? {};
-        if (!userId || !subscription?.endpoint || !subscription?.keys?.p256dh || !subscription?.keys?.auth) {
-            return res.status(400).json({ error: 'userId y subscription válidos son obligatorios' });
+        const authUserId = req.authUser?.id;
+        const { subscription } = req.body ?? {};
+        if (!authUserId)
+            return res.status(401).json({ error: 'No autenticado' });
+        if (!subscription?.endpoint || !subscription?.keys?.p256dh || !subscription?.keys?.auth) {
+            return res.status(400).json({ error: 'subscription válida es obligatoria' });
         }
         const { endpoint, keys } = subscription;
+        const endpointStr = String(endpoint);
+        // Seguridad de ownership: un endpoint de dispositivo/navegador debe pertenecer a un solo usuario.
+        // Esto limpia suscripciones antiguas cruzadas por el bug previo (userId en body confiable).
+        await prisma.pushSubscription.deleteMany({
+            where: {
+                endpoint: endpointStr,
+                NOT: { userId: authUserId },
+            },
+        });
         const existing = await prisma.pushSubscription.findFirst({
-            where: { userId: String(userId), endpoint: String(endpoint) },
+            where: { userId: authUserId, endpoint: endpointStr },
         });
         if (existing) {
             const updated = await prisma.pushSubscription.update({
@@ -1198,8 +1343,8 @@ app.post('/api/push/subscribe', auth_1.authenticateToken, async (req, res) => {
         }
         const created = await prisma.pushSubscription.create({
             data: {
-                userId: String(userId),
-                endpoint: String(endpoint),
+                userId: authUserId,
+                endpoint: endpointStr,
                 p256dh: String(keys.p256dh),
                 auth: String(keys.auth),
             },
@@ -1214,12 +1359,15 @@ app.post('/api/push/subscribe', auth_1.authenticateToken, async (req, res) => {
 // Eliminar una suscripción (opcional)
 app.post('/api/push/unsubscribe', auth_1.authenticateToken, async (req, res) => {
     try {
-        const { userId, endpoint } = req.body ?? {};
-        if (!userId || !endpoint) {
-            return res.status(400).json({ error: 'userId y endpoint son obligatorios' });
+        const authUserId = req.authUser?.id;
+        const { endpoint } = req.body ?? {};
+        if (!authUserId)
+            return res.status(401).json({ error: 'No autenticado' });
+        if (!endpoint) {
+            return res.status(400).json({ error: 'endpoint es obligatorio' });
         }
         await prisma.pushSubscription.deleteMany({
-            where: { userId: String(userId), endpoint: String(endpoint) },
+            where: { userId: authUserId, endpoint: String(endpoint) },
         });
         res.json({ ok: true });
     }
@@ -1228,10 +1376,50 @@ app.post('/api/push/unsubscribe', auth_1.authenticateToken, async (req, res) => 
         res.status(500).json({ error: 'Error al eliminar suscripción push' });
     }
 });
-// --- Export folders: copiar archivos de uploads a ~/SundayExports (solo ítems asignados al usuario) ---
-const os_1 = __importDefault(require("os"));
-const EXPORT_BASE = path_1.default.join(os_1.default.homedir(), 'SundayExports');
-const UPLOADS_DIR = path_1.default.join(process.cwd(), 'uploads');
+// Debug: enviar un Web Push de prueba al usuario autenticado
+app.post('/api/push/test', auth_1.authenticateToken, async (req, res) => {
+    try {
+        const userId = req.authUser?.id;
+        if (!userId)
+            return res.status(401).json({ error: 'No autenticado' });
+        await sendWebPushToUser(userId, {
+            title: 'Test push Sunday',
+            body: 'Si recibes esto en iPhone, Web Push está funcionando.',
+            url: '/?tab=notifications',
+            tag: 'push-test',
+        });
+        res.json({ ok: true });
+    }
+    catch (e) {
+        console.error('Error enviando push test:', e);
+        res.status(500).json({ error: 'Failed to send push test' });
+    }
+});
+// Estado de suscripción (útil para depurar PWA/Web Push en móvil)
+app.get('/api/push/status', auth_1.authenticateToken, async (req, res) => {
+    try {
+        const userId = req.authUser?.id;
+        if (!userId)
+            return res.status(401).json({ error: 'No autenticado' });
+        const subs = await prisma.pushSubscription.findMany({
+            where: { userId },
+            select: { id: true, endpoint: true },
+            orderBy: { createdAt: 'desc' },
+            take: 20,
+        });
+        res.json({
+            vapidConfigured: Boolean(VAPID_PUBLIC_KEY && VAPID_PRIVATE_KEY),
+            subscriptions: subs,
+            count: subs.length,
+            hasSubscription: subs.length > 0,
+        });
+    }
+    catch (e) {
+        console.error('Error en /api/push/status:', e);
+        res.status(500).json({ error: 'Failed to fetch push status' });
+    }
+});
+// --- Export folders: generar manifiesto para sincronización local (solo ítems asignados al usuario) ---
 function sanitizeFolderName(name) {
     return (name || '').replace(/[<>:"/\\|?*]/g, '_').trim() || 'Sin_nombre';
 }
@@ -1252,108 +1440,175 @@ function isAssignedToUser(columnValues, personColumnId, userId) {
         return raw === userId;
     }
 }
-app.post('/api/export/folders', auth_1.authenticateToken, async (req, res) => {
-    const errors = [];
-    let copied = 0;
-    let skipped = 0;
+function extractUploadUrls(value) {
+    if (!value)
+        return [];
+    const trimmed = value.trim();
+    if (!trimmed)
+        return [];
+    // TODO: resolver *DocId para columnas docs (requiere lookup adicional a DB por referencia).
+    if (trimmed.startsWith('/uploads/'))
+        return [trimmed];
     try {
-        const { userId, boardId } = req.body ?? {};
-        if (!userId || !boardId) {
-            return res.status(400).json({ error: 'userId y boardId son obligatorios' });
+        const parsed = JSON.parse(trimmed);
+        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+            const url = parsed.url;
+            if (typeof url === 'string' && url.startsWith('/uploads/'))
+                return [url];
         }
-        const user = await prisma.user.findUnique({ where: { id: userId } });
-        if (!user)
-            return res.status(404).json({ error: 'Usuario no encontrado' });
-        const board = await prisma.board.findUnique({
-            where: { id: boardId },
-            include: {
-                groups: {
-                    orderBy: { position: 'asc' },
-                    include: {
-                        items: {
-                            orderBy: { position: 'asc' },
-                            include: { columnValues: true },
-                        },
-                    },
-                },
-                columns: { orderBy: { position: 'asc' } },
+    }
+    catch {
+        // payload no JSON
+    }
+    return [];
+}
+function extractPersonUserIds(value) {
+    if (!value || typeof value !== 'string')
+        return [];
+    const trimmed = value.trim();
+    if (!trimmed)
+        return [];
+    try {
+        const parsed = JSON.parse(trimmed);
+        if (Array.isArray(parsed)) {
+            return parsed
+                .map((v) => (typeof v === 'string' ? v.trim() : String(v ?? '').trim()))
+                .filter(Boolean);
+        }
+        if (typeof parsed === 'string')
+            return parsed.trim() ? [parsed.trim()] : [];
+        const scalar = String(parsed ?? '').trim();
+        return scalar ? [scalar] : [];
+    }
+    catch {
+        return [trimmed];
+    }
+}
+async function deletePhysicalFileIfUnreferenced(fileUrl, excludeItemId) {
+    if (!fileUrl.startsWith('/uploads/'))
+        return;
+    const filename = path_1.default.basename(fileUrl);
+    if (!filename)
+        return;
+    try {
+        // TODO: migrar a verificación por valueJson/parse estructurado para evitar falsos positivos de contains.
+        const refCount = await prisma.columnValue.count({
+            where: {
+                value: { contains: `/uploads/${filename}` },
+                ...(excludeItemId ? { NOT: { itemId: excludeItemId } } : {}),
             },
         });
-        if (!board)
-            return res.status(404).json({ error: 'Tablero no encontrado' });
-        const personCol = board.columns.find(c => c.type === 'person');
-        const fileColumns = board.columns.filter(c => c.type === 'docs' || c.type === 'excel' || c.type === 'file');
-        const allGroups = board.groups;
-        const getChildren = (parentId) => allGroups.filter(g => g.parentGroupId === parentId);
-        const rootGroups = allGroups.filter(g => !g.parentGroupId);
-        const fsPromises = fs_1.default.promises;
-        for (const rootGroup of rootGroups) {
-            const yearMonth = sanitizeFolderName(rootGroup.name);
-            const clientGroups = getChildren(rootGroup.id);
-            const targetClients = clientGroups.length > 0 ? clientGroups : [rootGroup];
-            for (const client of targetClients) {
-                const clientName = sanitizeFolderName(client.name);
-                for (const item of client.items) {
-                    if (!personCol || !isAssignedToUser(item.columnValues, personCol.id, String(userId)))
+        if (refCount > 0)
+            return;
+        await fs_1.default.promises.unlink(path_1.default.join(UPLOAD_DIR, filename));
+    }
+    catch (e) {
+        if (e.code !== 'ENOENT') {
+            console.warn(`[cleanup] No se pudo eliminar ${fileUrl}:`, e);
+        }
+    }
+}
+function queryParamToString(value) {
+    if (typeof value === 'string')
+        return value.trim() || null;
+    if (Array.isArray(value) && typeof value[0] === 'string')
+        return value[0].trim() || null;
+    return null;
+}
+async function collectExportManifestFiles(boardId, userId) {
+    const board = await prisma.board.findUnique({
+        where: { id: boardId },
+        include: {
+            groups: {
+                orderBy: { position: 'asc' },
+                include: {
+                    items: {
+                        orderBy: { position: 'asc' },
+                        include: { columnValues: true },
+                    },
+                },
+            },
+            columns: { orderBy: { position: 'asc' } },
+        },
+    });
+    if (!board)
+        return null;
+    const personCol = board.columns.find(c => c.type === 'person');
+    const fileColumns = board.columns.filter(c => c.type === 'docs' || c.type === 'excel' || c.type === 'file');
+    if (!personCol || fileColumns.length === 0)
+        return [];
+    const allGroups = board.groups;
+    const getChildren = (parentId) => allGroups.filter(g => g.parentGroupId === parentId);
+    const rootGroups = allGroups.filter(g => !g.parentGroupId);
+    const files = [];
+    const seen = new Set();
+    for (const rootGroup of rootGroups) {
+        const yearMonth = sanitizeFolderName(rootGroup.name);
+        const clientGroups = getChildren(rootGroup.id);
+        const targetClients = clientGroups.length > 0 ? clientGroups : [rootGroup];
+        for (const client of targetClients) {
+            const clientName = sanitizeFolderName(client.name);
+            for (const item of client.items) {
+                if (!isAssignedToUser(item.columnValues, personCol.id, String(userId)))
+                    continue;
+                const itemName = sanitizeFolderName(item.name || 'Elemento');
+                for (const col of fileColumns) {
+                    const cv = item.columnValues.find(v => v.columnId === col.id);
+                    if (!cv?.value)
                         continue;
-                    const itemName = sanitizeFolderName(item.name || 'Elemento');
-                    const itemDir = path_1.default.join(EXPORT_BASE, yearMonth, clientName, itemName);
-                    for (const col of fileColumns) {
-                        const cv = item.columnValues.find(v => v.columnId === col.id);
-                        if (!cv?.value)
-                            continue;
-                        const value = cv.value.trim();
-                        if (!value.startsWith('/uploads/'))
-                            continue;
-                        const filename = path_1.default.basename(value);
+                    const uploadUrls = extractUploadUrls(cv.value);
+                    for (const url of uploadUrls) {
+                        const filename = path_1.default.basename(url);
                         if (!filename)
                             continue;
-                        const srcPath = path_1.default.join(UPLOADS_DIR, filename);
-                        const destPath = path_1.default.join(itemDir, filename);
-                        try {
-                            await fsPromises.access(srcPath, fs_1.default.constants.F_OK);
-                        }
-                        catch {
-                            errors.push(`Origen no encontrado: ${value}`);
+                        const srcPath = path_1.default.join(UPLOAD_DIR, filename);
+                        const stat = await fs_1.default.promises.stat(srcPath).catch(() => null);
+                        if (!stat?.isFile())
                             continue;
-                        }
-                        try {
-                            await fsPromises.access(destPath, fs_1.default.constants.F_OK);
-                            skipped++;
+                        const zipPath = path_1.default.posix.join(yearMonth, clientName, itemName, filename);
+                        const dedupeKey = `${zipPath}|${url}`;
+                        if (seen.has(dedupeKey))
                             continue;
-                        }
-                        catch {
-                            // dest no existe, continuamos
-                        }
-                        try {
-                            await fsPromises.mkdir(itemDir, { recursive: true });
-                            await fsPromises.copyFile(srcPath, destPath);
-                            copied++;
-                        }
-                        catch (err) {
-                            const msg = err instanceof Error ? err.message : String(err);
-                            errors.push(`${filename}: ${msg}`);
-                        }
+                        seen.add(dedupeKey);
+                        files.push({
+                            zipPath,
+                            url,
+                            filename,
+                            size: stat.size,
+                        });
                     }
                 }
             }
         }
-        return res.json({
-            ok: true,
-            exportPath: EXPORT_BASE,
-            copied,
-            skipped,
-            errors,
-        });
+    }
+    return files;
+}
+app.get('/api/export/folders/files', auth_1.authenticateToken, async (req, res) => {
+    try {
+        const boardId = queryParamToString(req.query.boardId);
+        const userId = queryParamToString(req.query.userId);
+        if (!boardId || !userId) {
+            return res.status(400).json({ error: 'boardId y userId son obligatorios' });
+        }
+        const authUser = req.authUser;
+        if (!authUser)
+            return res.status(401).json({ error: 'No autenticado' });
+        if (authUser.role !== 'ADMIN' && authUser.id !== userId) {
+            return res.status(403).json({ error: 'No autorizado para este userId' });
+        }
+        const user = await prisma.user.findUnique({ where: { id: userId }, select: { id: true } });
+        if (!user)
+            return res.status(404).json({ error: 'Usuario no encontrado' });
+        const files = await collectExportManifestFiles(boardId, userId);
+        if (files === null)
+            return res.status(404).json({ error: 'Tablero no encontrado' });
+        return res.json({ ok: true, files, total: files.length });
     }
     catch (e) {
-        console.error('Export folders error:', e);
+        console.error('Export folders manifest error:', e);
         return res.status(500).json({
             ok: false,
-            error: e instanceof Error ? e.message : 'Error al exportar carpetas',
-            copied,
-            skipped,
-            errors,
+            error: e instanceof Error ? e.message : 'Error al obtener manifiesto de exportación',
         });
     }
 });
@@ -1530,6 +1785,7 @@ app.patch('/api/docs/:id', auth_1.authenticateToken, async (req, res) => {
 app.delete('/api/docs/:id', auth_1.authenticateToken, async (req, res) => {
     try {
         const { id } = req.params;
+        const cleanupUrls = new Set();
         // 1) Eliminar el doc
         await prisma.doc.delete({ where: { id } });
         // 2) Limpiar referencias en columnas de tipo docs/excel donde este id esté como docId
@@ -1557,6 +1813,10 @@ app.delete('/api/docs/:id', auth_1.authenticateToken, async (req, res) => {
                     const boardId = meta?.boardId;
                     if (!cv.value || !colType || !boardId)
                         continue;
+                    // Recolectar posibles archivos para limpieza física posterior.
+                    const referencedUrls = extractUploadUrls(cv.value);
+                    for (const url of referencedUrls)
+                        cleanupUrls.add(url);
                     let changed = false;
                     let nextValue = cv.value;
                     if (colType === 'excel') {
@@ -1620,6 +1880,7 @@ app.delete('/api/docs/:id', auth_1.authenticateToken, async (req, res) => {
                     }
                 }
             }
+            void Promise.all(Array.from(cleanupUrls).map((url) => deletePhysicalFileIfUnreferenced(url)));
         }
         catch (cleanupErr) {
             console.error('Error limpiando referencias de doc en columnas:', cleanupErr);
@@ -1765,7 +2026,7 @@ app.delete('/api/designs/:id', auth_1.authenticateToken, async (req, res) => {
 // ── Templates (PDF plantillas para cotización, levantamiento, hoja de trabajo) ────────────────
 const TEMPLATE_KINDS = ['cotizacion', 'levantamiento', 'hoja_trabajo'];
 app.get('/api/templates/:kind', auth_1.authenticateToken, (req, res) => {
-    const kind = req.params.kind;
+    const kind = String(req.params.kind || '').trim().toLowerCase();
     if (!TEMPLATE_KINDS.includes(kind)) {
         return res.status(400).json({ error: 'Tipo de plantilla no válido' });
     }
@@ -1799,6 +2060,12 @@ app.post('/api/templates/:kind/upload', auth_1.authenticateToken, auth_1.require
             return res.status(400).json({ error: 'No se envió ningún archivo' });
         }
         if (req.file.mimetype !== 'application/pdf') {
+            try {
+                await fs_1.default.promises.unlink(req.file.path);
+            }
+            catch (unlinkErr) {
+                console.warn('No se pudo borrar archivo temporal de plantilla inválida:', unlinkErr);
+            }
             return res.status(400).json({ error: 'Solo se aceptan archivos PDF para plantillas' });
         }
         const templatesDir = (0, templatePdfGenerator_1.getTemplatesDir)();
@@ -1946,6 +2213,7 @@ function getDefaultTemplateConfig() {
         fontBold: false,
         fontItalic: false,
         customBoxes: [],
+        defaultContent: {},
     };
 }
 app.get('/api/templates/:kind/config', auth_1.authenticateToken, async (req, res) => {
@@ -1974,6 +2242,13 @@ app.get('/api/templates/:kind/config', auth_1.authenticateToken, async (req, res
         defaultConfig.fontSize = row.fontSize ?? 11;
         defaultConfig.fontBold = row.fontBold ?? false;
         defaultConfig.fontItalic = row.fontItalic ?? false;
+        try {
+            const dc = row.defaultContentJson;
+            if (dc != null && typeof dc === 'object' && !Array.isArray(dc)) {
+                defaultConfig.defaultContent = dc;
+            }
+        }
+        catch (_) { }
         return res.json(defaultConfig);
     }
     catch (e) {
@@ -2012,36 +2287,66 @@ app.put('/api/templates/:kind/config', auth_1.authenticateToken, async (req, res
         const fontBold = body.fontBold === true || body.fontBold === 'true';
         const fontItalic = body.fontItalic === true || body.fontItalic === 'true';
         const customBoxes = Array.isArray(body.customBoxes) ? body.customBoxes : [];
+        const hasDefaultContentKey = Object.prototype.hasOwnProperty.call(body, 'defaultContent');
+        const defaultContentPayload = hasDefaultContentKey && body.defaultContent != null && typeof body.defaultContent === 'object' && !Array.isArray(body.defaultContent)
+            ? body.defaultContent
+            : hasDefaultContentKey
+                ? client_1.Prisma.JsonNull
+                : undefined;
         const fieldPositionsStr = typeof fieldPositions === 'object' && fieldPositions !== null
             ? JSON.stringify(fieldPositions)
             : '{}';
         const customBoxesStr = JSON.stringify(customBoxes);
-        await prisma.templateConfig.upsert({
-            where: { docType: kind },
-            create: {
-                docType: kind,
-                fieldPositions: fieldPositionsStr,
-                fieldPositionsJson: fieldPositions,
-                fontColor,
-                fontFamily,
-                fontSize,
-                fontBold,
-                fontItalic,
-                customBoxes: customBoxesStr,
-                customBoxesJson: customBoxes,
-            },
-            update: {
-                fieldPositions: fieldPositionsStr,
-                fieldPositionsJson: fieldPositions,
-                fontColor,
-                fontFamily,
-                fontSize,
-                fontBold,
-                fontItalic,
-                customBoxes: customBoxesStr,
-                customBoxesJson: customBoxes,
-            },
-        });
+        const baseCreate = {
+            docType: kind,
+            fieldPositions: fieldPositionsStr,
+            fieldPositionsJson: fieldPositions,
+            fontColor,
+            fontFamily,
+            fontSize,
+            fontBold,
+            fontItalic,
+            customBoxes: customBoxesStr,
+            customBoxesJson: customBoxes,
+        };
+        const baseUpdate = {
+            fieldPositions: fieldPositionsStr,
+            fieldPositionsJson: fieldPositions,
+            fontColor,
+            fontFamily,
+            fontSize,
+            fontBold,
+            fontItalic,
+            customBoxes: customBoxesStr,
+            customBoxesJson: customBoxes,
+        };
+        const createWithDefault = defaultContentPayload !== undefined
+            ? { ...baseCreate, defaultContentJson: defaultContentPayload }
+            : baseCreate;
+        const updateWithDefault = defaultContentPayload !== undefined
+            ? { ...baseUpdate, defaultContentJson: defaultContentPayload }
+            : baseUpdate;
+        try {
+            await prisma.templateConfig.upsert({
+                where: { docType: kind },
+                create: createWithDefault,
+                update: updateWithDefault,
+            });
+        }
+        catch (upsertErr) {
+            const msg = upsertErr instanceof Error ? upsertErr.message : String(upsertErr);
+            // Compatibilidad: algunos entornos siguen con Prisma Client sin `defaultContentJson`.
+            if (msg.includes('Unknown argument `defaultContentJson`')) {
+                await prisma.templateConfig.upsert({
+                    where: { docType: kind },
+                    create: baseCreate,
+                    update: baseUpdate,
+                });
+            }
+            else {
+                throw upsertErr;
+            }
+        }
         return res.json({ ok: true });
     }
     catch (e) {
@@ -2148,16 +2453,25 @@ app.delete('/api/boards/:boardId/calendar-events/:eventId', auth_1.authenticateT
 // DELETE item (misma lógica que socket delete_item: persistencia en BD)
 app.delete('/api/items/:id', auth_1.authenticateToken, (0, auth_1.requireRoles)(['ADMIN', 'VENTAS']), async (req, res) => {
     try {
-        const itemId = req.params.id;
+        const itemIdParam = req.params.id;
+        const itemId = Array.isArray(itemIdParam) ? itemIdParam[0] : itemIdParam;
         if (!itemId) {
             return res.status(400).json({ error: 'itemId es obligatorio' });
         }
+        const itemWithFiles = await prisma.item.findUnique({
+            where: { id: itemId },
+            select: {
+                columnValues: { select: { value: true } },
+            },
+        });
+        const uploadUrls = Array.from(new Set((itemWithFiles?.columnValues ?? []).flatMap(cv => extractUploadUrls(cv.value))));
         await prisma.$transaction([
             prisma.columnValue.deleteMany({ where: { itemId } }),
             prisma.update.deleteMany({ where: { itemId } }),
             prisma.notification.deleteMany({ where: { itemId } }),
             prisma.item.delete({ where: { id: itemId } }),
         ]);
+        void Promise.all(uploadUrls.map(url => deletePhysicalFileIfUnreferenced(url, itemId)));
         res.status(204).send();
     }
     catch (e) {
@@ -2166,6 +2480,16 @@ app.delete('/api/items/:id', auth_1.authenticateToken, (0, auth_1.requireRoles)(
             return res.status(404).json({ error: 'Item no encontrado' });
         }
         res.status(500).json({ error: 'Error al eliminar el elemento' });
+    }
+});
+app.get('/api/admin/backups', auth_1.authenticateToken, auth_1.requireAdmin, async (_req, res) => {
+    try {
+        const backups = await (0, backupService_1.getBackupList)();
+        res.json({ ok: true, backups });
+    }
+    catch (e) {
+        console.error('Error listing backups:', e);
+        res.status(500).json({ ok: false, error: 'No se pudo listar backups' });
     }
 });
 // Helper: room por tablero y por usuario (Fase 3)
@@ -2227,6 +2551,13 @@ io.on('connection', (socket) => {
         const boardId = typeof data?.boardId === 'string' ? data.boardId : null;
         if (!boardId)
             return;
+        const socketUserId = typeof socket.data?.userId === 'string'
+            ? socket.data.userId
+            : null;
+        if (!socketUserId) {
+            socket.emit('action_denied', { event: 'join_board', reason: 'unauthenticated' });
+            return;
+        }
         socket.join(boardRoom(boardId));
     });
     socket.on('leave_board', (data) => {
@@ -2317,19 +2648,25 @@ io.on('connection', (socket) => {
             }
             const item = await prisma.item.findUnique({
                 where: { id: itemId },
-                select: { group: { select: { boardId: true } } },
+                select: {
+                    group: { select: { boardId: true } },
+                    columnValues: { select: { value: true } },
+                },
             });
+            const uploadUrls = Array.from(new Set((item?.columnValues ?? []).flatMap(cv => extractUploadUrls(cv.value))));
             await prisma.$transaction([
                 prisma.columnValue.deleteMany({ where: { itemId } }),
                 prisma.update.deleteMany({ where: { itemId } }),
                 prisma.notification.deleteMany({ where: { itemId } }),
                 prisma.item.delete({ where: { id: itemId } }),
             ]);
+            void Promise.all(uploadUrls.map(url => deletePhysicalFileIfUnreferenced(url, itemId)));
             if (item?.group?.boardId) {
                 io.to(boardRoom(item.group.boardId)).emit('item_deleted', { itemId });
             }
             else {
                 // Caso raro sin boardId: mantener global por compatibilidad.
+                // TODO: segmentar por room cuando boardId esté disponible.
                 io.emit('item_deleted', { itemId });
             }
         }
@@ -2346,6 +2683,11 @@ io.on('connection', (socket) => {
             if (!column) {
                 return;
             }
+            // Para auditoría (Registro de actividad): capturar valor previo antes del upsert.
+            const prevColumnValue = await prisma.columnValue.findUnique({
+                where: { itemId_columnId: { itemId, columnId } },
+            });
+            const prevValue = prevColumnValue?.value ?? null;
             // RBAC por columna (Fase 3+): evitar que roles restrictivos modifiquen columnas sensibles.
             // - ADMIN: bypass ya aplicado en withSocketRoles()
             // - VENTAS/DISENO: pueden editar valores en general, salvo reglas futuras más finas.
@@ -2375,6 +2717,243 @@ io.on('connection', (socket) => {
                 create: { itemId, columnId, value, valueJson }
             });
             io.to(boardRoom(column.boardId)).emit('column_value_updated', updated);
+            if (prevValue && prevValue !== value) {
+                const prevUrls = extractUploadUrls(prevValue);
+                void Promise.all(prevUrls.map(url => deletePhysicalFileIfUnreferenced(url)));
+            }
+            // ── AUDITORÍA (Registro de actividad) ──────────────────────────────────────────
+            // Crear entradas automáticas cuando cambien columnas relevantes.
+            // Marcamos el contenido con un prefijo para que el frontend distinga logs vs comentarios manuales.
+            const AUDIT_PREFIX = '__audit__:'; // no mostrar tal cual en UI
+            const oldV = prevValue ?? '';
+            const newV = updated.value ?? '';
+            const changed = oldV !== newV;
+            const isAuditable = changed &&
+                ['status', 'priority', 'person', 'docs', 'excel', 'file', 'billing_docs', 'folio'].includes(column.type);
+            if (isAuditable) {
+                let auditContent = null;
+                // Helpers para parseos seguros.
+                const safeJsonParse = (raw) => {
+                    if (!raw || typeof raw !== 'string')
+                        return null;
+                    try {
+                        const parsed = JSON.parse(raw);
+                        // Algunos valores pueden venir double-encoded como string JSON.
+                        if (typeof parsed === 'string') {
+                            try {
+                                return JSON.parse(parsed);
+                            }
+                            catch {
+                                return parsed;
+                            }
+                        }
+                        return parsed;
+                    }
+                    catch {
+                        return null;
+                    }
+                };
+                const parseOptionId = (raw) => {
+                    const p = safeJsonParse(raw);
+                    const optionId = p?.optionId;
+                    return typeof optionId === 'string' ? optionId : null;
+                };
+                const parseDocsValue = (raw) => {
+                    const p = safeJsonParse(raw);
+                    return (p && typeof p === 'object') ? p : {};
+                };
+                const parseExcelValue = (raw) => {
+                    const p = safeJsonParse(raw);
+                    if (p && typeof p === 'object') {
+                        const out = {};
+                        if (typeof p.docId === 'string')
+                            out.docId = p.docId;
+                        if (typeof p.url === 'string')
+                            out.url = p.url;
+                        return out;
+                    }
+                    // fallback: string URL
+                    if (typeof raw === 'string' && raw.trim())
+                        return { url: raw.trim() };
+                    return {};
+                };
+                const parseBillingDocsValue = (raw) => {
+                    const p = safeJsonParse(raw);
+                    if (p && typeof p === 'object') {
+                        const out = {};
+                        if (typeof p.url === 'string')
+                            out.url = p.url;
+                        if (typeof p.label === 'string')
+                            out.label = p.label;
+                        return out;
+                    }
+                    return {};
+                };
+                // Campo de estados/prioridad: traducir optionId -> label.
+                const getOptionLabel = (optionId) => {
+                    if (!optionId)
+                        return null;
+                    try {
+                        const settingsRaw = column.settings ?? column.settingsJson;
+                        const settings = typeof settingsRaw === 'string' ? JSON.parse(settingsRaw) : settingsRaw;
+                        const options = settings?.options;
+                        if (!Array.isArray(options))
+                            return null;
+                        const opt = options.find((o) => o.id === optionId);
+                        return opt?.label || null;
+                    }
+                    catch {
+                        return null;
+                    }
+                };
+                const normalizeSimpleValue = (raw) => {
+                    const t = (raw ?? '').trim();
+                    if (!t)
+                        return '';
+                    // Si viene como JSON string: "\"ABC\"" => "ABC"
+                    try {
+                        const parsed = JSON.parse(t);
+                        if (typeof parsed === 'string')
+                            return parsed.trim();
+                        if (typeof parsed === 'number')
+                            return String(parsed);
+                    }
+                    catch { /* ignore */ }
+                    // Si viene entre comillas simples del legacy JSON: "ABC" (ya lo intentamos con JSON.parse, pero por si acaso)
+                    if (t.startsWith('"') && t.endsWith('"') && t.length >= 2)
+                        return t.slice(1, -1);
+                    return t;
+                };
+                if (column.type === 'person') {
+                    const prevAssigneeId = oldV.trim();
+                    const nextAssigneeId = newV.trim();
+                    const prevUser = prevAssigneeId ? await prisma.user.findUnique({ where: { id: prevAssigneeId }, select: { name: true } }) : null;
+                    const nextUser = nextAssigneeId ? await prisma.user.findUnique({ where: { id: nextAssigneeId }, select: { name: true } }) : null;
+                    if (!prevAssigneeId && nextAssigneeId) {
+                        auditContent = `asignó el elemento a ${nextUser?.name ?? nextAssigneeId}`;
+                    }
+                    else if (prevAssigneeId && !nextAssigneeId) {
+                        auditContent = `desasignó el elemento`;
+                    }
+                    else if (prevAssigneeId && nextAssigneeId && prevAssigneeId !== nextAssigneeId) {
+                        auditContent = `reasignó el elemento de ${prevUser?.name ?? prevAssigneeId} a ${nextUser?.name ?? nextAssigneeId}`;
+                    }
+                }
+                else if (column.type === 'status' || column.type === 'priority') {
+                    const prevOptionId = parseOptionId(oldV);
+                    const nextOptionId = parseOptionId(newV);
+                    const prevLabel = getOptionLabel(prevOptionId) ?? prevOptionId ?? '—';
+                    const nextLabel = getOptionLabel(nextOptionId) ?? nextOptionId ?? '—';
+                    if (prevOptionId !== nextOptionId) {
+                        auditContent = `actualizó ${column.title}: de "${prevLabel}" a "${nextLabel}"`;
+                    }
+                }
+                else if (column.type === 'docs') {
+                    const prev = parseDocsValue(oldV);
+                    const next = parseDocsValue(newV);
+                    const keys = [
+                        { key: 'levantamientoDocId', label: 'Levantamiento' },
+                        { key: 'cotizacionDocId', label: 'Cotización' },
+                        { key: 'hojaTrabajoDocId', label: 'Hoja de trabajo' },
+                    ];
+                    const summaryAfter = keys
+                        .map(k => {
+                        const v = next?.[k.key];
+                        return typeof v === 'string' && v.trim() ? k.label : null;
+                    })
+                        .filter(Boolean);
+                    const summaryBefore = keys
+                        .map(k => {
+                        const v = prev?.[k.key];
+                        return typeof v === 'string' && v.trim() ? k.label : null;
+                    })
+                        .filter(Boolean);
+                    if (summaryBefore.join(', ') !== summaryAfter.join(', ')) {
+                        auditContent = `actualizó documentos (${column.title}): ${summaryAfter.length ? summaryAfter.join(', ') : 'sin documentos enlazados'}`;
+                    }
+                    else {
+                        // fallback para URLs legacy cotizacion/levantamiento/hojaTrabajo
+                        const prevUrl = typeof prev?.cotizacion === 'string' ? prev.cotizacion : '';
+                        const nextUrl = typeof next?.cotizacion === 'string' ? next.cotizacion : '';
+                        if (prevUrl !== nextUrl) {
+                            auditContent = `actualizó documentos (${column.title})`;
+                        }
+                    }
+                }
+                else if (column.type === 'excel') {
+                    const prev = parseExcelValue(oldV);
+                    const next = parseExcelValue(newV);
+                    if ((prev.docId ?? '') !== (next.docId ?? '') || (prev.url ?? '') !== (next.url ?? '')) {
+                        const labelAfter = next.docId ? 'Documento enlazado' : next.url ? 'Archivo enlazado' : 'sin archivo';
+                        auditContent = `actualizó excel (${column.title}): ${labelAfter}`;
+                    }
+                }
+                else if (column.type === 'file') {
+                    const prevHref = oldV.trim();
+                    const nextHref = newV.trim();
+                    if (prevHref !== nextHref) {
+                        auditContent = `actualizó enlace Drive (${column.title})`;
+                    }
+                }
+                else if (column.type === 'billing_docs') {
+                    const prev = parseBillingDocsValue(oldV);
+                    const next = parseBillingDocsValue(newV);
+                    if ((prev.url ?? '') !== (next.url ?? '') || (prev.label ?? '') !== (next.label ?? '')) {
+                        const labelAfter = next.label?.trim() || next.url?.trim() || 'Documento actualizado';
+                        auditContent = `actualizó documentos de facturación (${column.title}): ${labelAfter}`;
+                    }
+                }
+                else if (column.type === 'folio') {
+                    const fieldName = column.title?.trim() || 'Folio';
+                    const prevVal = normalizeSimpleValue(oldV);
+                    const nextVal = normalizeSimpleValue(newV);
+                    if (!prevVal && nextVal) {
+                        auditContent = `añadió ${fieldName} "${nextVal}"`;
+                    }
+                    else if (prevVal && !nextVal) {
+                        auditContent = `eliminó ${fieldName} "${prevVal}"`;
+                    }
+                    else if (prevVal && nextVal && prevVal !== nextVal) {
+                        auditContent = `cambió ${fieldName} de "${prevVal}" a "${nextVal}"`;
+                    }
+                }
+                if (auditContent) {
+                    const newUpdate = await prisma.update.create({
+                        data: { itemId, content: `${AUDIT_PREFIX}${auditContent}`, authorId: auth.userId }
+                    });
+                    const fullUpdate = await prisma.update.findUnique({
+                        where: { id: newUpdate.id },
+                        include: { author: { select: { id: true, username: true, name: true, initials: true, color: true } } }
+                    });
+                    if (fullUpdate) {
+                        const { author, ...rest } = fullUpdate;
+                        const safeAuthor = author ? (() => {
+                            const { password, ...safe } = author;
+                            return safe;
+                        })() : null;
+                        const safeUpdate = { ...rest, author: safeAuthor };
+                        // Emitir a autor y a usuarios asignados al ítem.
+                        const item = await prisma.item.findUnique({
+                            where: { id: itemId },
+                            select: {
+                                columnValues: {
+                                    where: { column: { type: 'person' } },
+                                    select: { value: true }
+                                }
+                            }
+                        });
+                        const recipientIds = new Set();
+                        if (auth.userId)
+                            recipientIds.add(auth.userId);
+                        item?.columnValues?.forEach((cv) => {
+                            const v = typeof cv.value === 'string' ? cv.value.trim() : '';
+                            if (v)
+                                recipientIds.add(v);
+                        });
+                        recipientIds.forEach((uid) => io.to(userRoom(uid)).emit('update_added', safeUpdate));
+                    }
+                }
+            }
             // Regla Taller→Facturación: al marcar "colocado" se crea columna "Estado Facturación" si no existe
             // y se setea "Pendiente de facturar". Si el board ya tiene una columna "Estado Facturación" con
             // otra configuración, se usa esa columna (puede haber conflicto de opciones).
@@ -2451,19 +3030,24 @@ io.on('connection', (socket) => {
                     console.warn(JSON.stringify({ level: 'warn', msg: 'taller_facturacion_skip', itemId, columnId, reason: err instanceof Error ? err.message : 'invalid_value' }));
                 }
             }
-            // Notificación Web Push al usuario asignado cuando se actualiza columna Personas
-            if (column?.type === 'person' && value && typeof value === 'string' && value.trim()) {
-                const assignedUserId = value.trim();
-                const notif = await prisma.notification.create({
-                    data: { userId: assignedUserId, itemId, type: 'assigned', read: false },
-                });
-                io.to(userRoom(assignedUserId)).emit('notification_created', notif);
-                await sendWebPushToUser(assignedUserId, {
-                    title: 'Te asignaron un elemento',
-                    body: 'Revisa tus notificaciones en Sunday.',
-                    url: '/inbox',
-                    tag: `assigned-${itemId}`,
-                });
+            // Notificar solo asignaciones nuevas a terceros (evita auto-notificación y duplicados sin cambio real).
+            if (column?.type === 'person') {
+                const prevAssigned = new Set(extractPersonUserIds(prevValue));
+                const nextAssigned = extractPersonUserIds(value);
+                const newlyAssigned = nextAssigned.filter((uid) => !prevAssigned.has(uid));
+                const targets = newlyAssigned.filter((uid) => uid !== auth.userId);
+                for (const assignedUserId of targets) {
+                    const notif = await prisma.notification.create({
+                        data: { userId: assignedUserId, itemId, type: 'assigned', read: false },
+                    });
+                    io.to(userRoom(assignedUserId)).emit('notification_created', notif);
+                    await sendWebPushToUser(assignedUserId, {
+                        title: 'Te asignaron un elemento',
+                        body: 'Revisa tus notificaciones en Sunday.',
+                        url: '/?tab=notifications',
+                        tag: `assigned-${itemId}`,
+                    });
+                }
             }
         }
         catch (e) {
@@ -2521,6 +3105,7 @@ io.on('connection', (socket) => {
             }
             else {
                 // Fallback global si no hay board asociado.
+                // TODO: segmentar por room cuando boardId esté disponible.
                 io.emit('group_deleted', { groupId });
             }
         }
@@ -2559,6 +3144,7 @@ io.on('connection', (socket) => {
             }
             else {
                 // Fallback global si no hay board asociado.
+                // TODO: segmentar por room cuando boardId esté disponible.
                 io.emit('group_renamed', { id: updated.id, name: updated.name, color: updated.color });
             }
         }
@@ -2583,6 +3169,32 @@ io.on('connection', (socket) => {
         }
         catch (e) {
             console.error('Error moving group:', e);
+        }
+    }));
+    socket.on('reorder_groups', withSocketRoles('reorder_groups', ['VENTAS', 'DISENO'], async (_auth, data) => {
+        try {
+            const boardId = typeof data?.boardId === 'string' ? data.boardId : '';
+            const updates = Array.isArray(data?.updates) ? data.updates : [];
+            if (!boardId || updates.length === 0)
+                return;
+            await prisma.$transaction(updates.map((u) => prisma.group.updateMany({
+                where: {
+                    id: typeof u?.id === 'string' ? u.id : '',
+                    boardId,
+                },
+                data: {
+                    position: Number.isFinite(Number(u?.position)) ? Number(u.position) : 0,
+                },
+            })));
+            const groups = await prisma.group.findMany({
+                where: { boardId },
+                select: { id: true, position: true },
+                orderBy: { position: 'asc' },
+            });
+            io.to(boardRoom(boardId)).emit('groups_reordered', { boardId, groups });
+        }
+        catch (e) {
+            console.error('Error reordering groups:', e);
         }
     }));
     // ── COLUMN EVENTS ─────────────────────────────────────────────────────────
@@ -2621,6 +3233,7 @@ io.on('connection', (socket) => {
             }
             else {
                 // Fallback global si no hay board asociado.
+                // TODO: segmentar por room cuando boardId esté disponible.
                 io.emit('column_renamed', updated);
             }
         }
@@ -2650,6 +3263,7 @@ io.on('connection', (socket) => {
             }
             else {
                 // Fallback global si no hay board asociado.
+                // TODO: segmentar por room cuando boardId esté disponible.
                 io.emit('column_settings_updated', updated);
             }
         }
@@ -2671,6 +3285,7 @@ io.on('connection', (socket) => {
             }
             else {
                 // Fallback global si no hay board asociado.
+                // TODO: segmentar por room cuando boardId esté disponible.
                 io.emit('column_deleted', { columnId });
             }
         }
@@ -2737,7 +3352,7 @@ io.on('connection', (socket) => {
                         await sendWebPushToUser(au.id, {
                             title: 'Nuevo comentario en un elemento asignado',
                             body: preview,
-                            url: '/inbox',
+                            url: '/?tab=notifications',
                             tag: `comment-${item.id}`,
                         });
                     }
@@ -2754,6 +3369,16 @@ io.on('connection', (socket) => {
     });
 });
 const PORT = process.env.PORT || 3001;
+node_cron_1.default.schedule('0 2 * * *', async () => {
+    await (0, backupService_1.runBackup)();
+    await (0, backupService_1.cleanOldBackups)();
+}, { timezone: 'America/Mexico_City' });
+console.log(JSON.stringify({
+    level: 'info',
+    msg: 'backup_cron_registered',
+    schedule: '0 2 * * *',
+    timezone: 'America/Mexico_City',
+}));
 httpServer.listen(PORT, () => {
     console.log(`Sunday Server running on port ${PORT}`);
 });

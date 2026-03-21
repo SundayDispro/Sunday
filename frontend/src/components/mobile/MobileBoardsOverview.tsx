@@ -136,7 +136,7 @@ export function MobileBoardsOverview({
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           placeholder="Buscar tableros..."
-          className="w-full pl-9 pr-3 py-2.5 min-h-[44px] rounded-2xl border border-monday-border bg-[var(--monday-surface)] text-[13px] text-monday-text placeholder:text-monday-subtext focus:outline-none focus:ring-2 focus:ring-monday-blue"
+          className="w-full pl-9 pr-3 py-2.5 min-h-[44px] rounded-2xl border border-monday-border bg-[var(--monday-surface)] text-[16px] sm:text-[13px] text-monday-text placeholder:text-monday-subtext focus:outline-none focus:ring-2 focus:ring-monday-blue"
         />
       </div>
       </div>

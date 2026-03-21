@@ -34,6 +34,8 @@ self.addEventListener('activate', (event) => {
 });
 
 self.addEventListener('fetch', (event) => {
+  // TODO: migrar a network-first para navegación y stale-while-revalidate
+  // para assets. Bump manual de versión hasta implementar build hash.
   // Solo manejamos requests HTTP(s) GET para evitar errores de respuesta inválida.
   if (event.request.method !== 'GET') return;
   const reqUrl = event.request.url || '';

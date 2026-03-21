@@ -102,7 +102,17 @@ model BoardColumn {
   settings     String? // JSON string (legacy) for specific settings
   settingsJson Json?   // Sombra JSONB para Postgres
   values   ColumnValue[]
+
+  @@unique([boardId, title, type])
 }
+
+// TODO(db/indexes): agregar índices de consulta frecuentes en próximo deploy con migración dedicada:
+// - Board: @@index([workspaceId])
+// - Group: @@index([boardId])
+// - Item: @@index([groupId])
+// - BoardColumn: @@index([boardId]) (además del unique compuesto)
+// - Doc: @@index([workspaceId]) y @@index([boardId])
+// - CalendarEvent: @@index([boardId, eventDate])
 
 model ColumnValue {
   id       String      @id @default(uuid())

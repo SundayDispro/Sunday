@@ -47,6 +47,22 @@ function toValueJson(legacyValue: string): Prisma.JsonValue | null {
   }
 }
 
+/** Query/params de Express pueden ser `string | string[]`; normaliza a un string o null. */
+function queryParamToString(value: unknown): string | null {
+  if (typeof value === 'string') return value.trim() || null;
+  if (Array.isArray(value) && typeof value[0] === 'string') return value[0].trim() || null;
+  return null;
+}
+
+/** `JsonValue` admite `null` plano; en create/update Prisma espera `InputJsonValue` o `JsonNull`. */
+function jsonToInput(
+  v: Prisma.JsonValue | null | undefined
+): Prisma.InputJsonValue | typeof Prisma.JsonNull | undefined {
+  if (v === undefined) return undefined;
+  if (v === null) return Prisma.JsonNull;
+  return v as Prisma.InputJsonValue;
+}
+
 // CORS estricto:
 // - En producción: ALLOWED_ORIGINS NO puede ser vacío ni '*'.
 // - En dev: se permite '*' para no bloquear el ciclo rápido.
@@ -312,8 +328,13 @@ app.post('/api/workspaces', authenticateToken, requireRoles(['ADMIN']), async (r
 // Panel de Docs: listas de tareas por usuario (cada usuario solo ve las suyas)
 app.get('/api/workspaces/:workspaceId/panel-notes', authenticateToken, async (req, res) => {
   try {
-    const { workspaceId } = req.params;
-    const userId = typeof req.query.userId === 'string' ? req.query.userId : null;
+    const workspaceId = queryParamToString(req.params.workspaceId);
+    if (!workspaceId) return res.status(400).json({ error: 'workspaceId inválido' });
+    const authUser = req.authUser;
+    if (!authUser) return res.status(401).json({ error: 'No autenticado' });
+    const requestedUserId = queryParamToString(req.query.userId);
+    const effectiveUserId =
+      authUser.role === 'ADMIN' && requestedUserId ? requestedUserId : authUser.id;
     const w = await prisma.workspace.findUnique({ where: { id: workspaceId }, select: { panelNotes: true } });
     if (!w) return res.status(404).json({ error: 'Workspace no encontrado' });
     let panelNotes: unknown[] = [];
@@ -321,11 +342,7 @@ app.get('/api/workspaces/:workspaceId/panel-notes', authenticateToken, async (re
       try {
         const parsed = JSON.parse(w.panelNotes);
         const all = Array.isArray(parsed) ? parsed : [];
-        if (userId) {
-          panelNotes = all.filter((item: { ownerId?: string }) => item && String(item.ownerId) === userId);
-        } else {
-          panelNotes = all;
-        }
+        panelNotes = all.filter((item: { ownerId?: string }) => item && String(item.ownerId) === effectiveUserId);
       } catch {
         panelNotes = [];
       }
@@ -339,44 +356,47 @@ app.get('/api/workspaces/:workspaceId/panel-notes', authenticateToken, async (re
 
 app.patch('/api/workspaces/:workspaceId/panel-notes', authenticateToken, async (req, res) => {
   try {
-    const { workspaceId } = req.params;
+    const workspaceId = queryParamToString(req.params.workspaceId);
+    if (!workspaceId) return res.status(400).json({ error: 'workspaceId inválido' });
     const body = req.body ?? {};
     const panelNotes = Array.isArray(body.panelNotes) ? body.panelNotes : undefined;
-    const userId = typeof body.userId === 'string' ? body.userId : null;
+    const authUser = req.authUser;
+    if (!authUser) return res.status(401).json({ error: 'No autenticado' });
+    const requestedUserId = typeof body.userId === 'string' ? body.userId : null;
+    const effectiveUserId =
+      authUser.role === 'ADMIN' && requestedUserId ? requestedUserId : authUser.id;
     if (panelNotes === undefined) return res.status(400).json({ error: 'panelNotes es obligatorio (array)' });
 
     let merged: unknown[];
-    if (userId) {
-      const w = await prisma.workspace.findUnique({ where: { id: workspaceId }, select: { panelNotes: true } });
-      if (!w) return res.status(404).json({ error: 'Workspace no encontrado' });
-      let current: unknown[] = [];
-      if (w.panelNotes && String(w.panelNotes).trim()) {
-        try {
-          const parsed = JSON.parse(w.panelNotes);
-          current = Array.isArray(parsed) ? parsed : [];
-        } catch {
-          current = [];
-        }
+    const w = await prisma.workspace.findUnique({ where: { id: workspaceId }, select: { panelNotes: true } });
+    if (!w) return res.status(404).json({ error: 'Workspace no encontrado' });
+    let current: unknown[] = [];
+    if (w.panelNotes && String(w.panelNotes).trim()) {
+      try {
+        const parsed = JSON.parse(w.panelNotes);
+        current = Array.isArray(parsed) ? parsed : [];
+      } catch {
+        current = [];
       }
-      const others = current.filter((item: { ownerId?: string }) => item && String(item.ownerId) !== userId);
-      const withOwner = panelNotes.map((n: { ownerId?: string; [k: string]: unknown }) => ({
-        ...n,
-        ownerId: n.ownerId ?? userId,
-      }));
-      merged = [...others, ...withOwner];
-    } else {
-      merged = panelNotes;
     }
+    const others = (current as { ownerId?: string }[]).filter((item) =>
+      item ? String(item.ownerId) !== effectiveUserId : false
+    );
+    const withOwner = panelNotes.map((n: { ownerId?: string; [k: string]: unknown }) => ({
+      ...n,
+      ownerId: n.ownerId ?? effectiveUserId,
+    }));
+    merged = [...others, ...withOwner];
 
     const workspace = await prisma.workspace.update({
       where: { id: workspaceId },
       data: {
         panelNotes: JSON.stringify(merged),
-        panelNotesJson: merged as unknown as Prisma.JsonValue,
+        panelNotesJson: merged as Prisma.InputJsonValue,
       },
     });
     const saved = JSON.parse(workspace.panelNotes || '[]');
-    const toReturn = userId ? saved.filter((item: { ownerId?: string }) => String(item?.ownerId) === userId) : saved;
+    const toReturn = saved.filter((item: { ownerId?: string }) => String(item?.ownerId) === effectiveUserId);
     res.json({ panelNotes: toReturn });
   } catch (e) {
     if ((e as { code?: string })?.code === 'P2025') return res.status(404).json({ error: 'Workspace no encontrado' });
@@ -389,7 +409,7 @@ app.patch('/api/workspaces/:workspaceId/panel-notes', authenticateToken, async (
 app.get('/api/my-work', authenticateToken, async (req, res) => {
   try {
     const userId = req.authUser?.id;
-    const workspaceId = typeof req.query.workspaceId === 'string' ? req.query.workspaceId : null;
+    const workspaceId = queryParamToString(req.query.workspaceId);
     if (!userId) return res.status(401).json({ error: 'No autenticado' });
 
     const boards = await prisma.board.findMany({
@@ -454,6 +474,13 @@ app.get('/api/my-work', authenticateToken, async (req, res) => {
 });
 
 // Grupos de documentos por usuario (custom groups + assignments), mismo patrón que panel-notes
+// TODO(ts-debt/doc-groups): revisar contrato API compartido con el frontend (payload extendido vs legacy solo groups/assignments).
+type DocGroupsUserEntry = {
+  groups: { id: string; name: string }[];
+  assignments: Record<string, string>;
+  subgroupsByType: Record<string, { id: string; name: string }[]>;
+  subgroupAssignments: Record<string, string>;
+};
 app.get('/api/workspaces/:workspaceId/doc-groups', authenticateToken, async (req, res) => {
   const defaultPayload = {
     groups: [] as { id: string; name: string }[],
@@ -462,8 +489,11 @@ app.get('/api/workspaces/:workspaceId/doc-groups', authenticateToken, async (req
     subgroupAssignments: {} as Record<string, string>,
   };
   try {
-    const { workspaceId } = req.params;
-    const userId = typeof req.query.userId === 'string' ? req.query.userId : null;
+    const workspaceId = queryParamToString(req.params.workspaceId);
+    if (!workspaceId) return res.status(400).json({ error: 'workspaceId inválido' });
+    const authUser = req.authUser;
+    if (!authUser) return res.status(401).json({ error: 'No autenticado' });
+    const effectiveUserId = authUser.id;
     const w = await prisma.workspace.findUnique({
       where: { id: workspaceId },
       select: { id: true, docGroups: true, docGroupsJson: true },
@@ -492,7 +522,7 @@ app.get('/api/workspaces/:workspaceId/doc-groups', authenticateToken, async (req
     }
 
     if (parsed) {
-      const userData = userId && parsed[userId] ? parsed[userId] : null;
+      const userData = parsed[effectiveUserId] ? parsed[effectiveUserId] : null;
       if (userData) {
         defaultPayload.groups = Array.isArray(userData.groups) ? userData.groups : [];
         defaultPayload.assignments =
@@ -513,25 +543,27 @@ app.get('/api/workspaces/:workspaceId/doc-groups', authenticateToken, async (req
 
 app.patch('/api/workspaces/:workspaceId/doc-groups', authenticateToken, async (req, res) => {
   try {
-    const { workspaceId } = req.params;
+    const workspaceId = queryParamToString(req.params.workspaceId);
+    if (!workspaceId) return res.status(400).json({ error: 'workspaceId inválido' });
     const body = req.body ?? {};
-    const userId = typeof body.userId === 'string' ? body.userId : null;
-    if (!userId) return res.status(400).json({ error: 'userId es obligatorio' });
+    const authUser = req.authUser;
+    if (!authUser) return res.status(401).json({ error: 'No autenticado' });
+    const effectiveUserId = authUser.id;
 
     const w = await prisma.workspace.findUnique({ where: { id: workspaceId }, select: { docGroups: true } });
     if (!w) return res.status(404).json({ error: 'Workspace no encontrado' });
 
-    let all: Record<string, { groups: { id: string; name: string }[]; assignments: Record<string, string> }> = {};
+    let all: Record<string, DocGroupsUserEntry> = {};
     if (w.docGroups && String(w.docGroups).trim()) {
       try {
-        all = JSON.parse(w.docGroups);
-        if (!all || typeof all !== 'object') all = {};
+        const parsed = JSON.parse(w.docGroups) as unknown;
+        all = parsed && typeof parsed === 'object' ? (parsed as Record<string, DocGroupsUserEntry>) : {};
       } catch {
         all = {};
       }
     }
 
-    let current = all[userId];
+    let current = all[effectiveUserId];
     if (!current || typeof current !== 'object') {
       current = { groups: [], assignments: {}, subgroupsByType: {}, subgroupAssignments: {} };
     }
@@ -549,13 +581,13 @@ app.patch('/api/workspaces/:workspaceId/doc-groups', authenticateToken, async (r
     if (body.subgroupAssignments !== undefined && typeof body.subgroupAssignments === 'object') {
       current.subgroupAssignments = body.subgroupAssignments;
     }
-    all[userId] = current;
+    all[effectiveUserId] = current;
 
     await prisma.workspace.update({
       where: { id: workspaceId },
       data: {
         docGroups: JSON.stringify(all),
-        docGroupsJson: all as unknown as Prisma.JsonValue,
+        docGroupsJson: all as Prisma.InputJsonValue,
       },
     });
     res.json({
@@ -574,7 +606,8 @@ app.patch('/api/workspaces/:workspaceId/doc-groups', authenticateToken, async (r
 // Update workspace (rename, description) — solo ADMIN
 app.patch('/api/workspaces/:id', authenticateToken, requireRoles(['ADMIN']), async (req, res) => {
   try {
-    const { id } = req.params;
+    const id = queryParamToString(req.params.id);
+    if (!id) return res.status(400).json({ error: 'id inválido' });
     const body = req.body ?? {};
     const name = body.name != null ? String(body.name).trim() : undefined;
     const description = body.description !== undefined ? (body.description === null || body.description === '' ? null : String(body.description)) : undefined;
@@ -604,7 +637,8 @@ app.patch('/api/workspaces/:id', authenticateToken, requireRoles(['ADMIN']), asy
 // Delete workspace (cascade deletes boards)
 app.delete('/api/workspaces/:id', authenticateToken, requireRoles(['ADMIN']), async (req, res) => {
   try {
-    const { id } = req.params;
+    const id = queryParamToString(req.params.id);
+    if (!id) return res.status(400).json({ error: 'id inválido' });
     await prisma.workspace.delete({ where: { id } });
     res.status(204).send();
   } catch (error) {
@@ -622,11 +656,13 @@ app.get('/api/search', authenticateToken, async (req, res) => {
     const authUser = req.authUser;
     if (!authUser) return res.status(401).json({ error: 'No autenticado' });
 
-    const q = (req.query.q as string)?.trim()?.toLowerCase();
+    const qRaw = queryParamToString(req.query.q);
+    const q = qRaw?.toLowerCase() ?? '';
     if (!q) return res.json([]);
-    const workspaceId = typeof req.query.workspaceId === 'string' ? req.query.workspaceId : null;
+    const workspaceId = queryParamToString(req.query.workspaceId);
     const isBroadRole = ['ADMIN', 'VENTAS', 'DISENO'].includes(authUser.role);
 
+    // TODO(db/perf): reducir include y mover más filtros al query de DB (evitar filtrar todo en memoria).
     const boards = await prisma.board.findMany({
       where: workspaceId ? { workspaceId } : undefined,
       include: {
@@ -682,7 +718,7 @@ app.get('/api/search', authenticateToken, async (req, res) => {
 // Get all boards (for sidebar list), optionally filtered by workspace
 app.get('/api/boards', authenticateToken, async (req, res) => {
   try {
-    const { workspaceId } = req.query as { workspaceId?: string };
+    const workspaceId = queryParamToString(req.query.workspaceId);
     const where = workspaceId ? { workspaceId } : undefined;
     const boards = await prisma.board.findMany({
       where,
@@ -698,7 +734,8 @@ app.get('/api/boards', authenticateToken, async (req, res) => {
 // Reorder columns within a board (estructura del tablero: ADMIN, VENTAS)
 app.post('/api/boards/:id/columns/reorder', authenticateToken, requireRoles(['ADMIN', 'VENTAS']), async (req, res) => {
   try {
-    const boardId = req.params.id;
+    const boardId = queryParamToString(req.params.id);
+    if (!boardId) return res.status(400).json({ error: 'board id inválido' });
     const updates = (req.body?.updates ?? []) as { id: string; position: number }[];
     if (!Array.isArray(updates) || updates.length === 0) {
       return res.status(400).json({ error: 'updates array is required' });
@@ -772,7 +809,8 @@ app.post('/api/boards', authenticateToken, requireRoles(['ADMIN', 'VENTAS']), as
 // Delete board (cascade via Prisma relations)
 app.delete('/api/boards/:id', authenticateToken, requireRoles(['ADMIN']), async (req, res) => {
   try {
-    const { id } = req.params;
+    const id = queryParamToString(req.params.id);
+    if (!id) return res.status(400).json({ error: 'id inválido' });
     await prisma.board.delete({ where: { id } });
     res.status(204).send();
   } catch (error) {
@@ -833,11 +871,11 @@ app.post('/api/boards/link-doc', authenticateToken, requireRoles(['ADMIN', 'VENT
     }
     if (column.type === 'excel') {
       const value = JSON.stringify({ docId });
-      const valueJson = toValueJson(value);
+      const valueJsonIn = jsonToInput(toValueJson(value));
       const updated = await prisma.columnValue.upsert({
         where: { itemId_columnId: { itemId, columnId } },
-        update: { value, valueJson },
-        create: { itemId, columnId, value, valueJson },
+        update: { value, valueJson: valueJsonIn },
+        create: { itemId, columnId, value, valueJson: valueJsonIn },
       });
       io.to(boardRoom(column.boardId)).emit('column_value_updated', updated);
       return res.json({ ok: true, updated });
@@ -857,11 +895,11 @@ app.post('/api/boards/link-doc', authenticateToken, requireRoles(['ADMIN', 'VENT
       const docIdKey = docType === 'cotizacion' ? 'cotizacionDocId' : docType === 'levantamiento' ? 'levantamientoDocId' : 'hojaTrabajoDocId';
       parsed[docIdKey] = docId;
       const value = JSON.stringify(parsed);
-      const valueJson = toValueJson(value);
+      const valueJsonIn = jsonToInput(toValueJson(value));
       const updated = await prisma.columnValue.upsert({
         where: { itemId_columnId: { itemId, columnId } },
-        update: { value, valueJson },
-        create: { itemId, columnId, value, valueJson },
+        update: { value, valueJson: valueJsonIn },
+        create: { itemId, columnId, value, valueJson: valueJsonIn },
       });
       io.to(boardRoom(column.boardId)).emit('column_value_updated', updated);
       return res.json({ ok: true, updated });
@@ -875,8 +913,10 @@ app.post('/api/boards/link-doc', authenticateToken, requireRoles(['ADMIN', 'VENT
 
 app.get('/api/boards/:id', authenticateToken, async (req, res) => {
   try {
+    const id = queryParamToString(req.params.id);
+    if (!id) return res.status(400).json({ error: 'id inválido' });
     const board = await prisma.board.findUnique({
-      where: { id: req.params.id },
+      where: { id },
       include: {
         groups: {
           orderBy: { position: 'asc' },
@@ -903,8 +943,10 @@ app.get('/api/boards/:id', authenticateToken, async (req, res) => {
 // Get updates for an item
 app.get('/api/items/:itemId/updates', authenticateToken, async (req, res) => {
   try {
+    const itemId = queryParamToString(req.params.itemId);
+    if (!itemId) return res.status(400).json({ error: 'itemId inválido' });
     const updates = await prisma.update.findMany({
-      where: { itemId: req.params.itemId },
+      where: { itemId },
       orderBy: { createdAt: 'desc' },
       select: {
         id: true,
@@ -932,8 +974,9 @@ app.get('/api/items/:itemId/updates', authenticateToken, async (req, res) => {
 // --- Bandeja feed (publicaciones con @mentions) ---
 app.get('/api/feed', authenticateToken, async (req, res) => {
   try {
-    const filter = req.query.filter as string; // 'mentions' = solo donde me mencionaron
-    const userId = req.query.userId as string;
+    const filter = queryParamToString(req.query.filter) ?? ''; // 'mentions' = solo donde me mencionaron
+    const authUserId = req.authUser?.id;
+    if (!authUserId) return res.status(401).json({ error: 'No autenticado' });
     const posts = await prisma.feedPost.findMany({
       orderBy: { createdAt: 'desc' },
       include: { author: true },
@@ -947,10 +990,10 @@ app.get('/api/feed', authenticateToken, async (req, res) => {
         mentionedUserIds: (() => { try { return JSON.parse(p.mentionedUserIds || '[]'); } catch { return []; } })(),
       };
     });
-    if (filter === 'mentions' && userId) {
+    if (filter === 'mentions') {
       list = list.filter(p => {
         const ids = (p as any).mentionedUserIds as string[];
-        return Array.isArray(ids) && ids.includes(userId);
+        return Array.isArray(ids) && ids.includes(authUserId);
       });
     }
     res.json(list);
@@ -986,6 +1029,7 @@ app.post('/api/feed', authenticateToken, async (req, res) => {
         content: content.trim(),
         authorId,
         mentionedUserIds: JSON.stringify(ids),
+        mentionedUserIdsJson: ids as Prisma.InputJsonValue,
       },
       include: { author: true },
     });
@@ -1120,7 +1164,8 @@ app.get('/api/users', authenticateToken, async (req, res) => {
 // Actualizar datos básicos de un usuario (solo ADMIN)
 app.patch('/api/users/:id', requireAuth, requireAdmin, async (req, res) => {
   try {
-    const { id } = req.params;
+    const id = queryParamToString(req.params.id);
+    if (!id) return res.status(400).json({ error: 'id inválido' });
     const { name, username, password, role: bodyRole } = req.body ?? {};
 
     const data: {
@@ -1180,7 +1225,8 @@ app.patch('/api/users/:id', requireAuth, requireAdmin, async (req, res) => {
 // Actualizar estado del usuario (solo el propio usuario)
 app.patch('/api/users/:id/status', requireAuth, async (req, res) => {
   try {
-    const { id } = req.params;
+    const id = queryParamToString(req.params.id);
+    if (!id) return res.status(400).json({ error: 'id inválido' });
     const { status } = req.body;
     const valid = ['available', 'busy', 'offline'];
     if (!status || !valid.includes(status)) {
@@ -1206,7 +1252,10 @@ app.patch('/api/users/:id/status', requireAuth, async (req, res) => {
 
 // Subir/actualizar foto de perfil del usuario
 app.patch('/api/users/:id/avatar', requireAuth, (req, res) => {
-  const { id } = req.params;
+  const id = queryParamToString(req.params.id);
+  if (!id) {
+    return res.status(400).json({ error: 'id inválido' });
+  }
   if (req.authUser?.id !== id) {
     return res.status(403).json({ error: 'Solo puedes cambiar tu propio avatar' });
   }
@@ -1229,8 +1278,8 @@ app.patch('/api/users/:id/avatar', requireAuth, (req, res) => {
         data: { avatarUrl },
       });
       const { password: _p, ...safe } = updated;
-      // Notificar a los clientes conectados
-      io.emit('user_updated', safe);
+      // Notificar por room de usuario para evitar broadcast global.
+      io.to(userRoom(safe.id)).emit('user_updated', safe);
       res.json(safe);
     } catch (e) {
       console.error(e);
@@ -1242,7 +1291,8 @@ app.patch('/api/users/:id/avatar', requireAuth, (req, res) => {
 // Eliminar usuario (solo ADMIN)
 app.delete('/api/users/:id', requireAuth, requireAdmin, async (req, res) => {
   try {
-    const { id } = req.params;
+    const id = queryParamToString(req.params.id);
+    if (!id) return res.status(400).json({ error: 'id inválido' });
     const target = await prisma.user.findUnique({ where: { id } });
     if (!target) return res.status(404).json({ error: 'Usuario no encontrado' });
     if (req.authUser && target.id === req.authUser.id) {
@@ -1293,7 +1343,8 @@ app.get('/api/notifications', authenticateToken, async (req, res) => {
 
 app.patch('/api/notifications/:id/read', authenticateToken, async (req, res) => {
   try {
-    const { id } = req.params;
+    const id = queryParamToString(req.params.id);
+    if (!id) return res.status(400).json({ error: 'id inválido' });
     const userId = req.authUser?.id;
     if (!userId) return res.status(401).json({ error: 'No autenticado' });
     await notificationsService.markAsRead(prisma, id, userId);
@@ -1480,6 +1531,7 @@ function extractUploadUrls(value: string): string[] {
   if (!value) return [];
   const trimmed = value.trim();
   if (!trimmed) return [];
+  // TODO: resolver *DocId para columnas docs (requiere lookup adicional a DB por referencia).
   if (trimmed.startsWith('/uploads/')) return [trimmed];
   try {
     const parsed = JSON.parse(trimmed) as unknown;
@@ -1520,6 +1572,7 @@ async function deletePhysicalFileIfUnreferenced(
   const filename = path.basename(fileUrl);
   if (!filename) return;
   try {
+    // TODO: migrar a verificación por valueJson/parse estructurado para evitar falsos positivos de contains.
     const refCount = await prisma.columnValue.count({
       where: {
         value: { contains: `/uploads/${filename}` },
@@ -1535,13 +1588,8 @@ async function deletePhysicalFileIfUnreferenced(
   }
 }
 
-function queryParamToString(value: unknown): string | null {
-  if (typeof value === 'string') return value.trim() || null;
-  if (Array.isArray(value) && typeof value[0] === 'string') return value[0].trim() || null;
-  return null;
-}
-
 async function collectExportManifestFiles(boardId: string, userId: string): Promise<ExportManifestFile[] | null> {
+  // TODO(db/perf): optimizar manifiesto export con selects mínimos y filtrado progresivo por columnas/tipos.
   const board = await prisma.board.findUnique({
     where: { id: boardId },
     include: {
@@ -1656,7 +1704,8 @@ app.get('/api/docs/check', (_req, res) => {
 
 app.get('/api/docs', authenticateToken, async (req, res) => {
   try {
-    const { workspaceId, boardId } = req.query as { workspaceId?: string; boardId?: string };
+    const workspaceId = queryParamToString(req.query.workspaceId);
+    const boardId = queryParamToString(req.query.boardId);
     if (!workspaceId) {
       return res.status(400).json({ error: 'workspaceId es obligatorio' });
     }
@@ -1695,7 +1744,7 @@ app.post('/api/docs', authenticateToken, async (req, res) => {
         title,
         type,
         content,
-        contentJson,
+        contentJson: jsonToInput(contentJson),
         workspaceId,
         boardId: body.boardId ? String(body.boardId) : null,
         createdBy: body.createdBy ? String(body.createdBy) : null,
@@ -1718,7 +1767,8 @@ app.post('/api/docs', authenticateToken, async (req, res) => {
 // HEAD para comprobar existencia del doc (usado por DocsCellRenderer sin cuerpo)
 app.head('/api/docs/:id', authenticateToken, async (req, res) => {
   try {
-    const { id } = req.params;
+    const id = queryParamToString(req.params.id);
+    if (!id) return res.status(400).end();
     const doc = await prisma.doc.findUnique({ where: { id }, select: { id: true } });
     if (!doc) return res.status(404).end();
     res.status(200).end();
@@ -1770,7 +1820,8 @@ app.get('/api/docs/export-verify', (req, res) => {
 
 app.get('/api/docs/:id', authenticateToken, async (req, res) => {
   try {
-    const { id } = req.params;
+    const id = queryParamToString(req.params.id);
+    if (!id) return res.status(400).json({ error: 'id inválido' });
     const auth = req.get('Authorization') || '';
     const token = auth.startsWith('Bearer ') ? auth.slice(7).trim() : '';
     const exportDocId = token ? getExportDocIdFromToken(token) : null;
@@ -1788,19 +1839,26 @@ app.get('/api/docs/:id', authenticateToken, async (req, res) => {
 
 app.patch('/api/docs/:id', authenticateToken, async (req, res) => {
   try {
-    const { id } = req.params;
+    const id = queryParamToString(req.params.id);
+    if (!id) return res.status(400).json({ error: 'id inválido' });
     const body = req.body ?? {};
-    const data: { title?: string; content?: string; type?: string; contentJson?: Prisma.JsonValue } = {};
+    const data: {
+      title?: string;
+      content?: string;
+      type?: string;
+      contentJson?: Prisma.InputJsonValue | typeof Prisma.JsonNull;
+    } = {};
     if (body.title !== undefined) data.title = String(body.title).trim() || 'Sin título';
     if (body.type !== undefined) data.type = String(body.type).trim() || 'text';
     if (body.content !== undefined) {
       const rawContent = body.content;
       data.content =
         typeof rawContent === 'string' ? rawContent : JSON.stringify(rawContent ?? {});
-      data.contentJson =
+      const parsedJson: Prisma.JsonValue =
         typeof rawContent === 'string'
           ? (JSON.parse(rawContent) as unknown as Prisma.JsonValue)
           : (rawContent as unknown as Prisma.JsonValue);
+      data.contentJson = jsonToInput(parsedJson);
     }
     if (Object.keys(data).length === 0) {
       return res.status(400).json({ error: 'Nada que actualizar' });
@@ -1818,101 +1876,112 @@ app.patch('/api/docs/:id', authenticateToken, async (req, res) => {
 
 app.delete('/api/docs/:id', authenticateToken, async (req, res) => {
   try {
-    const { id } = req.params;
-    // 1) Eliminar el doc
-    await prisma.doc.delete({ where: { id } });
+    const id = queryParamToString(req.params.id);
+    if (!id) return res.status(400).json({ error: 'id inválido' });
+    const cleanupUrls = new Set<string>();
+    const updatesToEmit: Array<{ boardId: string; updated: any }> = [];
 
-    // 2) Limpiar referencias en columnas de tipo docs/excel donde este id esté como docId
-    try {
-      const relevantColumns = await prisma.boardColumn.findMany({
+    await prisma.$transaction(async (tx) => {
+      // 1) Eliminar el doc
+      await tx.doc.delete({ where: { id } });
+
+      // 2) Limpiar referencias en columnas de tipo docs/excel donde este id esté como docId
+      const relevantColumns = await tx.boardColumn.findMany({
         where: {
           type: { in: ['docs', 'excel'] },
         },
         select: { id: true, type: true, boardId: true },
       });
 
-      if (relevantColumns.length > 0) {
-        const columnMap = new Map<string, { colType: string; boardId: string }>();
-        for (const c of relevantColumns) {
-          columnMap.set(c.id, { colType: c.type, boardId: c.boardId });
-        }
-        const columnIds = relevantColumns.map((c) => c.id);
+      if (relevantColumns.length === 0) return;
 
-        const columnValues = await prisma.columnValue.findMany({
-          where: {
-            columnId: { in: columnIds },
-          },
-        });
+      const columnMap = new Map<string, { colType: string; boardId: string }>();
+      for (const c of relevantColumns) {
+        columnMap.set(c.id, { colType: c.type, boardId: c.boardId });
+      }
+      const columnIds = relevantColumns.map((c) => c.id);
 
-        for (const cv of columnValues) {
-          const meta = columnMap.get(cv.columnId);
-          const colType = meta?.colType;
-          const boardId = meta?.boardId;
-          if (!cv.value || !colType || !boardId) continue;
+      const columnValues = await tx.columnValue.findMany({
+        where: {
+          columnId: { in: columnIds },
+        },
+      });
 
-          let changed = false;
-          let nextValue: string | null = cv.value;
+      for (const cv of columnValues) {
+        const meta = columnMap.get(cv.columnId);
+        const colType = meta?.colType;
+        const boardId = meta?.boardId;
+        if (!cv.value || !colType || !boardId) continue;
 
-          if (colType === 'excel') {
-            // Formato esperado: { docId?: string; url?: string }
-            let parsed: { docId?: string; url?: string } | null = null;
-            try {
-              parsed = JSON.parse(cv.value);
-            } catch {
-              parsed = null;
+        // Recolectar posibles archivos para limpieza física posterior.
+        const referencedUrls = extractUploadUrls(cv.value);
+        for (const url of referencedUrls) cleanupUrls.add(url);
+
+        let changed = false;
+        let nextValue: string | null = cv.value;
+
+        if (colType === 'excel') {
+          // Formato esperado: { docId?: string; url?: string }
+          let parsed: { docId?: string; url?: string } | null = null;
+          try {
+            parsed = JSON.parse(cv.value);
+          } catch {
+            parsed = null;
+          }
+          if (parsed) {
+            if (String(parsed.docId || '') === String(id)) {
+              delete parsed.docId;
+              changed = true;
             }
-            if (parsed) {
-              if (String(parsed.docId || '') === String(id)) {
-                delete parsed.docId;
+            if (!parsed.docId && !parsed.url) {
+              nextValue = '';
+            } else {
+              nextValue = JSON.stringify(parsed);
+            }
+          }
+        } else if (colType === 'docs') {
+          // Formato esperado: JSON con posibles claves *DocId
+          let parsed: Record<string, unknown> | null = null;
+          try {
+            parsed = JSON.parse(cv.value);
+          } catch {
+            parsed = null;
+          }
+          if (parsed) {
+            const keys: Array<keyof typeof parsed> = [
+              'cotizacionDocId',
+              'levantamientoDocId',
+              'hojaTrabajoDocId',
+            ];
+            for (const k of keys) {
+              if (String(parsed[k] ?? '') === String(id)) {
+                delete parsed[k];
                 changed = true;
               }
-              if (!parsed.docId && !parsed.url) {
-                nextValue = '';
-              } else {
-                nextValue = JSON.stringify(parsed);
-              }
             }
-          } else if (colType === 'docs') {
-            // Formato esperado: JSON con posibles claves *DocId
-            let parsed: Record<string, unknown> | null = null;
-            try {
-              parsed = JSON.parse(cv.value);
-            } catch {
-              parsed = null;
+            if (Object.keys(parsed).length === 0) {
+              nextValue = '';
+            } else {
+              nextValue = JSON.stringify(parsed);
             }
-            if (parsed) {
-              const keys: Array<keyof typeof parsed> = [
-                'cotizacionDocId',
-                'levantamientoDocId',
-                'hojaTrabajoDocId',
-              ];
-              for (const k of keys) {
-                if (String(parsed[k] ?? '') === String(id)) {
-                  delete parsed[k];
-                  changed = true;
-                }
-              }
-              if (Object.keys(parsed).length === 0) {
-                nextValue = '';
-              } else {
-                nextValue = JSON.stringify(parsed);
-              }
-            }
-          }
-
-          if (changed) {
-            const valueLegacy = nextValue ?? '';
-            const updated = await prisma.columnValue.update({
-              where: { id: cv.id },
-              data: { value: valueLegacy, valueJson: toValueJson(valueLegacy) },
-            });
-            io.to(boardRoom(boardId)).emit('column_value_updated', updated);
           }
         }
+
+        if (changed) {
+          const valueLegacy = nextValue ?? '';
+          const updated = await tx.columnValue.update({
+            where: { id: cv.id },
+            data: { value: valueLegacy, valueJson: jsonToInput(toValueJson(valueLegacy)) },
+          });
+          updatesToEmit.push({ boardId, updated });
+        }
       }
-    } catch (cleanupErr) {
-      console.error('Error limpiando referencias de doc en columnas:', cleanupErr);
+    });
+
+    for (const { boardId, updated } of updatesToEmit) {
+      io.to(boardRoom(boardId)).emit('column_value_updated', updated);
     }
+    void Promise.all(Array.from(cleanupUrls).map((url) => deletePhysicalFileIfUnreferenced(url)));
 
     res.status(204).send();
   } catch (e) {
@@ -1928,7 +1997,7 @@ app.delete('/api/docs/:id', authenticateToken, async (req, res) => {
 
 app.get('/api/designs', authenticateToken, async (req, res) => {
   try {
-    const { workspaceId } = req.query as { workspaceId?: string };
+    const workspaceId = queryParamToString(req.query.workspaceId);
     if (!workspaceId) {
       return res.status(400).json({ error: 'workspaceId es obligatorio' });
     }
@@ -1969,7 +2038,7 @@ app.post('/api/designs', authenticateToken, async (req, res) => {
       data: {
         name,
         content,
-        contentJson,
+        contentJson: jsonToInput(contentJson),
         workspaceId,
         boardId: body.boardId ? String(body.boardId) : null,
         createdBy: body.createdBy ? String(body.createdBy) : null,
@@ -1985,7 +2054,8 @@ app.post('/api/designs', authenticateToken, async (req, res) => {
 
 app.get('/api/designs/:id', authenticateToken, async (req, res) => {
   try {
-    const { id } = req.params;
+    const id = queryParamToString(req.params.id);
+    if (!id) return res.status(400).json({ error: 'id inválido' });
     const design = await prisma.design.findUnique({ where: { id } });
     if (!design) return res.status(404).json({ error: 'Design no encontrado' });
     // TODO: verificar que el usuario tiene acceso al workspace design.workspaceId
@@ -1998,12 +2068,13 @@ app.get('/api/designs/:id', authenticateToken, async (req, res) => {
 
 app.patch('/api/designs/:id', authenticateToken, async (req, res) => {
   try {
-    const { id } = req.params;
+    const id = queryParamToString(req.params.id);
+    if (!id) return res.status(400).json({ error: 'id inválido' });
     const body = req.body ?? {};
     const data: {
       name?: string;
       content?: string;
-      contentJson?: Prisma.JsonValue;
+      contentJson?: Prisma.InputJsonValue | typeof Prisma.JsonNull;
       thumbnailUrl?: string | null;
     } = {};
     if (body.name !== undefined) data.name = String(body.name).trim() || 'Sin título';
@@ -2012,13 +2083,13 @@ app.patch('/api/designs/:id', authenticateToken, async (req, res) => {
       if (typeof rawContent === 'string') {
         data.content = rawContent;
         try {
-          data.contentJson = JSON.parse(rawContent) as unknown as Prisma.JsonValue;
+          data.contentJson = jsonToInput(JSON.parse(rawContent) as unknown as Prisma.JsonValue);
         } catch {
           data.contentJson = undefined;
         }
       } else {
         data.content = JSON.stringify(rawContent ?? {});
-        data.contentJson = rawContent as unknown as Prisma.JsonValue;
+        data.contentJson = jsonToInput(rawContent as unknown as Prisma.JsonValue);
       }
     }
     if (body.thumbnailUrl !== undefined) {
@@ -2040,7 +2111,8 @@ app.patch('/api/designs/:id', authenticateToken, async (req, res) => {
 
 app.delete('/api/designs/:id', authenticateToken, async (req, res) => {
   try {
-    const { id } = req.params;
+    const id = queryParamToString(req.params.id);
+    if (!id) return res.status(400).json({ error: 'id inválido' });
     await prisma.design.delete({ where: { id } });
     res.status(204).end();
   } catch (e) {
@@ -2094,6 +2166,11 @@ app.post(
         return res.status(400).json({ error: 'No se envió ningún archivo' });
       }
       if (req.file.mimetype !== 'application/pdf') {
+        try {
+          await fs.promises.unlink(req.file.path);
+        } catch (unlinkErr) {
+          console.warn('No se pudo borrar archivo temporal de plantilla inválida:', unlinkErr);
+        }
         return res.status(400).json({ error: 'Solo se aceptan archivos PDF para plantillas' });
       }
 
@@ -2338,25 +2415,25 @@ app.put('/api/templates/:kind/config', authenticateToken, async (req, res) => {
     const baseCreate = {
       docType: kind,
       fieldPositions: fieldPositionsStr,
-      fieldPositionsJson: fieldPositions as unknown as Prisma.JsonValue,
+      fieldPositionsJson: fieldPositions as Prisma.InputJsonValue,
       fontColor,
       fontFamily,
       fontSize,
       fontBold,
       fontItalic,
       customBoxes: customBoxesStr,
-      customBoxesJson: customBoxes as unknown as Prisma.JsonValue,
+      customBoxesJson: customBoxes as Prisma.InputJsonValue,
     };
     const baseUpdate = {
       fieldPositions: fieldPositionsStr,
-      fieldPositionsJson: fieldPositions as unknown as Prisma.JsonValue,
+      fieldPositionsJson: fieldPositions as Prisma.InputJsonValue,
       fontColor,
       fontFamily,
       fontSize,
       fontBold,
       fontItalic,
       customBoxes: customBoxesStr,
-      customBoxesJson: customBoxes as unknown as Prisma.JsonValue,
+      customBoxesJson: customBoxes as Prisma.InputJsonValue,
     };
     const createWithDefault =
       defaultContentPayload !== undefined
@@ -2402,7 +2479,8 @@ app.put('/api/templates/:kind/config', authenticateToken, async (req, res) => {
 // ── Calendar-only events (no se crean en tablero ni grupo) ─────────────────
 app.get('/api/boards/:boardId/calendar-events', authenticateToken, async (req, res) => {
   try {
-    const boardId = req.params.boardId;
+    const boardId = queryParamToString(req.params.boardId);
+    if (!boardId) return res.status(400).json({ error: 'boardId inválido' });
     const events = await prisma.calendarEvent.findMany({
       where: { boardId },
       orderBy: { eventDate: 'asc' },
@@ -2416,7 +2494,8 @@ app.get('/api/boards/:boardId/calendar-events', authenticateToken, async (req, r
 
 app.post('/api/boards/:boardId/calendar-events', authenticateToken, requireRoles(['ADMIN', 'VENTAS', 'DISENO']), async (req, res) => {
   try {
-    const boardId = req.params.boardId;
+    const boardId = queryParamToString(req.params.boardId);
+    if (!boardId) return res.status(400).json({ error: 'boardId inválido' });
     const { name, eventType, date, time } = req.body as { name?: string; eventType?: string; date?: string; time?: string };
     if (!eventType || !date) {
       return res.status(400).json({ error: 'eventType y date son obligatorios' });
@@ -2448,7 +2527,9 @@ app.post('/api/boards/:boardId/calendar-events', authenticateToken, requireRoles
 
 app.patch('/api/boards/:boardId/calendar-events/:eventId', authenticateToken, requireRoles(['ADMIN', 'VENTAS', 'DISENO']), async (req, res) => {
   try {
-    const { boardId, eventId } = req.params;
+    const boardId = queryParamToString(req.params.boardId);
+    const eventId = queryParamToString(req.params.eventId);
+    if (!boardId || !eventId) return res.status(400).json({ error: 'boardId o eventId inválido' });
     const { name, eventType, date, time } = req.body as { name?: string; eventType?: string; date?: string; time?: string };
     const existing = await prisma.calendarEvent.findFirst({ where: { id: eventId, boardId } });
     if (!existing) return res.status(404).json({ error: 'Evento no encontrado' });
@@ -2475,7 +2556,9 @@ app.patch('/api/boards/:boardId/calendar-events/:eventId', authenticateToken, re
 
 app.delete('/api/boards/:boardId/calendar-events/:eventId', authenticateToken, requireRoles(['ADMIN', 'VENTAS', 'DISENO']), async (req, res) => {
   try {
-    const { boardId, eventId } = req.params;
+    const boardId = queryParamToString(req.params.boardId);
+    const eventId = queryParamToString(req.params.eventId);
+    if (!boardId || !eventId) return res.status(400).json({ error: 'boardId o eventId inválido' });
     await prisma.calendarEvent.deleteMany({ where: { id: eventId, boardId } });
     io.to(boardRoom(boardId)).emit('calendar_event_deleted', { boardId, eventId });
     res.status(204).send();
@@ -2538,6 +2621,7 @@ io.on('connection', (socket) => {
   socketConnectionCount += 1;
   console.log(JSON.stringify({ level: 'info', msg: 'socket_connected', socketId: socket.id, connectionCount: socketConnectionCount }));
 
+  // TODO(security/types): tipar socket.data con una interfaz concreta para evitar casts repetidos.
   type SocketAuth = { userId: string; role: string };
   const SOCKET_ALLOWED_ROLES = new Set(['ADMIN', 'VENTAS', 'DISENO', 'TALLER', 'USER']);
 
@@ -2592,6 +2676,13 @@ io.on('connection', (socket) => {
   socket.on('join_board', (data: { boardId?: string }) => {
     const boardId = typeof data?.boardId === 'string' ? data.boardId : null;
     if (!boardId) return;
+    const socketUserId = typeof (socket as unknown as { data?: any }).data?.userId === 'string'
+      ? (socket as unknown as { data?: any }).data.userId
+      : null;
+    if (!socketUserId) {
+      socket.emit('action_denied', { event: 'join_board', reason: 'unauthenticated' });
+      return;
+    }
     socket.join(boardRoom(boardId));
   });
 
@@ -2643,8 +2734,8 @@ io.on('connection', (socket) => {
             const valueJson = toValueJson(cv.value);
             await prisma.columnValue.upsert({
               where: { itemId_columnId: { itemId: newItem.id, columnId: cv.columnId } },
-              update: { value: cv.value, valueJson },
-              create: { itemId: newItem.id, columnId: cv.columnId, value: cv.value, valueJson },
+              update: { value: cv.value, valueJson: jsonToInput(valueJson) },
+              create: { itemId: newItem.id, columnId: cv.columnId, value: cv.value, valueJson: jsonToInput(valueJson) },
             });
           }
         }
@@ -2706,6 +2797,7 @@ io.on('connection', (socket) => {
         io.to(boardRoom(item.group.boardId)).emit('item_deleted', { itemId });
       } else {
         // Caso raro sin boardId: mantener global por compatibilidad.
+        // TODO: segmentar por room cuando boardId esté disponible.
         io.emit('item_deleted', { itemId });
       }
     } catch (e) {
@@ -2758,8 +2850,8 @@ io.on('connection', (socket) => {
 
       const updated = await prisma.columnValue.upsert({
         where: { itemId_columnId: { itemId, columnId } },
-        update: { value, valueJson },
-        create: { itemId, columnId, value, valueJson }
+        update: { value, valueJson: jsonToInput(valueJson) },
+        create: { itemId, columnId, value, valueJson: jsonToInput(valueJson) },
       });
       io.to(boardRoom(column.boardId)).emit('column_value_updated', updated);
       if (prevValue && prevValue !== value) {
@@ -3009,29 +3101,24 @@ io.on('connection', (socket) => {
           const parsed = JSON.parse(value);
           const optionId = parsed?.optionId as string | undefined;
           if (optionId === 'colocado') {
-            // Asegurar que exista la columna "Estado Facturación" en el mismo board
-            let billingColumn = await prisma.boardColumn.findFirst({
-              where: {
-                boardId: column.boardId,
-                title: 'Estado Facturación',
-                type: 'status',
-              },
-            });
+            // Asegurar que exista la columna "Estado Facturación" en el mismo board.
+            // Con unique(boardId,title,type), capturamos P2002 para carreras concurrentes.
+            let billingColumn = null;
+            const billingSettings = {
+              options: [
+                { id: 'pendiente_factura', label: 'Pendiente de facturar', color: '#fdab3d' },
+                { id: 'facturado', label: 'Facturado', color: '#579bfc' },
+                { id: 'cobrado', label: 'Cobrado', color: '#00c875' },
+                { id: 'default', label: '', color: '#c4c4c4' },
+              ],
+            };
 
-            if (!billingColumn) {
+            try {
               const lastCol = await prisma.boardColumn.findFirst({
                 where: { boardId: column.boardId },
                 orderBy: { position: 'desc' },
               });
               const newPosition = (lastCol?.position ?? 0) + 1024;
-              const billingSettings = {
-                options: [
-                  { id: 'pendiente_factura', label: 'Pendiente de facturar', color: '#fdab3d' },
-                  { id: 'facturado', label: 'Facturado', color: '#579bfc' },
-                  { id: 'cobrado', label: 'Cobrado', color: '#00c875' },
-                  { id: 'default', label: '', color: '#c4c4c4' },
-                ],
-              };
               billingColumn = await prisma.boardColumn.create({
                 data: {
                   boardId: column.boardId,
@@ -3039,10 +3126,23 @@ io.on('connection', (socket) => {
                   type: 'status',
                   position: newPosition,
                   settings: JSON.stringify(billingSettings),
-                  settingsJson: billingSettings as unknown as Prisma.JsonValue,
+                  settingsJson: billingSettings as Prisma.InputJsonValue,
                 },
               });
               io.to(boardRoom(column.boardId)).emit('column_added', billingColumn);
+            } catch (createErr) {
+              const code = (createErr as { code?: string })?.code;
+              if (code === 'P2002') {
+                billingColumn = await prisma.boardColumn.findFirst({
+                  where: {
+                    boardId: column.boardId,
+                    title: 'Estado Facturación',
+                    type: 'status',
+                  },
+                });
+              } else {
+                throw createErr;
+              }
             }
 
             if (billingColumn) {
@@ -3063,7 +3163,7 @@ io.on('connection', (socket) => {
                     itemId,
                     columnId: billingColumn.id,
                     value: billingLegacyValue,
-                    valueJson: billingValueJson,
+                    valueJson: jsonToInput(billingValueJson),
                   },
                 });
                 io.to(boardRoom(column.boardId)).emit('column_value_updated', billingValue);
@@ -3151,6 +3251,7 @@ io.on('connection', (socket) => {
         io.to(boardRoom(group.boardId)).emit('group_deleted', { groupId });
       } else {
         // Fallback global si no hay board asociado.
+        // TODO: segmentar por room cuando boardId esté disponible.
         io.emit('group_deleted', { groupId });
       }
     } catch (e) {
@@ -3186,6 +3287,7 @@ io.on('connection', (socket) => {
         io.to(boardRoom(group.boardId)).emit('group_renamed', { id: updated.id, name: updated.name, color: updated.color });
       } else {
         // Fallback global si no hay board asociado.
+        // TODO: segmentar por room cuando boardId esté disponible.
         io.emit('group_renamed', { id: updated.id, name: updated.name, color: updated.color });
       }
     } catch (e) {
@@ -3211,6 +3313,38 @@ io.on('connection', (socket) => {
     }
   }));
 
+  socket.on('reorder_groups', withSocketRoles('reorder_groups', ['VENTAS', 'DISENO'], async (_auth, data: any) => {
+    try {
+      const boardId = typeof data?.boardId === 'string' ? data.boardId : '';
+      const updates = Array.isArray(data?.updates) ? data.updates : [];
+      if (!boardId || updates.length === 0) return;
+
+      await prisma.$transaction(
+        updates.map((u: any) =>
+          prisma.group.updateMany({
+            where: {
+              id: typeof u?.id === 'string' ? u.id : '',
+              boardId,
+            },
+            data: {
+              position: Number.isFinite(Number(u?.position)) ? Number(u.position) : 0,
+            },
+          })
+        )
+      );
+
+      const groups = await prisma.group.findMany({
+        where: { boardId },
+        select: { id: true, position: true },
+        orderBy: { position: 'asc' },
+      });
+
+      io.to(boardRoom(boardId)).emit('groups_reordered', { boardId, groups });
+    } catch (e) {
+      console.error('Error reordering groups:', e);
+    }
+  }));
+
   // ── COLUMN EVENTS ─────────────────────────────────────────────────────────
 
   socket.on('add_column', withSocketRoles('add_column', ['VENTAS'], async (_auth, data: any) => {
@@ -3227,7 +3361,7 @@ io.on('connection', (socket) => {
           type,
           position,
           settings: settings || null,
-          settingsJson: settingsJson ?? null,
+          settingsJson: jsonToInput(settingsJson ?? undefined),
         }
       });
       io.to(boardRoom(boardId)).emit('column_added', newColumn);
@@ -3248,6 +3382,7 @@ io.on('connection', (socket) => {
         io.to(boardRoom(column.boardId)).emit('column_renamed', updated);
       } else {
         // Fallback global si no hay board asociado.
+        // TODO: segmentar por room cuando boardId esté disponible.
         io.emit('column_renamed', updated);
       }
     } catch (e) {
@@ -3266,7 +3401,7 @@ io.on('connection', (socket) => {
         where: { id: columnId },
         data: {
           settings: settings ?? null,
-          settingsJson: parsedSettings ?? null,
+          settingsJson: jsonToInput(parsedSettings ?? undefined),
         },
       });
       const column = await prisma.boardColumn.findUnique({
@@ -3277,6 +3412,7 @@ io.on('connection', (socket) => {
         io.to(boardRoom(column.boardId)).emit('column_settings_updated', updated);
       } else {
         // Fallback global si no hay board asociado.
+        // TODO: segmentar por room cuando boardId esté disponible.
         io.emit('column_settings_updated', updated);
       }
     } catch (e) {
@@ -3297,6 +3433,7 @@ io.on('connection', (socket) => {
         io.to(boardRoom(column.boardId)).emit('column_deleted', { columnId });
       } else {
         // Fallback global si no hay board asociado.
+        // TODO: segmentar por room cuando boardId esté disponible.
         io.emit('column_deleted', { columnId });
       }
     } catch (e) {
@@ -3322,6 +3459,7 @@ io.on('connection', (socket) => {
         prisma.item.findUnique({
           where: { id: itemId },
           select: {
+            id: true,
             name: true,
             group: { include: { board: { select: { name: true } } } },
             columnValues: {
@@ -3343,10 +3481,12 @@ io.on('connection', (socket) => {
       // Emitir a autor y a usuarios asignados al ítem (rooms por usuario)
       const recipientIds = new Set<string>();
       if (authorId) recipientIds.add(authorId);
-      item.columnValues.forEach((cv) => {
-        const v = cv.value?.trim();
-        if (v) recipientIds.add(v);
-      });
+      if (item) {
+        item.columnValues.forEach((cv) => {
+          const v = cv.value?.trim();
+          if (v) recipientIds.add(v);
+        });
+      }
       recipientIds.forEach((uid) => io.to(userRoom(uid)).emit('update_added', safeUpdate));
 
       // Notificaciones Web Push a los usuarios asignados al item (excepto el propio autor)

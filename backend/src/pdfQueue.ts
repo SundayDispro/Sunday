@@ -1,7 +1,8 @@
 import puppeteer from 'puppeteer';
+import type { Browser } from 'puppeteer';
 
 type Job<T> = {
-  run: (browser: puppeteer.Browser) => Promise<T>;
+  run: (browser: Browser) => Promise<T>;
   resolve: (value: T | PromiseLike<T>) => void;
   reject: (reason?: unknown) => void;
 };
@@ -10,9 +11,9 @@ const MAX_CONCURRENCY = 2;
 let activeBrowsers = 0;
 const queue: Job<unknown>[] = [];
 
-async function launchBrowser(): Promise<puppeteer.Browser> {
+async function launchBrowser(): Promise<Browser> {
   return puppeteer.launch({
-    headless: 'new',
+    headless: true,
     args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-pdf-viewer-hud'],
   });
 }
@@ -23,7 +24,7 @@ async function processQueue(): Promise<void> {
   if (!job) return;
 
   activeBrowsers += 1;
-  let browser: puppeteer.Browser | null = null;
+  let browser: Browser | null = null;
 
   try {
     browser = await launchBrowser();
@@ -42,9 +43,9 @@ async function processQueue(): Promise<void> {
   }
 }
 
-export function enqueuePdfTask<T>(run: (browser: puppeteer.Browser) => Promise<T>): Promise<T> {
+export function enqueuePdfTask<T>(run: (browser: Browser) => Promise<T>): Promise<T> {
   return new Promise<T>((resolve, reject) => {
-    queue.push({ run, resolve, reject });
+    queue.push({ run, resolve, reject } as Job<unknown>);
     void processQueue();
   });
 }

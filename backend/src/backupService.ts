@@ -58,10 +58,38 @@ export async function runBackup(): Promise<void> {
   await new Promise<void>((resolve, reject) => {
     const output = fs.createWriteStream(zipPath);
     const archive = archiver('zip', { zlib: { level: 6 } });
+    let settled = false;
 
-    output.on('close', () => resolve());
-    output.on('error', reject);
-    archive.on('error', reject);
+    const fail = (err: unknown) => {
+      if (settled) return;
+      settled = true;
+      try {
+        archive.abort();
+      } catch {
+        // ignore
+      }
+      void fs.promises
+        .unlink(zipPath)
+        .catch(() => {})
+        .finally(() => {
+          console.warn(
+            JSON.stringify({
+              level: 'warn',
+              msg: 'backup_archive_error',
+              error: String(err),
+            })
+          );
+          reject(err instanceof Error ? err : new Error(String(err)));
+        });
+    };
+
+    output.on('close', () => {
+      if (settled) return;
+      settled = true;
+      resolve();
+    });
+    output.on('error', fail);
+    archive.on('error', fail);
 
     archive.pipe(output);
     archive.directory(UPLOADS_DIR, false);

@@ -63,10 +63,15 @@ function hexToRgb(hex) {
     }
     return (0, pdf_lib_1.rgb)(0, 0, 0);
 }
-// Rutas relativas al backend para que funcionen aunque el proceso se inicie desde la raíz del repo
+// Rutas relativas al backend para que funcionen aunque el proceso se inicie desde cualquier cwd.
 const isInDist = __dirname.includes(path_1.default.sep + 'dist' + path_1.default.sep);
 const BACKEND_ROOT = isInDist ? path_1.default.resolve(__dirname, '..', '..') : path_1.default.resolve(__dirname, '..');
-const TEMPLATES_DIR = path_1.default.join(BACKEND_ROOT, 'templates');
+const TEMPLATE_DIR_CANDIDATES = [
+    path_1.default.join(BACKEND_ROOT, 'templates'),
+    path_1.default.join(process.cwd(), 'templates'),
+    path_1.default.join(process.cwd(), 'backend', 'templates'),
+];
+const TEMPLATES_DIR = TEMPLATE_DIR_CANDIDATES[0];
 const FONTS_DIR = path_1.default.join(BACKEND_ROOT, 'assets', 'fonts', 'AvertaStd');
 const UPLOAD_DIR = path_1.default.join(process.cwd(), 'uploads');
 /** Formato de fecha para PDF (DD/MM/YYYY como en Corel/Illustrator). */
@@ -109,8 +114,12 @@ function getTemplatePath(kind) {
     return path_1.default.join(TEMPLATES_DIR, `${kind}.pdf`);
 }
 function getTemplatePathIfExists(kind) {
-    const p = getTemplatePath(kind);
-    return fs_1.default.existsSync(p) ? p : null;
+    for (const dir of TEMPLATE_DIR_CANDIDATES) {
+        const p = path_1.default.join(dir, `${kind}.pdf`);
+        if (fs_1.default.existsSync(p))
+            return p;
+    }
+    return null;
 }
 /** Ruta del directorio de plantillas (para que el endpoint de upload guarde en el mismo sitio). */
 function getTemplatesDir() {
@@ -138,15 +147,17 @@ async function createPdfFromScreenshotPng(pngBuffer) {
 }
 /** Si no hay PDF, devuelve la ruta a una imagen de plantilla (JPG o PNG) si existe. */
 function getTemplateImagePathIfExists(kind) {
-    const base = path_1.default.join(TEMPLATES_DIR, kind);
-    const candidates = [
-        { path: base + '.jpg', isPng: false },
-        { path: base + '.jpeg', isPng: false },
-        { path: base + '.png', isPng: true },
-    ];
-    for (const c of candidates) {
-        if (fs_1.default.existsSync(c.path))
-            return c;
+    for (const dir of TEMPLATE_DIR_CANDIDATES) {
+        const base = path_1.default.join(dir, kind);
+        const candidates = [
+            { path: base + '.jpg', isPng: false },
+            { path: base + '.jpeg', isPng: false },
+            { path: base + '.png', isPng: true },
+        ];
+        for (const c of candidates) {
+            if (fs_1.default.existsSync(c.path))
+                return c;
+        }
     }
     return null;
 }

@@ -823,7 +823,6 @@ export const ItemDetailsPanel: React.FC<Props> = ({ item, onClose, variant = 'pa
     onDragEnd: handleDragEnd as any,
     animate: animationControls,
     className: panelClassName,
-    style: { touchAction: 'none' as const },
   } : { className: panelClassName };
 
   return (

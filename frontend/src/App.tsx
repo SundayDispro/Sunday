@@ -2013,7 +2013,6 @@ function App() {
                 onConsumeInitialCreateDocType={() => setPendingCreateDocType(null)}
                 initialOpenDocId={openDocId}
                 onConsumeInitialOpenDocId={() => setOpenDocId(null)}
-                onRequestOpenDoc={(id) => setOpenDocId(id)}
                 onAddReminderWidget={ensureReminderWidgetVisible}
               />
             ) : (
@@ -2915,7 +2914,12 @@ if (ok && data && typeof data.id === 'string') {
         className={[
           'flex-1 flex flex-col min-w-0 overflow-hidden min-h-0',
           isMobile ? 'p-0 bg-monday-bg' : 'p-2 sm:p-3 pl-0 bg-monday-bg',
-          isMobile ? (isLandscapeShort ? 'pb-[52px] main-mobile main-mobile-landscape' : 'pb-[80px] main-mobile') : '',
+          /* Docs oculta MobileBottomNav y usa MobileDocsShell; sin esto queda una franja vacía (~80px). */
+          isMobile && activePage !== 'docs'
+            ? isLandscapeShort
+              ? 'pb-[52px] main-mobile main-mobile-landscape'
+              : 'pb-[80px] main-mobile'
+            : '',
         ].join(' ')}
       >
         <div
@@ -3026,6 +3030,7 @@ if (ok && data && typeof data.id === 'string') {
           ) : isMobile ? (
             <MobileLayout
               pageKey={`${activePage}:${activeBoardId ?? ''}`}
+              hideBottomNav={activePage === 'docs'}
               showFAB={
                 !isBootstrapping &&
                 (activePage === 'home' || activePage === 'board' || activePage === 'calendar') &&
@@ -3178,7 +3183,7 @@ if (ok && data && typeof data.id === 'string') {
               value={newBoardName}
               onChange={(e) => { setNewBoardName(e.target.value); setCreateBoardError(null); }}
               placeholder="Nombre del tablero"
-              className="w-full px-3 py-2.5 rounded-lg bg-monday-bg border border-monday-border text-[13px] text-monday-text placeholder:text-monday-subtext focus:outline-none focus:ring-2 focus:ring-monday-blue mb-3"
+              className="w-full px-3 py-2.5 rounded-lg bg-monday-bg border border-monday-border text-[16px] sm:text-[13px] text-monday-text placeholder:text-monday-subtext focus:outline-none focus:ring-2 focus:ring-monday-blue mb-3"
               disabled={creatingBoard}
               aria-describedby={createBoardError ? 'create-board-error' : undefined}
             />

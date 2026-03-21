@@ -5,6 +5,7 @@
 import type { PrismaClient } from '@prisma/client';
 
 export async function findManyByUserId(prisma: PrismaClient, userId: string) {
+  // TODO(db/perf): reemplazar include profundo por select mínimo y payload acotado.
   return prisma.notification.findMany({
     where: { userId },
     orderBy: { createdAt: 'desc' },

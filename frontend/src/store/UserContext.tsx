@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { User, UserStatus } from '../types';
 import { API_BASE, apiFetch, buildAuthHeaders, clearAuthStorage, parseResponse } from '../api';
-import { reconnectSocketWithAuth } from './socket';
+import { reconnectSocketWithAuth, socket } from './socket';
 
 interface UserContextType {
   currentUser: User | null;
@@ -187,13 +187,18 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const userId = currentUser?.id;
     setCurrentUser(null);
     clearAuthStorage();
-    // Marcar como offline en el backend (fire-and-forget)
+    // Marcar como offline en el backend (fire-and-forget). Puede fallar si el token expiró.
     if (userId) {
       apiFetch(`${API_BASE}/api/users/${userId}/status`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ status: 'offline' }),
       }).catch(() => {});
+    }
+    try {
+      socket.disconnect();
+    } catch {
+      // ignore
     }
   };
 

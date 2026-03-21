@@ -1,5 +1,6 @@
 import fs from 'fs';
 import path from 'path';
+import type { Browser } from 'puppeteer';
 import { Worker } from 'worker_threads';
 import { randomUUID } from 'crypto';
 import { buildDocumentWrapperHtml } from './documentHtmlBuilder';
@@ -102,7 +103,7 @@ const RASTER_SCALE = PDF_EXPORT_DPI / VIEWPORT_DPI;
  * Viewport 816×1056 (96 DPI) para que la imagen no se reescale en el HTML (612pt×792pt = 816×1056 px).
  */
 async function getTemplatePdfFirstPageAsDataUrlWithBrowser(
-  browser: Awaited<ReturnType<typeof puppeteer.launch>>,
+  browser: Browser,
   templatePdfPath: string
 ): Promise<string | null> {
   if (!fs.existsSync(templatePdfPath)) return null;
@@ -142,7 +143,7 @@ export async function generatePdfFromHtml(
 ): Promise<Buffer> {
   const { default: puppeteer } = await import('puppeteer');
   const browser = await puppeteer.launch({
-    headless: 'new',
+    headless: true,
     args: ['--no-sandbox', '--disable-setuid-sandbox'],
   });
 
@@ -273,7 +274,7 @@ export async function generatePdfFromExportPreview(
   url.searchParams.set('scale', String(scale));
 
   const browser = await puppeteer.launch({
-    headless: 'new',
+    headless: true,
     args: ['--no-sandbox', '--disable-setuid-sandbox'],
   });
 

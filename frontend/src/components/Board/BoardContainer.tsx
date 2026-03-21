@@ -12,6 +12,7 @@ import {
   closestCenter,
   KeyboardSensor,
   PointerSensor,
+  TouchSensor,
   useSensor,
   useSensors,
   DragEndEvent,
@@ -209,6 +210,10 @@ const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode, mobile
   useEffect(() => {
     // Unirse a la sala del tablero en Socket.IO
     socket.emit('join_board', { boardId });
+    const handleSocketConnect = () => {
+      socket.emit('join_board', { boardId });
+    };
+    socket.on('connect', handleSocketConnect);
 
     fetchBoard();
 
@@ -321,9 +326,21 @@ const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode, mobile
     socket.on('group_deleted', ({ groupId }: { groupId: string }) => {
       setBoard(prev => prev ? { ...prev, groups: prev.groups.filter(g => g.id !== groupId) } : prev);
     });
+    socket.on('groups_reordered', (payload: { boardId: string; groups: Array<{ id: string; position: number }> }) => {
+      if (!payload || payload.boardId !== boardId || !Array.isArray(payload.groups)) return;
+      setBoard(prev => {
+        if (!prev) return prev;
+        const posById = new Map(payload.groups.map(g => [g.id, g.position]));
+        const groups = prev.groups
+          .map(g => ({ ...g, position: posById.get(g.id) ?? g.position }))
+          .sort((a, b) => a.position - b.position);
+        return { ...prev, groups };
+      });
+    });
 
     return () => {
       socket.emit('leave_board', { boardId });
+      socket.off('connect', handleSocketConnect);
       socket.off('column_value_updated');
       socket.off('group_added');
       socket.off('item_added');
@@ -336,6 +353,7 @@ const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode, mobile
       socket.off('item_deleted');
       socket.off('group_renamed');
       socket.off('group_deleted');
+      socket.off('groups_reordered');
     };
   }, [boardId]);
 
@@ -490,7 +508,9 @@ const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode, mobile
   const selectedGroupForProject = board?.groups.find(g => g.id === addToProjectGroupId);
 
   const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+    ...(isMobile
+      ? [useSensor(TouchSensor, { activationConstraint: { delay: 200, tolerance: 5 } })]
+      : [useSensor(PointerSensor, { activationConstraint: { distance: 5 } })]),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
   );
 
