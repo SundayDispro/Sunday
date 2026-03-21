@@ -11,7 +11,6 @@ import { TextFormatBarForTemplate } from '../../docs/TextFormatBar';
 import { useUser } from '../../../store/UserContext';
 import { apiFetch } from '../../../api';
 import { getDocument, GlobalWorkerOptions } from 'pdfjs-dist';
-import pdfjsWorker from 'pdfjs-dist/build/pdf.worker.mjs?url';
 
 const API_BASE = import.meta.env.DEV ? '' : (import.meta.env.VITE_API_URL || 'http://localhost:3001');
 
@@ -20,7 +19,8 @@ export const PAGE_WIDTH_PX_96DPI = 816;
 export const PAGE_HEIGHT_PX_96DPI = 1056;
 const PDF_SCALE = 96 / 72;
 
-GlobalWorkerOptions.workerSrc = pdfjsWorker;
+// Worker en /public/pdfjs-worker.js (copiado desde pdfjs-dist en postinstall). Extensión .js → MIME correcto en Nginx/PWA; .mjs suele ir como octet-stream y rompe import() del worker.
+GlobalWorkerOptions.workerSrc = `${import.meta.env.BASE_URL}pdfjs-worker.js`;
 
 interface Props {
   docType: PdfDocType;

@@ -2364,24 +2364,45 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
     let cancelled = false;
     setDocGroupsLoading(true);
     const url = `${API_BASE}/api/workspaces/${workspaceId}/doc-groups?userId=${encodeURIComponent(currentUserId)}`;
-    fetch(url)
-      .then((res) => (res.ok ? res.json() : { groups: [], assignments: {}, subgroupsByType: {}, subgroupAssignments: {} }))
-      .then((data: {
-        groups?: DocCustomGroup[];
-        assignments?: Record<string, string>;
-        subgroupsByType?: Record<string, DocCustomGroup[]>;
-        subgroupAssignments?: Record<string, string>;
-      }) => {
+    (async () => {
+      try {
+        const res = await apiFetch(url);
+        const empty = {
+          groups: [] as DocCustomGroup[],
+          assignments: {} as Record<string, string>,
+          subgroupsByType: {} as Record<string, DocCustomGroup[]>,
+          subgroupAssignments: {} as Record<string, string>,
+        };
+        const data = res.ok
+          ? ((await res.json()) as {
+              groups?: DocCustomGroup[];
+              assignments?: Record<string, string>;
+              subgroupsByType?: Record<string, DocCustomGroup[]>;
+              subgroupAssignments?: Record<string, string>;
+            })
+          : empty;
         if (!cancelled) {
           setCustomGroups(Array.isArray(data.groups) ? data.groups : []);
           setAssignments(data.assignments && typeof data.assignments === 'object' ? data.assignments : {});
           setSubgroupsByType(data.subgroupsByType && typeof data.subgroupsByType === 'object' ? data.subgroupsByType : {});
-          setSubgroupAssignments(data.subgroupAssignments && typeof data.subgroupAssignments === 'object' ? data.subgroupAssignments : {});
+          setSubgroupAssignments(
+            data.subgroupAssignments && typeof data.subgroupAssignments === 'object' ? data.subgroupAssignments : {},
+          );
         }
-      })
-      .catch(() => { if (!cancelled) { setCustomGroups([]); setAssignments({}); setSubgroupsByType({}); setSubgroupAssignments({}); } })
-      .finally(() => { if (!cancelled) setDocGroupsLoading(false); });
-    return () => { cancelled = true; };
+      } catch {
+        if (!cancelled) {
+          setCustomGroups([]);
+          setAssignments({});
+          setSubgroupsByType({});
+          setSubgroupAssignments({});
+        }
+      } finally {
+        if (!cancelled) setDocGroupsLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, [workspaceId, currentUserId]);
 
   const saveDocGroupsToApi = useCallback(

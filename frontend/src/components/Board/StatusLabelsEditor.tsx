@@ -57,9 +57,9 @@ export const StatusLabelsEditor: React.FC<Props> = ({ column, open, onOpenChange
           <Dialog.Title className="text-[14px] font-semibold text-monday-text mb-3">
             Etiquetas de {column.title}
           </Dialog.Title>
-          <p className="text-[12px] text-monday-subtext mb-3">
+          <Dialog.Description className="text-[12px] text-monday-subtext mb-3">
             Añade, edita o elimina etiquetas. Puedes cambiar el nombre y el color.
-          </p>
+          </Dialog.Description>
           <div className="flex flex-col gap-2 max-h-[280px] overflow-y-auto custom-scrollbar mb-4">
             {options.map((opt, index) => (
               <div

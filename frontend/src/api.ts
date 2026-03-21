@@ -133,7 +133,11 @@ export async function apiFetch(input: RequestInfo | URL, init: RequestInit = {})
 
   const shouldRetryApiResponse = (res: Response): boolean => {
     if (!isApiRequest || !isReadRequest) return false;
-    if (!res.ok) return true;
+    // 401/403 es el mismo resultado en cualquier host; no reintentar en :3001 (evita ruido en red y consola).
+    if (!res.ok) {
+      if (res.status === 401 || res.status === 403) return false;
+      return true;
+    }
     const contentType = (res.headers.get('Content-Type') || '').toLowerCase();
     // Si una ruta /api devuelve HTML, normalmente estamos pegando al host equivocado.
     return contentType.includes('text/html');

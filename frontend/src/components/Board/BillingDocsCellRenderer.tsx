@@ -224,6 +224,9 @@ export const BillingDocsCellRenderer: React.FC<Props> = ({ item, column, value }
             <Dialog.Title className="text-[14px] font-semibold text-monday-text mb-3">
               Documentos de facturación (JPG o PDF)
             </Dialog.Title>
+            <Dialog.Description className="sr-only">
+              Edita la etiqueta y el archivo asociado a la facturación de este elemento.
+            </Dialog.Description>
 
             <label className="block text-[12px] text-monday-subtext mb-1">Etiqueta</label>
             <input

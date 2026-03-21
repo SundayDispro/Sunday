@@ -38,7 +38,9 @@
     "dev": "vite",
     "tunnel": "cloudflared tunnel --url http://localhost:5173",
     "generate:pwa-icons": "node scripts/generate-pwa-icons.mjs",
-    "prebuild": "node scripts/generate-pwa-icons.mjs",
+    "copy-pdfjs-worker": "node scripts/copy-pdfjs-worker.mjs",
+    "postinstall": "node scripts/copy-pdfjs-worker.mjs",
+    "prebuild": "node scripts/copy-pdfjs-worker.mjs && node scripts/generate-pwa-icons.mjs",
     "build": "tsc && vite build"
   },
   "type": "module"

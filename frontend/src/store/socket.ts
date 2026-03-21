@@ -8,14 +8,19 @@ function getSocketToken(): string | null {
   }
 }
 
-// Mismo origen (undefined) para que Vite haga proxy de /socket.io al backend.
-// Así funciona desde PC y desde móvil en la red (192.168.x.x:5173).
-// Si VITE_API_URL está definido, Socket.IO conecta a esa URL.
-const SOCKET_URL: string | undefined = import.meta.env.VITE_API_URL
-  ? (import.meta.env.VITE_API_URL as string)
-  : undefined;
+function getSocketServerUrl(): string | undefined {
+  const fromEnv = import.meta.env.VITE_API_URL as string | undefined;
+  if (fromEnv) return fromEnv;
+  // Desarrollo: conexión directa a :3001 (mismo host que la página). Evita fallos del proxy WebSocket de Vite en Windows y simplifica el handshake.
+  if (import.meta.env.DEV && typeof window !== 'undefined') {
+    const port = (import.meta.env.VITE_DEV_BACKEND_PORT as string | undefined) || '3001';
+    return `${window.location.protocol}//${window.location.hostname}:${port}`;
+  }
+  // Producción sin VITE_API_URL: mismo origen (p. ej. Nginx sirve estático y proxya /socket.io).
+  return undefined;
+}
 
-export const socket: Socket = io(SOCKET_URL, {
+export const socket: Socket = io(getSocketServerUrl(), {
   autoConnect: true,
   // Token fresco en cada conexión/reconexión (evita handshake sin JWT si el módulo cargó antes de localStorage).
   auth: (cb) => {

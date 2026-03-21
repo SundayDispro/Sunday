@@ -203,9 +203,9 @@ export const ExcelCellRenderer: React.FC<Props> = ({ item, column, value }) => {
             onCloseAutoFocus={(e) => e.preventDefault()}
           >
             <div className="flex items-center justify-between px-4 py-3 border-b border-monday-border shrink-0">
-              <h2 className="text-[16px] font-semibold text-monday-text truncate">
+              <Dialog.Title className="text-[16px] font-semibold text-monday-text truncate">
                 {fileName || 'Hoja de cálculo'}
-              </h2>
+              </Dialog.Title>
               <button
                 type="button"
                 onClick={() => setSheetOpen(false)}
@@ -214,6 +214,9 @@ export const ExcelCellRenderer: React.FC<Props> = ({ item, column, value }) => {
                 <X size={20} />
               </button>
             </div>
+            <Dialog.Description className="sr-only">
+              Vista previa del contenido de la hoja de cálculo vinculada a esta celda.
+            </Dialog.Description>
             <div className="flex-1 overflow-auto p-4 bg-monday-bg/30">
               {sheetLoading && (
                 <div className="flex items-center justify-center py-12">
