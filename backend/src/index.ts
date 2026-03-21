@@ -257,6 +257,16 @@ app.use((req, res, next) => {
 
 app.use(attachUserFromJwt);
 
+// Evitar que iOS Safari (y otros móviles) cacheen respuestas de la API
+app.use('/api', (_req, res, next) => {
+  res.setHeader('Cache-Control', 'private, no-store, no-cache, must-revalidate, proxy-revalidate');
+  res.setHeader('Pragma', 'no-cache');
+  res.setHeader('Expires', '0');
+  res.append('Vary', 'Authorization');
+  res.append('Vary', 'Cookie');
+  next();
+});
+
 // Servir archivos subidos (URL pública: /uploads/nombre.jpg)
 app.use('/uploads', express.static(UPLOAD_DIR));
 
@@ -305,6 +315,32 @@ app.get('/api/workspaces', authenticateToken, async (_req, res) => {
   } catch (error) {
     console.error('Error fetching workspaces:', error);
     res.status(500).json({ error: 'Failed to fetch workspaces' });
+  }
+});
+
+// Bootstrap de navegación: devuelve workspaces + boards en una sola llamada.
+// Útil para clientes móviles con redes/proxies inestables donde una de las dos rutas falle.
+app.get('/api/bootstrap', authenticateToken, async (_req, res) => {
+  try {
+    const [workspaces, boards] = await Promise.all([
+      prisma.workspace.findMany({
+        orderBy: { createdAt: 'asc' },
+        include: {
+          boards: {
+            orderBy: { createdAt: 'asc' },
+            select: { id: true, name: true, workspaceId: true },
+          },
+        },
+      }),
+      prisma.board.findMany({
+        orderBy: { createdAt: 'asc' },
+        select: { id: true, name: true, workspaceId: true },
+      }),
+    ]);
+    res.json({ workspaces, boards });
+  } catch (error) {
+    console.error('Error fetching bootstrap payload:', error);
+    res.status(500).json({ error: 'Failed to fetch bootstrap payload' });
   }
 });
 

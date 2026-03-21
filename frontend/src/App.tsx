@@ -1193,6 +1193,15 @@ function App() {
     return () => window.removeEventListener('sunday:open-doc', handler as EventListener);
   }, []);
 
+  const hydrateFromBootstrap = React.useCallback(async () => {
+    const res = await apiFetch(`${API_BASE}/api/bootstrap`);
+    if (!res.ok) return null;
+    const payload = (await res.json()) as { workspaces?: Workspace[]; boards?: Board[] };
+    const ws = Array.isArray(payload.workspaces) ? payload.workspaces : [];
+    const bs = Array.isArray(payload.boards) ? payload.boards : [];
+    return { workspaces: ws, boards: bs };
+  }, []);
+
   // Load workspaces once user is available (ruta relativa en DEV para usar proxy Vite → backend)
   useEffect(() => {
     if (!currentUser) {
@@ -1201,22 +1210,56 @@ function App() {
     }
     apiFetch(`${API_BASE}/api/workspaces`)
       .then(r => (r.ok ? r.json() : Promise.resolve(null)))
-      .then((data: Workspace[] | null) => {
-        if (!data || !Array.isArray(data)) return;
-        setWorkspaces(data);
+      .then(async (data: Workspace[] | null) => {
+        if (data && Array.isArray(data) && data.length > 0) {
+          setWorkspaces(data);
+          setActiveWorkspaceId(prev => {
+            if (prev && data.some(w => w.id === prev)) return prev;
+            return data[0]?.id ?? null;
+          });
+          return;
+        }
+
+        // Fallback agresivo para móvil: si /api/workspaces falla o llega vacío,
+        // hidratar desde /api/bootstrap y no dejar la UI en blanco.
+        const fallback = await hydrateFromBootstrap().catch(() => null);
+        if (!fallback) {
+          setWorkspaces([]);
+          return;
+        }
+        setWorkspaces(fallback.workspaces);
+        if (fallback.boards.length > 0) {
+          setBoards(fallback.boards);
+          setActiveBoardId(prev => (prev && fallback.boards.some(b => b.id === prev) ? prev : fallback.boards[0]?.id ?? null));
+        }
         setActiveWorkspaceId(prev => {
-          if (prev && data.some(w => w.id === prev)) return prev;
-          return data[0]?.id ?? null;
+          if (prev && fallback.workspaces.some(w => w.id === prev)) return prev;
+          if (fallback.workspaces[0]?.id) return fallback.workspaces[0].id;
+          return fallback.boards[0]?.workspaceId ?? null;
         });
       })
-      .catch(err => {
+      .catch(async err => {
         console.error('Error fetching workspaces:', err);
-        setWorkspaces([]);
+        const fallback = await hydrateFromBootstrap().catch(() => null);
+        if (fallback) {
+          setWorkspaces(fallback.workspaces);
+          if (fallback.boards.length > 0) {
+            setBoards(fallback.boards);
+            setActiveBoardId(prev => (prev && fallback.boards.some(b => b.id === prev) ? prev : fallback.boards[0]?.id ?? null));
+          }
+          setActiveWorkspaceId(prev => {
+            if (prev && fallback.workspaces.some(w => w.id === prev)) return prev;
+            if (fallback.workspaces[0]?.id) return fallback.workspaces[0].id;
+            return fallback.boards[0]?.workspaceId ?? null;
+          });
+        } else {
+          setWorkspaces([]);
+        }
       })
       .finally(() => {
         setWorkspacesLoaded(true);
       });
-  }, [currentUser]);
+  }, [currentUser, hydrateFromBootstrap]);
 
   // Persistir última visita y recientes para "Retoma" y carrusel "Visitado recientemente" (móvil / Inicio)
   const RECENT_VISITS_KEY = 'sunday-recent-visits';
@@ -1259,18 +1302,33 @@ function App() {
     setBoardsLoaded(false);
     apiFetch(url)
       .then(r => (r.ok ? r.json() : Promise.resolve(null)))
-      .then((data: Board[] | null) => {
-        if (!data || !Array.isArray(data)) return;
-        setBoards(data);
-        setActiveBoardId(prev => {
-          if (data.length === 0) return null;
-          const exists = prev && data.some(b => b.id === prev);
-          return exists ? prev : null;
-        });
+      .then(async (data: Board[] | null) => {
+        if (data && Array.isArray(data)) {
+          setBoards(data);
+          setActiveBoardId(prev => {
+            if (data.length === 0) return null;
+            const exists = prev && data.some(b => b.id === prev);
+            return exists ? prev : null;
+          });
+          return;
+        }
+        const fallback = await hydrateFromBootstrap().catch(() => null);
+        const fbBoards = fallback?.boards ?? [];
+        const filtered = activeWorkspaceId ? fbBoards.filter((b) => b.workspaceId === activeWorkspaceId) : fbBoards;
+        if (filtered.length > 0) {
+          setBoards(filtered);
+          setActiveBoardId(prev => (prev && filtered.some(b => b.id === prev) ? prev : filtered[0]?.id ?? null));
+        }
       })
-      .catch(err => {
+      .catch(async err => {
         console.error('Error fetching boards:', err);
-        setBoards([]);
+        const fallback = await hydrateFromBootstrap().catch(() => null);
+        const fbBoards = fallback?.boards ?? [];
+        const filtered = activeWorkspaceId ? fbBoards.filter((b) => b.workspaceId === activeWorkspaceId) : fbBoards;
+        if (filtered.length > 0) {
+          setBoards(filtered);
+          setActiveBoardId(prev => (prev && filtered.some(b => b.id === prev) ? prev : filtered[0]?.id ?? null));
+        }
       })
       .finally(() => {
         setBoardsLoaded(true);
@@ -1290,7 +1348,7 @@ function App() {
       socket.off('board_renamed');
       socket.off('board_added');
     };
-  }, [currentUser, activeWorkspaceId]);
+  }, [currentUser, activeWorkspaceId, hydrateFromBootstrap]);
 
   useEffect(() => {
     if (!currentUser) {

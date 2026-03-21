@@ -132,8 +132,12 @@ Q4 2025–Q1 2026 ─── Endurecimiento general y preparación Fases 3–5
   - Hardening de suscripciones (`/api/push/subscribe` y `/api/push/unsubscribe`) atadas a `req.authUser.id`.
   - Saneamiento de ownership por `endpoint` para limpiar cruces históricos entre usuarios.
   - Se evita auto-notificación en autoasignación/automenção.
-- **PWA / Service Worker**:
-  - `sw.js` corregido para devolver siempre un `Response` válido en fallos de red (evita `Failed to convert value to 'Response'`).
+- **PWA / Service Worker (hotfix V8→V9 de contenido estancado en móvil, marzo 2026)**:
+  - `sw.js` con `CACHE_NAME` versionado, `skipWaiting()` + `clients.claim()`, navegación `Network-First` y estáticos `Stale-While-Revalidate`.
+  - Registro del SW endurecido en frontend con `updateViaCache: 'none'`, listener `controllerchange` y recarga automática de la app.
+  - Cabeceras anti-caché reforzadas en backend para `sw.js`, `index.html`, `/` y `/api/*`; assets hash de Vite con `immutable`.
+  - `apiFetch` con bypass agresivo de caché (`cache: 'no-store'`, `_ts` en GET API) y fallback de host `:3001` para entornos móviles/standalone.
+  - Nuevo endpoint `GET /api/bootstrap` y fallback en `App.tsx` para hidratar `workspaces + boards` en una sola llamada cuando el bootstrap parcial falle en móvil.
 - **Login y auditoría**:
   - Se retiró la personalización temporal asociada al usuario de prueba `pipo`.
 

@@ -96,8 +96,109 @@ function decodeJwtExpMs(token: string): number | null {
  * - Si recibe 401/403, guarda razón en sessionStorage, limpia sesión local y redirige al login.
  */
 export async function apiFetch(input: RequestInfo | URL, init: RequestInit = {}): Promise<Response> {
+  const method = (init.method ?? 'GET').toUpperCase();
+  const isReadRequest = method === 'GET' || method === 'HEAD';
+  const rawUrl = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
+  const isApiRequest = /\/api(\/|$)/.test(rawUrl);
+  const runtimeOrigin = typeof window !== 'undefined' ? window.location.origin : 'http://localhost';
+
+  // En móviles (especialmente iOS en modo standalone) forzamos bypass de caché HTTP
+  // para lecturas API y evitamos respuestas antiguas aun con SW actualizado.
   const headersWithAuth = buildAuthHeaders(init.headers ?? {});
-  const res = await fetch(input, { ...init, headers: headersWithAuth });
+  const requestHeaders: HeadersInit = isReadRequest
+    ? {
+        ...headersWithAuth,
+        'Cache-Control': 'no-cache',
+        Pragma: 'no-cache',
+      }
+    : headersWithAuth;
+
+  let requestInput: RequestInfo | URL = input;
+  if (isReadRequest && isApiRequest) {
+    try {
+      const parsedUrl = new URL(rawUrl, runtimeOrigin);
+      if (!parsedUrl.searchParams.has('_ts')) {
+        parsedUrl.searchParams.set('_ts', String(Date.now()));
+      }
+      requestInput = parsedUrl.toString();
+    } catch {
+      // Si no podemos parsear URL, seguimos sin busting param.
+    }
+  }
+  const requestInit: RequestInit = {
+    ...init,
+    headers: requestHeaders,
+    ...(isReadRequest ? { cache: 'no-store' as RequestCache } : {}),
+  };
+
+  const shouldRetryApiResponse = (res: Response): boolean => {
+    if (!isApiRequest || !isReadRequest) return false;
+    if (!res.ok) return true;
+    const contentType = (res.headers.get('Content-Type') || '').toLowerCase();
+    // Si una ruta /api devuelve HTML, normalmente estamos pegando al host equivocado.
+    return contentType.includes('text/html');
+  };
+
+  const buildFallbackApiUrls = (): string[] => {
+    if (typeof window === 'undefined') return [];
+    let parsed: URL;
+    try {
+      parsed = new URL(typeof requestInput === 'string' ? requestInput : requestInput.toString(), runtimeOrigin);
+    } catch {
+      return [];
+    }
+    const apiPath = `${parsed.pathname}${parsed.search}`;
+    const hostname = window.location.hostname;
+    const protocol = window.location.protocol === 'https:' ? 'https:' : 'http:';
+    const candidates = [
+      `${protocol}//${hostname}:3001${apiPath}`,
+      `http://${hostname}:3001${apiPath}`,
+      `https://${hostname}:3001${apiPath}`,
+    ];
+    const primary = parsed.toString();
+    return [...new Set(candidates)].filter((url) => url !== primary);
+  };
+
+  let res: Response | null = null;
+  try {
+    res = await fetch(requestInput, requestInit);
+  } catch (primaryError) {
+    if (!(isApiRequest && isReadRequest)) throw primaryError;
+    let lastError: unknown = primaryError;
+    const fallbackUrls = buildFallbackApiUrls();
+    for (const fallbackUrl of fallbackUrls) {
+      try {
+        res = await fetch(fallbackUrl, requestInit);
+        requestInput = fallbackUrl;
+        lastError = null;
+        break;
+      } catch (e) {
+        lastError = e;
+      }
+    }
+    if (!res) throw lastError;
+  }
+
+  if (!res) {
+    throw new Error('No se obtuvo respuesta de red');
+  }
+
+  if (shouldRetryApiResponse(res)) {
+    const fallbackUrls = buildFallbackApiUrls();
+    for (const fallbackUrl of fallbackUrls) {
+      try {
+        const fallbackRes = await fetch(fallbackUrl, requestInit);
+        if (!shouldRetryApiResponse(fallbackRes)) {
+          res = fallbackRes;
+          requestInput = fallbackUrl;
+          break;
+        }
+        res = fallbackRes;
+      } catch {
+        // Probar siguiente fallback
+      }
+    }
+  }
 
   // Solo forzar logout/redirección si había un token de sesión válido.
   // Si no hay token (pantalla de login), dejamos que el caller maneje el 401.
