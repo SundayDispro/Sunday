@@ -6,3 +6,8 @@ backend/.env
 .env
 .env.local
 .env.*.local
+
+# Build y artefactos locales (versionar solo fuente; generar en CI o `npm run build`)
+frontend/dist/
+backend/dist/
+backend/tsc-errors.txt

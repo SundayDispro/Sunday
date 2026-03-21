@@ -80,7 +80,7 @@ function GroupDragOverlay({ groups }: { groups: Group[] }) {
 const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode, mobileCalendarOnly = false, mobileOptimized = false, calendarStandalone = false, onHeaderVisibilityChange, isMobile = false }) => {
   const { currentUser } = useUser();
   const canDeleteItem = can(currentUser, 'item.delete');
-  const { useCardView, isLandscapeShort, isPortrait } = useViewport();
+  const { useCardView, isLandscapeShort, isPortrait, isLandscape } = useViewport();
   const { toast } = useToast();
   const [board, setBoard] = useState<Board | null>(null);
   /** Texto libre: filtra por nombre de elemento (móvil: barra de búsqueda). */
@@ -952,10 +952,10 @@ const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode, mobile
     // Móvil: sin barra "Crear Tarea" (el tap en el día abre el modal de opciones). Desktop: barra con hide-on-scroll.
     if (isMobile) {
       return (
-        <div className="h-full flex flex-col min-h-0">
+        <div className="h-full w-full min-w-0 flex flex-col min-h-0">
           <div
             ref={setCalendarScrollRef}
-            className="flex-1 min-h-0 overflow-auto overflow-x-auto custom-scrollbar scroll-touch"
+            className="flex-1 min-h-0 w-full min-w-0 overflow-auto overflow-x-auto custom-scrollbar scroll-touch"
             style={{ WebkitOverflowScrolling: 'touch' }}
           >
             <CalendarView
@@ -964,6 +964,7 @@ const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode, mobile
               isTallerView={isTaller}
               isMobile={isMobile}
               isLandscapeShort={isLandscapeShort}
+              isMobileLandscape={isMobile && isLandscape}
               onOpenAddToProject={() => setAddToProjectOpen(true)}
               onRegisterOpenCalendarEvent={registerOpenCalendarEvent}
               defaultViewType={calendarStandalone ? 'week' : undefined}
@@ -1024,6 +1025,7 @@ const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode, mobile
             isTallerView={isTaller}
             isMobile={isMobile}
             isLandscapeShort={isLandscapeShort}
+            isMobileLandscape={isMobile && isLandscape}
             onOpenAddToProject={() => setAddToProjectOpen(true)}
             onRegisterOpenCalendarEvent={registerOpenCalendarEvent}
             defaultViewType={calendarStandalone ? 'week' : undefined}
@@ -1122,6 +1124,7 @@ const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode, mobile
             isTallerView={isTaller}
             isMobile={isMobile}
             isLandscapeShort={isLandscapeShort}
+            isMobileLandscape={isMobile && isLandscape}
             onOpenAddToProject={() => setAddToProjectOpen(true)}
             onRegisterOpenCalendarEvent={registerOpenCalendarEvent}
           />

@@ -1,6 +1,6 @@
 import React, { useMemo, useState, useEffect, useRef } from 'react';
 import { Board, Item, BoardColumn, StatusOption, CalendarEvent } from '../../types';
-import { ChevronLeft, ChevronRight, ChevronDown, Share2 } from 'lucide-react';
+import { ChevronLeft, ChevronRight, ChevronDown, Share2, LayoutGrid } from 'lucide-react';
 import * as Dialog from '@radix-ui/react-dialog';
 import * as Popover from '@radix-ui/react-popover';
 import { socket } from '../../store/socket';
@@ -152,6 +152,8 @@ interface Props {
   isMobile?: boolean;
   /** Landscape con poca altura: aún más compacto (menos padding, controles más densos) */
   isLandscapeShort?: boolean;
+  /** Móvil en horizontal: UI mínima y vista semana prioritaria para aprovechar el ancho. */
+  isMobileLandscape?: boolean;
   /** Si se pasa, se muestra el botón "Crear Tarea" que abre el modal Añadir a proyecto */
   onOpenAddToProject?: () => void;
   /** Registra una función para abrir el modal de evento de calendario con fecha y tipo (desde la barra superior) */
@@ -167,7 +169,17 @@ function formatDateForModal(d: Date): string {
   return `${day} ${month} ${year}`;
 }
 
-export const CalendarView: React.FC<Props> = ({ board, onRowClick, isTallerView, isMobile = false, isLandscapeShort = false, onOpenAddToProject, onRegisterOpenCalendarEvent, defaultViewType }) => {
+export const CalendarView: React.FC<Props> = ({
+  board,
+  onRowClick,
+  isTallerView,
+  isMobile = false,
+  isLandscapeShort = false,
+  isMobileLandscape = false,
+  onOpenAddToProject,
+  onRegisterOpenCalendarEvent,
+  defaultViewType,
+}) => {
   const [viewDate, setViewDate] = useState(() => new Date());
   const [viewType, setViewType] = useState<CalendarViewType>(defaultViewType ?? 'month');
   const [viewDropdownOpen, setViewDropdownOpen] = useState(false);
@@ -197,6 +209,19 @@ export const CalendarView: React.FC<Props> = ({ board, onRowClick, isTallerView,
   const [sendToSubmitting, setSendToSubmitting] = useState(false);
   const [datePickerOpen, setDatePickerOpen] = useState(false);
   const [datePickerMonth, setDatePickerMonth] = useState(() => new Date());
+
+  const compactLandscape = isMobileLandscape;
+  const landscapeEnteredRef = useRef(false);
+  useEffect(() => {
+    if (isMobileLandscape) {
+      if (!landscapeEnteredRef.current) {
+        setViewType((v) => (v === 'month' || v === 'day' ? 'week' : v));
+      }
+      landscapeEnteredRef.current = true;
+    } else {
+      landscapeEnteredRef.current = false;
+    }
+  }, [isMobileLandscape]);
 
   useEffect(() => {
     const boardId = board.id;
@@ -740,31 +765,68 @@ export const CalendarView: React.FC<Props> = ({ board, onRowClick, isTallerView,
     d.getDate() === today.getDate() && d.getMonth() === today.getMonth() && d.getFullYear() === today.getFullYear();
 
   return (
-    <div className="h-full flex flex-col bg-[var(--monday-surface)]">
-      {/* Barra de navegación del calendario (estilo Monday); en móvil: áreas táctiles más grandes; landscape corto: más compacto */}
-      <div className={`flex items-center justify-between border-b border-monday-border shrink-0 flex-wrap gap-2 ${
-        isLandscapeShort ? 'px-2 py-1.5 gap-1' : isMobile ? 'px-3 py-2' : 'px-4 py-3'
-      }`}>
-        <div className={`flex items-center gap-1 sm:gap-2 ${isMobile ? 'gap-1' : ''}`}>
+    <div className="h-full w-full min-w-0 flex flex-col bg-[var(--monday-surface)]">
+      {/* Barra del calendario: en horizontal inmersivo, padding lateral = safe-area (el shell ya no aplica pl/pr al root). */}
+      <div
+        className={`flex items-center justify-between border-b border-monday-border shrink-0 gap-2 ${
+          compactLandscape
+            ? 'py-1 flex-nowrap pl-[max(6px,env(safe-area-inset-left))] pr-[max(6px,env(safe-area-inset-right))]'
+            : 'flex-wrap'
+        } ${
+          compactLandscape
+            ? ''
+            : isLandscapeShort
+              ? 'px-2 py-1.5 gap-1'
+              : isMobile
+                ? 'px-3 py-2'
+                : 'px-4 py-3'
+        }`}
+      >
+        <div
+          className={`flex items-center min-w-0 flex-1 ${
+            compactLandscape ? 'gap-0.5' : isMobile ? 'gap-1 sm:gap-2' : 'gap-1 sm:gap-2'
+          }`}
+        >
           <button
+            type="button"
             onClick={goToToday}
-            className={`rounded-monday border border-monday-border bg-[var(--monday-surface)] text-monday-text hover:bg-monday-hover transition-colors ${isMobile ? 'px-3 py-2.5 text-[13px] font-medium min-h-[44px]' : 'px-3 py-1.5 text-[13px] font-medium'}`}
+            className={`shrink-0 rounded-monday border border-monday-border bg-[var(--monday-surface)] text-monday-text hover:bg-monday-hover transition-colors font-medium ${
+              compactLandscape
+                ? 'px-2 py-1 min-h-[36px] text-[12px]'
+                : isMobile
+                  ? 'px-3 py-2.5 text-[13px] min-h-[44px]'
+                  : 'px-3 py-1.5 text-[13px]'
+            }`}
           >
             Hoy
           </button>
           <button
+            type="button"
             onClick={prev}
-            className={`rounded-monday text-monday-subtext hover:bg-monday-hover hover:text-monday-text transition-colors ${isMobile ? 'p-2.5 min-w-[44px] min-h-[44px] flex items-center justify-center' : 'p-1.5'}`}
+            className={`shrink-0 rounded-monday text-monday-subtext hover:bg-monday-hover hover:text-monday-text transition-colors flex items-center justify-center ${
+              compactLandscape
+                ? 'p-1.5 min-w-[36px] min-h-[36px]'
+                : isMobile
+                  ? 'p-2.5 min-w-[44px] min-h-[44px]'
+                  : 'p-1.5'
+            }`}
             aria-label="Anterior"
           >
-            <ChevronLeft size={isMobile ? 22 : 20} />
+            <ChevronLeft size={compactLandscape ? 20 : isMobile ? 22 : 20} />
           </button>
           <button
+            type="button"
             onClick={next}
-            className={`rounded-monday text-monday-subtext hover:bg-monday-hover hover:text-monday-text transition-colors ${isMobile ? 'p-2.5 min-w-[44px] min-h-[44px] flex items-center justify-center' : 'p-1.5'}`}
+            className={`shrink-0 rounded-monday text-monday-subtext hover:bg-monday-hover hover:text-monday-text transition-colors flex items-center justify-center ${
+              compactLandscape
+                ? 'p-1.5 min-w-[36px] min-h-[36px]'
+                : isMobile
+                  ? 'p-2.5 min-w-[44px] min-h-[44px]'
+                  : 'p-1.5'
+            }`}
             aria-label="Siguiente"
           >
-            <ChevronRight size={isMobile ? 22 : 20} />
+            <ChevronRight size={compactLandscape ? 20 : isMobile ? 22 : 20} />
           </button>
           <Popover.Root
             open={datePickerOpen}
@@ -776,7 +838,13 @@ export const CalendarView: React.FC<Props> = ({ board, onRowClick, isTallerView,
             <Popover.Trigger asChild>
               <button
                 type="button"
-                className={`font-semibold text-monday-text text-center rounded-monday hover:bg-monday-hover transition-colors ${isMobile ? 'text-[14px] min-w-[140px] px-2 py-2 min-h-[44px]' : 'text-[15px] min-w-[160px] px-2 py-1'}`}
+                className={`min-w-0 flex-1 font-semibold text-monday-text text-center rounded-monday hover:bg-monday-hover transition-colors truncate ${
+                  compactLandscape
+                    ? 'text-[12px] px-1.5 py-1 min-h-[36px] max-w-[min(52vw,240px)]'
+                    : isMobile
+                      ? 'text-[14px] min-w-[140px] px-2 py-2 min-h-[44px]'
+                      : 'text-[15px] min-w-[160px] px-2 py-1'
+                }`}
                 title="Clic para elegir día o semana"
               >
                 {titleText}
@@ -823,13 +891,27 @@ export const CalendarView: React.FC<Props> = ({ board, onRowClick, isTallerView,
               </Popover.Content>
             </Popover.Portal>
           </Popover.Root>
-          <div className="relative">
+          <div className="relative shrink-0">
             <button
+              type="button"
               onClick={() => setViewDropdownOpen(!viewDropdownOpen)}
-              className={`flex items-center gap-1.5 rounded-monday border border-monday-border bg-[var(--monday-surface)] font-medium text-monday-text hover:bg-monday-hover transition-colors ${isMobile ? 'px-3 py-2.5 min-h-[44px] text-[13px]' : 'px-3 py-1.5 text-[13px]'}`}
+              className={`flex items-center justify-center rounded-monday border border-monday-border bg-[var(--monday-surface)] font-medium text-monday-text hover:bg-monday-hover transition-colors ${
+                compactLandscape
+                  ? 'p-2 min-w-[36px] min-h-[36px]'
+                  : isMobile
+                    ? 'gap-1.5 px-3 py-2.5 min-h-[44px] text-[13px]'
+                    : 'gap-1.5 px-3 py-1.5 text-[13px]'
+              }`}
+              aria-label={compactLandscape ? 'Tipo de vista' : undefined}
             >
-              {viewType === 'month' ? 'Mes' : viewType === 'week' ? 'Semana' : 'Día'}
-              <ChevronDown size={14} className={`transition-transform ${viewDropdownOpen ? 'rotate-180' : ''}`} />
+              {compactLandscape ? (
+                <LayoutGrid size={18} className="text-monday-subtext" aria-hidden />
+              ) : (
+                <>
+                  {viewType === 'month' ? 'Mes' : viewType === 'week' ? 'Semana' : 'Día'}
+                  <ChevronDown size={14} className={`transition-transform ${viewDropdownOpen ? 'rotate-180' : ''}`} />
+                </>
+              )}
             </button>
             {viewDropdownOpen && (
               <>
@@ -856,10 +938,11 @@ export const CalendarView: React.FC<Props> = ({ board, onRowClick, isTallerView,
         </div>
       </div>
 
-      {/* Cuerpo del calendario — vista Mes / Semana / Día (estilo Monday); en móvil menos padding; landscape corto mínimo */}
-      <div className={`flex-1 overflow-auto scroll-touch custom-scrollbar min-h-0 flex flex-col bg-monday-bg/30 ${
-        isLandscapeShort ? 'p-2' : isMobile ? 'p-3' : 'p-4'
-      }`}
+      {/* Cuerpo del calendario — en móvil horizontal sin padding lateral para ganar área útil */}
+      <div
+        className={`flex-1 overflow-auto scroll-touch custom-scrollbar min-h-0 flex flex-col bg-monday-bg/30 ${
+          compactLandscape ? 'p-0' : isLandscapeShort ? 'p-2' : isMobile ? 'p-3' : 'p-4'
+        }`}
            style={isMobile ? { WebkitOverflowScrolling: 'touch' } : undefined}>
         {viewType === 'day' && (
           <div className="rounded-xl border border-monday-border shadow-monday-sm bg-[var(--monday-surface)] overflow-hidden min-h-[280px]">
@@ -933,31 +1016,47 @@ export const CalendarView: React.FC<Props> = ({ board, onRowClick, isTallerView,
         )}
 
         {viewType === 'week' && (
-          <div className="rounded-xl overflow-hidden border border-monday-border shadow-monday-sm bg-[var(--monday-surface)] flex-1 min-h-0 flex flex-col">
-            {/* Vista semanal horizontal: 7 columnas (lun–dom), cabecera fija */}
+          <div
+            className={`overflow-hidden border border-monday-border shadow-monday-sm bg-[var(--monday-surface)] flex-1 min-h-0 flex flex-col ${
+              compactLandscape ? 'rounded-none border-x-0 border-b-0' : 'rounded-xl'
+            }`}
+          >
+            {/* Vista semanal: cabecera compacta en móvil horizontal */}
             <div className="grid grid-cols-7 border-b border-monday-border shrink-0 bg-monday-pill/30">
               {weekDays.map((cell) => (
                 <div
                   key={cell.key}
-                  className={`px-2 py-3 text-center border-r border-monday-border last:border-r-0 ${
-                    cell.month !== viewDate.getMonth() ? 'text-monday-subtext/70' : 'text-monday-text'
-                  }`}
+                  className={`text-center border-r border-monday-border last:border-r-0 ${
+                    compactLandscape ? 'px-0.5 py-1' : 'px-2 py-3'
+                  } ${cell.month !== viewDate.getMonth() ? 'text-monday-subtext/70' : 'text-monday-text'}`}
                 >
-                  <div className="text-[11px] font-semibold text-monday-subtext uppercase">
+                  <div
+                    className={`font-semibold text-monday-subtext uppercase ${
+                      compactLandscape ? 'text-[9px] leading-tight' : 'text-[11px]'
+                    }`}
+                  >
                     {WEEKDAYS[cell.date.getDay() === 0 ? 6 : cell.date.getDay() - 1]}
                   </div>
                   <span
-                    className={`inline-flex items-center justify-center mt-0.5 text-[15px] font-semibold w-8 h-8 rounded-full ${
-                      isToday(cell.date) ? 'bg-monday-blue text-white' : 'text-monday-text'
+                    className={`inline-flex items-center justify-center font-semibold rounded-full ${
+                      compactLandscape
+                        ? `mt-0 text-[12px] w-6 h-6 ${isToday(cell.date) ? 'bg-monday-blue text-white' : 'text-monday-text'}`
+                        : `mt-0.5 text-[15px] w-8 h-8 ${isToday(cell.date) ? 'bg-monday-blue text-white' : 'text-monday-text'}`
                     }`}
                   >
                     {cell.dayOfMonth}
                   </span>
-                  <div className="text-[11px] text-monday-subtext mt-0.5">{MONTHS[cell.month]}</div>
+                  {!compactLandscape && (
+                    <div className="text-[11px] text-monday-subtext mt-0.5">{MONTHS[cell.month]}</div>
+                  )}
                 </div>
               ))}
             </div>
-            <div className="grid grid-cols-7 flex-1 min-h-[240px] overflow-auto custom-scrollbar">
+            <div
+              className={`grid grid-cols-7 flex-1 overflow-auto custom-scrollbar min-h-0 ${
+                compactLandscape ? 'min-h-[120px]' : 'min-h-[240px]'
+              }`}
+            >
               {weekDays.map(cell => {
                 const dayStart = new Date(cell.year, cell.month, cell.date.getDate()).getTime();
                 const dayEnd = dayStart + 24 * 60 * 60 * 1000;
@@ -975,7 +1074,9 @@ export const CalendarView: React.FC<Props> = ({ board, onRowClick, isTallerView,
                     tabIndex={0}
                     onClick={() => openAddModal(cell.date)}
                     onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openAddModal(cell.date); } }}
-                    className={`p-2 flex flex-col gap-1.5 border-r border-monday-border last:border-r-0 cursor-pointer hover:bg-monday-hover/40 transition-colors touch-manipulation ${isMobile ? 'min-h-[200px]' : 'min-h-[160px]'} ${
+                    className={`flex flex-col border-r border-monday-border last:border-r-0 cursor-pointer hover:bg-monday-hover/40 transition-colors touch-manipulation ${
+                      compactLandscape ? 'p-1 gap-1 min-h-0' : 'p-2 gap-1.5'
+                    } ${compactLandscape ? 'min-h-[100px]' : isMobile ? 'min-h-[200px]' : 'min-h-[160px]'} ${
                       cell.month !== viewDate.getMonth() ? 'bg-monday-bg/50' : 'bg-[var(--monday-surface)]'
                     }`}
                   >
@@ -984,7 +1085,13 @@ export const CalendarView: React.FC<Props> = ({ board, onRowClick, isTallerView,
                         key={bar.id}
                         type="button"
                         onClick={(e) => handleBarClick(bar, e)}
-                        className={`text-left px-2 rounded-md text-white text-[12px] font-medium truncate w-full transition-opacity hover:opacity-95 shadow-sm touch-manipulation ${isMobile ? 'py-2 min-h-[44px]' : 'py-1.5'} ${bar.isCalendarOnly ? 'cursor-pointer' : bar.item ? '' : 'cursor-default'}`}
+                        className={`text-left px-2 rounded-md text-white font-medium truncate w-full transition-opacity hover:opacity-95 shadow-sm touch-manipulation ${
+                          compactLandscape
+                            ? 'py-1 min-h-[32px] text-[11px]'
+                            : isMobile
+                              ? 'py-2 min-h-[44px] text-[12px]'
+                              : 'py-1.5 text-[12px]'
+                        } ${bar.isCalendarOnly ? 'cursor-pointer' : bar.item ? '' : 'cursor-default'}`}
                         style={{ backgroundColor: bar.color }}
                         title={bar.name}
                       >
@@ -997,7 +1104,13 @@ export const CalendarView: React.FC<Props> = ({ board, onRowClick, isTallerView,
                           <button
                             type="button"
                             onClick={(e) => { e.stopPropagation(); setMorePopoverKey(cell.key); }}
-                            className={`text-[11px] text-monday-blue font-medium hover:underline mt-auto touch-manipulation ${isMobile ? 'min-h-[44px] py-2 pt-1' : 'pt-1'}`}
+                            className={`text-monday-blue font-medium hover:underline mt-auto touch-manipulation ${
+                              compactLandscape
+                                ? 'text-[10px] py-0.5 min-h-0'
+                                : isMobile
+                                  ? 'text-[11px] min-h-[44px] py-2 pt-1'
+                                  : 'text-[11px] pt-1'
+                            }`}
                           >
                             +{rest} más
                           </button>
@@ -1040,7 +1153,11 @@ export const CalendarView: React.FC<Props> = ({ board, onRowClick, isTallerView,
         )}
 
         {viewType === 'month' && (
-          <div className="rounded-lg overflow-hidden border border-monday-hover bg-[var(--monday-surface)] shadow-monday-sm flex flex-col min-h-[400px] flex-1">
+          <div
+            className={`overflow-hidden border border-monday-hover bg-[var(--monday-surface)] shadow-monday-sm flex flex-col flex-1 ${
+              compactLandscape ? 'min-h-0 rounded-none border-x-0' : 'rounded-lg min-h-[400px]'
+            }`}
+          >
             <div className="grid grid-cols-7 border-b border-monday-hover shrink-0">
               {WEEKDAYS.map(day => (
                 <div
@@ -1117,18 +1234,20 @@ export const CalendarView: React.FC<Props> = ({ board, onRowClick, isTallerView,
         )}
       </div>
 
-      {/* Leyenda inferior: Colocación (verde), Producción (amarillo), Diseño (azul) */}
-      <div className="shrink-0 px-4 py-2 border-t border-monday-border flex items-center gap-4 flex-wrap bg-[var(--monday-surface)]">
-        {calendarLegend.map(opt => (
-          <div key={opt.label} className="flex items-center gap-1.5">
-            <span
-              className="w-2.5 h-2.5 rounded-full shrink-0"
-              style={{ backgroundColor: opt.color }}
-            />
-            <span className="text-[12px] font-medium text-monday-subtext">{opt.label}</span>
-          </div>
-        ))}
-      </div>
+      {/* Leyenda: se oculta en móvil horizontal para maximizar la cuadrícula */}
+      {!compactLandscape && (
+        <div className="shrink-0 px-4 py-2 border-t border-monday-border flex items-center gap-4 flex-wrap bg-[var(--monday-surface)]">
+          {calendarLegend.map(opt => (
+            <div key={opt.label} className="flex items-center gap-1.5">
+              <span
+                className="w-2.5 h-2.5 rounded-full shrink-0"
+                style={{ backgroundColor: opt.color }}
+              />
+              <span className="text-[12px] font-medium text-monday-subtext">{opt.label}</span>
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* Modal Agregar evento en fecha */}
       <Dialog.Root open={addModalOpen} onOpenChange={(open) => { setAddModalOpen(open); if (!open) { setAddModalDate(null); setAddModalStep('type'); setAddModalEventType(null); } }}>

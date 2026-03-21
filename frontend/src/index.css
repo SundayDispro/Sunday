@@ -4,6 +4,14 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Evita que iOS/Safari reescale texto al rotar (sensación de “zoom” de la interfaz). */
+@layer base {
+  html {
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
+  }
+}
+
 /* Averta Demo PE – títulos de grupo (Vite resuelve la ruta desde assets) */
 @font-face {
   font-family: 'Averta Std';

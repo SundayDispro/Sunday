@@ -2,6 +2,7 @@ import React, { useMemo, useState } from 'react';
 import { Board, Workspace } from '../../types';
 import { LayoutGrid, Search, ChevronDown, Clock } from 'lucide-react';
 import * as Popover from '@radix-ui/react-popover';
+import { useViewport } from '../../hooks/useViewport';
 
 const RECENT_STORAGE_KEY = 'sunday-recent-visits';
 const LAST_VISIT_KEY = 'sunday-last-board';
@@ -38,6 +39,7 @@ export function MobileBoardsOverview({
   onSelectWorkspace: (workspaceId: string) => void;
   onSelectBoard: (boardId: string) => void;
 }) {
+  const { isLandscape } = useViewport();
   const [query, setQuery] = useState('');
   const [workspacePickerOpen, setWorkspacePickerOpen] = useState(false);
 
@@ -79,7 +81,11 @@ export function MobileBoardsOverview({
 
   return (
     <div className="flex-1 min-h-0 flex flex-col overflow-hidden bg-monday-bg">
-      <div className="shrink-0 px-4 pt-4 pb-3 space-y-3 bg-monday-bg border-b border-monday-border/60">
+      <div
+        className={`shrink-0 px-4 bg-monday-bg border-b border-monday-border/60 space-y-3 ${
+          isLandscape ? 'pt-2 pb-2' : 'pt-4 pb-3'
+        }`}
+      >
       <div className="flex items-center gap-2">
         <Popover.Root open={workspacePickerOpen} onOpenChange={setWorkspacePickerOpen}>
           <Popover.Trigger asChild>
@@ -142,7 +148,11 @@ export function MobileBoardsOverview({
       </div>
 
       <div
-        className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden custom-scrollbar scroll-touch px-4 pb-32"
+        className={`flex-1 min-h-0 overflow-y-auto overflow-x-hidden custom-scrollbar scroll-touch ${
+          isLandscape
+            ? 'pb-4 pl-[max(12px,env(safe-area-inset-left))] pr-[max(12px,env(safe-area-inset-right))]'
+            : 'px-4 pb-32'
+        }`}
         style={{ WebkitOverflowScrolling: 'touch', overscrollBehavior: 'contain' }}
       >
       {lastBoard && (
@@ -206,7 +216,7 @@ export function MobileBoardsOverview({
             No hay tableros que coincidan con tu búsqueda.
           </div>
         ) : (
-          <div className="grid gap-2">
+          <div className={`grid gap-2 ${isLandscape ? 'grid-cols-2' : ''}`}>
             {workspaceBoards.map((b) => {
               const groupsCount = b.groups?.length ?? 0;
               const itemsCount = (b.groups ?? []).reduce((acc, g) => acc + (g.items?.length ?? 0), 0);
@@ -218,15 +228,23 @@ export function MobileBoardsOverview({
                     if (navigator.vibrate) navigator.vibrate(15);
                     onSelectBoard(b.id);
                   }}
-                  className="w-full flex items-center gap-3 px-3 py-3 rounded-3xl bg-[var(--monday-surface)] border border-monday-border shadow-monday-sm text-left min-h-[56px] hover:bg-monday-hover/40 transition-colors"
+                  className={`w-full flex items-center gap-2 sm:gap-3 px-2.5 sm:px-3 py-2.5 sm:py-3 rounded-2xl sm:rounded-3xl bg-[var(--monday-surface)] border border-monday-border shadow-monday-sm text-left min-h-[52px] sm:min-h-[56px] hover:bg-monday-hover/40 transition-colors ${
+                    isLandscape ? 'flex-col items-stretch text-center' : ''
+                  }`}
                 >
-                  <div className="w-10 h-10 rounded-2xl bg-monday-pill border border-monday-border flex items-center justify-center text-monday-text shrink-0">
-                    <LayoutGrid size={18} />
+                  <div
+                    className={`rounded-2xl bg-monday-pill border border-monday-border flex items-center justify-center text-monday-text shrink-0 ${
+                      isLandscape ? 'w-9 h-9 mx-auto' : 'w-10 h-10'
+                    }`}
+                  >
+                    <LayoutGrid size={isLandscape ? 16 : 18} />
                   </div>
                   <div className="min-w-0 flex-1">
-                    <div className="text-[13px] font-semibold text-monday-text truncate">{b.name}</div>
-                    <div className="text-[11px] text-monday-subtext mt-0.5">
-                      {groupsCount} grupos · {itemsCount} elementos
+                    <div className="text-[12px] sm:text-[13px] font-semibold text-monday-text line-clamp-2 sm:truncate">
+                      {b.name}
+                    </div>
+                    <div className="text-[10px] sm:text-[11px] text-monday-subtext mt-0.5">
+                      {groupsCount} grupos · {itemsCount} elem.
                     </div>
                   </div>
                 </button>

@@ -50,9 +50,10 @@ import type { CellStyleDef, CellStylesMap } from './docs/sheetCellTypes';
 export type { CellStyleDef, CellStylesMap } from './docs/sheetCellTypes';
 import { FONT_OPTIONS, FONT_SIZES } from '../docs/TextFormatBar';
 import type { TemplateConfigState, CustomBoxDef } from './docs/pdfTemplateConfig';
+import { extractPdfDocumentImageBoxes, pdfTemplateBoxesExcludingImages } from './docs/pdfTemplateConfig';
 import { PdfTemplateEditor, PAGE_ASPECT, PAGE_WIDTH_PX_96DPI, PAGE_HEIGHT_PX_96DPI } from './docs/PdfTemplateEditor';
 import { buildPdfContent } from './docs/buildPdfContent';
-import { TextFormatBarForEditor, TextFormatBarForTemplate } from '../docs/TextFormatBar';
+import { TextFormatBarForEditor } from '../docs/TextFormatBar';
 import { useUser } from '../../store/UserContext';
 import { useToast } from '../Toast';
 import { socket } from '../../store/socket';
@@ -1476,6 +1477,8 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
   const { currentUser } = useUser();
   const currentUserId = currentUser?.id ?? null;
   const isAdmin = !!(currentUser && String(currentUser.role || '').toUpperCase() === 'ADMIN');
+  const isAdminRef = useRef(isAdmin);
+  isAdminRef.current = isAdmin;
   const { toast } = useToast();
 
   const [docs, setDocs] = useState<Doc[]>([]);
@@ -1570,6 +1573,17 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
   const [templateConfigByType, setTemplateConfigByType] = useState<Record<string, TemplateConfigState>>({});
   const templateConfigByTypeRef = useRef(templateConfigByType);
   templateConfigByTypeRef.current = templateConfigByType;
+  /** Lectura fresca en `performSaveExisting` (evita closure obsoleta tras el diálogo de sobrescritura). */
+  const selectedDocRef = useRef(selectedDoc);
+  selectedDocRef.current = selectedDoc;
+  const tableDraftRef = useRef(tableDraft);
+  tableDraftRef.current = tableDraft;
+  const cellStylesDraftRef = useRef(cellStylesDraft);
+  cellStylesDraftRef.current = cellStylesDraft;
+  const textDraftRef = useRef(textDraft);
+  textDraftRef.current = textDraft;
+  const headerImageUrlDraftRef = useRef(headerImageUrlDraft);
+  headerImageUrlDraftRef.current = headerImageUrlDraft;
   const [templateConfigLoading, setTemplateConfigLoading] = useState<boolean>(false);
   const [savingTemplateConfig, setSavingTemplateConfig] = useState(false);
   /** Evita auto-guardar justo después de cargar la config desde la API. */
@@ -2526,7 +2540,19 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
         const merged = { ...initial, ...(parsed as Record<string, unknown>) };
         // Fecha: nunca rellenar desde el documento guardado; solo lo que el usuario escribe (evitar 15/03/2026 automático)
         (merged as Record<string, unknown>).fecha = (initial as Record<string, unknown>).fecha ?? '';
-        setPdfFormDraft(merged);
+        if (isAdmin) {
+          const rawCb = (merged as Record<string, unknown>).customBoxes;
+          const allBoxes = Array.isArray(rawCb) ? (rawCb as CustomBoxDef[]) : [];
+          const docImgs = allBoxes.filter((b) => b.kind === 'image');
+          const docText = pdfTemplateBoxesExcludingImages(allBoxes);
+          setPdfFormDraft({
+            ...merged,
+            customBoxes: docText,
+            pdfImageBoxes: docImgs,
+          });
+        } else {
+          setPdfFormDraft(merged);
+        }
         // Fallback para no-admin: si el documento tiene customBoxes guardados y aún no tenemos config de la API, usar la del doc
         const docType = selectedDoc.type as 'cotizacion' | 'levantamiento' | 'hoja_trabajo';
         const rawCustom = (parsed as Record<string, unknown>).customBoxes as unknown;
@@ -2590,7 +2616,7 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
         }
       }
     }
-  }, [parsed, selectedId, selectedDoc?.type]);
+  }, [parsed, selectedId, selectedDoc?.type, isAdmin]);
 
   // Inicializar drafts cuando se abre un documento nuevo (sin id)
   // Si viene del tablero (linkToBoardItem), no sobrescribir pdfFormDraft: el efecto de creación desde tablero ya lo rellenó con elemento/folio
@@ -2606,7 +2632,18 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
     if (!(isPdfDocType(newDocDraft.type) && linkToBoardItem)) {
       if (isPdfDocType(newDocDraft.type)) {
         const masterDef = templateConfigByType[newDocDraft.type]?.defaultContent;
-        setPdfFormDraft(mergeInitialPdfContentWithMasterDefaults(newDocDraft.type, masterDef) as Record<string, unknown>);
+        const base = mergeInitialPdfContentWithMasterDefaults(newDocDraft.type, masterDef) as Record<string, unknown>;
+        if (isAdmin) {
+          setPdfFormDraft({
+            ...base,
+            pdfImageBoxes: [],
+            customBoxes: pdfTemplateBoxesExcludingImages(
+              Array.isArray(base.customBoxes) ? (base.customBoxes as CustomBoxDef[]) : []
+            ),
+          });
+        } else {
+          setPdfFormDraft(base);
+        }
       } else {
         setPdfFormDraft(initial as Record<string, unknown>);
       }
@@ -2614,6 +2651,7 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
   }, [
     newDocDraft?.type,
     linkToBoardItem,
+    isAdmin,
     newDocDraft && isPdfDocType(newDocDraft.type) ? templateConfigByType[newDocDraft.type]?.defaultContent : undefined,
   ]);
 
@@ -2623,8 +2661,16 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
   const effectiveTemplateConfigForPdf = useMemo((): TemplateConfigState | null => {
     if (!pdfDocType) return null;
     const fromApi = templateConfigByType[pdfDocType];
-    // ADMIN usa siempre el master global para layout/estilos de cajas.
-    if (isAdmin) return fromApi ?? null;
+    // ADMIN: texto/posiciones de cajas desde el master global; imágenes solo desde este documento.
+    if (isAdmin) {
+      if (!fromApi) return null;
+      const masterText = pdfTemplateBoxesExcludingImages(fromApi.customBoxes);
+      const docImages = extractPdfDocumentImageBoxes(pdfFormDraft);
+      return {
+        ...fromApi,
+        customBoxes: [...masterText, ...docImages],
+      };
+    }
     const fromDoc = Array.isArray(pdfFormDraft.customBoxes) ? pdfFormDraft.customBoxes : [];
     if (fromDoc.length > 0) {
       return {
@@ -2642,12 +2688,15 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
     return fromApi ?? null;
   }, [pdfDocType, templateConfigByType, pdfFormDraft]);
 
-  // ADMIN: normaliza el draft contra el master para que layout + IDs + valores queden coherentes.
+  // ADMIN: normaliza el draft contra el master (solo cajas de texto en el master). Las imágenes quedan en pdfImageBoxes.
   const syncAdminDraftWithMaster = (
     draft: Record<string, unknown>,
     master: TemplateConfigState
   ): { nextDraft: Record<string, unknown>; orphanCount: number } => {
     const docBoxes: CustomBoxDef[] = Array.isArray(draft.customBoxes) ? (draft.customBoxes as CustomBoxDef[]) : [];
+    const docTextBoxes = docBoxes.filter((b) => b.kind !== 'image');
+    const docImageBoxes = extractPdfDocumentImageBoxes(draft);
+
     const docCustomFieldValuesRaw = (draft.customFieldValues ?? {}) as unknown;
     const docCustomFieldValues =
       docCustomFieldValuesRaw && typeof docCustomFieldValuesRaw === 'object' && !Array.isArray(docCustomFieldValuesRaw)
@@ -2655,14 +2704,15 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
         : {};
 
     const masterBoxes: CustomBoxDef[] = Array.isArray(master.customBoxes) ? (master.customBoxes as CustomBoxDef[]) : [];
+    const masterTextBoxes = pdfTemplateBoxesExcludingImages(masterBoxes);
 
     const nextCustomFieldValues: Record<string, string> = {};
     const mappedDocIds = new Set<string>();
 
-    // Mantener valores de campos con fieldKey: el editor los lee desde draft[fieldKey].
     const nextDraft: Record<string, unknown> = {
       ...draft,
-      customBoxes: masterBoxes,
+      customBoxes: masterTextBoxes,
+      pdfImageBoxes: docImageBoxes,
       fieldPositions: master.fieldPositions ?? {},
       globalFontColor: master.fontColor ?? '#000000',
       globalFontFamily: master.fontFamily ?? 'Helvetica',
@@ -2672,18 +2722,18 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
       customFieldValues: nextCustomFieldValues,
     };
 
-    for (let i = 0; i < masterBoxes.length; i += 1) {
-      const masterBox = masterBoxes[i] as CustomBoxDef;
+    for (let i = 0; i < masterTextBoxes.length; i += 1) {
+      const masterBox = masterTextBoxes[i] as CustomBoxDef;
       let candidateDocBox: CustomBoxDef | undefined;
 
       if (masterBox.semantic) {
-        candidateDocBox = docBoxes.find((b) => b.semantic === masterBox.semantic);
+        candidateDocBox = docTextBoxes.find((b) => b.semantic === masterBox.semantic);
       }
       if (!candidateDocBox && masterBox.fieldKey) {
-        candidateDocBox = docBoxes.find((b) => b.fieldKey === masterBox.fieldKey);
+        candidateDocBox = docTextBoxes.find((b) => b.fieldKey === masterBox.fieldKey);
       }
-      if (!candidateDocBox && docBoxes.length > 0) {
-        candidateDocBox = docBoxes[Math.min(i, docBoxes.length - 1)];
+      if (!candidateDocBox && docTextBoxes.length > 0) {
+        candidateDocBox = docTextBoxes[Math.min(i, docTextBoxes.length - 1)];
       }
 
       const candidateId = candidateDocBox?.id;
@@ -2710,9 +2760,68 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
       }
     }
 
-    const orphanCount = docBoxes.filter((b) => b.id && !mappedDocIds.has(b.id)).length;
+    const orphanCount = docTextBoxes.filter((b) => b.id && !mappedDocIds.has(b.id)).length;
     return { nextDraft, orphanCount };
   };
+
+  /** ADMIN: persiste cambios en `templateConfigByType` y alinea el borrador del doc. No admin: solo `pdfFormDraft`. */
+  const applyPdfTemplateConfigChange = useCallback(
+    (config: TemplateConfigState) => {
+      if (!pdfDocType) return;
+      if (isAdmin) {
+        const incomingBoxes = config.customBoxes ?? [];
+        const imageBoxes = incomingBoxes.filter((b) => b.kind === 'image');
+        const textBoxes = pdfTemplateBoxesExcludingImages(incomingBoxes);
+        const configForMaster: TemplateConfigState = { ...config, customBoxes: textBoxes };
+        setTemplateConfigByType((prev) => ({
+          ...prev,
+          [pdfDocType]: configForMaster,
+        }));
+        setPdfFormDraft((prev) => {
+          const { nextDraft } = syncAdminDraftWithMaster(prev, configForMaster);
+          return {
+            ...nextDraft,
+            pdfImageBoxes: imageBoxes,
+          };
+        });
+        return;
+      }
+      setPdfFormDraft((prev) => {
+        const prevFieldPositions =
+          typeof prev.fieldPositions === 'object' && prev.fieldPositions != null && !Array.isArray(prev.fieldPositions)
+            ? (prev.fieldPositions as Record<string, { x: number; y: number }>)
+            : {};
+        const prevBold = prev.globalFontBold === true || prev.globalFontBold === 'true';
+        const prevItalic = prev.globalFontItalic === true || prev.globalFontItalic === 'true';
+        return {
+          ...prev,
+          fieldPositions: config.fieldPositions ?? prevFieldPositions,
+          globalFontColor:
+            typeof config.fontColor === 'string'
+              ? config.fontColor
+              : typeof prev.globalFontColor === 'string'
+                ? prev.globalFontColor
+                : '#000000',
+          globalFontFamily:
+            typeof config.fontFamily === 'string'
+              ? config.fontFamily
+              : typeof prev.globalFontFamily === 'string'
+                ? prev.globalFontFamily
+                : 'Helvetica',
+          globalFontSize:
+            typeof config.fontSize === 'number'
+              ? config.fontSize
+              : typeof prev.globalFontSize === 'number'
+                ? prev.globalFontSize
+                : 11,
+          globalFontBold: config.fontBold ?? prevBold,
+          globalFontItalic: config.fontItalic ?? prevItalic,
+          customBoxes: config.customBoxes ?? (Array.isArray(prev.customBoxes) ? prev.customBoxes : []),
+        } as Record<string, unknown>;
+      });
+    },
+    [pdfDocType, isAdmin]
+  );
 
   /** Abre el drawer móvil de plantilla: ofrece recuperar borrador de emergencia (m6) y aplica sync ADMIN. */
   const openMobilePdfTemplateDrawer = () => {
@@ -2874,9 +2983,6 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
         if (cancelled || !data) return;
         templateConfigJustLoadedRef.current = true;
         setTemplateConfigByType((prev) => {
-          const current = prev[pdfDocType];
-          const currentBoxes = current?.customBoxes ?? [];
-          const currentImageCount = currentBoxes.filter((b) => b.kind === 'image').length;
           const rawApi = data.customBoxes as unknown;
           const apiBoxes: CustomBoxDef[] = Array.isArray(rawApi)
             ? (rawApi as unknown[]).map((b) => {
@@ -2900,10 +3006,7 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
                 };
               })
             : [];
-          const apiImageCount = apiBoxes.filter((b) => b.kind === 'image').length;
-          if (currentImageCount > apiImageCount && currentImageCount > 0) {
-            return prev;
-          }
+          const masterBoxes = pdfTemplateBoxesExcludingImages(apiBoxes);
           const prevEntry = prev[pdfDocType];
           const fromApi =
             data.defaultContent != null && typeof data.defaultContent === 'object' && !Array.isArray(data.defaultContent)
@@ -2919,7 +3022,7 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
               fontSize: data.fontSize ?? 11,
               fontBold: data.fontBold ?? false,
               fontItalic: data.fontItalic ?? false,
-              customBoxes: apiBoxes,
+              customBoxes: masterBoxes,
               ...(defaultContent ? { defaultContent } : {}),
             },
           };
@@ -3052,6 +3155,7 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
                 data.defaultContent != null && typeof data.defaultContent === 'object' && !Array.isArray(data.defaultContent)
                   ? (data.defaultContent as Record<string, unknown>)
                   : undefined;
+              const rawBoxes = Array.isArray(data.customBoxes) ? data.customBoxes : [];
               tmpl = {
                 fieldPositions: data.fieldPositions ?? {},
                 fontColor: data.fontColor ?? '#000000',
@@ -3059,7 +3163,7 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
                 fontSize: data.fontSize ?? 11,
                 fontBold: data.fontBold ?? false,
                 fontItalic: data.fontItalic ?? false,
-                customBoxes: Array.isArray(data.customBoxes) ? data.customBoxes : [],
+                customBoxes: pdfTemplateBoxesExcludingImages(rawBoxes as CustomBoxDef[]),
                 ...(dc ? { defaultContent: dc } : {}),
               };
               setTemplateConfigByType((prev) => ({ ...prev, [pdfType]: tmpl! }));
@@ -3133,44 +3237,64 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
   const runOverwriteAction = async () => {
     const fn = overwriteActionRef.current;
     overwriteActionRef.current = null;
-    setOverwriteDialog(null);
-    if (fn) {
-      await fn();
-    }
-    if (templateEditorCloseAfterSaveRef.current) {
-      templateEditorCloseAfterSaveRef.current = false;
-      closeEmbeddedTemplateEditor();
+    try {
+      if (fn) {
+        await fn();
+      }
+    } finally {
+      setOverwriteDialog(null);
+      if (templateEditorCloseAfterSaveRef.current) {
+        templateEditorCloseAfterSaveRef.current = false;
+        closeEmbeddedTemplateEditor();
+      }
     }
   };
 
   const performSaveExisting = async () => {
+    const selectedDoc = selectedDocRef.current;
     if (!selectedDoc) return;
     setSaving(true);
     setError(null);
     try {
+      const tableDraft = tableDraftRef.current;
+      const cellStylesDraft = cellStylesDraftRef.current;
+      const textDraft = textDraftRef.current;
+      const headerImageUrlDraft = headerImageUrlDraftRef.current;
+      const pdfFormDraft = pdfFormDraftRef.current;
+      const templateConfigByType = templateConfigByTypeRef.current;
+
       let content: DocContent;
       if (selectedDoc.type === 'sheet') {
         content = { table: tableDraft, cellStyles: cellStylesDraft };
       } else if (isPdfDocType(selectedDoc.type as DocType)) {
-        // Incluir customBoxes y fuentes en el contenido del doc para que cualquier usuario vea la misma plantilla al abrirlo
         const docType = selectedDoc.type as 'cotizacion' | 'levantamiento' | 'hoja_trabajo';
         const config = templateConfigByType[docType];
-        const draftCustomBoxes = Array.isArray(pdfFormDraft.customBoxes) ? pdfFormDraft.customBoxes : [];
-        const shouldFillTemplateDefaults = draftCustomBoxes.length === 0;
-        content = {
-          ...pdfFormDraft,
-          ...(config && shouldFillTemplateDefaults && Array.isArray(config.customBoxes)
-            ? {
-                customBoxes: config.customBoxes,
-                globalFontColor: config.fontColor,
-                globalFontFamily: config.fontFamily,
-                globalFontSize: config.fontSize,
-                globalFontBold: config.fontBold,
-                globalFontItalic: config.fontItalic,
-                fieldPositions: config.fieldPositions,
-              }
-            : {}),
-        } as DocContent;
+        if (isAdminRef.current) {
+          const masterText = pdfTemplateBoxesExcludingImages(config?.customBoxes);
+          const docImages = extractPdfDocumentImageBoxes(pdfFormDraft);
+          content = {
+            ...pdfFormDraft,
+            customBoxes: [...masterText, ...docImages],
+            pdfImageBoxes: docImages,
+          } as DocContent;
+        } else {
+          const draftCustomBoxes = Array.isArray(pdfFormDraft.customBoxes) ? pdfFormDraft.customBoxes : [];
+          const shouldFillTemplateDefaults = draftCustomBoxes.length === 0;
+          content = {
+            ...pdfFormDraft,
+            ...(config && shouldFillTemplateDefaults && Array.isArray(config.customBoxes)
+              ? {
+                  customBoxes: config.customBoxes,
+                  globalFontColor: config.fontColor,
+                  globalFontFamily: config.fontFamily,
+                  globalFontSize: config.fontSize,
+                  globalFontBold: config.fontBold,
+                  globalFontItalic: config.fontItalic,
+                  fieldPositions: config.fieldPositions,
+                }
+              : {}),
+          } as DocContent;
+        }
       } else {
         content = { text: textDraft, headerImageUrl: headerImageUrlDraft };
       }
@@ -3190,19 +3314,31 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
           const savedContent = typeof data.content === 'string' ? JSON.parse(data.content as string) : (data.content as Record<string, unknown>);
           if (savedContent && typeof savedContent === 'object') {
             skipNextPdfDraftSyncFromParsed.current = true;
-            setPdfFormDraft((prev) => ({ ...prev, ...savedContent }));
+            if (isAdminRef.current) {
+              const boxes = Array.isArray(savedContent.customBoxes) ? (savedContent.customBoxes as CustomBoxDef[]) : [];
+              setPdfFormDraft((prev) => ({
+                ...prev,
+                ...savedContent,
+                customBoxes: pdfTemplateBoxesExcludingImages(boxes),
+                pdfImageBoxes: boxes.filter((b) => b.kind === 'image'),
+              }));
+            } else {
+              setPdfFormDraft((prev) => ({ ...prev, ...savedContent }));
+            }
           }
         } catch (_) {}
       }
-      if (linkToBoardItem) {
+      const link = linkToBoardItemRef.current;
+      if (link) {
         await linkDocToBoardItem({
-          boardId: linkToBoardItem.boardId,
-          itemId: linkToBoardItem.itemId,
-          columnId: linkToBoardItem.columnId,
-          type: linkToBoardItem.type,
+          boardId: link.boardId,
+          itemId: link.itemId,
+          columnId: link.columnId,
+          type: link.type,
           docId: selectedDoc.id,
         });
         setLinkToBoardItem(null);
+        linkToBoardItemRef.current = null;
       }
       toast('Documento guardado', 'success');
       if (isPdfDocType(selectedDoc.type as DocType)) {
@@ -3270,7 +3406,7 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
         fontSize: config.fontSize ?? 11,
         fontBold: config.fontBold ?? false,
         fontItalic: config.fontItalic ?? false,
-        customBoxes: config.customBoxes ?? [],
+        customBoxes: pdfTemplateBoxesExcludingImages(config.customBoxes ?? []),
       };
       const res = await apiFetch(`${API_BASE}/api/templates/${pdfDocType}/config?userId=${encodeURIComponent(currentUser.id)}`, {
         method: 'PUT',
@@ -3316,7 +3452,7 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
         fontSize: config.fontSize ?? 11,
         fontBold: config.fontBold ?? false,
         fontItalic: config.fontItalic ?? false,
-        customBoxes: config.customBoxes ?? [],
+        customBoxes: pdfTemplateBoxesExcludingImages(config.customBoxes ?? []),
         ...(defaultContentSnapshot != null && typeof defaultContentSnapshot === 'object' && !Array.isArray(defaultContentSnapshot)
           ? { defaultContent: defaultContentSnapshot }
           : {}),
@@ -3343,6 +3479,7 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
         ...prev,
         [kind]: {
           ...config,
+          customBoxes: pdfTemplateBoxesExcludingImages(config.customBoxes ?? []),
           ...(defaultContentSnapshot != null && typeof defaultContentSnapshot === 'object' && !Array.isArray(defaultContentSnapshot)
             ? { defaultContent: defaultContentSnapshot }
             : {}),
@@ -3360,7 +3497,12 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
     async (kind: 'cotizacion' | 'levantamiento' | 'hoja_trabajo') => {
       const cfgFromState = templateConfigByType[kind];
       try {
-        let config: TemplateConfigState | null = cfgFromState ?? null;
+        let config: TemplateConfigState | null = cfgFromState
+          ? {
+              ...cfgFromState,
+              customBoxes: pdfTemplateBoxesExcludingImages(cfgFromState.customBoxes ?? []),
+            }
+          : null;
         if (!config) {
           const res = await apiFetch(`${API_BASE}/api/templates/${kind}/config`);
           if (!res.ok) throw new Error('No se pudo cargar la configuración del master');
@@ -3410,7 +3552,7 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
             fontSize: data.fontSize ?? 11,
             fontBold: data.fontBold ?? false,
             fontItalic: data.fontItalic ?? false,
-            customBoxes: apiBoxes,
+            customBoxes: pdfTemplateBoxesExcludingImages(apiBoxes),
             ...(dcMaster ? { defaultContent: dcMaster } : {}),
           };
 
@@ -3562,22 +3704,32 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
       } else if (isPdfDocType(docType as DocType)) {
         const pdfType = docType as 'cotizacion' | 'levantamiento' | 'hoja_trabajo';
         const config = templateConfigByType[pdfType];
-        const draftCustomBoxes = Array.isArray(pdfFormDraft.customBoxes) ? pdfFormDraft.customBoxes : [];
-        const shouldFillTemplateDefaults = draftCustomBoxes.length === 0;
-        content = {
-          ...pdfFormDraft,
-          ...(config && shouldFillTemplateDefaults && Array.isArray(config.customBoxes)
-            ? {
-                customBoxes: config.customBoxes,
-                globalFontColor: config.fontColor,
-                globalFontFamily: config.fontFamily,
-                globalFontSize: config.fontSize,
-                globalFontBold: config.fontBold,
-                globalFontItalic: config.fontItalic,
-                fieldPositions: config.fieldPositions,
-              }
-            : {}),
-        } as DocContent;
+        if (isAdminRef.current) {
+          const masterText = pdfTemplateBoxesExcludingImages(config?.customBoxes);
+          const docImages = extractPdfDocumentImageBoxes(pdfFormDraft);
+          content = {
+            ...pdfFormDraft,
+            customBoxes: [...masterText, ...docImages],
+            pdfImageBoxes: docImages,
+          } as DocContent;
+        } else {
+          const draftCustomBoxes = Array.isArray(pdfFormDraft.customBoxes) ? pdfFormDraft.customBoxes : [];
+          const shouldFillTemplateDefaults = draftCustomBoxes.length === 0;
+          content = {
+            ...pdfFormDraft,
+            ...(config && shouldFillTemplateDefaults && Array.isArray(config.customBoxes)
+              ? {
+                  customBoxes: config.customBoxes,
+                  globalFontColor: config.fontColor,
+                  globalFontFamily: config.fontFamily,
+                  globalFontSize: config.fontSize,
+                  globalFontBold: config.fontBold,
+                  globalFontItalic: config.fontItalic,
+                  fieldPositions: config.fieldPositions,
+                }
+              : {}),
+          } as DocContent;
+        }
       } else {
         content = { text: textDraft, headerImageUrl: headerImageUrlDraft };
       }
@@ -3654,22 +3806,32 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
     } else if (isPdfDocType(docType as DocType)) {
       const pdfType = docType as 'cotizacion' | 'levantamiento' | 'hoja_trabajo';
       const config = templateConfigByType[pdfType];
-      const draftCustomBoxes = Array.isArray(pdfFormDraft.customBoxes) ? pdfFormDraft.customBoxes : [];
-      const shouldFillTemplateDefaults = draftCustomBoxes.length === 0;
-      content = {
-        ...pdfFormDraft,
-        ...(config && shouldFillTemplateDefaults && Array.isArray(config.customBoxes)
-          ? {
-              customBoxes: config.customBoxes,
-              globalFontColor: config.fontColor,
-              globalFontFamily: config.fontFamily,
-              globalFontSize: config.fontSize,
-              globalFontBold: config.fontBold,
-              globalFontItalic: config.fontItalic,
-              fieldPositions: config.fieldPositions,
-            }
-          : {}),
-      } as DocContent;
+      if (isAdminRef.current) {
+        const masterText = pdfTemplateBoxesExcludingImages(config?.customBoxes);
+        const docImages = extractPdfDocumentImageBoxes(pdfFormDraft);
+        content = {
+          ...pdfFormDraft,
+          customBoxes: [...masterText, ...docImages],
+          pdfImageBoxes: docImages,
+        } as DocContent;
+      } else {
+        const draftCustomBoxes = Array.isArray(pdfFormDraft.customBoxes) ? pdfFormDraft.customBoxes : [];
+        const shouldFillTemplateDefaults = draftCustomBoxes.length === 0;
+        content = {
+          ...pdfFormDraft,
+          ...(config && shouldFillTemplateDefaults && Array.isArray(config.customBoxes)
+            ? {
+                customBoxes: config.customBoxes,
+                globalFontColor: config.fontColor,
+                globalFontFamily: config.fontFamily,
+                globalFontSize: config.fontSize,
+                globalFontBold: config.fontBold,
+                globalFontItalic: config.fontItalic,
+                fieldPositions: config.fieldPositions,
+              }
+            : {}),
+        } as DocContent;
+      }
     } else {
       content = { text: textDraft, headerImageUrl: headerImageUrlDraft };
     }
@@ -3737,7 +3899,8 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
         onOpenChange={(open) => {
           if (!open) {
             setOverwriteDialog(null);
-            overwriteActionRef.current = null;
+            // No limpiar overwriteActionRef aquí: Radix puede cerrar el diálogo antes del onClick de
+            // «Sobrescribir» y dejaría fn === null. Solo Cancelar y runOverwriteAction limpian la ref.
           }
         }}
       >
@@ -4116,47 +4279,10 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
                           docId={selectedDoc?.id ?? ''}
                           templateConfig={effectiveTemplateConfigForPdf}
                           isAdmin={isAdmin}
-                          allowBoxEditing={!isAdmin}
-                          lockedOutline={isAdmin}
-                          onTemplateConfigChange={
-                            !isAdmin && pdfDocType
-                              ? (config) =>
-                                  setPdfFormDraft((prev) => {
-                                    const prevFieldPositions =
-                                      typeof prev.fieldPositions === 'object' && prev.fieldPositions != null && !Array.isArray(prev.fieldPositions)
-                                        ? (prev.fieldPositions as Record<string, { x: number; y: number }>)
-                                        : {};
-                                    const prevBold = prev.globalFontBold === true || prev.globalFontBold === 'true';
-                                    const prevItalic = prev.globalFontItalic === true || prev.globalFontItalic === 'true';
-                                    return {
-                                      ...prev,
-                                      fieldPositions: config.fieldPositions ?? prevFieldPositions,
-                                      globalFontColor:
-                                        typeof config.fontColor === 'string'
-                                          ? config.fontColor
-                                          : typeof prev.globalFontColor === 'string'
-                                            ? prev.globalFontColor
-                                            : '#000000',
-                                      globalFontFamily:
-                                        typeof config.fontFamily === 'string'
-                                          ? config.fontFamily
-                                          : typeof prev.globalFontFamily === 'string'
-                                            ? prev.globalFontFamily
-                                            : 'Helvetica',
-                                      globalFontSize:
-                                        typeof config.fontSize === 'number'
-                                          ? config.fontSize
-                                          : typeof prev.globalFontSize === 'number'
-                                            ? prev.globalFontSize
-                                            : 11,
-                                      globalFontBold: config.fontBold ?? prevBold,
-                                      globalFontItalic: config.fontItalic ?? prevItalic,
-                                      customBoxes: config.customBoxes ?? (Array.isArray(prev.customBoxes) ? prev.customBoxes : []),
-                                    } as Record<string, unknown>;
-                                  })
-                              : undefined
-                          }
-                          onSaveTemplateConfig={undefined}
+                          allowBoxEditing
+                          lockedOutline={false}
+                          onTemplateConfigChange={pdfDocType ? applyPdfTemplateConfigChange : undefined}
+                          onSaveTemplateConfig={isAdmin && pdfDocType ? handleSaveTemplateConfig : undefined}
                           savingTemplateConfig={savingTemplateConfig}
                         />
                       )}
@@ -4266,51 +4392,13 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
                 docId={selectedDoc.id}
                 templateConfig={effectiveTemplateConfigForPdf}
                 isAdmin={isAdmin}
-                allowBoxEditing={!isAdmin}
-                lockedOutline={isAdmin}
+                allowBoxEditing
+                lockedOutline={false}
                 compactPadding
                 renderFormatBarExternally={false}
                 blueprintMode={false}
-                onTemplateConfigChange={
-                  !isAdmin && pdfDocType
-                    ? (config) => {
-                        setPdfFormDraft((prev) => {
-                          const prevFieldPositions =
-                            typeof prev.fieldPositions === 'object' && prev.fieldPositions != null && !Array.isArray(prev.fieldPositions)
-                              ? (prev.fieldPositions as Record<string, { x: number; y: number }>)
-                              : {};
-                          const prevBold = prev.globalFontBold === true || prev.globalFontBold === 'true';
-                          const prevItalic = prev.globalFontItalic === true || prev.globalFontItalic === 'true';
-                          return {
-                            ...prev,
-                            fieldPositions: config.fieldPositions ?? prevFieldPositions,
-                            globalFontColor:
-                              typeof config.fontColor === 'string'
-                                ? config.fontColor
-                                : typeof prev.globalFontColor === 'string'
-                                  ? prev.globalFontColor
-                                  : '#000000',
-                            globalFontFamily:
-                              typeof config.fontFamily === 'string'
-                                ? config.fontFamily
-                                : typeof prev.globalFontFamily === 'string'
-                                  ? prev.globalFontFamily
-                                  : 'Helvetica',
-                            globalFontSize:
-                              typeof config.fontSize === 'number'
-                                ? config.fontSize
-                                : typeof prev.globalFontSize === 'number'
-                                  ? prev.globalFontSize
-                                  : 11,
-                            globalFontBold: config.fontBold ?? prevBold,
-                            globalFontItalic: config.fontItalic ?? prevItalic,
-                            customBoxes: config.customBoxes ?? (Array.isArray(prev.customBoxes) ? prev.customBoxes : []),
-                          } as Record<string, unknown>;
-                        });
-                      }
-                    : undefined
-                }
-                onSaveTemplateConfig={undefined}
+                onTemplateConfigChange={pdfDocType ? applyPdfTemplateConfigChange : undefined}
+                onSaveTemplateConfig={isAdmin && pdfDocType ? handleSaveTemplateConfig : undefined}
                 savingTemplateConfig={savingTemplateConfig}
               />
             </div>

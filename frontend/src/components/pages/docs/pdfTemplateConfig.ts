@@ -117,6 +117,26 @@ export function getPositionForFieldFromPositions(
   };
 }
 
+/**
+ * Plantilla global (API / master): solo cajas de texto y metadatos.
+ * Las imágenes (`kind === 'image'`) viven por documento en `content.pdfImageBoxes` o en `customBoxes` mezclado (legado).
+ */
+export function pdfTemplateBoxesExcludingImages(boxes: CustomBoxDef[] | undefined | null): CustomBoxDef[] {
+  return (boxes ?? []).filter((b) => b.kind !== 'image');
+}
+
+/** Imágenes del documento: primero `pdfImageBoxes`, si no hay, las de `customBoxes` (documentos antiguos). */
+export function extractPdfDocumentImageBoxes(draft: Record<string, unknown>): CustomBoxDef[] {
+  if (Array.isArray(draft.pdfImageBoxes)) return draft.pdfImageBoxes as CustomBoxDef[];
+  const c = draft.customBoxes;
+  if (!Array.isArray(c)) return [];
+  return (c as CustomBoxDef[]).filter((b) => b.kind === 'image');
+}
+
+export function pdfDraftUsesSplitImageLayout(draft: Record<string, unknown>): boolean {
+  return Array.isArray(draft.pdfImageBoxes);
+}
+
 export interface CustomBoxDef {
   id: string;
   x: number;

@@ -1,4 +1,9 @@
 import type { TemplateConfigState, CustomBoxDef, PdfDocType } from './pdfTemplateConfig';
+import {
+  extractPdfDocumentImageBoxes,
+  pdfDraftUsesSplitImageLayout,
+  pdfTemplateBoxesExcludingImages,
+} from './pdfTemplateConfig';
 
 export interface BuildPdfContentParams {
   docType: PdfDocType;
@@ -24,14 +29,21 @@ export function buildPdfContent({
     string,
     { x: number; y: number; fontSize?: number; maxWidth?: number }
   >;
-  // Las cajas/imágenes deben venir del documento; la plantilla solo actúa como fallback
-  // cuando el documento aún no tiene customBoxes guardados.
+  // Modo admin: texto desde plantilla global + imágenes solo del documento (`pdfImageBoxes`).
+  // Legado / no admin: `customBoxes` completo en el documento.
   const docCustomBoxesRaw = Array.isArray(pdfFormDraft.customBoxes) ? pdfFormDraft.customBoxes : [];
-  const rawCustomBoxes = docCustomBoxesRaw.length > 0
-    ? docCustomBoxesRaw
-    : Array.isArray(config?.customBoxes)
-      ? config.customBoxes
-      : [];
+  const configBoxesRaw = Array.isArray(config?.customBoxes) ? config.customBoxes : [];
+  const configText = pdfTemplateBoxesExcludingImages(configBoxesRaw);
+  const docImages = extractPdfDocumentImageBoxes(pdfFormDraft);
+
+  let rawCustomBoxes: CustomBoxDef[];
+  if (pdfDraftUsesSplitImageLayout(pdfFormDraft)) {
+    rawCustomBoxes = [...configText, ...docImages];
+  } else if (docCustomBoxesRaw.length > 0) {
+    rawCustomBoxes = docCustomBoxesRaw as CustomBoxDef[];
+  } else {
+    rawCustomBoxes = configBoxesRaw as CustomBoxDef[];
+  }
   const customFieldValues = (pdfFormDraft.customFieldValues ?? {}) as Record<string, string>;
 
   const fieldKeysByType: Record<string, string[]> = {

@@ -68,6 +68,7 @@ import { MobileHomePage } from './components/mobile/MobileHomePage';
 import { MobileDocsHub } from './components/mobile/MobileDocsHub';
 import { MobileBoardsOverview } from './components/mobile/MobileBoardsOverview';
 import { useViewport } from './hooks/useViewport';
+import { useOrientationViewportFix } from './hooks/useOrientationViewportFix';
 import { useMobileState } from './hooks/useMobileState';
 import * as Popover from '@radix-ui/react-popover';
 import * as Dialog from '@radix-ui/react-dialog';
@@ -376,7 +377,8 @@ function decodeJwtExpMs(token: string): number | null {
 
 function App() {
   const { currentUser, logout } = useUser();
-  const { isMobile, isLandscapeShort } = useViewport();
+  const { isMobile, isLandscapeShort, isLandscape } = useViewport();
+  useOrientationViewportFix();
   const { mobileState, updateMobileState } = useMobileState('board');
   const { toast } = useToast();
   const [jwtIsExpiringSoon, setJwtIsExpiringSoon] = useState(false);
@@ -697,6 +699,9 @@ function App() {
     }
   }, [activePage, isMobile]);
 
+  /** Calendario en móvil horizontal: menos chrome en la barra superior para ganar área útil. */
+  const calendarMinimalChrome = isMobile && activePage === 'calendar' && isLandscape;
+
   // Deep-link desde notificaciones push:
   // `/?tab=notifications` / `/?tab=inbox` (limpiamos el query param tras cargar).
   useEffect(() => {
@@ -879,6 +884,14 @@ function App() {
   }, [activeBoardId, activePage]);
 
   const isMobileBoardView = isMobile && (activePage === 'board' && activeBoardId || activePage === 'miTrabajo' && activeBoardId);
+
+  /** Calendario horizontal con tablero: sin barra global ni bottom nav; ancho completo del viewport. */
+  const calendarImmersiveLandscape =
+    isMobile && activePage === 'calendar' && isLandscape && activeBoardId != null;
+  /** Móvil en horizontal: sin barra inferior fija para ganar altura (navegación vía header / menú). */
+  const mobileLandscapeChrome = isMobile && isLandscape;
+  const hideMobileMainBottomPad =
+    activePage === 'docs' || calendarImmersiveLandscape || mobileLandscapeChrome;
   useEffect(() => {
     if (!isMobileBoardView) return;
     const el = mobileHeaderRef.current;
@@ -1706,7 +1719,7 @@ function App() {
             </>
           ) : activePage === 'calendar' && isMobile ? (
             activeBoardId ? (
-              <div className="flex-1 flex flex-col min-h-0">
+              <div className="flex-1 flex flex-col min-h-0 w-full min-w-0">
                 <BoardContainer boardId={activeBoardId} onRowClick={setSelectedItem} viewMode="calendar" mobileCalendarOnly isMobile />
               </div>
             ) : boards.length === 0 ? (
@@ -2058,7 +2071,14 @@ function App() {
   );
 
   return (
-    <div className="flex min-h-[100dvh] h-screen max-h-[100dvh] bg-monday-bg overflow-hidden font-sans pt-[env(safe-area-inset-top)] pr-[env(safe-area-inset-right)] pb-[env(safe-area-inset-bottom)] pl-[env(safe-area-inset-left)]">
+    <div
+      className={[
+        'flex min-h-[100dvh] h-screen max-h-[100dvh] bg-monday-bg overflow-hidden font-sans',
+        calendarImmersiveLandscape || mobileLandscapeChrome
+          ? 'pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] pl-0 pr-0'
+          : 'pt-[env(safe-area-inset-top)] pr-[env(safe-area-inset-right)] pb-[env(safe-area-inset-bottom)] pl-[env(safe-area-inset-left)]',
+      ].join(' ')}
+    >
       {jwtIsExpiringSoon && !jwtIsExpired && (
         <div className="fixed top-0 left-0 right-0 z-[2100] flex justify-center pointer-events-none">
           <div className="mt-3 mx-3 pointer-events-auto bg-[#111827]/95 text-white border border-white/10 rounded-xl px-4 py-3 shadow-[0_18px_50px_rgba(0,0,0,0.35)]">
@@ -2914,8 +2934,8 @@ if (ok && data && typeof data.id === 'string') {
         className={[
           'flex-1 flex flex-col min-w-0 overflow-hidden min-h-0',
           isMobile ? 'p-0 bg-monday-bg' : 'p-2 sm:p-3 pl-0 bg-monday-bg',
-          /* Docs oculta MobileBottomNav y usa MobileDocsShell; sin esto queda una franja vacía (~80px). */
-          isMobile && activePage !== 'docs'
+          /* Sin padding inferior cuando no hay barra (Docs / calendario horizontal inmersivo). */
+          isMobile && !hideMobileMainBottomPad
             ? isLandscapeShort
               ? 'pb-[52px] main-mobile main-mobile-landscape'
               : 'pb-[80px] main-mobile'
@@ -2930,12 +2950,17 @@ if (ok && data && typeof data.id === 'string') {
         >
           {/* Barra común: ocultar/mostrar panel lateral en todas las vistas */}
           <header
-            className={[
-              'shrink-0 h-14 flex items-center gap-2 px-3 sm:px-4',
-              isMobile
-                ? 'border-b border-monday-border bg-[var(--monday-surface)] backdrop-blur-xl'
-                : 'border-b border-monday-border',
-            ].join(' ')}
+            className={
+              calendarImmersiveLandscape
+                ? 'hidden'
+                : [
+                    'shrink-0 flex items-center gap-2 px-3 sm:px-4',
+                    calendarMinimalChrome ? 'h-10 min-h-[40px] py-0' : 'h-14',
+                    isMobile
+                      ? 'border-b border-monday-border bg-[var(--monday-surface)] backdrop-blur-xl'
+                      : 'border-b border-monday-border',
+                  ].join(' ')
+            }
           >
             {isMobile ? (
               mobileCanGoBack ? (
@@ -2953,6 +2978,15 @@ if (ok && data && typeof data.id === 'string') {
                   aria-label="Volver"
                 >
                   <ChevronLeft size={22} />
+                </button>
+              ) : activePage === 'home' && mobileLandscapeChrome ? (
+                <button
+                  type="button"
+                  onClick={() => setSidebarOpen(true)}
+                  className="min-h-[44px] min-w-[44px] flex items-center justify-center p-2 rounded-2xl text-monday-subtext hover:bg-monday-hover hover:text-monday-text transition-colors"
+                  aria-label="Menú"
+                >
+                  <Menu size={22} />
                 </button>
               ) : activePage === 'home' ? (
                 <span className="min-h-[44px] min-w-[44px] shrink-0" aria-hidden />
@@ -2977,7 +3011,13 @@ if (ok && data && typeof data.id === 'string') {
                 <ChevronRight size={20} className={`transition-transform ${sidebarOpen ? 'rotate-180' : 'rotate-0'}`} />
               </button>
             )}
-            <span className={isMobile ? 'flex-1 text-[15px] font-semibold text-monday-text truncate' : 'flex-1 text-[15px] font-semibold text-monday-text truncate'}>
+            <span
+              className={
+                calendarMinimalChrome
+                  ? 'sr-only'
+                  : 'flex-1 text-[15px] font-semibold text-monday-text truncate'
+              }
+            >
               {activePage === 'calendar'
                 ? 'Calendario'
                 : activePage === 'board' && activeBoardId
@@ -3002,7 +3042,7 @@ if (ok && data && typeof data.id === 'string') {
                                   ? 'Inicio'
                                   : 'Inicio'}
             </span>
-            {isMobile && (
+            {isMobile && !calendarMinimalChrome && (
               <div className="shrink-0">
                 <AnimatedLogo size={26} color="currentColor" />
               </div>
@@ -3030,11 +3070,13 @@ if (ok && data && typeof data.id === 'string') {
           ) : isMobile ? (
             <MobileLayout
               pageKey={`${activePage}:${activeBoardId ?? ''}`}
-              hideBottomNav={activePage === 'docs'}
+              hideBottomNav={activePage === 'docs' || mobileLandscapeChrome}
               showFAB={
                 !isBootstrapping &&
                 (activePage === 'home' || activePage === 'board' || activePage === 'calendar') &&
-                mobileHeaderHidden
+                mobileHeaderHidden &&
+                !calendarImmersiveLandscape &&
+                !mobileLandscapeChrome
               }
               onFABClick={() => window.dispatchEvent(new CustomEvent('sunday-fab-add-item'))}
               isLandscapeShort={isLandscapeShort}
@@ -3108,6 +3150,28 @@ if (ok && data && typeof data.id === 'string') {
           )}
         </div>
       </main>
+
+      {calendarImmersiveLandscape && mobileCanGoBack && (
+        <button
+          type="button"
+          onClick={() => {
+            if (activePage === 'calendar') setActivePage('home');
+            else if (activePage === 'docs') setActivePage('home');
+            else if (activePage === 'inbox' || activePage === 'notifications') setActivePage(lastMainTab);
+            else if (['search', 'team', 'facturacion'].includes(activePage)) setActivePage('board');
+            else if (activePage === 'board' && activeBoardId !== null) setActiveBoardId(null);
+            else if (activePage === 'miTrabajo' && activeBoardId !== null) setActiveBoardId(null);
+          }}
+          className="fixed z-[55] min-h-[40px] min-w-[40px] flex items-center justify-center rounded-2xl bg-[var(--monday-surface)] border border-monday-border shadow-monday-md text-monday-text hover:bg-monday-hover touch-manipulation"
+          style={{
+            top: 'max(6px, env(safe-area-inset-top))',
+            left: 'max(6px, env(safe-area-inset-left))',
+          }}
+          aria-label="Volver"
+        >
+          <ChevronLeft size={22} />
+        </button>
+      )}
 
       {/* Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ Item Details Panel Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ */}
       {selectedItem && (

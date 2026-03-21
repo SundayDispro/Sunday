@@ -169,6 +169,8 @@ export const PdfTemplateEditor: React.FC<Props> = ({
   const containerRef = useRef<HTMLDivElement>(null);
   const wrapperRef = useRef<HTMLDivElement>(null);
   const [scale, setScale] = useState(1);
+  /** UI tipo Word iOS solo en puntero grueso (touch); en mouse desktop usamos agarres clásicos. */
+  const [coarsePointer, setCoarsePointer] = useState(false);
   const [templatePdfWaitedTooLong, setTemplatePdfWaitedTooLong] = useState(false);
   const pixelScale = exportPixelScale ?? 1;
   const PAGE_WIDTH_PX = Math.round(PAGE_WIDTH_PX_96DPI * pixelScale);
@@ -180,6 +182,8 @@ export const PdfTemplateEditor: React.FC<Props> = ({
     startY: number;
     startLeft: number;
     startTop: number;
+    clampW: number;
+    clampH: number;
   } | null>(null);
   const [dragCandidate, setDragCandidate] = useState<{
     fieldKey: string;
@@ -188,6 +192,8 @@ export const PdfTemplateEditor: React.FC<Props> = ({
     startY: number;
     startLeft: number;
     startTop: number;
+    clampW: number;
+    clampH: number;
   } | null>(null);
   const [dragPreview, setDragPreview] = useState<{ x: number; y: number } | null>(null);
   const skipNextBoxClickRef = useRef(false);
@@ -424,6 +430,15 @@ export const PdfTemplateEditor: React.FC<Props> = ({
   }, [templatePdfUrl, onExportReady, pixelScale, blueprintMode]);
 
   useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const mq = window.matchMedia('(pointer: coarse)');
+    const apply = () => setCoarsePointer(mq.matches);
+    apply();
+    mq.addEventListener('change', apply);
+    return () => mq.removeEventListener('change', apply);
+  }, []);
+
+  useEffect(() => {
     const el = canvasOverlayRef.current;
     if (!el || viewerOnly || exportPixelScale) return;
     const DOUBLE_MS = 380;
@@ -464,13 +479,16 @@ export const PdfTemplateEditor: React.FC<Props> = ({
     }
 
     setSelectedBoxId(box.id);
+    const bw = typeof box.width === 'number' ? box.width : box.kind === 'image' ? 0.3 : 0.1;
+    const bh = typeof box.height === 'number' ? box.height : box.kind === 'image' ? 0.15 : 0.04;
+
     onActiveBoxChange?.({
       boxId: box.id,
       boxKind: box.kind === 'image' ? 'image' : 'text',
       xPct: box.x,
       yPct: box.y,
-      wPct: typeof box.width === 'number' ? box.width : 0.3,
-      hPct: typeof box.height === 'number' ? box.height : 0.05,
+      wPct: bw,
+      hPct: bh,
     });
 
     // Imágenes: arrastre con un dedo; redimensión/rotación con marcas Word (sin pinch, evita conflicto con handles).
@@ -484,6 +502,8 @@ export const PdfTemplateEditor: React.FC<Props> = ({
         startY: e.clientY,
         startLeft: box.x,
         startTop: box.y,
+        clampW: bw,
+        clampH: bh,
       });
       return;
     }
@@ -496,6 +516,8 @@ export const PdfTemplateEditor: React.FC<Props> = ({
       startY: e.clientY,
       startLeft: box.x,
       startTop: box.y,
+      clampW: bw,
+      clampH: bh,
     });
   }, [vibrate, onActiveBoxChange, allowBoxEditing]);
 
@@ -519,8 +541,10 @@ export const PdfTemplateEditor: React.FC<Props> = ({
       const dy = (e.clientY - dragCandidate.startY) / h;
       let nx = dragCandidate.startLeft + dx;
       let ny = dragCandidate.startTop + dy;
-      nx = Math.max(0, Math.min(1 - 0.1, nx));
-      ny = Math.max(0, Math.min(1 - 0.04, ny));
+      const maxX = Math.max(0, 1 - dragCandidate.clampW);
+      const maxY = Math.max(0, 1 - dragCandidate.clampH);
+      nx = Math.max(0, Math.min(maxX, nx));
+      ny = Math.max(0, Math.min(maxY, ny));
 
       skipNextBoxClickRef.current = true;
       setDragging({
@@ -530,6 +554,8 @@ export const PdfTemplateEditor: React.FC<Props> = ({
         startY: dragCandidate.startY,
         startLeft: dragCandidate.startLeft,
         startTop: dragCandidate.startTop,
+        clampW: dragCandidate.clampW,
+        clampH: dragCandidate.clampH,
       });
       setDragPreview({ x: nx, y: ny });
       setDragCandidate(null);
@@ -759,8 +785,10 @@ export const PdfTemplateEditor: React.FC<Props> = ({
       const dy = (e.clientY - dragging.startY) / h;
       let nx = dragging.startLeft + dx;
       let ny = dragging.startTop + dy;
-      nx = Math.max(0, Math.min(1 - 0.1, nx));
-      ny = Math.max(0, Math.min(1 - 0.04, ny));
+      const maxX = Math.max(0, 1 - dragging.clampW);
+      const maxY = Math.max(0, 1 - dragging.clampH);
+      nx = Math.max(0, Math.min(maxX, nx));
+      ny = Math.max(0, Math.min(maxY, ny));
       setDragPreview({ x: nx, y: ny });
     };
     const onUp = (e: PointerEvent) => {
@@ -1397,7 +1425,11 @@ export const PdfTemplateEditor: React.FC<Props> = ({
                     : typeof box.rotationDeg === 'number' && !Number.isNaN(box.rotationDeg)
                       ? box.rotationDeg
                       : 0;
-                const useWordImageUi = box.kind === 'image' && isSelected && canMoveOrDelete;
+                const useWordLikeImageChrome =
+                  box.kind === 'image' && isSelected && canMoveOrDelete && coarsePointer;
+                const showClassicResizeAndRail =
+                  canMoveOrDelete &&
+                  (!(box.kind === 'image' && isSelected) || !coarsePointer);
                 return (
                   <div
                     key={box.id}
@@ -1425,7 +1457,9 @@ export const PdfTemplateEditor: React.FC<Props> = ({
                               setSelectedBoxId(box.id);
                             }
                       }
-                      className={`flex-1 min-w-0 flex flex-col transition-all overflow-hidden box-border relative ${
+                      className={`flex-1 min-w-0 flex flex-col transition-all ${
+                        useWordLikeImageChrome ? 'overflow-visible' : 'overflow-hidden'
+                      } box-border relative ${
                         showFrame
                           ? canMoveOrDelete
                             ? isSelected
@@ -1448,7 +1482,9 @@ export const PdfTemplateEditor: React.FC<Props> = ({
                       }`}
                     >
                     <div
-                      className={`flex-1 min-h-0 min-w-0 flex overflow-hidden rounded-sm ${
+                      className={`flex-1 min-h-0 min-w-0 flex ${
+                        useWordLikeImageChrome ? 'overflow-visible' : 'overflow-hidden'
+                      } rounded-sm ${
                         bp
                           ? 'bg-white/40 focus-within:bg-white/55 focus-within:ring-1 focus-within:ring-monday-blue/35'
                           : canMoveOrDelete
@@ -1667,7 +1703,7 @@ export const PdfTemplateEditor: React.FC<Props> = ({
                         />
                       )}
                     </div>
-                    {useWordImageUi && (
+                    {useWordLikeImageChrome && (
                       <WordLikeImageHandles
                         onHandlePointerDown={(kind, e) =>
                           onWordImageHandlePointerDown(
@@ -1685,7 +1721,7 @@ export const PdfTemplateEditor: React.FC<Props> = ({
                         }
                       />
                     )}
-                    {useWordImageUi && (
+                    {useWordLikeImageChrome && (
                       <div
                         className="absolute left-1/2 -translate-x-1/2 bottom-3 z-[38] flex items-center gap-1 rounded-2xl bg-zinc-900/93 border border-white/10 px-2 py-1.5 shadow-2xl pointer-events-auto"
                         onClick={(ev) => ev.stopPropagation()}
@@ -1724,23 +1760,29 @@ export const PdfTemplateEditor: React.FC<Props> = ({
                         </button>
                       </div>
                     )}
-                    {canMoveOrDelete && !(box.kind === 'image' && isSelected) && (
+                    {showClassicResizeAndRail && (
                       <>
                         <div
                           className="absolute top-0 right-0 w-2 bottom-4 z-10 cursor-ew-resize hover:bg-monday-blue/20 transition-colors"
-                          onPointerDown={(e) => handleResizeStart(e, box, 'e')}
+                          onPointerDown={(e) =>
+                            handleResizeStart(e, { ...box, x, y, width: w, height: h, rotationDeg }, 'e')
+                          }
                           style={{ touchAction: 'none' }}
                           title="Redimensionar ancho"
                         />
                         <div
                           className="absolute bottom-0 left-0 right-4 h-2 z-10 cursor-ns-resize hover:bg-monday-blue/20 transition-colors"
-                          onPointerDown={(e) => handleResizeStart(e, box, 's')}
+                          onPointerDown={(e) =>
+                            handleResizeStart(e, { ...box, x, y, width: w, height: h, rotationDeg }, 's')
+                          }
                           style={{ touchAction: 'none' }}
                           title="Redimensionar alto"
                         />
                         <div
                           className="absolute bottom-0 right-0 w-4 h-4 cursor-se-resize flex items-center justify-center text-monday-subtext hover:text-monday-blue border-t border-l border-monday-border/40 rounded-tl bg-white/90 z-20"
-                          onPointerDown={(e) => handleResizeStart(e, box, 'se')}
+                          onPointerDown={(e) =>
+                            handleResizeStart(e, { ...box, x, y, width: w, height: h, rotationDeg }, 'se')
+                          }
                           style={{ touchAction: 'none' }}
                           title="Redimensionar ancho y alto"
                         >
@@ -1749,7 +1791,7 @@ export const PdfTemplateEditor: React.FC<Props> = ({
                       </>
                     )}
                     </div>
-                    {canMoveOrDelete && !(box.kind === 'image' && isSelected) && (
+                    {showClassicResizeAndRail && (
                       <div
                         className="absolute top-0 right-0 bottom-0 w-10 flex flex-col gap-1 pl-1.5 pr-1 py-1 justify-start items-center bg-white/95 rounded-r border border-l-0 border-monday-border/50 z-10"
                         style={{ width: '40px' }}
@@ -1757,7 +1799,17 @@ export const PdfTemplateEditor: React.FC<Props> = ({
                       >
                         <div
                           className="cursor-grab active:cursor-grabbing text-monday-subtext hover:text-monday-blue p-1.5 rounded hover:bg-monday-hover shrink-0"
-                          onPointerDown={(e) => canMoveOrDelete && handleCustomBoxPointerDown(e, box)}
+                          onPointerDown={(e) =>
+                            canMoveOrDelete &&
+                            handleCustomBoxPointerDown(e, {
+                              ...box,
+                              x,
+                              y,
+                              width: w,
+                              height: h,
+                              rotationDeg,
+                            })
+                          }
                           style={{ touchAction: 'none' }}
                           title="Mover"
                         >
