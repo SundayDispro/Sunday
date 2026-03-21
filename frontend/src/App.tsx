@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { socket } from './store/socket';
 import BoardContainer from './components/Board/BoardContainer';
@@ -221,6 +221,136 @@ function SortableBoardTab({
 const API_BASE = import.meta.env.DEV ? '' : (import.meta.env.VITE_API_URL || 'http://localhost:3001');
 import { apiFetch } from './api';
 import { can } from './authz/can';
+
+type ExportManifestFile = {
+  zipPath: string;
+  url: string;
+  filename: string;
+  size?: number;
+};
+
+const EXPORT_DB_NAME = 'sunday-export-db';
+const EXPORT_DB_VERSION = 1;
+const EXPORT_STORE = 'folders';
+
+function getFolderKey(boardId: string): string {
+  return `sunday-export-folder-${boardId}`;
+}
+
+function openExportDb(): Promise<IDBDatabase> {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(EXPORT_DB_NAME, EXPORT_DB_VERSION);
+    req.onupgradeneeded = () => {
+      const db = req.result;
+      if (!db.objectStoreNames.contains(EXPORT_STORE)) {
+        db.createObjectStore(EXPORT_STORE);
+      }
+    };
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error ?? new Error('No se pudo abrir IndexedDB'));
+  });
+}
+
+async function idbGet<T>(key: string): Promise<T | null> {
+  const db = await openExportDb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(EXPORT_STORE, 'readonly');
+    const store = tx.objectStore(EXPORT_STORE);
+    const req = store.get(key);
+    req.onsuccess = () => resolve((req.result as T) ?? null);
+    req.onerror = () => reject(req.error ?? new Error('Error leyendo IndexedDB'));
+  });
+}
+
+async function idbSet<T>(key: string, value: T): Promise<void> {
+  const db = await openExportDb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(EXPORT_STORE, 'readwrite');
+    const store = tx.objectStore(EXPORT_STORE);
+    const req = store.put(value, key);
+    req.onsuccess = () => resolve();
+    req.onerror = () => reject(req.error ?? new Error('Error guardando en IndexedDB'));
+  });
+}
+
+function supportsDirectoryPicker(): boolean {
+  return typeof window !== 'undefined' && 'showDirectoryPicker' in window;
+}
+
+async function ensureDirPermission(handle: FileSystemDirectoryHandle): Promise<boolean> {
+  const handleAny = handle as any;
+  if (typeof handleAny.queryPermission !== 'function' || typeof handleAny.requestPermission !== 'function') {
+    return true;
+  }
+  const readWrite = { mode: 'readwrite' };
+  if ((await handleAny.queryPermission(readWrite)) === 'granted') return true;
+  return (await handleAny.requestPermission(readWrite)) === 'granted';
+}
+
+async function getOrCreateDir(
+  parent: FileSystemDirectoryHandle,
+  name: string
+): Promise<FileSystemDirectoryHandle> {
+  return parent.getDirectoryHandle(name, { create: true });
+}
+
+async function getExportRootHandle(boardId: string): Promise<FileSystemDirectoryHandle> {
+  if (!supportsDirectoryPicker()) {
+    throw new Error('Esta función requiere Chrome o Edge en escritorio');
+  }
+
+  const key = getFolderKey(boardId);
+  let handle = await idbGet<FileSystemDirectoryHandle>(key);
+  if (handle) {
+    const granted = await ensureDirPermission(handle);
+    if (granted) return handle;
+  }
+
+  const picker = (window as any).showDirectoryPicker as (
+    opts?: { mode?: 'read' | 'readwrite' }
+  ) => Promise<FileSystemDirectoryHandle>;
+
+  handle = await picker({ mode: 'readwrite' });
+  const granted = await ensureDirPermission(handle);
+  if (!granted) {
+    throw new Error('No se concedió permiso de escritura a la carpeta seleccionada');
+  }
+  await idbSet(key, handle);
+  return handle;
+}
+
+async function saveOneFileIfMissing(
+  rootHandle: FileSystemDirectoryHandle,
+  file: ExportManifestFile
+): Promise<'copied' | 'skipped'> {
+  const parts = file.zipPath.split('/').filter(Boolean);
+  if (parts.length === 0) return 'skipped';
+  const filename = parts[parts.length - 1];
+  const folders = parts.slice(0, -1);
+
+  let current = rootHandle;
+  for (const folder of folders) {
+    current = await getOrCreateDir(current, folder);
+  }
+
+  try {
+    await current.getFileHandle(filename, { create: false });
+    return 'skipped';
+  } catch {
+    // no existe -> descargar y crear
+  }
+
+  const fileRes = await apiFetch(`${API_BASE}${file.url}`);
+  if (!fileRes.ok) {
+    throw new Error(`No se pudo descargar ${file.filename}`);
+  }
+  const blob = await fileRes.blob();
+  const fileHandle = await current.getFileHandle(filename, { create: true });
+  const writable = await fileHandle.createWritable();
+  await writable.write(blob);
+  await writable.close();
+  return 'copied';
+}
 
 function decodeJwtExpMs(token: string): number | null {
   try {
@@ -655,6 +785,65 @@ function App() {
     }
   }, [activeBoardId, isMobile]);
   const [boardSearch, setBoardSearch] = useState('');
+  const handleExportFolders = useCallback(async () => {
+    if (!currentUser || !activeBoardId) return;
+    if (isMobile) return;
+
+    if (!supportsDirectoryPicker()) {
+      toast('Esta función requiere Chrome o Edge en escritorio', 'info');
+      return;
+    }
+
+    try {
+      setExportingFolders(true);
+      const qs = new URLSearchParams({
+        boardId: activeBoardId,
+        userId: currentUser.id,
+      });
+      const manifestRes = await apiFetch(`${API_BASE}/api/export/folders/files?${qs.toString()}`);
+      if (!manifestRes.ok) {
+        const data = await manifestRes.json().catch(() => ({} as { error?: string }));
+        throw new Error(data.error || 'No se pudo obtener el manifiesto de exportación');
+      }
+
+      const payload = (await manifestRes.json()) as {
+        ok: boolean;
+        files: ExportManifestFile[];
+        total: number;
+      };
+      const files = Array.isArray(payload.files) ? payload.files : [];
+      if (files.length === 0) {
+        toast('No hay archivos asignados a ti para exportar en este tablero.', 'info');
+        return;
+      }
+
+      const rootHandle = await getExportRootHandle(activeBoardId);
+      let copied = 0;
+      let skipped = 0;
+      const errors: string[] = [];
+
+      for (const file of files) {
+        try {
+          const result = await saveOneFileIfMissing(rootHandle, file);
+          if (result === 'copied') copied += 1;
+          else skipped += 1;
+        } catch (e) {
+          errors.push(e instanceof Error ? e.message : String(e));
+        }
+      }
+
+      toast(`${copied} archivos nuevos guardados, ${skipped} sin cambios`, 'success');
+      if (errors.length > 0) {
+        console.warn('Export sync errors:', errors);
+        toast(`${errors.length} archivos no se pudieron sincronizar`, 'error');
+      }
+    } catch (e) {
+      console.error('Error exporting folders', e);
+      toast(e instanceof Error ? e.message : 'No se pudo sincronizar la carpeta.', 'error');
+    } finally {
+      setExportingFolders(false);
+    }
+  }, [activeBoardId, currentUser, isMobile, toast]);
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
   const [workspacesLoaded, setWorkspacesLoaded] = useState(false);
   const [activeWorkspaceId, setActiveWorkspaceId] = useState<string | null>(null);
@@ -1587,33 +1776,6 @@ function App() {
                 canSeeFacturacion={!!canSeeFacturacionView}
                 isTaller={!!isTaller}
                 onToggleStar={undefined}
-                onExportFolders={async () => {
-                  if (!currentUser || !activeBoardId) return;
-                  try {
-                    setExportingFolders(true);
-                    const res = await apiFetch(`${API_BASE}/api/export/folders`, {
-                      method: 'POST',
-                      headers: { 'Content-Type': 'application/json' },
-                      body: JSON.stringify({ userId: currentUser.id, boardId: activeBoardId }),
-                    });
-                    const data = await res.json();
-                    if (!res.ok) throw new Error(data.error || 'Export failed');
-                    if (data.copied === 0 && data.skipped === 0) {
-                      toast('No hay archivos asignados a ti para exportar en este tablero.', 'info');
-                    } else if (data.copied === 0) {
-                      toast(`Todo al día — ${data.skipped} archivos ya estaban guardados.`, 'success');
-                    } else {
-                      toast(`${data.copied} archivos nuevos guardados. ${data.skipped} ya existían.`, 'success');
-                    }
-                    if (data.errors?.length) console.warn('Export warnings:', data.errors);
-                  } catch (e) {
-                    console.error('Error exporting folders', e);
-                    toast(e instanceof Error ? e.message : 'No se pudo exportar la estructura de carpetas.', 'error');
-                  } finally {
-                    setExportingFolders(false);
-                  }
-                }}
-                exportingFolders={exportingFolders}
                 onOpenSearch={() => { setActivePage('search'); }}
               />
             </>
@@ -1747,35 +1909,7 @@ function App() {
                   <div className="flex items-center gap-2">
                     <button
                       type="button"
-                      onClick={async () => {
-                        if (!currentUser || !activeBoardId) return;
-                        try {
-                          setExportingFolders(true);
-                          const res = await apiFetch(`${API_BASE}/api/export/folders`, {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ userId: currentUser.id, boardId: activeBoardId }),
-                          });
-                          const data = await res.json();
-                          if (!res.ok) throw new Error(data.error || 'Export failed');
-                          if (data.copied === 0 && data.skipped === 0) {
-                            toast('No hay archivos asignados a ti para exportar en este tablero.', 'info');
-                          } else if (data.copied === 0) {
-                            toast(`Todo al día — ${data.skipped} archivos ya estaban guardados.`, 'success');
-                          } else {
-                            toast(`${data.copied} archivos nuevos guardados. ${data.skipped} ya existían.`, 'success');
-                          }
-                          if (data.errors?.length) {
-                            console.warn('Export warnings:', data.errors);
-                          }
-                        } catch (e) {
-                          console.error('Error exporting folders', e);
-                          const msg = e instanceof Error ? e.message : 'No se pudo exportar la estructura de carpetas.';
-                          toast(msg, 'error');
-                        } finally {
-                          setExportingFolders(false);
-                        }
-                      }}
+                      onClick={handleExportFolders}
                       disabled={!activeBoardId || exportingFolders}
                       className="toolbar-btn btn-export-folders"
                       title="Exportar estructura de carpetas del tablero"
@@ -2008,6 +2142,7 @@ function App() {
           boardsCount={boards.length}
           workspaceName={activeWorkspaceName}
           onOpenAdmin={() => setShowAdminPanel(true)}
+          onOpenTeam={() => setActivePage('team')}
         />
       )}
       {/* Left Nav Rail (solo desktop) */}

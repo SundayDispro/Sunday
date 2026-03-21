@@ -212,12 +212,9 @@ export const PdfTemplateEditor: React.FC<Props> = ({
   // Cargar URL de plantilla PDF para usarla como fondo (solo si el padre no pasa templatePdfUrlProp)
   useEffect(() => {
     if (templatePdfUrlProp != null) return;
-    // En viewerOnly el padre suele proveer `templatePdfUrlProp` asíncrono.
-    // Para evitar duplicar fetch y saltos, no hacemos fetch interno en modo viewer-only.
-    if (viewerOnly) return;
     let revoked = false;
     let objectUrl: string | null = null;
-    apiFetch(`${API_BASE}/api/templates/${docType}`)
+    apiFetch(`${API_BASE}/api/templates/${docType}?t=${Date.now()}`)
       .then((res) => {
         if (!res.ok) {
           setTemplatePdfUrlInternal(null);

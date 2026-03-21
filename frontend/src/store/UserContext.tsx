@@ -121,7 +121,7 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
         await apiFetch(`${API_BASE}/api/push/subscribe`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ userId: currentUser.id, subscription }),
+          body: JSON.stringify({ subscription }),
         });
       }
 

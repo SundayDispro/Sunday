@@ -4,6 +4,7 @@ import express from 'express';
 import { createServer } from 'http';
 import { Server } from 'socket.io';
 import cors from 'cors';
+import cron from 'node-cron';
 import path from 'path';
 import fs from 'fs';
 import multer from 'multer';
@@ -12,6 +13,7 @@ import { attachUserFromJwt, authenticateToken, hashPassword, requireAdmin, requi
 import webpush from 'web-push';
 import { getTemplatePathIfExists, getTemplateImagePathIfExists, generateFilledPdf, generatePdfFromTemplate, getTemplatesDir, TemplateKind } from './templatePdfGenerator';
 import * as notificationsService from './services/notifications';
+import { runBackup, cleanOldBackups, getBackupList } from './backupService';
 
 const prisma = new PrismaClient();
 const app = express();
@@ -961,10 +963,24 @@ app.get('/api/feed', authenticateToken, async (req, res) => {
 app.post('/api/feed', authenticateToken, async (req, res) => {
   try {
     const { content, authorId, mentionedUserIds } = req.body ?? {};
+    const authUserId = req.authUser?.id;
+    if (!authUserId) return res.status(401).json({ error: 'No autenticado' });
     if (!content || typeof content !== 'string' || !authorId) {
       return res.status(400).json({ error: 'content y authorId son obligatorios' });
     }
-    const ids = Array.isArray(mentionedUserIds) ? mentionedUserIds : [];
+    if (authorId !== authUserId) {
+      return res.status(403).json({ error: 'authorId no autorizado' });
+    }
+    const ids = Array.isArray(mentionedUserIds)
+      ? Array.from(
+          new Set(
+            mentionedUserIds
+              .filter((id): id is string => typeof id === 'string' && !!id.trim())
+              .map((id) => id.trim())
+              .filter((id) => id !== authorId)
+          )
+        )
+      : [];
     const post = await prisma.feedPost.create({
       data: {
         content: content.trim(),
@@ -1323,13 +1339,26 @@ app.get('/api/push/public-key', (_req, res) => {
 // Registrar/actualizar una suscripción Web Push para un usuario
 app.post('/api/push/subscribe', authenticateToken, async (req, res) => {
   try {
-    const { userId, subscription } = req.body ?? {};
-    if (!userId || !subscription?.endpoint || !subscription?.keys?.p256dh || !subscription?.keys?.auth) {
-      return res.status(400).json({ error: 'userId y subscription válidos son obligatorios' });
+    const authUserId = req.authUser?.id;
+    const { subscription } = req.body ?? {};
+    if (!authUserId) return res.status(401).json({ error: 'No autenticado' });
+    if (!subscription?.endpoint || !subscription?.keys?.p256dh || !subscription?.keys?.auth) {
+      return res.status(400).json({ error: 'subscription válida es obligatoria' });
     }
     const { endpoint, keys } = subscription;
+    const endpointStr = String(endpoint);
+
+    // Seguridad de ownership: un endpoint de dispositivo/navegador debe pertenecer a un solo usuario.
+    // Esto limpia suscripciones antiguas cruzadas por el bug previo (userId en body confiable).
+    await prisma.pushSubscription.deleteMany({
+      where: {
+        endpoint: endpointStr,
+        NOT: { userId: authUserId },
+      },
+    });
+
     const existing = await prisma.pushSubscription.findFirst({
-      where: { userId: String(userId), endpoint: String(endpoint) },
+      where: { userId: authUserId, endpoint: endpointStr },
     });
     if (existing) {
       const updated = await prisma.pushSubscription.update({
@@ -1343,8 +1372,8 @@ app.post('/api/push/subscribe', authenticateToken, async (req, res) => {
     }
     const created = await prisma.pushSubscription.create({
       data: {
-        userId: String(userId),
-        endpoint: String(endpoint),
+        userId: authUserId,
+        endpoint: endpointStr,
         p256dh: String(keys.p256dh),
         auth: String(keys.auth),
       },
@@ -1359,12 +1388,14 @@ app.post('/api/push/subscribe', authenticateToken, async (req, res) => {
 // Eliminar una suscripción (opcional)
 app.post('/api/push/unsubscribe', authenticateToken, async (req, res) => {
   try {
-    const { userId, endpoint } = req.body ?? {};
-    if (!userId || !endpoint) {
-      return res.status(400).json({ error: 'userId y endpoint son obligatorios' });
+    const authUserId = req.authUser?.id;
+    const { endpoint } = req.body ?? {};
+    if (!authUserId) return res.status(401).json({ error: 'No autenticado' });
+    if (!endpoint) {
+      return res.status(400).json({ error: 'endpoint es obligatorio' });
     }
     await prisma.pushSubscription.deleteMany({
-      where: { userId: String(userId), endpoint: String(endpoint) },
+      where: { userId: authUserId, endpoint: String(endpoint) },
     });
     res.json({ ok: true });
   } catch (e) {
@@ -1418,11 +1449,7 @@ app.get('/api/push/status', authenticateToken, async (req, res) => {
   }
 });
 
-// --- Export folders: copiar archivos de uploads a ~/SundayExports (solo ítems asignados al usuario) ---
-import os from 'os';
-
-const EXPORT_BASE = path.join(os.homedir(), 'SundayExports');
-const UPLOADS_DIR = path.join(process.cwd(), 'uploads');
+// --- Export folders: generar manifiesto para sincronización local (solo ítems asignados al usuario) ---
 
 function sanitizeFolderName(name: string): string {
   return (name || '').replace(/[<>:"/\\|?*]/g, '_').trim() || 'Sin_nombre';
@@ -1442,112 +1469,181 @@ function isAssignedToUser(columnValues: { columnId: string; value: string }[], p
   }
 }
 
-app.post('/api/export/folders', authenticateToken, async (req, res) => {
-  const errors: string[] = [];
-  let copied = 0;
-  let skipped = 0;
-  try {
-    const { userId, boardId } = req.body ?? {};
-    if (!userId || !boardId) {
-      return res.status(400).json({ error: 'userId y boardId son obligatorios' });
-    }
-    const user = await prisma.user.findUnique({ where: { id: userId } });
-    if (!user) return res.status(404).json({ error: 'Usuario no encontrado' });
+type ExportManifestFile = {
+  zipPath: string;
+  url: string;
+  filename: string;
+  size?: number;
+};
 
-    const board = await prisma.board.findUnique({
-      where: { id: boardId },
-      include: {
-        groups: {
-          orderBy: { position: 'asc' },
-          include: {
-            items: {
-              orderBy: { position: 'asc' },
-              include: { columnValues: true },
-            },
-          },
-        },
-        columns: { orderBy: { position: 'asc' } },
+function extractUploadUrls(value: string): string[] {
+  if (!value) return [];
+  const trimmed = value.trim();
+  if (!trimmed) return [];
+  if (trimmed.startsWith('/uploads/')) return [trimmed];
+  try {
+    const parsed = JSON.parse(trimmed) as unknown;
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      const url = (parsed as { url?: unknown }).url;
+      if (typeof url === 'string' && url.startsWith('/uploads/')) return [url];
+    }
+  } catch {
+    // payload no JSON
+  }
+  return [];
+}
+
+function extractPersonUserIds(value: string | null | undefined): string[] {
+  if (!value || typeof value !== 'string') return [];
+  const trimmed = value.trim();
+  if (!trimmed) return [];
+  try {
+    const parsed = JSON.parse(trimmed) as unknown;
+    if (Array.isArray(parsed)) {
+      return parsed
+        .map((v) => (typeof v === 'string' ? v.trim() : String(v ?? '').trim()))
+        .filter(Boolean);
+    }
+    if (typeof parsed === 'string') return parsed.trim() ? [parsed.trim()] : [];
+    const scalar = String(parsed ?? '').trim();
+    return scalar ? [scalar] : [];
+  } catch {
+    return [trimmed];
+  }
+}
+
+async function deletePhysicalFileIfUnreferenced(
+  fileUrl: string,
+  excludeItemId?: string
+): Promise<void> {
+  if (!fileUrl.startsWith('/uploads/')) return;
+  const filename = path.basename(fileUrl);
+  if (!filename) return;
+  try {
+    const refCount = await prisma.columnValue.count({
+      where: {
+        value: { contains: `/uploads/${filename}` },
+        ...(excludeItemId ? { NOT: { itemId: excludeItemId } } : {}),
       },
     });
+    if (refCount > 0) return;
+    await fs.promises.unlink(path.join(UPLOAD_DIR, filename));
+  } catch (e) {
+    if ((e as { code?: string }).code !== 'ENOENT') {
+      console.warn(`[cleanup] No se pudo eliminar ${fileUrl}:`, e);
+    }
+  }
+}
 
-    if (!board) return res.status(404).json({ error: 'Tablero no encontrado' });
+function queryParamToString(value: unknown): string | null {
+  if (typeof value === 'string') return value.trim() || null;
+  if (Array.isArray(value) && typeof value[0] === 'string') return value[0].trim() || null;
+  return null;
+}
 
-    const personCol = board.columns.find(c => c.type === 'person');
-    const fileColumns = board.columns.filter(c => c.type === 'docs' || c.type === 'excel' || c.type === 'file');
+async function collectExportManifestFiles(boardId: string, userId: string): Promise<ExportManifestFile[] | null> {
+  const board = await prisma.board.findUnique({
+    where: { id: boardId },
+    include: {
+      groups: {
+        orderBy: { position: 'asc' },
+        include: {
+          items: {
+            orderBy: { position: 'asc' },
+            include: { columnValues: true },
+          },
+        },
+      },
+      columns: { orderBy: { position: 'asc' } },
+    },
+  });
+  if (!board) return null;
 
-    const allGroups = board.groups as { id: string; name: string; parentGroupId: string | null; items: { id: string; name: string; columnValues: { columnId: string; value: string }[] }[] }[];
-    const getChildren = (parentId: string) => allGroups.filter(g => g.parentGroupId === parentId);
-    const rootGroups = allGroups.filter(g => !g.parentGroupId);
+  const personCol = board.columns.find(c => c.type === 'person');
+  const fileColumns = board.columns.filter(c => c.type === 'docs' || c.type === 'excel' || c.type === 'file');
+  if (!personCol || fileColumns.length === 0) return [];
 
-    const fsPromises = fs.promises;
+  const allGroups = board.groups as {
+    id: string;
+    name: string;
+    parentGroupId: string | null;
+    items: { id: string; name: string; columnValues: { columnId: string; value: string }[] }[];
+  }[];
+  const getChildren = (parentId: string) => allGroups.filter(g => g.parentGroupId === parentId);
+  const rootGroups = allGroups.filter(g => !g.parentGroupId);
 
-    for (const rootGroup of rootGroups) {
-      const yearMonth = sanitizeFolderName(rootGroup.name);
-      const clientGroups = getChildren(rootGroup.id);
-      const targetClients = clientGroups.length > 0 ? clientGroups : [rootGroup];
+  const files: ExportManifestFile[] = [];
+  const seen = new Set<string>();
 
-      for (const client of targetClients) {
-        const clientName = sanitizeFolderName(client.name);
-        for (const item of client.items) {
-          if (!personCol || !isAssignedToUser(item.columnValues, personCol.id, String(userId))) continue;
+  for (const rootGroup of rootGroups) {
+    const yearMonth = sanitizeFolderName(rootGroup.name);
+    const clientGroups = getChildren(rootGroup.id);
+    const targetClients = clientGroups.length > 0 ? clientGroups : [rootGroup];
 
-          const itemName = sanitizeFolderName(item.name || 'Elemento');
-          const itemDir = path.join(EXPORT_BASE, yearMonth, clientName, itemName);
+    for (const client of targetClients) {
+      const clientName = sanitizeFolderName(client.name);
+      for (const item of client.items) {
+        if (!isAssignedToUser(item.columnValues, personCol.id, String(userId))) continue;
+        const itemName = sanitizeFolderName(item.name || 'Elemento');
 
-          for (const col of fileColumns) {
-            const cv = item.columnValues.find(v => v.columnId === col.id);
-            if (!cv?.value) continue;
-            const value = cv.value.trim();
-            if (!value.startsWith('/uploads/')) continue;
+        for (const col of fileColumns) {
+          const cv = item.columnValues.find(v => v.columnId === col.id);
+          if (!cv?.value) continue;
 
-            const filename = path.basename(value);
+          const uploadUrls = extractUploadUrls(cv.value);
+          for (const url of uploadUrls) {
+            const filename = path.basename(url);
             if (!filename) continue;
-            const srcPath = path.join(UPLOADS_DIR, filename);
-            const destPath = path.join(itemDir, filename);
+            const srcPath = path.join(UPLOAD_DIR, filename);
+            const stat = await fs.promises.stat(srcPath).catch(() => null);
+            if (!stat?.isFile()) continue;
 
-            try {
-              await fsPromises.access(srcPath, fs.constants.F_OK);
-            } catch {
-              errors.push(`Origen no encontrado: ${value}`);
-              continue;
-            }
+            const zipPath = path.posix.join(yearMonth, clientName, itemName, filename);
+            const dedupeKey = `${zipPath}|${url}`;
+            if (seen.has(dedupeKey)) continue;
+            seen.add(dedupeKey);
 
-            try {
-              await fsPromises.access(destPath, fs.constants.F_OK);
-              skipped++;
-              continue;
-            } catch {
-              // dest no existe, continuamos
-            }
-
-            try {
-              await fsPromises.mkdir(itemDir, { recursive: true });
-              await fsPromises.copyFile(srcPath, destPath);
-              copied++;
-            } catch (err) {
-              const msg = err instanceof Error ? err.message : String(err);
-              errors.push(`${filename}: ${msg}`);
-            }
+            files.push({
+              zipPath,
+              url,
+              filename,
+              size: stat.size,
+            });
           }
         }
       }
     }
+  }
 
-    return res.json({
-      ok: true,
-      exportPath: EXPORT_BASE,
-      copied,
-      skipped,
-      errors,
-    });
+  return files;
+}
+
+app.get('/api/export/folders/files', authenticateToken, async (req, res) => {
+  try {
+    const boardId = queryParamToString(req.query.boardId);
+    const userId = queryParamToString(req.query.userId);
+    if (!boardId || !userId) {
+      return res.status(400).json({ error: 'boardId y userId son obligatorios' });
+    }
+
+    const authUser = req.authUser;
+    if (!authUser) return res.status(401).json({ error: 'No autenticado' });
+    if (authUser.role !== 'ADMIN' && authUser.id !== userId) {
+      return res.status(403).json({ error: 'No autorizado para este userId' });
+    }
+
+    const user = await prisma.user.findUnique({ where: { id: userId }, select: { id: true } });
+    if (!user) return res.status(404).json({ error: 'Usuario no encontrado' });
+
+    const files = await collectExportManifestFiles(boardId, userId);
+    if (files === null) return res.status(404).json({ error: 'Tablero no encontrado' });
+
+    return res.json({ ok: true, files, total: files.length });
   } catch (e) {
-    console.error('Export folders error:', e);
+    console.error('Export folders manifest error:', e);
     return res.status(500).json({
       ok: false,
-      error: e instanceof Error ? e.message : 'Error al exportar carpetas',
-      copied,
-      skipped,
-      errors,
+      error: e instanceof Error ? e.message : 'Error al obtener manifiesto de exportación',
     });
   }
 });
@@ -1960,7 +2056,7 @@ app.delete('/api/designs/:id', authenticateToken, async (req, res) => {
 const TEMPLATE_KINDS = ['cotizacion', 'levantamiento', 'hoja_trabajo'] as const;
 
 app.get('/api/templates/:kind', authenticateToken, (req, res) => {
-  const kind = req.params.kind as string;
+  const kind = String(req.params.kind || '').trim().toLowerCase();
   if (!TEMPLATE_KINDS.includes(kind as (typeof TEMPLATE_KINDS)[number])) {
     return res.status(400).json({ error: 'Tipo de plantilla no válido' });
   }
@@ -2392,16 +2488,27 @@ app.delete('/api/boards/:boardId/calendar-events/:eventId', authenticateToken, r
 // DELETE item (misma lógica que socket delete_item: persistencia en BD)
 app.delete('/api/items/:id', authenticateToken, requireRoles(['ADMIN', 'VENTAS']), async (req, res) => {
   try {
-    const itemId = req.params.id;
+    const itemIdParam = req.params.id;
+    const itemId = Array.isArray(itemIdParam) ? itemIdParam[0] : itemIdParam;
     if (!itemId) {
       return res.status(400).json({ error: 'itemId es obligatorio' });
     }
+    const itemWithFiles = await prisma.item.findUnique({
+      where: { id: itemId },
+      select: {
+        columnValues: { select: { value: true } },
+      },
+    });
+    const uploadUrls = Array.from(
+      new Set((itemWithFiles?.columnValues ?? []).flatMap(cv => extractUploadUrls(cv.value)))
+    );
     await prisma.$transaction([
       prisma.columnValue.deleteMany({ where: { itemId } }),
       prisma.update.deleteMany({ where: { itemId } }),
       prisma.notification.deleteMany({ where: { itemId } }),
       prisma.item.delete({ where: { id: itemId } }),
     ]);
+    void Promise.all(uploadUrls.map(url => deletePhysicalFileIfUnreferenced(url, itemId)));
     res.status(204).send();
   } catch (e) {
     console.error('Error deleting item:', e);
@@ -2409,6 +2516,16 @@ app.delete('/api/items/:id', authenticateToken, requireRoles(['ADMIN', 'VENTAS']
       return res.status(404).json({ error: 'Item no encontrado' });
     }
     res.status(500).json({ error: 'Error al eliminar el elemento' });
+  }
+});
+
+app.get('/api/admin/backups', authenticateToken, requireAdmin, async (_req, res) => {
+  try {
+    const backups = await getBackupList();
+    res.json({ ok: true, backups });
+  } catch (e) {
+    console.error('Error listing backups:', e);
+    res.status(500).json({ ok: false, error: 'No se pudo listar backups' });
   }
 });
 
@@ -2570,14 +2687,21 @@ io.on('connection', (socket) => {
       }
       const item = await prisma.item.findUnique({
         where: { id: itemId },
-        select: { group: { select: { boardId: true } } },
+        select: {
+          group: { select: { boardId: true } },
+          columnValues: { select: { value: true } },
+        },
       });
+      const uploadUrls = Array.from(
+        new Set((item?.columnValues ?? []).flatMap(cv => extractUploadUrls(cv.value)))
+      );
       await prisma.$transaction([
         prisma.columnValue.deleteMany({ where: { itemId } }),
         prisma.update.deleteMany({ where: { itemId } }),
         prisma.notification.deleteMany({ where: { itemId } }),
         prisma.item.delete({ where: { id: itemId } }),
       ]);
+      void Promise.all(uploadUrls.map(url => deletePhysicalFileIfUnreferenced(url, itemId)));
       if (item?.group?.boardId) {
         io.to(boardRoom(item.group.boardId)).emit('item_deleted', { itemId });
       } else {
@@ -2638,6 +2762,10 @@ io.on('connection', (socket) => {
         create: { itemId, columnId, value, valueJson }
       });
       io.to(boardRoom(column.boardId)).emit('column_value_updated', updated);
+      if (prevValue && prevValue !== value) {
+        const prevUrls = extractUploadUrls(prevValue);
+        void Promise.all(prevUrls.map(url => deletePhysicalFileIfUnreferenced(url)));
+      }
 
       // ── AUDITORÍA (Registro de actividad) ──────────────────────────────────────────
       // Crear entradas automáticas cuando cambien columnas relevantes.
@@ -2948,20 +3076,24 @@ io.on('connection', (socket) => {
         }
       }
 
-      // Notificación Web Push al usuario asignado cuando se actualiza columna Personas
-      if (column?.type === 'person' && value && typeof value === 'string' && value.trim()) {
-        const assignedUserId = value.trim();
-        const notif = await prisma.notification.create({
-          data: { userId: assignedUserId, itemId, type: 'assigned', read: false },
-        });
-        io.to(userRoom(assignedUserId)).emit('notification_created', notif);
-
-        await sendWebPushToUser(assignedUserId, {
-          title: 'Te asignaron un elemento',
-          body: 'Revisa tus notificaciones en Sunday.',
-          url: '/?tab=notifications',
-          tag: `assigned-${itemId}`,
-        });
+      // Notificar solo asignaciones nuevas a terceros (evita auto-notificación y duplicados sin cambio real).
+      if (column?.type === 'person') {
+        const prevAssigned = new Set(extractPersonUserIds(prevValue));
+        const nextAssigned = extractPersonUserIds(value);
+        const newlyAssigned = nextAssigned.filter((uid) => !prevAssigned.has(uid));
+        const targets = newlyAssigned.filter((uid) => uid !== auth.userId);
+        for (const assignedUserId of targets) {
+          const notif = await prisma.notification.create({
+            data: { userId: assignedUserId, itemId, type: 'assigned', read: false },
+          });
+          io.to(userRoom(assignedUserId)).emit('notification_created', notif);
+          await sendWebPushToUser(assignedUserId, {
+            title: 'Te asignaron un elemento',
+            body: 'Revisa tus notificaciones en Sunday.',
+            url: '/?tab=notifications',
+            tag: `assigned-${itemId}`,
+          });
+        }
       }
     } catch (e) {
       console.error('Error updating column value:', e);
@@ -3251,6 +3383,22 @@ io.on('connection', (socket) => {
 });
 
 const PORT = process.env.PORT || 3001;
+cron.schedule(
+  '0 2 * * *',
+  async () => {
+    await runBackup();
+    await cleanOldBackups();
+  },
+  { timezone: 'America/Mexico_City' }
+);
+console.log(
+  JSON.stringify({
+    level: 'info',
+    msg: 'backup_cron_registered',
+    schedule: '0 2 * * *',
+    timezone: 'America/Mexico_City',
+  })
+);
 httpServer.listen(PORT, () => {
   console.log(`Sunday Server running on port ${PORT}`);
 });

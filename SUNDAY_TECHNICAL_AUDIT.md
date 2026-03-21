@@ -120,12 +120,22 @@ Q4 2025–Q1 2026 ─── Endurecimiento general y preparación Fases 3–5
 - **Variables de entorno**: `backend/src/env.ts` carga `backend/.env` con **`override: true`** respecto al proceso, de modo que la configuración del proyecto no quede oculta por una `DATABASE_URL` u otras variables heredadas en el entorno del sistema Windows.
 - **Contenedores**: la implementación final prevista **no** depende de Docker para PostgreSQL; el repositorio no incluye `docker-compose` en el flujo documentado de despliegue (histórico opcional de desarrollo eliminado de la documentación activa).
 
-#### 0.1.3 Personalización de login — usuario de prueba `pipo` (temporal)
+#### 0.1.3 Ajustes operativos recientes (marzo 2026)
 
-- **Qué hay en código**: En `frontend/src/components/Login.tsx`, si el **nombre de usuario** del formulario coincide en minúsculas con **`pipo`**, el titular de bienvenida deja de ser **“Bienvenido / a Sunday”** y se muestra el mensaje de prueba **“Webos ese Pipo xD”** (tanto en layout **vertical** como **horizontal**).
-- **Naturaleza**: Es un cambio **solo de prueba / test** (p. ej. para el usuario de demo “hola pipo”), **no** define el copy oficial del producto.
-- **Mientras tanto**: **Se deja el código activo**; esta anotación deja constancia de que **está pero se quitará** cuando deje de ser necesario.
-- **Cuando se borre ese usuario de la base de datos o se cierre la prueba**: Hay que **eliminar toda referencia en el código**: la condición `isPipoWelcome`, las ramas que renderizan el mensaje alternativo y **cualquier mención en esta auditoría** vinculada a esta excepción. El login debe quedar **únicamente** con el mensaje estándar para todos los usuarios.
+- **Exportación de carpetas (desktop)**:
+  - Se reemplazó la copia en servidor (`~/SundayExports`) por flujo de manifiesto `GET /api/export/folders/files` + sincronización local en navegador con File System Access API (Chrome/Edge escritorio).
+  - En móvil no se muestra botón de exportación.
+- **Backups automáticos**:
+  - Nuevo servicio `backend/src/backupService.ts` con backup diario ZIP de `uploads/` en `backend/backups/YYYY-MM-DD.zip`.
+  - Retención de 30 días y cron a las 2:00 AM (`America/Mexico_City`) + endpoint admin `GET /api/admin/backups`.
+- **Notificaciones y Web Push**:
+  - Hardening de suscripciones (`/api/push/subscribe` y `/api/push/unsubscribe`) atadas a `req.authUser.id`.
+  - Saneamiento de ownership por `endpoint` para limpiar cruces históricos entre usuarios.
+  - Se evita auto-notificación en autoasignación/automenção.
+- **PWA / Service Worker**:
+  - `sw.js` corregido para devolver siempre un `Response` válido en fallos de red (evita `Failed to convert value to 'Response'`).
+- **Login y auditoría**:
+  - Se retiró la personalización temporal asociada al usuario de prueba `pipo`.
 
 #### 0.2 Alcance de esta auditoría
 
@@ -172,7 +182,7 @@ flowchart LR
 
   subgraph Storage["Sistema de archivos"]
     Uploads["/uploads\n(JPG, PDF, XLSX/XLS)"]
-    Exports["~/SundayExports\nExportación de carpetas"]
+    Exports["Export manifest\nsincronización local escritorio"]
     Templates["Plantillas PDF\n(assets base)"]
   end
 
@@ -811,9 +821,9 @@ Edge cases:
 #### 4.5 Exportación de carpetas y Web Push
 
 - Exportación de carpetas:
-  - El servidor sincroniza archivos solo si el usuario está asignado al ítem (columna tipo `person`).
-  - La estructura de salida se organiza bajo un directorio tipo `~/SundayExports`.
-  - Esto cumple un control de acceso de facto sobre los assets exportados.
+  - El backend expone un manifiesto de archivos por usuario/tablero (`GET /api/export/folders/files`) respetando asignación por columna `person`.
+  - El frontend de escritorio sincroniza a carpeta local elegida por usuario (File System Access API), sin sobreescribir archivos existentes.
+  - Estructura local: `año-mes/cliente/ítem/archivo`.
 
 - Notificaciones Web Push:
   - Modelo `PushSubscription` ligado a `User`.
@@ -886,7 +896,7 @@ Componentes clave:
 
 - `frontend/src/components/Login.tsx`:
   - Pantalla de login (skin vertical principal):
-    - Encabezado del hero con **“Bienvenido / a Sunday”** alineado a la izquierda en dos renglones (copy estándar; **excepción temporal de prueba** para el usuario `pipo` — ver **§0.1.3**: al eliminarse la prueba/usuario, retirar esa rama del código).
+    - Encabezado del hero con **“Bienvenido / a Sunday”** alineado a la izquierda en dos renglones (copy estándar para todos los usuarios).
     - `AnimatedLogo` pequeño: render SVG por capas (sol + rayos) usando un “grupo rotante” de keyframes.
       - El par activo (una variante para sol y otra para rayos) se asigna al entrar a una pestaña y se mantiene hasta cambiar a otra (`activePage`).
       - Se evita desincronía rígida aplicando desfase entre sol/rayos, manteniendo el mismo eje centrado.

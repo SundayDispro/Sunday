@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Search, MoreHorizontal, ChevronDown, Star, Folder, Receipt, Calendar, PieChart, FolderOpen, GanttChart } from 'lucide-react';
+import { Search, MoreHorizontal, ChevronDown, Star, Receipt, Calendar, PieChart, FolderOpen, GanttChart } from 'lucide-react';
 import * as Popover from '@radix-ui/react-popover';
 
 export type ViewMode = 'table' | 'kanban' | 'calendar' | 'facturacion' | 'resumen' | 'archivos' | 'miTrabajo' | 'timeline';
@@ -31,8 +31,6 @@ interface MobileBoardHeaderProps {
   canSeeFacturacion: boolean;
   isTaller: boolean;
   onOpenSearch: () => void;
-  onExportFolders: () => void;
-  exportingFolders: boolean;
   onToggleStar?: () => void;
   /** Si true, no mostrar selector de vista (ej. en Mi trabajo con tablero) */
   hideViewSelector?: boolean;
@@ -57,8 +55,6 @@ export function MobileBoardHeader({
   canSeeFacturacion,
   isTaller,
   onOpenSearch,
-  onExportFolders,
-  exportingFolders,
   onToggleStar,
   hideViewSelector = false,
   showAddViewPopover = false,
@@ -145,15 +141,6 @@ export function MobileBoardHeader({
                   Favorito
                 </button>
               )}
-              <button
-                type="button"
-                onClick={() => { onExportFolders(); setMenuOpen(false); }}
-                disabled={exportingFolders}
-                className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-monday hover:bg-monday-hover transition-colors text-left text-[13px] text-monday-text disabled:opacity-50"
-              >
-                <Folder size={18} className="shrink-0" />
-                {exportingFolders ? 'Exportando...' : 'Exportar carpetas'}
-              </button>
             </Popover.Content>
           </Popover.Portal>
         </Popover.Root>

@@ -1,4 +1,4 @@
-# AI Context Manifest — Sunday (v2.2)
+# AI Context Manifest — Sunday (v2.3)
 
 Este documento es una radiografía técnica de Sunday. Define la arquitectura, los patrones de diseño y el estado de la infraestructura para garantizar un desarrollo coherente en un entorno multi-usuario.
 
@@ -14,7 +14,7 @@ Este documento es una radiografía técnica de Sunday. Define la arquitectura, l
 
 ### 1.2 Persistencia y Event Loop
 - **Base de Datos**: PostgreSQL en uso con Prisma (la transición SQLite→Postgres fue parte de la evolución del sistema).
-- **Riesgo de Bloqueo**: La exportación realiza muchas operaciones de I/O en disco y la generación de PDFs usa Puppeteer. Aunque el PDF se ejecuta dentro de `worker_threads` (reduce el bloqueo del event loop principal), en picos de multiusuario pueden aumentar CPU/latencia y colas internas; además, `/api/export/folders` no tiene limitador/cola de concurrencia, así que varias exportaciones simultáneas compiten por disco.
+- **Riesgo de Bloqueo**: La generación de PDFs usa Puppeteer y puede aumentar CPU/latencia en picos. El flujo de exportación de carpetas para usuarios de escritorio migró a manifiesto + descarga por archivo desde cliente (`GET /api/export/folders/files`), reduciendo I/O pesado del backend frente al esquema anterior de copia en servidor.
 - **Estrategia de Datos**: Uso extensivo de campos **JSON** en tablas de Prisma (`customBoxes`, `fieldPositions`) para configuraciones dinámicas.
 
 ---
@@ -30,6 +30,11 @@ Este documento es una radiografía técnica de Sunday. Define la arquitectura, l
 - **Patrón Singleton**: El socket se exporta como un objeto único desde `store/socket.ts`.
 - **Ciclo de Vida**: Los componentes registran listeners en `useEffect` y **deben** limpiar (`socket.off`) para evitar fugas de memoria.
 - **Rooms (Estado Actual)**: `join_board` y `leave_board` ya segmentan el tráfico por tablero. El handshake de Socket.IO también intenta unir a un `user:<userId>` room para notificaciones/comentarios cuando hay JWT.
+- **Notificaciones (hardening reciente)**: se evitó la auto-notificación en autoasignaciones/automenções y se reforzó ownership de `PushSubscription` por endpoint para impedir cruces entre usuarios.
+
+### 2.3 PWA y Service Worker
+- **Service Worker**: `frontend/public/sw.js` ahora valida método/protocolo de requests y garantiza devolver siempre un `Response` válido en fallos de red, evitando errores `Failed to convert value to 'Response'`.
+- **Compatibilidad offline**: se mantiene fallback de navegación a `index.html`/`/`, sin cachear `/api` ni `/socket.io`.
 
 ---
 
@@ -62,8 +67,9 @@ Este documento es una radiografía técnica de Sunday. Define la arquitectura, l
 ## 5. Reglas de Negocio Embebidas
 
 - **Trigger Taller -> Facturación**: En `backend/src/index.ts`, al recibir un evento de socket que marca un ítem como `'colocado'`, el servidor dispara una lógica secundaria que crea la columna `'Estado Facturación'` si no existe.
-- **Exportación de Carpetas**: Estructura de salida en `~/SundayExports`. Sincroniza archivos solo si el usuario está asignado al ítem (columna tipo `person`).
+- **Exportación de Carpetas (desktop)**: se expone un manifiesto (`GET /api/export/folders/files`) con rutas lógicas `año-mes/cliente/ítem/archivo`; el frontend de escritorio usa File System Access API para sincronizar localmente sin ZIP intermedio en memoria.
 - **Plantillas PDF (base + configuración)**: el fondo base vive en `backend/templates/<kind>.pdf`; las cajas/estilos se resuelven desde la DB vía `TemplateConfig` (`GET /api/templates/:kind/config` y `PUT /api/templates/:kind/config`).
+- **Backups automáticos**: backup diario de `uploads/` en ZIP (`backups/YYYY-MM-DD.zip`) con limpieza de retención (30 días) y cron a las 2:00 AM (`America/Mexico_City`).
 
 ---
 

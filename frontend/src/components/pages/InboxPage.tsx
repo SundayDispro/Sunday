@@ -146,7 +146,7 @@ export const InboxPage: React.FC<Props> = ({ onItemClick, initialUser, onClearIn
         u.name.toLowerCase().startsWith(namePart.toLowerCase()) ||
         u.username.toLowerCase().startsWith(namePart.toLowerCase())
       );
-      if (user && !ids.includes(user.id)) ids.push(user.id);
+      if (user && user.id !== currentUser?.id && !ids.includes(user.id)) ids.push(user.id);
     }
     return ids;
   };

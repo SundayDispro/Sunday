@@ -35,8 +35,8 @@ interface BoardViewBottomSheetProps {
   canSeeFacturacion: boolean;
   isTaller: boolean;
   onToggleStar?: () => void;
-  onExportFolders: () => void;
-  exportingFolders: boolean;
+  onExportFolders?: () => void;
+  exportingFolders?: boolean;
   onOpenSearch: () => void;
 }
 
@@ -193,15 +193,17 @@ export function BoardViewBottomSheet({
                     Favorito
                   </button>
                 )}
-                <button
-                  type="button"
-                  onClick={() => { onExportFolders(); onOpenChange(false); }}
-                  disabled={exportingFolders}
-                  className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-monday hover:bg-monday-hover transition-colors text-left text-[13px] text-monday-text disabled:opacity-50"
-                >
-                  <Folder size={18} className="shrink-0" />
-                  {exportingFolders ? 'Exportando...' : 'Exportar carpetas'}
-                </button>
+                {onExportFolders && (
+                  <button
+                    type="button"
+                    onClick={() => { onExportFolders(); onOpenChange(false); }}
+                    disabled={!!exportingFolders}
+                    className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-monday hover:bg-monday-hover transition-colors text-left text-[13px] text-monday-text disabled:opacity-50"
+                  >
+                    <Folder size={18} className="shrink-0" />
+                    {exportingFolders ? 'Exportando...' : 'Exportar carpetas'}
+                  </button>
+                )}
                 <button
                   type="button"
                   onClick={() => { onOpenSearch(); onOpenChange(false); }}

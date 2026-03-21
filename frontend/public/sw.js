@@ -34,8 +34,13 @@ self.addEventListener('activate', (event) => {
 });
 
 self.addEventListener('fetch', (event) => {
+  // Solo manejamos requests HTTP(s) GET para evitar errores de respuesta inválida.
+  if (event.request.method !== 'GET') return;
+  const reqUrl = event.request.url || '';
+  if (!reqUrl.startsWith('http://') && !reqUrl.startsWith('https://')) return;
+
   // Ignorar peticiones a la API o web sockets para no cachearlas incorrectamente
-  if (event.request.url.includes('/api/') || event.request.url.includes('/socket.io/')) {
+  if (reqUrl.includes('/api/') || reqUrl.includes('/socket.io/')) {
     return;
   }
 
@@ -46,7 +51,7 @@ self.addEventListener('fetch', (event) => {
       }
       return fetch(event.request).then((networkResponse) => {
         // Cachear estáticos (js, css, woff2) automáticamente
-        if (event.request.url.match(/\.(js|css|woff2|png|jpg|jpeg|svg)$/)) {
+        if (networkResponse && networkResponse.ok && reqUrl.match(/\.(js|css|woff2|png|jpg|jpeg|svg)$/)) {
           const responseToCache = networkResponse.clone();
           caches.open(CACHE_NAME).then((cache) => {
             cache.put(event.request, responseToCache);
@@ -56,8 +61,16 @@ self.addEventListener('fetch', (event) => {
       }).catch(() => {
         // Fallback a index.html para SPA routing offline
         if (event.request.mode === 'navigate') {
-          return caches.match('/');
+          return caches.match('/').then((fallback) => {
+            if (fallback) return fallback;
+            return new Response('Offline', {
+              status: 503,
+              statusText: 'Offline',
+              headers: { 'Content-Type': 'text/plain; charset=utf-8' },
+            });
+          });
         }
+        return Response.error();
       });
     })
   );

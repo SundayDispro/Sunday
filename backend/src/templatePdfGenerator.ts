@@ -20,10 +20,15 @@ function hexToRgb(hex: string): RGB {
   return rgb(0, 0, 0);
 }
 
-// Rutas relativas al backend para que funcionen aunque el proceso se inicie desde la raíz del repo
+// Rutas relativas al backend para que funcionen aunque el proceso se inicie desde cualquier cwd.
 const isInDist = __dirname.includes(path.sep + 'dist' + path.sep);
 const BACKEND_ROOT = isInDist ? path.resolve(__dirname, '..', '..') : path.resolve(__dirname, '..');
-const TEMPLATES_DIR = path.join(BACKEND_ROOT, 'templates');
+const TEMPLATE_DIR_CANDIDATES = [
+  path.join(BACKEND_ROOT, 'templates'),
+  path.join(process.cwd(), 'templates'),
+  path.join(process.cwd(), 'backend', 'templates'),
+];
+const TEMPLATES_DIR = TEMPLATE_DIR_CANDIDATES[0];
 const FONTS_DIR = path.join(BACKEND_ROOT, 'assets', 'fonts', 'AvertaStd');
 const UPLOAD_DIR = path.join(process.cwd(), 'uploads');
 
@@ -87,8 +92,11 @@ function getTemplatePath(kind: TemplateKind): string {
 }
 
 export function getTemplatePathIfExists(kind: TemplateKind): string | null {
-  const p = getTemplatePath(kind);
-  return fs.existsSync(p) ? p : null;
+  for (const dir of TEMPLATE_DIR_CANDIDATES) {
+    const p = path.join(dir, `${kind}.pdf`);
+    if (fs.existsSync(p)) return p;
+  }
+  return null;
 }
 
 /** Ruta del directorio de plantillas (para que el endpoint de upload guarde en el mismo sitio). */
@@ -120,14 +128,16 @@ export async function createPdfFromScreenshotPng(pngBuffer: Buffer): Promise<Buf
 
 /** Si no hay PDF, devuelve la ruta a una imagen de plantilla (JPG o PNG) si existe. */
 export function getTemplateImagePathIfExists(kind: TemplateKind): { path: string; isPng: boolean } | null {
-  const base = path.join(TEMPLATES_DIR, kind);
-  const candidates = [
-    { path: base + '.jpg', isPng: false },
-    { path: base + '.jpeg', isPng: false },
-    { path: base + '.png', isPng: true },
-  ];
-  for (const c of candidates) {
-    if (fs.existsSync(c.path)) return c;
+  for (const dir of TEMPLATE_DIR_CANDIDATES) {
+    const base = path.join(dir, kind);
+    const candidates = [
+      { path: base + '.jpg', isPng: false },
+      { path: base + '.jpeg', isPng: false },
+      { path: base + '.png', isPng: true },
+    ];
+    for (const c of candidates) {
+      if (fs.existsSync(c.path)) return c;
+    }
   }
   return null;
 }

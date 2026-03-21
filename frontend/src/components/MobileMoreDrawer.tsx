@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import {
   ChevronDown,
   Folder,
+  Users,
   Sun,
   Moon,
   Sparkles,
@@ -28,6 +29,7 @@ interface MobileMoreDrawerProps {
   boardsCount?: number;
   workspaceName?: string;
   onOpenAdmin?: () => void;
+  onOpenTeam?: () => void;
 }
 
 /** Misma fórmula que el FAB en `MobileLayout`: encima de `MobileBottomNav`. */
@@ -48,6 +50,7 @@ export function MobileMoreDrawer({
   boardsCount = 0,
   workspaceName = '',
   onOpenAdmin,
+  onOpenTeam,
 }: MobileMoreDrawerProps) {
   const [workspaceSelectorOpen, setWorkspaceSelectorOpen] = useState(false);
   const themeLabel: Record<AppTheme, string> = {
@@ -226,6 +229,31 @@ export function MobileMoreDrawer({
                   </Popover.Root>
 
                   <div className="h-px bg-monday-border/70 mx-1" aria-hidden />
+
+                  {onOpenTeam && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        onOpenTeam();
+                        onOpenChange(false);
+                      }}
+                      className="w-full flex items-center gap-2 min-h-[44px] px-2.5 rounded-2xl text-monday-text hover:bg-monday-hover/80 active:bg-monday-hover transition-colors text-left"
+                    >
+                      <div className="w-8 h-8 rounded-xl bg-monday-pill border border-monday-border flex items-center justify-center shrink-0">
+                        <Users size={15} />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="text-[10px] font-semibold text-monday-subtext uppercase tracking-wide leading-tight">
+                          Equipo
+                        </div>
+                        <div className="text-[13px] font-semibold text-monday-text leading-snug">
+                          Ver miembros
+                        </div>
+                      </div>
+                    </button>
+                  )}
+
+                  {onOpenTeam && <div className="h-px bg-monday-border/70 mx-1" aria-hidden />}
 
                   <div className="[&_button]:min-h-[44px] [&_button]:rounded-2xl [&_button]:px-2.5">
                     <UserPanel
