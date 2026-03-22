@@ -92,6 +92,11 @@ function queryParamToString(value) {
         return value[0].trim() || null;
     return null;
 }
+/** Solo loopback: para scripts locales (p. ej. tarea al inicio de Windows) sin JWT. No usar X-Forwarded-For. */
+function isRequestFromLoopback(req) {
+    const addr = req.socket.remoteAddress ?? '';
+    return addr === '127.0.0.1' || addr === '::1' || addr === '::ffff:127.0.0.1';
+}
 /** `JsonValue` admite `null` plano; en create/update Prisma espera `InputJsonValue` o `JsonNull`. */
 function jsonToInput(v) {
     if (v === undefined)
@@ -113,17 +118,46 @@ const allowedOrigins = rawOrigins === ''
     : rawOrigins === '*'
         ? '*'
         : rawOrigins.split(',').map((s) => s.trim()).filter(Boolean);
-const corsOriginOption = allowedOrigins === '*' ? true : allowedOrigins;
 if (isProduction && allowedOrigins !== '*' && allowedOrigins.length === 0) {
     throw new Error('ALLOWED_ORIGINS inválido: la lista de orígenes resultó vacía.');
 }
+/** Quick Tunnel de Cloudflare: la URL HTTPS cambia en cada arranque de cloudflared. */
+function isTryCloudflareQuickTunnelOrigin(origin) {
+    try {
+        const u = new URL(origin);
+        return u.protocol === 'https:' && u.hostname.endsWith('.trycloudflare.com');
+    }
+    catch {
+        return false;
+    }
+}
+const trustTrycloudflareTunnelOrigins = ['1', 'true', 'yes'].includes((process.env.ALLOW_TRYCLOUDFLARE_ORIGINS ?? '').trim().toLowerCase());
+const corsDynamicOrigin = (origin, callback) => {
+    if (allowedOrigins === '*') {
+        callback(null, true);
+        return;
+    }
+    if (!origin) {
+        callback(null, true);
+        return;
+    }
+    if (Array.isArray(allowedOrigins) && allowedOrigins.includes(origin)) {
+        callback(null, true);
+        return;
+    }
+    if (trustTrycloudflareTunnelOrigins && isTryCloudflareQuickTunnelOrigin(origin)) {
+        callback(null, true);
+        return;
+    }
+    callback(null, false);
+};
 const io = new socket_io_1.Server(httpServer, {
     pingTimeout: 60000, // 60s — default 20s
     pingInterval: 25000, // 25s — default 25s
     connectTimeout: 45000, // 45s para VPN lentas
     transports: ['websocket', 'polling'], // polling como fallback VPN
     cors: {
-        origin: corsOriginOption,
+        origin: corsDynamicOrigin,
         methods: ['GET', 'POST', 'PUT', 'DELETE'],
     },
 });
@@ -251,7 +285,7 @@ const avatarUpload = (0, multer_1.default)({
     },
 });
 app.use((0, cors_1.default)({
-    origin: corsOriginOption,
+    origin: corsDynamicOrigin,
 }));
 // Aumentar límite de JSON para soportar capturas PNG base64 desde el cliente (html2canvas)
 app.use(express_1.default.json({ limit: '25mb' }));
@@ -280,6 +314,51 @@ app.use('/uploads', express_1.default.static(paths_1.UPLOADS_DIR));
 // Health check (for frontend to verify backend is up); socketConnections para observabilidad
 app.get('/api/health', (_req, res) => {
     res.status(200).json({ ok: true, socketConnections: socketConnectionCount });
+});
+// Mensaje de sistema en el feed (Bandeja): solo desde 127.0.0.1 / ::1 — sin JWT.
+// Autor: SYSTEM_FEED_AUTHOR_ID en .env, o el primer usuario ADMIN por createdAt.
+app.post('/api/internal/feed/system-message', async (req, res) => {
+    try {
+        if (!isRequestFromLoopback(req)) {
+            return res.status(403).json({ error: 'Solo localhost' });
+        }
+        const { content } = req.body ?? {};
+        if (!content || typeof content !== 'string' || !content.trim()) {
+            return res.status(400).json({ error: 'content es obligatorio' });
+        }
+        const envAuthor = (process.env.SYSTEM_FEED_AUTHOR_ID ?? '').trim();
+        let authorId = null;
+        if (envAuthor) {
+            const u = await prisma.user.findUnique({ where: { id: envAuthor } });
+            if (u)
+                authorId = u.id;
+        }
+        if (!authorId) {
+            const admin = await prisma.user.findFirst({
+                where: { role: 'ADMIN' },
+                orderBy: { createdAt: 'asc' },
+            });
+            if (!admin) {
+                return res.status(500).json({ error: 'No hay usuario ADMIN para publicar en el feed' });
+            }
+            authorId = admin.id;
+        }
+        const post = await prisma.feedPost.create({
+            data: {
+                content: content.trim(),
+                authorId,
+                mentionedUserIds: '[]',
+                mentionedUserIdsJson: [],
+            },
+            include: { author: true },
+        });
+        const author = post.author ? { ...post.author, password: undefined } : post.author;
+        res.status(201).json({ ...post, author, mentionedUserIds: [] });
+    }
+    catch (error) {
+        console.error('system feed message error:', error);
+        res.status(500).json({ error: 'Failed to create system feed post' });
+    }
 });
 // Subir documento (JPG o PDF) (multipart/form-data, field: "file"); responde con la URL pública
 app.post('/api/upload', auth_1.authenticateToken, (req, res) => {

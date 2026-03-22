@@ -36,7 +36,7 @@
   },
   "scripts": {
     "dev": "vite",
-    "tunnel": "cloudflared tunnel --url http://localhost:5173",
+    "tunnel": "cloudflared tunnel --url http://127.0.0.1:5173",
     "generate:pwa-icons": "node scripts/generate-pwa-icons.mjs",
     "copy-pdfjs-worker": "node scripts/copy-pdfjs-worker.mjs",
     "postinstall": "node scripts/copy-pdfjs-worker.mjs",
