@@ -4,7 +4,7 @@ import { FeedPost, Item, User } from '../../types';
 import { useUser } from '../../store/UserContext';
 import { apiFetch } from '../../api';
 
-const API_BASE = import.meta.env.DEV ? '' : (import.meta.env.VITE_API_URL || 'http://localhost:3001');
+const API_BASE = import.meta.env.DEV ? '' : (import.meta.env.VITE_API_URL ?? '');
 
 type TabId = 'all' | 'mentions';
 

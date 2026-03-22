@@ -8,7 +8,7 @@ import { FileText, ChevronDown, ExternalLink, Upload, Loader2, Trash2, FilePenLi
 import { apiFetch } from '../../api';
 import { compressImage } from '../../utils/imageCompression';
 
-const API_BASE = import.meta.env.DEV ? '' : (import.meta.env.VITE_API_URL || 'http://localhost:3001');
+const API_BASE = import.meta.env.DEV ? '' : (import.meta.env.VITE_API_URL ?? '');
 
 interface BillingDocsValue {
   url?: string;

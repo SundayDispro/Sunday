@@ -4,7 +4,7 @@ import { UserStatus } from '../types';
 import { LogOut, Circle, CircleDot, CircleOff, LayoutGrid, Settings, Camera, Loader2 } from 'lucide-react';
 import * as Popover from '@radix-ui/react-popover';
 
-const API_BASE = import.meta.env.DEV ? '' : (import.meta.env.VITE_API_URL || 'http://localhost:3001');
+const API_BASE = import.meta.env.DEV ? '' : (import.meta.env.VITE_API_URL ?? '');
 
 const STATUS_OPTIONS: { value: UserStatus; label: string; icon: React.ReactNode }[] = [
   { value: 'available', label: 'Disponible', icon: <Circle size={14} className="text-green-500 fill-green-500" /> },

@@ -1,9 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import archiver from 'archiver';
-
-const UPLOADS_DIR = path.join(process.cwd(), 'uploads');
-const BACKUPS_DIR = path.join(process.cwd(), 'backups');
+import { BACKUPS_DIR, UPLOADS_DIR } from './config/paths';
 const MAX_BACKUP_DAYS = 30;
 
 type BackupMeta = {

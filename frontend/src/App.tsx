@@ -219,7 +219,7 @@ function SortableBoardTab({
   );
 }
 
-const API_BASE = import.meta.env.DEV ? '' : (import.meta.env.VITE_API_URL || 'http://localhost:3001');
+const API_BASE = import.meta.env.DEV ? '' : (import.meta.env.VITE_API_URL ?? '');
 import { apiFetch } from './api';
 import { can } from './authz/can';
 

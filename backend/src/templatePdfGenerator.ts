@@ -11,6 +11,7 @@ import {
   scale,
   drawObject,
 } from 'pdf-lib';
+import { UPLOADS_DIR as UPLOAD_DIR } from './config/paths';
 
 /** Convierte color hex (#000000 o #fff) a RGB para pdf-lib */
 function hexToRgb(hex: string): RGB {
@@ -40,7 +41,6 @@ const TEMPLATE_DIR_CANDIDATES = [
 ];
 const TEMPLATES_DIR = TEMPLATE_DIR_CANDIDATES[0];
 const FONTS_DIR = path.join(BACKEND_ROOT, 'assets', 'fonts', 'AvertaStd');
-const UPLOAD_DIR = path.join(process.cwd(), 'uploads');
 
 export type TemplateKind = 'cotizacion' | 'levantamiento' | 'hoja_trabajo';
 

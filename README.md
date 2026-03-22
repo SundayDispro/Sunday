@@ -52,6 +52,7 @@ Tras el seed, credenciales de prueba habituales: usuario **`ADMIN`**, contraseñ
 
 - [`docs/DEV_SETUP_POSTGRES.md`](docs/DEV_SETUP_POSTGRES.md) — PostgreSQL nativo en Windows, migraciones, seed, producción
 - [`docs/CLOUDFLARE_QUICK_TUNNEL.md`](docs/CLOUDFLARE_QUICK_TUNNEL.md) — probar la app desde otra red con Cloudflare Quick Tunnel (`npm run tunnel` en `frontend/`)
+- [`docs/ACCESO_REMOTO_SSH_Y_TUNEL.md`](docs/ACCESO_REMOTO_SSH_Y_TUNEL.md) — SSH desde casa (Tailscale / NAT), túnel Cloudflare **nombrado** para URL estable
 - [`SUNDAY_TECHNICAL_AUDIT.md`](SUNDAY_TECHNICAL_AUDIT.md) — auditoría técnica y arquitectura
 
 ## README por paquete

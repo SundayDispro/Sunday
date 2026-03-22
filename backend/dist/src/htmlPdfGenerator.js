@@ -43,7 +43,7 @@ const fs_1 = __importDefault(require("fs"));
 const path_1 = __importDefault(require("path"));
 const worker_threads_1 = require("worker_threads");
 const templatePdfGenerator_1 = require("./templatePdfGenerator");
-const UPLOAD_DIR = path_1.default.join(process.cwd(), 'uploads');
+const paths_1 = require("./config/paths");
 /**
  * Convierte una imageUrl (relativa o absoluta apuntando al backend) en un data URL base64.
  * Soporta:
@@ -68,8 +68,8 @@ function imageUrlToDataUrl(imageUrl) {
             ? relativePath.slice(1) // "uploads/filename.jpg"
             : relativePath;
         // Resolver a path absoluto y validar que esté bajo UPLOAD_DIR (evitar path traversal)
-        const absolutePath = path_1.default.resolve(UPLOAD_DIR, path_1.default.basename(normalized));
-        const resolvedUploadDir = path_1.default.resolve(UPLOAD_DIR);
+        const absolutePath = path_1.default.resolve(paths_1.UPLOADS_DIR, path_1.default.basename(normalized));
+        const resolvedUploadDir = path_1.default.resolve(paths_1.UPLOADS_DIR);
         if (!absolutePath.startsWith(resolvedUploadDir + path_1.default.sep) && absolutePath !== resolvedUploadDir) {
             return null;
         }

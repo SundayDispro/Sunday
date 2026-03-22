@@ -3,10 +3,11 @@ import crypto from 'crypto';
 import express from 'express';
 import { createServer } from 'http';
 import { Server } from 'socket.io';
-import cors from 'cors';
+import cors, { type CorsOptions } from 'cors';
 import cron from 'node-cron';
 import path from 'path';
 import fs from 'fs';
+import { ensureUploadDirs, UPLOADS_DIR } from './config/paths';
 import multer from 'multer';
 import { PrismaClient, Prisma } from '@prisma/client';
 import { attachUserFromJwt, authenticateToken, hashPassword, requireAdmin, requireAuth, requireRoles, verifyPassword, signJwt, verifyJwt, verifyExportToken, signExportToken, getExportDocIdFromToken } from './auth';
@@ -79,11 +80,43 @@ const allowedOrigins: string[] | '*' =
       ? '*'
       : rawOrigins.split(',').map((s) => s.trim()).filter(Boolean);
 
-const corsOriginOption = allowedOrigins === '*' ? true : allowedOrigins;
-
 if (isProduction && allowedOrigins !== '*' && allowedOrigins.length === 0) {
   throw new Error('ALLOWED_ORIGINS inválido: la lista de orígenes resultó vacía.');
 }
+
+/** Quick Tunnel de Cloudflare: la URL HTTPS cambia en cada arranque de cloudflared. */
+function isTryCloudflareQuickTunnelOrigin(origin: string): boolean {
+  try {
+    const u = new URL(origin);
+    return u.protocol === 'https:' && u.hostname.endsWith('.trycloudflare.com');
+  } catch {
+    return false;
+  }
+}
+
+const trustTrycloudflareTunnelOrigins = ['1', 'true', 'yes'].includes(
+  (process.env.ALLOW_TRYCLOUDFLARE_ORIGINS ?? '').trim().toLowerCase()
+);
+
+const corsDynamicOrigin: CorsOptions['origin'] = (origin, callback) => {
+  if (allowedOrigins === '*') {
+    callback(null, true);
+    return;
+  }
+  if (!origin) {
+    callback(null, true);
+    return;
+  }
+  if (Array.isArray(allowedOrigins) && allowedOrigins.includes(origin)) {
+    callback(null, true);
+    return;
+  }
+  if (trustTrycloudflareTunnelOrigins && isTryCloudflareQuickTunnelOrigin(origin)) {
+    callback(null, true);
+    return;
+  }
+  callback(null, false);
+};
 
 const io = new Server(httpServer, {
   pingTimeout: 60000, // 60s — default 20s
@@ -91,7 +124,7 @@ const io = new Server(httpServer, {
   connectTimeout: 45000, // 45s para VPN lentas
   transports: ['websocket', 'polling'], // polling como fallback VPN
   cors: {
-    origin: corsOriginOption,
+    origin: corsDynamicOrigin,
     methods: ['GET', 'POST', 'PUT', 'DELETE'],
   },
 });
@@ -179,15 +212,10 @@ async function sendWebPushToUser(
   }
 }
 
-const UPLOAD_DIR = path.join(process.cwd(), 'uploads');
 const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5 MB
 
-try {
-  fs.mkdirSync(UPLOAD_DIR, { recursive: true });
-} catch (_) {}
-
 const storage = multer.diskStorage({
-  destination: (_req, _file, cb) => cb(null, UPLOAD_DIR),
+  destination: (_req, _file, cb) => cb(null, UPLOADS_DIR),
   filename: (_req, file, cb) => {
     const safeExt = (() => {
       if (file.mimetype === 'application/pdf') return '.pdf';
@@ -238,7 +266,7 @@ const avatarUpload = multer({
 
 app.use(
   cors({
-    origin: corsOriginOption,
+    origin: corsDynamicOrigin,
   })
 );
 // Aumentar límite de JSON para soportar capturas PNG base64 desde el cliente (html2canvas)
@@ -268,7 +296,7 @@ app.use('/api', (_req, res, next) => {
 });
 
 // Servir archivos subidos (URL pública: /uploads/nombre.jpg)
-app.use('/uploads', express.static(UPLOAD_DIR));
+app.use('/uploads', express.static(UPLOADS_DIR));
 
 // Health check (for frontend to verify backend is up); socketConnections para observabilidad
 app.get('/api/health', (_req, res) => {
@@ -1616,7 +1644,7 @@ async function deletePhysicalFileIfUnreferenced(
       },
     });
     if (refCount > 0) return;
-    await fs.promises.unlink(path.join(UPLOAD_DIR, filename));
+    await fs.promises.unlink(path.join(UPLOADS_DIR, filename));
   } catch (e) {
     if ((e as { code?: string }).code !== 'ENOENT') {
       console.warn(`[cleanup] No se pudo eliminar ${fileUrl}:`, e);
@@ -1678,7 +1706,7 @@ async function collectExportManifestFiles(boardId: string, userId: string): Prom
           for (const url of uploadUrls) {
             const filename = path.basename(url);
             if (!filename) continue;
-            const srcPath = path.join(UPLOAD_DIR, filename);
+            const srcPath = path.join(UPLOADS_DIR, filename);
             const stat = await fs.promises.stat(srcPath).catch(() => null);
             if (!stat?.isFile()) continue;
 
@@ -3644,6 +3672,7 @@ console.log(
     timezone: 'America/Mexico_City',
   })
 );
+ensureUploadDirs();
 httpServer.listen(PORT, () => {
   console.log(`Sunday Server running on port ${PORT}`);
 });

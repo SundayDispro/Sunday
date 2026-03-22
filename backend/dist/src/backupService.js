@@ -9,14 +9,13 @@ exports.getBackupList = getBackupList;
 const fs_1 = __importDefault(require("fs"));
 const path_1 = __importDefault(require("path"));
 const archiver_1 = __importDefault(require("archiver"));
-const UPLOADS_DIR = path_1.default.join(process.cwd(), 'uploads');
-const BACKUPS_DIR = path_1.default.join(process.cwd(), 'backups');
+const paths_1 = require("./config/paths");
 const MAX_BACKUP_DAYS = 30;
 function getBackupZipPath(date) {
-    return path_1.default.join(BACKUPS_DIR, `${date}.zip`);
+    return path_1.default.join(paths_1.BACKUPS_DIR, `${date}.zip`);
 }
 function getBackupMetaPath(date) {
-    return path_1.default.join(BACKUPS_DIR, `${date}.json`);
+    return path_1.default.join(paths_1.BACKUPS_DIR, `${date}.json`);
 }
 async function countFilesRecursive(dir) {
     let count = 0;
@@ -41,11 +40,11 @@ async function runBackup() {
     const zipPath = getBackupZipPath(date);
     const metaPath = getBackupMetaPath(date);
     const startedAt = Date.now();
-    await fs_1.default.promises.mkdir(BACKUPS_DIR, { recursive: true });
-    await fs_1.default.promises.mkdir(UPLOADS_DIR, { recursive: true });
+    await fs_1.default.promises.mkdir(paths_1.BACKUPS_DIR, { recursive: true });
+    await fs_1.default.promises.mkdir(paths_1.UPLOADS_DIR, { recursive: true });
     let fileCount = 0;
     try {
-        fileCount = await countFilesRecursive(UPLOADS_DIR);
+        fileCount = await countFilesRecursive(paths_1.UPLOADS_DIR);
     }
     catch (e) {
         console.warn(JSON.stringify({ level: 'warn', msg: 'backup_count_files_error', error: String(e) }));
@@ -86,7 +85,7 @@ async function runBackup() {
         output.on('error', fail);
         archive.on('error', fail);
         archive.pipe(output);
-        archive.directory(UPLOADS_DIR, false);
+        archive.directory(paths_1.UPLOADS_DIR, false);
         void archive.finalize();
     });
     await fs_1.default.promises.writeFile(metaPath, JSON.stringify({ date, files: fileCount }), 'utf8');
@@ -102,10 +101,10 @@ async function runBackup() {
     }));
 }
 async function cleanOldBackups() {
-    await fs_1.default.promises.mkdir(BACKUPS_DIR, { recursive: true });
+    await fs_1.default.promises.mkdir(paths_1.BACKUPS_DIR, { recursive: true });
     const cutoffMs = Date.now() - MAX_BACKUP_DAYS * 24 * 60 * 60 * 1000;
     try {
-        const entries = await fs_1.default.promises.readdir(BACKUPS_DIR, { withFileTypes: true });
+        const entries = await fs_1.default.promises.readdir(paths_1.BACKUPS_DIR, { withFileTypes: true });
         for (const entry of entries) {
             if (!entry.isFile() || !entry.name.endsWith('.zip'))
                 continue;
@@ -113,7 +112,7 @@ async function cleanOldBackups() {
             const parsed = Date.parse(`${datePart}T00:00:00.000Z`);
             if (Number.isNaN(parsed) || parsed >= cutoffMs)
                 continue;
-            const zipPath = path_1.default.join(BACKUPS_DIR, entry.name);
+            const zipPath = path_1.default.join(paths_1.BACKUPS_DIR, entry.name);
             const metaPath = getBackupMetaPath(datePart);
             await fs_1.default.promises.rm(zipPath, { force: true });
             await fs_1.default.promises.rm(metaPath, { force: true });
@@ -125,14 +124,14 @@ async function cleanOldBackups() {
     }
 }
 async function getBackupList() {
-    await fs_1.default.promises.mkdir(BACKUPS_DIR, { recursive: true });
+    await fs_1.default.promises.mkdir(paths_1.BACKUPS_DIR, { recursive: true });
     const result = [];
-    const entries = await fs_1.default.promises.readdir(BACKUPS_DIR, { withFileTypes: true });
+    const entries = await fs_1.default.promises.readdir(paths_1.BACKUPS_DIR, { withFileTypes: true });
     for (const entry of entries) {
         if (!entry.isFile() || !entry.name.endsWith('.zip'))
             continue;
         const date = entry.name.slice(0, -4);
-        const zipPath = path_1.default.join(BACKUPS_DIR, entry.name);
+        const zipPath = path_1.default.join(paths_1.BACKUPS_DIR, entry.name);
         const stat = await fs_1.default.promises.stat(zipPath).catch(() => null);
         if (!stat)
             continue;

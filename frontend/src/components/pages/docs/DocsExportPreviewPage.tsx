@@ -3,7 +3,7 @@ import { PdfTemplateEditor, PAGE_WIDTH_PX_96DPI, PAGE_HEIGHT_PX_96DPI } from './
 import type { TemplateConfigState } from './pdfTemplateConfig';
 import type { PdfDocType } from './pdfTemplateConfig';
 
-const API_BASE = import.meta.env.DEV ? '' : (import.meta.env.VITE_API_URL || 'http://localhost:3001');
+const API_BASE = import.meta.env.DEV ? '' : (import.meta.env.VITE_API_URL ?? '');
 
 const PDF_DOC_TYPES: PdfDocType[] = ['cotizacion', 'levantamiento', 'hoja_trabajo'];
 

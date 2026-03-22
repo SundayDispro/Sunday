@@ -42,7 +42,7 @@ import { useViewport } from '../../hooks/useViewport';
 import { apiFetch, parseResponse } from '../../api';
 import { can } from '../../authz/can';
 
-const API_BASE = import.meta.env.DEV ? '' : (import.meta.env.VITE_API_URL || 'http://localhost:3001');
+const API_BASE = import.meta.env.DEV ? '' : (import.meta.env.VITE_API_URL ?? '');
 
 interface Props {
   boardId: string;

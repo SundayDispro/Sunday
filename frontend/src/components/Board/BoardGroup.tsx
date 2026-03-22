@@ -557,7 +557,7 @@ export const BoardGroup: React.FC<Props> = ({
   onGroupCreated,
 }) => {
   const { toast } = useToast();
-  const API_BASE_BG = import.meta.env.DEV ? '' : (import.meta.env.VITE_API_URL || 'http://localhost:3001');
+  const API_BASE_BG = import.meta.env.DEV ? '' : (import.meta.env.VITE_API_URL ?? '');
   const [newTaskName, setNewTaskName] = useState('');
   const [isAddingTask, setIsAddingTask] = useState(false);
   const [isRenamingGroup, setIsRenamingGroup] = useState(false);

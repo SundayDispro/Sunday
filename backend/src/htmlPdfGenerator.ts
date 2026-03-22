@@ -5,6 +5,7 @@ import { Worker } from 'worker_threads';
 import { randomUUID } from 'crypto';
 import { buildDocumentWrapperHtml } from './documentHtmlBuilder';
 import { createPdfFromScreenshotPng } from './templatePdfGenerator';
+import { UPLOADS_DIR as UPLOAD_DIR } from './config/paths';
 
 export interface HtmlPdfOptions {
   /**
@@ -12,8 +13,6 @@ export interface HtmlPdfOptions {
    */
   format?: 'A4' | 'Letter';
 }
-
-const UPLOAD_DIR = path.join(process.cwd(), 'uploads');
 
 /**
  * Convierte una imageUrl (relativa o absoluta apuntando al backend) en un data URL base64.

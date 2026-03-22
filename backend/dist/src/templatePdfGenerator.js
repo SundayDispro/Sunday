@@ -46,6 +46,7 @@ exports.generateFilledPdf = generateFilledPdf;
 const fs_1 = __importDefault(require("fs"));
 const path_1 = __importDefault(require("path"));
 const pdf_lib_1 = require("pdf-lib");
+const paths_1 = require("./config/paths");
 /** Convierte color hex (#000000 o #fff) a RGB para pdf-lib */
 function hexToRgb(hex) {
     const s = String(hex).replace(/^#/, '');
@@ -73,7 +74,6 @@ const TEMPLATE_DIR_CANDIDATES = [
 ];
 const TEMPLATES_DIR = TEMPLATE_DIR_CANDIDATES[0];
 const FONTS_DIR = path_1.default.join(BACKEND_ROOT, 'assets', 'fonts', 'AvertaStd');
-const UPLOAD_DIR = path_1.default.join(process.cwd(), 'uploads');
 /** Formato de fecha para PDF (DD/MM/YYYY como en Corel/Illustrator). */
 function formatDateForPdf(value) {
     const s = String(value).trim();
@@ -184,8 +184,8 @@ function imageUrlToBuffer(imageUrl) {
             relativePath = imageUrl;
         }
         const normalized = relativePath.startsWith('/') ? relativePath.slice(1) : relativePath;
-        const absolutePath = path_1.default.resolve(UPLOAD_DIR, path_1.default.basename(normalized));
-        const resolvedUploadDir = path_1.default.resolve(UPLOAD_DIR);
+        const absolutePath = path_1.default.resolve(paths_1.UPLOADS_DIR, path_1.default.basename(normalized));
+        const resolvedUploadDir = path_1.default.resolve(paths_1.UPLOADS_DIR);
         if (!absolutePath.startsWith(resolvedUploadDir + path_1.default.sep) && absolutePath !== resolvedUploadDir) {
             return null;
         }

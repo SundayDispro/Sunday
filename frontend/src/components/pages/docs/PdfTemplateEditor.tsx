@@ -12,7 +12,7 @@ import { useUser } from '../../../store/UserContext';
 import { apiFetch } from '../../../api';
 import { getDocument, GlobalWorkerOptions } from 'pdfjs-dist';
 
-const API_BASE = import.meta.env.DEV ? '' : (import.meta.env.VITE_API_URL || 'http://localhost:3001');
+const API_BASE = import.meta.env.DEV ? '' : (import.meta.env.VITE_API_URL ?? '');
 
 /** 96 DPI: 612pt = 816px, 792pt = 1056px. Misma escala que el PDF generado (Puppeteer). */
 export const PAGE_WIDTH_PX_96DPI = 816;

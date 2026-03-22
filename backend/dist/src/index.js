@@ -45,6 +45,7 @@ const cors_1 = __importDefault(require("cors"));
 const node_cron_1 = __importDefault(require("node-cron"));
 const path_1 = __importDefault(require("path"));
 const fs_1 = __importDefault(require("fs"));
+const paths_1 = require("./config/paths");
 const multer_1 = __importDefault(require("multer"));
 const client_1 = require("@prisma/client");
 const auth_1 = require("./auth");
@@ -201,14 +202,9 @@ async function sendWebPushToUser(userId, payload) {
         console.error('Error en sendWebPushToUser:', e);
     }
 }
-const UPLOAD_DIR = path_1.default.join(process.cwd(), 'uploads');
 const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5 MB
-try {
-    fs_1.default.mkdirSync(UPLOAD_DIR, { recursive: true });
-}
-catch (_) { }
 const storage = multer_1.default.diskStorage({
-    destination: (_req, _file, cb) => cb(null, UPLOAD_DIR),
+    destination: (_req, _file, cb) => cb(null, paths_1.UPLOADS_DIR),
     filename: (_req, file, cb) => {
         const safeExt = (() => {
             if (file.mimetype === 'application/pdf')
@@ -280,7 +276,7 @@ app.use('/api', (_req, res, next) => {
     next();
 });
 // Servir archivos subidos (URL pública: /uploads/nombre.jpg)
-app.use('/uploads', express_1.default.static(UPLOAD_DIR));
+app.use('/uploads', express_1.default.static(paths_1.UPLOADS_DIR));
 // Health check (for frontend to verify backend is up); socketConnections para observabilidad
 app.get('/api/health', (_req, res) => {
     res.status(200).json({ ok: true, socketConnections: socketConnectionCount });
@@ -1585,7 +1581,7 @@ async function deletePhysicalFileIfUnreferenced(fileUrl, excludeItemId) {
         });
         if (refCount > 0)
             return;
-        await fs_1.default.promises.unlink(path_1.default.join(UPLOAD_DIR, filename));
+        await fs_1.default.promises.unlink(path_1.default.join(paths_1.UPLOADS_DIR, filename));
     }
     catch (e) {
         if (e.code !== 'ENOENT') {
@@ -1640,7 +1636,7 @@ async function collectExportManifestFiles(boardId, userId) {
                         const filename = path_1.default.basename(url);
                         if (!filename)
                             continue;
-                        const srcPath = path_1.default.join(UPLOAD_DIR, filename);
+                        const srcPath = path_1.default.join(paths_1.UPLOADS_DIR, filename);
                         const stat = await fs_1.default.promises.stat(srcPath).catch(() => null);
                         if (!stat?.isFile())
                             continue;
@@ -3561,6 +3557,7 @@ console.log(JSON.stringify({
     schedule: '0 2 * * *',
     timezone: 'America/Mexico_City',
 }));
+(0, paths_1.ensureUploadDirs)();
 httpServer.listen(PORT, () => {
     console.log(`Sunday Server running on port ${PORT}`);
 });

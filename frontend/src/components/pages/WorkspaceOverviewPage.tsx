@@ -6,7 +6,7 @@ import * as Dialog from '@radix-ui/react-dialog';
 import { useUser } from '../../store/UserContext';
 import { apiFetch } from '../../api';
 
-const API_BASE = import.meta.env.DEV ? '' : (import.meta.env.VITE_API_URL || 'http://localhost:3001');
+const API_BASE = import.meta.env.DEV ? '' : (import.meta.env.VITE_API_URL ?? '');
 
 const RECENT_STORAGE_KEY = 'sunday-recent-visits';
 const LAST_VISIT_KEY = 'sunday-last-board';

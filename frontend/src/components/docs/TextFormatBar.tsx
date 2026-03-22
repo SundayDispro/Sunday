@@ -4,7 +4,7 @@ import { ImagePlus } from 'lucide-react';
 import { apiFetch } from '../../api';
 import type { CustomBoxDef } from '../pages/docs/pdfTemplateConfig';
 
-const UPLOAD_API_BASE = import.meta.env.DEV ? '' : (import.meta.env.VITE_API_URL || 'http://localhost:3001');
+const UPLOAD_API_BASE = import.meta.env.DEV ? '' : (import.meta.env.VITE_API_URL ?? '');
 
 /** Opciones de fuente compartidas entre docs y plantillas (incl. Averta Std) */
 export const FONT_OPTIONS = [

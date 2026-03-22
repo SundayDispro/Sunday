@@ -3,7 +3,7 @@ import { Search as SearchIcon, FileText, X } from 'lucide-react';
 import { Item } from '../../types';
 import { apiFetch } from '../../api';
 
-const API_BASE = import.meta.env.DEV ? '' : (import.meta.env.VITE_API_URL || 'http://localhost:3001');
+const API_BASE = import.meta.env.DEV ? '' : (import.meta.env.VITE_API_URL ?? '');
 
 type SearchResult = {
   item: { id: string; name: string; groupId: string };

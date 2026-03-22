@@ -42,7 +42,7 @@ const puppeteer_1 = __importDefault(require("puppeteer"));
 const worker_threads_1 = require("worker_threads");
 const documentHtmlBuilder_1 = require("./documentHtmlBuilder");
 const templatePdfGenerator_1 = require("./templatePdfGenerator");
-const UPLOAD_DIR = path_1.default.join(process.cwd(), 'uploads');
+const paths_1 = require("./config/paths");
 function imageUrlToDataUrl(imageUrl) {
     try {
         let relativePath = null;
@@ -54,8 +54,8 @@ function imageUrlToDataUrl(imageUrl) {
             relativePath = imageUrl;
         }
         const normalized = relativePath.startsWith('/') ? relativePath.slice(1) : relativePath;
-        const absolutePath = path_1.default.resolve(UPLOAD_DIR, path_1.default.basename(normalized));
-        const resolvedUploadDir = path_1.default.resolve(UPLOAD_DIR);
+        const absolutePath = path_1.default.resolve(paths_1.UPLOADS_DIR, path_1.default.basename(normalized));
+        const resolvedUploadDir = path_1.default.resolve(paths_1.UPLOADS_DIR);
         if (!absolutePath.startsWith(resolvedUploadDir + path_1.default.sep) && absolutePath !== resolvedUploadDir) {
             return null;
         }

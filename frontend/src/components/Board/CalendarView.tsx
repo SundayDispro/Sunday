@@ -22,7 +22,7 @@ const DAY_ROW_H = 28;
 const LANE_H = 20;
 /** Máximo de barras visibles por celda/día antes de mostrar "+N más". Aumentar para ver más, reducir para celdas más compactas. */
 const MAX_BARS_VISIBLE_IN_CELL = 4;
-const API_BASE = import.meta.env.DEV ? '' : (import.meta.env.VITE_API_URL || 'http://localhost:3001');
+const API_BASE = import.meta.env.DEV ? '' : (import.meta.env.VITE_API_URL ?? '');
 import { apiFetch } from '../../api';
 
 const WEEKDAYS = ['lun.', 'mar.', 'mié.', 'jue.', 'vie.', 'sáb.', 'dom.'];

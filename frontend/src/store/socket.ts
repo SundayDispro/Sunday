@@ -8,13 +8,26 @@ function getSocketToken(): string | null {
   }
 }
 
+function isLocalDevHostname(hostname: string): boolean {
+  if (hostname === 'localhost' || hostname === '127.0.0.1') return true;
+  // LAN típica
+  if (/^192\.168\.\d{1,3}\.\d{1,3}$/.test(hostname)) return true;
+  if (/^10\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(hostname)) return true;
+  if (/^172\.(1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3}$/.test(hostname)) return true;
+  return false;
+}
+
 function getSocketServerUrl(): string | undefined {
   const fromEnv = import.meta.env.VITE_API_URL as string | undefined;
   if (fromEnv) return fromEnv;
-  // Desarrollo: conexión directa a :3001 (mismo host que la página). Evita fallos del proxy WebSocket de Vite en Windows y simplifica el handshake.
+  // Desarrollo en localhost/LAN: conexión directa a :3001. Evita fallos del proxy WebSocket de Vite en Windows.
+  // Cloudflare Quick Tunnel (*.trycloudflare.com) u otro host público: mismo origen → Vite proxya /socket.io a 3001.
   if (import.meta.env.DEV && typeof window !== 'undefined') {
-    const port = (import.meta.env.VITE_DEV_BACKEND_PORT as string | undefined) || '3001';
-    return `${window.location.protocol}//${window.location.hostname}:${port}`;
+    if (isLocalDevHostname(window.location.hostname)) {
+      const port = (import.meta.env.VITE_DEV_BACKEND_PORT as string | undefined) || '3001';
+      return `${window.location.protocol}//${window.location.hostname}:${port}`;
+    }
+    return undefined;
   }
   // Producción sin VITE_API_URL: mismo origen (p. ej. Nginx sirve estático y proxya /socket.io).
   return undefined;

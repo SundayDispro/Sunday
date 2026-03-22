@@ -9,7 +9,7 @@ import { compressImage } from '../../utils/imageCompression';
 
 import { apiFetch } from '../../api';
 
-const API_BASE = import.meta.env.DEV ? '' : (import.meta.env.VITE_API_URL || 'http://localhost:3001');
+const API_BASE = import.meta.env.DEV ? '' : (import.meta.env.VITE_API_URL ?? '');
 
 interface DocsValue {
   cotizacion?: string;

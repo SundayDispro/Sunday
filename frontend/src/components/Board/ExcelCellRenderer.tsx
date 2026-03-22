@@ -7,7 +7,7 @@ import * as Dialog from '@radix-ui/react-dialog';
 import { useToast } from '../Toast';
 import { apiFetch } from '../../api';
 
-const API_BASE = import.meta.env.DEV ? '' : (import.meta.env.VITE_API_URL || 'http://localhost:3001');
+const API_BASE = import.meta.env.DEV ? '' : (import.meta.env.VITE_API_URL ?? '');
 
 function buildFullUrl(path: string): string {
   if (path.startsWith('http')) return path;

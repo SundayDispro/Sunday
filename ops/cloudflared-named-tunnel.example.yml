@@ -1,0 +1,23 @@
+# Ejemplo de túnel NOMBRADO (URL estable con tu dominio en Cloudflare).
+# Pasos resumidos en docs/ACCESO_REMOTO_SSH_Y_TUNEL.md
+#
+# 1) cloudflared tunnel login
+# 2) cloudflared tunnel create sunday-app
+# 3) Copia el UUID del túnel y el JSON de credenciales a %USERPROFILE%\.cloudflared\
+# 4) Sustituye TUNNEL_UUID y sunday.tudominio.com abajo
+# 5) cloudflared tunnel route dns sunday-app sunday.tudominio.com
+# 6) cloudflared tunnel --config esta-ruta\cloudflared.yml run
+# 7) En backend/.env: ALLOWED_ORIGINS debe incluir https://sunday.tudominio.com
+#    (puedes quitar ALLOW_TRYCLOUDFLARE_ORIGINS si ya no usas trycloudflare.com)
+#
+# Servicio Windows (tras probar el run manual):
+#   cloudflared service install
+#   (usa %USERPROFILE%\.cloudflared\config.yml por defecto; copia este archivo allí como config.yml)
+
+tunnel: TUNNEL_UUID_REEMPLAZAR
+credentials-file: C:\Users\PC\.cloudflared\TUNNEL_UUID_REEMPLAZAR.json
+
+ingress:
+  - hostname: sunday.tudominio.com
+    service: http://127.0.0.1:5173
+  - service: http_status:404

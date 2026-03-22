@@ -3,7 +3,7 @@ import { Receipt } from 'lucide-react';
 import { Board, Item, BoardColumn, Group, StatusSettings } from '../../types';
 import { apiFetch } from '../../api';
 
-const API_BASE = import.meta.env.DEV ? '' : (import.meta.env.VITE_API_URL || 'http://localhost:3001');
+const API_BASE = import.meta.env.DEV ? '' : (import.meta.env.VITE_API_URL ?? '');
 
 function getStatusLabel(item: Item, statusColumns: BoardColumn[]): string {
   for (const col of statusColumns) {

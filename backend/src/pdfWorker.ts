@@ -4,6 +4,7 @@ import puppeteer from 'puppeteer';
 import { parentPort, workerData } from 'worker_threads';
 import { buildDocumentWrapperHtml } from './documentHtmlBuilder';
 import { createPdfFromScreenshotPng } from './templatePdfGenerator';
+import { UPLOADS_DIR as UPLOAD_DIR } from './config/paths';
 
 type GeneratePdfFromDocumentOptions = {
   content: Record<string, unknown>;
@@ -15,8 +16,6 @@ type WorkerPayload = {
   options: GeneratePdfFromDocumentOptions;
   apiBaseUrl?: string;
 };
-
-const UPLOAD_DIR = path.join(process.cwd(), 'uploads');
 
 function imageUrlToDataUrl(imageUrl: string): string | null {
   try {
