@@ -19,3 +19,17 @@
 ## Rendimiento
 
 - [ ] Tablero grande: skeleton no bloquea interacción innecesariamente.
+
+---
+
+## Actualización marzo 2026 (UX premium — parcial)
+
+Implementado en esta iteración:
+
+- **Paleta de comandos** modo terminal (`CommandPalette.tsx`), integración con búsqueda global vía `sessionStorage` (`sunday-search-prefill`) y `SearchPage`.
+- **Backend**: campo `User.preferences` (JSON) y `PATCH /api/users/me` para sincronizar tema; migración `20260326120000_user_preferences`.
+- **Desktop**: panel de detalle de ítem **embebido** (480px) junto al `main`, sin overlay de pantalla completa; `ItemDetailsPanel` con `embedded`.
+- **Notificaciones**: `NotificationDropdown` en el rail; campana con pestañas y marcar todo.
+- **Tablero**: debounce 300ms en filtro local; chips de filtros activos bajo la toolbar.
+- **Global**: `AppTooltipProvider`, `scroll-behavior: smooth`, `::selection`, transición de tema 200ms en `[data-theme]`, carga diferida de `DocsPage` (`React.lazy` + `Suspense`).
+- **Pendiente** respecto al brief completo: virtualización masiva (`@tanstack/react-virtual`), ContextMenu en filas, resize de columnas, Kanban layoutId exhaustivo, pull-to-refresh móvil, haptics, bottom sheet snap points, auditoría completa de `focus-visible` / `aria` en todos los íconos.

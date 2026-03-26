@@ -15,7 +15,10 @@ Referencia breve para IA y desarrollo: comportamiento actual tras el pulido v1.0
 
 ## Navegación
 
-- **Command palette**: `Ctrl/Cmd+K` — tableros y accesos rápidos (inicio, notificaciones, bandeja, búsqueda).
+- **Command palette (marzo 2026)**: `Ctrl/Cmd+K` abre un **modo terminal** (input con prompt `>`, monospace, overlay oscuro). Comandos con `/` (`/help`, `/temas`, `/buscar`, `/exportar`, `/ir`, …); historial de las últimas 5 acciones al abrir; `Tab` autocompleta prefijos de comando. Sin listas de sugerencias por defecto salvo `/` o historial.
+- **Notificaciones (desktop)**: dropdown desde la campana (`NotificationDropdown`, ~380px, pestañas, marcar todo, animación al insertar).
+- **Rail**: botón **Panel** para colapsar a 40px; `Ctrl+\` alterna; estado en `localStorage` (`sunday-rail-collapsed`).
+- **Modo enfoque**: `Ctrl+Shift+F` oculta rail, sidebar de workspace y header común (solo contenido).
 - **Indicador socket**: rail izquierdo (desktop) — punto verde/rojo según conexión en tiempo real.
 
 ## Tablero

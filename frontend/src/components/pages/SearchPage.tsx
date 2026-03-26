@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { Search as SearchIcon, FileText, X } from 'lucide-react';
 import { Item } from '../../types';
 import { apiFetch } from '../../api';
@@ -20,6 +20,25 @@ export const SearchPage: React.FC<{
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<SearchResult[]>([]);
   const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    try {
+      const pre = sessionStorage.getItem('sunday-search-prefill');
+      if (!pre?.trim()) return;
+      sessionStorage.removeItem('sunday-search-prefill');
+      setQuery(pre);
+      setLoading(true);
+      apiFetch(`${API_BASE}/api/search?q=${encodeURIComponent(pre.trim())}`)
+        .then((r) => r.json())
+        .then((data: SearchResult[]) => {
+          setResults(Array.isArray(data) ? data : []);
+        })
+        .catch(() => setResults([]))
+        .finally(() => setLoading(false));
+    } catch {
+      /* ignore */
+    }
+  }, []);
 
   const doSearch = () => {
     const q = query.trim();

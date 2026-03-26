@@ -104,7 +104,13 @@ const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode, onBoar
   >(new Map());
   const [board, setBoard] = useState<Board | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
   const [showSearch, setShowSearch] = useState(false);
+
+  useEffect(() => {
+    const t = window.setTimeout(() => setDebouncedSearch(searchQuery), 300);
+    return () => window.clearTimeout(t);
+  }, [searchQuery]);
   
   // Toolbar states
   const [hiddenColumns, setHiddenColumns] = useState<string[]>([]);
@@ -812,9 +818,9 @@ const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode, onBoar
         .filter(g => g.items.length > 0);
     }
 
-    // 1. Filter by search query
-    if (searchQuery.trim()) {
-      const q = searchQuery.toLowerCase();
+    // 1. Filter by search query (debounced 300ms)
+    if (debouncedSearch.trim()) {
+      const q = debouncedSearch.toLowerCase();
       result = result
         .map(g => ({
           ...g,
@@ -866,7 +872,7 @@ const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode, onBoar
     }
 
     return result;
-  }, [board, searchQuery, sortConfig, filterByStatusOptionId, statusColumnIds, isTaller, isItemApproved]);
+  }, [board, debouncedSearch, sortConfig, filterByStatusOptionId, statusColumnIds, isTaller, isItemApproved]);
 
   const rootFilteredGroups = useMemo(
     () => filteredGroups.filter(g => !g.parentGroupId),
@@ -1213,6 +1219,32 @@ const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode, onBoar
           )}
         </div>
       </ToolbarWrapper>
+
+      {hasFiltersOrSearch && (
+        <div className="flex flex-wrap items-center gap-2 px-4 sm:px-6 py-2 border-b border-monday-border/70 bg-[var(--monday-bg)] shrink-0">
+          {searchQuery.trim() !== '' && (
+            <button
+              type="button"
+              onClick={() => setSearchQuery('')}
+              className="inline-flex items-center gap-1 rounded-full border border-monday-border bg-[var(--monday-surface)] px-2.5 py-1 text-[11px] text-monday-text hover:bg-monday-hover"
+            >
+              Búsqueda: <span className="max-w-[140px] truncate font-medium">{searchQuery}</span>
+              <X size={12} className="opacity-70" aria-hidden />
+            </button>
+          )}
+          {filterByStatusOptionId && (
+            <button
+              type="button"
+              onClick={() => setFilterByStatusOptionId(null)}
+              className="inline-flex items-center gap-1 rounded-full border border-monday-border bg-[var(--monday-surface)] px-2.5 py-1 text-[11px] text-monday-text hover:bg-monday-hover"
+            >
+              Estado:{' '}
+              {bulkStatusOptions.find((o) => o.id === filterByStatusOptionId)?.label ?? filterByStatusOptionId}
+              <X size={12} className="opacity-70" aria-hidden />
+            </button>
+          )}
+        </div>
+      )}
 
       {/* ── Board Content: min-h-0 para que el flex permita scroll; touch para desplazamiento en móvil/horizontal ───────────────────────────────────────── */}
       <div

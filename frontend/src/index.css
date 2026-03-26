@@ -16,9 +16,25 @@
 /* --- Variables por tema: light (por defecto), dark, night ---
    Referencia: Monday.com — dark con capas de gris; night con tonos azulados. */
 /* Animaciones: duración y easing unificados */
+html {
+  scroll-behavior: smooth;
+}
+
 :root {
   --monday-duration: 0.2s;
   --monday-ease: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+[data-theme] {
+  transition:
+    background-color 0.2s var(--monday-ease),
+    color 0.2s var(--monday-ease),
+    border-color 0.2s var(--monday-ease);
+}
+
+::selection {
+  background-color: rgba(29, 96, 245, 0.28);
+  color: inherit;
 }
 
 :root,

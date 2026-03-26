@@ -1153,6 +1153,37 @@ app.patch('/api/users/:id/status', requireAuth, async (req, res) => {
   }
 });
 
+/** Preferencias de UI (tema, etc.): merge superficial con el JSON existente. */
+app.patch('/api/users/me', authenticateToken, async (req, res) => {
+  try {
+    const uid = req.authUser?.id;
+    if (!uid) return res.status(401).json({ error: 'No autenticado' });
+    const { preferences } = req.body ?? {};
+    if (
+      preferences !== undefined &&
+      (typeof preferences !== 'object' || preferences === null || Array.isArray(preferences))
+    ) {
+      return res.status(400).json({ error: 'preferences debe ser un objeto JSON' });
+    }
+    const existing = await prisma.user.findUnique({ where: { id: uid } });
+    if (!existing) return res.status(404).json({ error: 'Usuario no encontrado' });
+    const prev = (existing.preferences as Record<string, unknown> | null) ?? {};
+    const merged =
+      preferences && typeof preferences === 'object'
+        ? { ...prev, ...(preferences as Record<string, unknown>) }
+        : prev;
+    const updated = await prisma.user.update({
+      where: { id: uid },
+      data: { preferences: merged as Prisma.InputJsonValue },
+    });
+    const { password: _p, ...safe } = updated;
+    res.json(safe);
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: 'Error al actualizar preferencias' });
+  }
+});
+
 // Eliminar usuario (solo ADMIN)
 app.delete('/api/users/:id', requireAuth, requireAdmin, async (req, res) => {
   try {

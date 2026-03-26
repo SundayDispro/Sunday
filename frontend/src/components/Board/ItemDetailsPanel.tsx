@@ -13,6 +13,8 @@ interface Props {
   board?: Board | null;
   /** En móvil: 'sheet' = overlay pantalla completa/sheet desde abajo con barra de cierre; 'panel' = lateral como en desktop */
   variant?: 'panel' | 'sheet';
+  /** Cuando el panel va embebido en flex (desktop), sin borde propio ni ancho fijo interno. */
+  embedded?: boolean;
 }
 
 const TABS = ['Info', 'Archivos', 'Registro de act.', 'Actualizaciones'] as const;
@@ -257,7 +259,7 @@ function extractBillingDocsUrl(raw: string): { url: string; name?: string } | nu
   return { url: s };
 }
 
-export const ItemDetailsPanel: React.FC<Props> = ({ item, onClose, variant = 'panel', board = null }) => {
+export const ItemDetailsPanel: React.FC<Props> = ({ item, onClose, variant = 'panel', board = null, embedded = false }) => {
   const { currentUser, users } = useUser();
   const [activeTab, setActiveTab] = useState<Tab>('Info');
   const [updates, setUpdates] = useState<Update[]>([]);
@@ -307,9 +309,11 @@ export const ItemDetailsPanel: React.FC<Props> = ({ item, onClose, variant = 'pa
   };
 
   const isSheet = variant === 'sheet';
-  const panelClassName = isSheet
-    ? 'w-full max-h-[90dvh] min-h-0 bg-white rounded-t-2xl shadow-monday-panel flex flex-col safe-area-padding border-t border-l border-r border-monday-border'
-    : 'w-full max-w-full md:w-[520px] h-full min-h-0 bg-white border-l border-monday-border shadow-monday-panel flex flex-col safe-area-padding';
+  const panelClassName = embedded
+    ? 'w-full h-full min-h-0 bg-[var(--monday-surface)] flex flex-col safe-area-padding overflow-hidden'
+    : isSheet
+      ? 'w-full max-h-[90dvh] min-h-0 bg-white rounded-t-2xl shadow-monday-panel flex flex-col safe-area-padding border-t border-l border-r border-monday-border'
+      : 'w-full max-w-full md:w-[480px] h-full min-h-0 bg-[var(--monday-surface)] border-l border-monday-border shadow-monday-panel flex flex-col safe-area-padding';
 
   const columnById = useMemo(() => {
     if (!board) return new Map<string, BoardColumn>();

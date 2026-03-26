@@ -5,7 +5,13 @@ import { socket } from '../store/socket';
  * Punto verde/rojo de conexión en tiempo real (Socket.IO).
  * Útil en VPN/LAN para saber si los cambios llegarán al servidor.
  */
-export function SocketConnectionIndicator({ className = '' }: { className?: string }) {
+export function SocketConnectionIndicator({
+  className = '',
+  compact = false,
+}: {
+  className?: string;
+  compact?: boolean;
+}) {
   const [connected, setConnected] = useState(socket.connected);
 
   useEffect(() => {
@@ -31,9 +37,11 @@ export function SocketConnectionIndicator({ className = '' }: { className?: stri
         className={`h-2 w-2 rounded-full shrink-0 ${connected ? 'bg-emerald-500' : 'bg-red-500 animate-pulse'}`}
         aria-hidden
       />
-      <span className="text-[7px] sm:text-[8px] font-medium text-white/65 uppercase tracking-wide whitespace-nowrap leading-none">
-        {label}
-      </span>
+      {!compact && (
+        <span className="text-[7px] sm:text-[8px] font-medium text-white/65 uppercase tracking-wide whitespace-nowrap leading-none">
+          {label}
+        </span>
+      )}
     </span>
   );
 }
