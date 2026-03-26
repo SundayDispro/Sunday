@@ -60,6 +60,10 @@ interface Props {
 
   onOptimisticUpdate?: (itemId: string, columnId: string, value: string) => void;
   onOptimisticDelete?: (itemId: string) => void;
+  /** Si existe (p. ej. móvil con swipe), sustituye optimistic+socket por borrado con undo. */
+  onDeleteItemWithUndo?: (itemId: string) => void;
+  /** IDs de filas/tarjetas a resaltar brevemente tras actualización por socket (otro usuario). */
+  socketHighlightIds?: Set<string>;
 }
 
 const columnHelper = createColumnHelper<Item>();
@@ -416,6 +420,8 @@ export const BoardGroup: React.FC<Props> = ({
   enableSwipeActions = false,
   onOptimisticUpdate,
   onOptimisticDelete,
+  onDeleteItemWithUndo,
+  socketHighlightIds = new Set(),
 }) => {
   const [newTaskName, setNewTaskName] = useState('');
   const [isAddingTask, setIsAddingTask] = useState(false);
@@ -425,6 +431,7 @@ export const BoardGroup: React.FC<Props> = ({
   const [columnEditingLabels, setColumnEditingLabels] = useState<BoardColumn | null>(null);
   const [cardColumnsExpanded, setCardColumnsExpanded] = useState(false);
   const addInputRef = useRef<HTMLInputElement>(null);
+  const deleteGroupCancelRef = useRef<HTMLButtonElement>(null);
   const { currentUser } = useUser();
   const isAdminOrVentas = currentUser?.role === 'ADMIN' || currentUser?.role === 'VENTAS';
   const canDeleteGroup = can(currentUser, 'group.delete');
@@ -775,6 +782,10 @@ export const BoardGroup: React.FC<Props> = ({
         <Dialog.Content
           className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 bg-[var(--monday-surface)] rounded-xl shadow-monday-xl border border-monday-border p-6 w-[400px] max-w-[90vw] z-[101]"
           onCloseAutoFocus={(e) => e.preventDefault()}
+          onOpenAutoFocus={(e) => {
+            e.preventDefault();
+            deleteGroupCancelRef.current?.focus();
+          }}
         >
           <Dialog.Title className="text-lg font-bold text-monday-text mb-1">
             Eliminar grupo
@@ -785,6 +796,7 @@ export const BoardGroup: React.FC<Props> = ({
           <div className="flex justify-end gap-2">
             <Dialog.Close asChild>
               <button
+                ref={deleteGroupCancelRef}
                 type="button"
                 className="px-4 py-2 text-[13px] font-medium text-monday-text bg-monday-hover hover:bg-monday-border rounded-lg transition-colors"
               >
@@ -830,7 +842,11 @@ export const BoardGroup: React.FC<Props> = ({
                 tabIndex={0}
                 onClick={() => onRowClick(item)}
                 onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onRowClick(item); } }}
-                className="bg-[var(--monday-surface)] border border-monday-border rounded-lg overflow-hidden text-left min-h-[48px] touch-manipulation active:bg-monday-hover/30"
+                className={`bg-[var(--monday-surface)] border rounded-lg overflow-hidden text-left min-h-[48px] touch-manipulation active:bg-monday-hover/30 transition-[box-shadow,border-color] duration-300 ${
+                  socketHighlightIds.has(item.id)
+                    ? 'border-monday-blue shadow-[0_0_0_2px_rgba(0,101,255,0.35)]'
+                    : 'border-monday-border'
+                }`}
               >
                 <div className="flex items-start gap-2 p-3">
                   {onToggleItem && (
@@ -891,8 +907,11 @@ export const BoardGroup: React.FC<Props> = ({
               <SwipeableItemCard
                 key={item.id}
                 onDelete={canDeleteItem ? () => {
-                  onOptimisticDelete?.(item.id);
-                  socket.emit('delete_item', { boardId, itemId: item.id });
+                  if (onDeleteItemWithUndo) onDeleteItemWithUndo(item.id);
+                  else {
+                    onOptimisticDelete?.(item.id);
+                    socket.emit('delete_item', { boardId, itemId: item.id });
+                  }
                 } : undefined}
                 onComplete={() => {
                   if (statusCol) {
@@ -997,6 +1016,7 @@ export const BoardGroup: React.FC<Props> = ({
                     row={row}
                     groupColor={group.color}
                     isSelected={selectedItemIds.has(row.original.id)}
+                    highlightSocket={socketHighlightIds.has(row.original.id)}
                   />
                 ))}
 

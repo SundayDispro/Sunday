@@ -20,11 +20,13 @@ export function MobileBottomNav({
   onNavigate,
   compact = false,
   unreadNotifCount = 0,
+  recentUnreadNotif = false,
 }: {
   activeTab: MobileBottomTab;
   onNavigate: (tab: MobileBottomTab) => void;
   compact?: boolean;
   unreadNotifCount?: number;
+  recentUnreadNotif?: boolean;
 }) {
   return (
     <nav
@@ -79,9 +81,17 @@ export function MobileBottomNav({
                   />
                   <span className="relative">{t.icon}</span>
                   {t.id === 'notifications' && unreadNotifCount > 0 && (
-                    <span className="absolute top-0 right-0 -mt-1 -mr-1 flex h-4 min-w-[16px] items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-bold text-white shadow-sm ring-2 ring-white">
-                      {unreadNotifCount > 99 ? '99+' : unreadNotifCount}
-                    </span>
+                    <>
+                      {recentUnreadNotif && (
+                        <span
+                          className="absolute top-0 left-0 -mt-0.5 -ml-0.5 h-2 w-2 rounded-full bg-emerald-500 ring-2 ring-[var(--monday-surface)]"
+                          aria-hidden
+                        />
+                      )}
+                      <span className="absolute top-0 right-0 -mt-1 -mr-1 flex h-4 min-w-[16px] items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-bold text-white shadow-sm ring-2 ring-white">
+                        {unreadNotifCount > 99 ? '99+' : unreadNotifCount}
+                      </span>
+                    </>
                   )}
                 </span>
                 {!compact && (

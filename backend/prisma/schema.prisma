@@ -16,6 +16,8 @@ model User {
   password             String
   role                 String                @default("USER") // 'ADMIN' | 'VENTAS' | 'DISENO' | 'TALLER' | 'USER'
   status               String                @default("offline") // 'available' | 'busy' | 'offline'
+  /// Preferencias de UI (tema, etc.) — merge parcial vía PATCH /api/users/me
+  preferences          Json?
   createdAt            DateTime              @default(now())
   notifications        Notification[]
   feedPosts            FeedPost[]

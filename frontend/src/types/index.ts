@@ -92,6 +92,8 @@ export interface User {
   color: string;
   role: 'ADMIN' | 'VENTAS' | 'DISENO' | 'TALLER' | 'USER';
   status?: UserStatus;
+  /** Preferencias de UI sincronizadas con el backend (tema, etc.) */
+  preferences?: Record<string, unknown> | null;
 }
 
 export interface Update {

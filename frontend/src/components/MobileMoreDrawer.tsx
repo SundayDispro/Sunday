@@ -17,12 +17,17 @@ import {
   Sparkles,
   X,
   Inbox,
+  Command,
 } from 'lucide-react';
 import * as Popover from '@radix-ui/react-popover';
 import { UserPanel } from './UserPanel';
 import type { Workspace, Board } from '../types';
-
-export type AppTheme = 'light' | 'dark' | 'night' | 'dawn' | 'fog' | 'plum' | 'cacao' | 'aurora';
+import {
+  type AppTheme,
+  SIDEBAR_THEME_IDS,
+  THEME_LABELS,
+  THEME_SWATCHES,
+} from '../theme';
 
 interface MobileMoreDrawerProps {
   open: boolean;
@@ -49,6 +54,8 @@ interface MobileMoreDrawerProps {
   boardsCount?: number;
   workspaceName?: string;
   onOpenAdmin?: () => void;
+  /** Abre la paleta de comandos (tableros, /temas, atajos). */
+  onOpenCommandPalette: () => void;
 }
 
 export function MobileMoreDrawer({
@@ -76,28 +83,9 @@ export function MobileMoreDrawer({
   boardsCount = 0,
   workspaceName = '',
   onOpenAdmin,
+  onOpenCommandPalette,
 }: MobileMoreDrawerProps) {
   const [workspaceSelectorOpen, setWorkspaceSelectorOpen] = useState(false);
-  const themeLabel: Record<AppTheme, string> = {
-    light: 'Claro',
-    dark: 'Oscuro',
-    night: 'Noche',
-    dawn: 'Dawn',
-    fog: 'Fog',
-    plum: 'Plum',
-    cacao: 'Cacao',
-    aurora: 'Aurora',
-  };
-  const themeSwatches: Record<AppTheme, [string, string]> = {
-    light: ['#f6f7fb', '#d0d4e4'],
-    dark: ['#111827', '#374151'],
-    night: ['#0a0a0a', '#262626'],
-    dawn: ['#e1d4c0', '#bda78a'],
-    fog: ['#b8b8b8', '#8f8f8f'],
-    plum: ['#12091a', '#3a244f'],
-    cacao: ['#1a1410', '#4a3526'],
-    aurora: ['#091821', '#234252'],
-  };
 
   const handleSelectBoard = (id: string | null) => {
     if (navigator.vibrate) navigator.vibrate(15);
@@ -109,6 +97,12 @@ export function MobileMoreDrawer({
     if (navigator.vibrate) navigator.vibrate(15);
     onNavigate(page);
     onOpenChange(false);
+  };
+
+  const handleOpenCommandPalette = () => {
+    if (navigator.vibrate) navigator.vibrate(12);
+    onOpenChange(false);
+    onOpenCommandPalette();
   };
 
   const filteredBoards = boards.filter(
@@ -307,6 +301,14 @@ export function MobileMoreDrawer({
                       Docs
                     </button>
                     <button
+                      type="button"
+                      onClick={handleOpenCommandPalette}
+                      className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-monday-text hover:bg-monday-hover transition-colors text-left text-[13px]"
+                    >
+                      <Command size={18} className="text-monday-subtext shrink-0" />
+                      Comandos
+                    </button>
+                    <button
                       onClick={() => handleNav('search')}
                       className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-monday-text hover:bg-monday-hover transition-colors text-left text-[13px]"
                     >
@@ -348,31 +350,26 @@ export function MobileMoreDrawer({
                             type="button"
                             className="flex-1 flex items-center justify-between gap-2 px-3 py-1.5 rounded-lg border border-monday-border bg-monday-sidebarPanel text-[12px] text-monday-text hover:bg-monday-hover transition-colors"
                           >
-                            <span className="flex items-center gap-1.5">
+                            <span className="flex items-center gap-1.5 min-w-0">
                               {theme === 'light' && <Sun size={14} />}
                               {theme === 'dark' && <Moon size={14} />}
-                              {theme === 'night' && <Sparkles size={14} />}
-                              {theme === 'dawn' && <Sparkles size={14} />}
-                              {theme === 'fog' && <Sparkles size={14} />}
-                              {theme === 'plum' && <Sparkles size={14} />}
-                              {theme === 'cacao' && <Sparkles size={14} />}
-                              {theme === 'aurora' && <Sparkles size={14} />}
-                              <span>{themeLabel[theme]}</span>
+                              {theme !== 'light' && theme !== 'dark' && <Sparkles size={14} />}
+                              <span className="truncate">{THEME_LABELS[theme]}</span>
                             </span>
                             <span className="ml-auto flex items-center gap-1">
-                              <span className="w-2.5 h-2.5 rounded-full border border-monday-border" style={{ backgroundColor: themeSwatches[theme][0] }} />
-                              <span className="w-2.5 h-2.5 rounded-full border border-monday-border" style={{ backgroundColor: themeSwatches[theme][1] }} />
+                              <span className="w-2.5 h-2.5 rounded-full border border-monday-border" style={{ backgroundColor: THEME_SWATCHES[theme][0] }} />
+                              <span className="w-2.5 h-2.5 rounded-full border border-monday-border" style={{ backgroundColor: THEME_SWATCHES[theme][1] }} />
                             </span>
                             <ChevronDown size={14} className="text-monday-subtext shrink-0" />
                           </button>
                         </Popover.Trigger>
                         <Popover.Portal>
                           <Popover.Content
-                            className="z-50 bg-monday-sidebarPanel rounded-xl shadow-monday-lg border border-monday-border w-44 max-h-[60vh] overflow-y-auto custom-scrollbar p-1"
+                            className="z-50 bg-monday-sidebarPanel rounded-xl shadow-monday-lg border border-monday-border w-[min(calc(100vw-2rem),280px)] max-h-[min(70vh,420px)] overflow-y-auto custom-scrollbar p-1"
                             sideOffset={6}
                             align="start"
                           >
-                            {(['light', 'dark', 'night', 'dawn', 'fog', 'plum', 'cacao', 'aurora'] as const).map((t) => (
+                            {SIDEBAR_THEME_IDS.map((t) => (
                               <button
                                 key={t}
                                 type="button"
@@ -383,16 +380,11 @@ export function MobileMoreDrawer({
                               >
                                 {t === 'light' && <Sun size={14} />}
                                 {t === 'dark' && <Moon size={14} />}
-                                {t === 'night' && <Sparkles size={14} />}
-                                {t === 'dawn' && <Sparkles size={14} />}
-                                {t === 'fog' && <Sparkles size={14} />}
-                                {t === 'plum' && <Sparkles size={14} />}
-                                {t === 'cacao' && <Sparkles size={14} />}
-                                {t === 'aurora' && <Sparkles size={14} />}
-                                <span className="flex-1">{themeLabel[t]}</span>
-                                <span className="ml-auto flex items-center gap-1">
-                                  <span className="w-2.5 h-2.5 rounded-full border border-monday-border" style={{ backgroundColor: themeSwatches[t][0] }} />
-                                  <span className="w-2.5 h-2.5 rounded-full border border-monday-border" style={{ backgroundColor: themeSwatches[t][1] }} />
+                                {t !== 'light' && t !== 'dark' && <Sparkles size={14} />}
+                                <span className="flex-1">{THEME_LABELS[t]}</span>
+                                <span className="ml-auto flex items-center gap-1 shrink-0">
+                                  <span className="w-2.5 h-2.5 rounded-full border border-monday-border" style={{ backgroundColor: THEME_SWATCHES[t][0] }} />
+                                  <span className="w-2.5 h-2.5 rounded-full border border-monday-border" style={{ backgroundColor: THEME_SWATCHES[t][1] }} />
                                 </span>
                               </button>
                             ))}
@@ -400,6 +392,10 @@ export function MobileMoreDrawer({
                         </Popover.Portal>
                       </Popover.Root>
                     </div>
+                    <p className="text-[10px] text-monday-subtext px-2.5 pt-1 leading-snug">
+                      Más temas y apariencias: <span className="font-medium text-monday-text">Comandos</span> y escribe{' '}
+                      <span className="font-mono text-monday-text">/temas</span>.
+                    </p>
                     <div className="px-2.5 py-1">
                       <UserPanel
                         open={userPanelOpen}
