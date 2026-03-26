@@ -92,23 +92,8 @@ export interface User {
   color: string;
   role: 'ADMIN' | 'VENTAS' | 'DISENO' | 'TALLER' | 'USER';
   status?: UserStatus;
-  avatarUrl?: string | null;
-}
-
-/** Subconjunto del autor usado en listados de menciones (NotificationsPage). */
-export type FeedPostAuthorPreview = Pick<User, 'id' | 'name' | 'initials' | 'color'>;
-
-/**
- * Elemento devuelto por GET /api/feed (y creación POST): menciones vienen como string[] parseado en servidor.
- * Campos extra de Prisma (p. ej. mentionedUserIdsJson) pueden llegar en JSON pero la UI no los usa → no los incluimos.
- */
-export interface FeedPost {
-  id: string;
-  content: string;
-  authorId: string;
-  author?: User | FeedPostAuthorPreview;
-  mentionedUserIds: string[];
-  createdAt: string;
+  /** Preferencias de UI sincronizadas con el backend (tema, etc.) */
+  preferences?: Record<string, unknown> | null;
 }
 
 export interface Update {

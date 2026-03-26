@@ -26,6 +26,10 @@ export function buildAuthHeaders(base: HeadersInit = {}): HeadersInit {
   };
 }
 
+import { notifyGlobalToast } from './toastGlobal';
+
+export type ApiFetchInit = RequestInit & { silent?: boolean };
+
 /**
  * Parsea la respuesta de fetch de forma segura:
  * - No llama a .json() en respuestas vacías (p. ej. 204).
@@ -95,113 +99,38 @@ function decodeJwtExpMs(token: string): number | null {
  * - Añade automáticamente el header Authorization: Bearer <token> si existe.
  * - Si recibe 401/403, guarda razón en sessionStorage, limpia sesión local y redirige al login.
  */
-export async function apiFetch(input: RequestInfo | URL, init: RequestInit = {}): Promise<Response> {
-  const method = (init.method ?? 'GET').toUpperCase();
-  const isReadRequest = method === 'GET' || method === 'HEAD';
-  const rawUrl = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
-  const isApiRequest = /\/api(\/|$)/.test(rawUrl);
-  const runtimeOrigin = typeof window !== 'undefined' ? window.location.origin : 'http://localhost';
-
-  // En móviles (especialmente iOS en modo standalone) forzamos bypass de caché HTTP
-  // para lecturas API y evitamos respuestas antiguas aun con SW actualizado.
-  const headersWithAuth = buildAuthHeaders(init.headers ?? {});
-  const requestHeaders: HeadersInit = isReadRequest
-    ? {
-        ...headersWithAuth,
-        'Cache-Control': 'no-cache',
-        Pragma: 'no-cache',
-      }
-    : headersWithAuth;
-
-  let requestInput: RequestInfo | URL = input;
-  if (isReadRequest && isApiRequest) {
-    try {
-      const parsedUrl = new URL(rawUrl, runtimeOrigin);
-      if (!parsedUrl.searchParams.has('_ts')) {
-        parsedUrl.searchParams.set('_ts', String(Date.now()));
-      }
-      requestInput = parsedUrl.toString();
-    } catch {
-      // Si no podemos parsear URL, seguimos sin busting param.
-    }
-  }
-  const requestInit: RequestInit = {
-    ...init,
-    headers: requestHeaders,
-    ...(isReadRequest ? { cache: 'no-store' as RequestCache } : {}),
-  };
-
-  const shouldRetryApiResponse = (res: Response): boolean => {
-    if (!isApiRequest || !isReadRequest) return false;
-    // 401/403 es el mismo resultado en cualquier host; no reintentar en :3001 (evita ruido en red y consola).
-    if (!res.ok) {
-      if (res.status === 401 || res.status === 403) return false;
-      return true;
-    }
-    const contentType = (res.headers.get('Content-Type') || '').toLowerCase();
-    // Si una ruta /api devuelve HTML, normalmente estamos pegando al host equivocado.
-    return contentType.includes('text/html');
-  };
-
-  const buildFallbackApiUrls = (): string[] => {
-    if (typeof window === 'undefined') return [];
-    let parsed: URL;
-    try {
-      parsed = new URL(typeof requestInput === 'string' ? requestInput : requestInput.toString(), runtimeOrigin);
-    } catch {
-      return [];
-    }
-    const apiPath = `${parsed.pathname}${parsed.search}`;
-    const hostname = window.location.hostname;
-    const protocol = window.location.protocol === 'https:' ? 'https:' : 'http:';
-    const candidates = [
-      `${protocol}//${hostname}:3001${apiPath}`,
-      `http://${hostname}:3001${apiPath}`,
-      `https://${hostname}:3001${apiPath}`,
-    ];
-    const primary = parsed.toString();
-    return [...new Set(candidates)].filter((url) => url !== primary);
-  };
-
-  let res: Response | null = null;
+async function extractErrorMessage(res: Response): Promise<string> {
+  let msg = 'Error al procesar la solicitud';
   try {
-    res = await fetch(requestInput, requestInit);
-  } catch (primaryError) {
-    if (!(isApiRequest && isReadRequest)) throw primaryError;
-    let lastError: unknown = primaryError;
-    const fallbackUrls = buildFallbackApiUrls();
-    for (const fallbackUrl of fallbackUrls) {
-      try {
-        res = await fetch(fallbackUrl, requestInit);
-        requestInput = fallbackUrl;
-        lastError = null;
-        break;
-      } catch (e) {
-        lastError = e;
+    const ct = res.headers.get('Content-Type') ?? '';
+    const clone = res.clone();
+    if (ct.includes('application/json')) {
+      const j = (await clone.json()) as Record<string, unknown>;
+      if (j && typeof j === 'object') {
+        if (typeof j.error === 'string') msg = j.error;
+        else if (typeof j.message === 'string') msg = j.message;
       }
+    } else {
+      const t = await clone.text();
+      if (t?.trim()) msg = t.slice(0, 200);
     }
-    if (!res) throw lastError;
+  } catch {
+    /* ignore */
   }
+  return msg;
+}
 
-  if (!res) {
-    throw new Error('No se obtuvo respuesta de red');
-  }
-
-  if (shouldRetryApiResponse(res)) {
-    const fallbackUrls = buildFallbackApiUrls();
-    for (const fallbackUrl of fallbackUrls) {
-      try {
-        const fallbackRes = await fetch(fallbackUrl, requestInit);
-        if (!shouldRetryApiResponse(fallbackRes)) {
-          res = fallbackRes;
-          requestInput = fallbackUrl;
-          break;
-        }
-        res = fallbackRes;
-      } catch {
-        // Probar siguiente fallback
-      }
+export async function apiFetch(input: RequestInfo | URL, init: ApiFetchInit = {}): Promise<Response> {
+  const { silent, ...rest } = init;
+  let res: Response;
+  try {
+    const headersWithAuth = buildAuthHeaders(rest.headers ?? {});
+    res = await fetch(input, { ...rest, headers: headersWithAuth });
+  } catch (e) {
+    if (!silent && e instanceof TypeError) {
+      notifyGlobalToast({ message: 'Sin conexión. Revisa tu red o VPN.', variant: 'error' });
     }
+    throw e;
   }
 
   // Solo forzar logout/redirección si había un token de sesión válido.
@@ -234,6 +163,16 @@ export async function apiFetch(input: RequestInfo | URL, init: RequestInit = {})
     } catch {
       // ignore en entornos sin window
     }
+  }
+
+  if (
+    !silent &&
+    !res.ok &&
+    res.status !== 401 &&
+    res.status !== 403
+  ) {
+    const msg = await extractErrorMessage(res);
+    notifyGlobalToast({ message: msg, variant: 'error' });
   }
 
   return res;

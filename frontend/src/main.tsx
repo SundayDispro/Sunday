@@ -4,6 +4,7 @@ import './index.css';
 import App from './App.tsx';
 import { UserProvider } from './store/UserContext.tsx';
 import { ToastProvider } from './components/Toast.tsx';
+import { AppTooltipProvider } from './components/AppTooltip.tsx';
 
 const enableServiceWorker = () => {
   if ('serviceWorker' in navigator) {
@@ -65,7 +66,9 @@ createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <UserProvider>
       <ToastProvider>
-        <App />
+        <AppTooltipProvider>
+          <App />
+        </AppTooltipProvider>
       </ToastProvider>
     </UserProvider>
   </StrictMode>

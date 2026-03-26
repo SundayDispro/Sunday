@@ -1,86 +1,76 @@
-# AI Context Manifest — Sunday (v2.3)
+# AI Context Manifest — Sunday (v3.0)
 
-Este documento es una radiografía técnica de Sunday. Define la arquitectura, los patrones de diseño y el estado de la infraestructura para garantizar un desarrollo coherente en un entorno multi-usuario.
+Este documento resume la arquitectura y el estado operativo de Sunday. La **fuente de verdad detallada** es `SUNDAY_TECHNICAL_AUDIT.md`; aquí se condensan invariantes útiles para asistentes y desarrolladores.
+
+**Última revisión:** marzo 2026 (alineado con `backend@1.0.0`, Prisma 5, Express 5, React 19, Vite 7).
 
 ---
 
 ## 1. Arquitectura de Infraestructura y Red
 
-### 1.1 Topología Híbrida (LAN + VPN + Mobile)
-- **Servidor Central**: Node.js (Express 5) ejecutándose en un PC de la oficina (Puerto 3001).
-- **Clientes Locales**: 6 PCs accediendo vía `http://192.168.x.x:5173`.
-- **Clientes Remotos**: 1 PC vía VPN y múltiples dispositivos móviles.
-- **Vite Proxy**: El frontend utiliza un proxy inverso (`vite.config.ts`) para que las peticiones a `/api`, `/uploads` y `/socket.io` parezcan del mismo origen, evitando problemas de CORS en redes locales.
+### 1.1 Topología híbrida (LAN + VPN + móvil)
+- **Servidor central**: Node.js + **Express 5**, puerto **3001** (HTTP + Socket.IO sobre el mismo `httpServer`).
+- **Clientes**: PCs en LAN (`http://192.168.x.x:5173`), VPN y PWA móvil; Vite en dev actúa como proxy hacia `/api`, `/uploads`, `/socket.io`.
+- **Vite** (`frontend/vite.config.ts`): proxy a `localhost:3001` para unificar origen y evitar CORS en desarrollo. En producción, `VITE_API_URL` apunta al backend cuando no hay proxy.
 
-### 1.2 Persistencia y Event Loop
-- **Base de Datos**: PostgreSQL en uso con Prisma (la transición SQLite→Postgres fue parte de la evolución del sistema).
-- **Riesgo de Bloqueo**: La generación de PDFs usa Puppeteer y puede aumentar CPU/latencia en picos. El flujo de exportación de carpetas para usuarios de escritorio migró a manifiesto + descarga por archivo desde cliente (`GET /api/export/folders/files`), reduciendo I/O pesado del backend frente al esquema anterior de copia en servidor.
-- **Estrategia de Datos**: Uso extensivo de campos **JSON** en tablas de Prisma (`customBoxes`, `fieldPositions`) para configuraciones dinámicas.
+### 1.2 Persistencia y event loop
+- **Base de datos**: **PostgreSQL** (Prisma `provider = "postgresql"`). Coexistencia **legacy string JSON + campos sombra JSONB** (`*Json`) en varios modelos.
+- **Riesgo de bloqueo**: operaciones síncronas pesadas (`fs.copyFileSync` en exportación, Puppeteer). Mitigación aplicada: **worker** para generación PDF principal (`pdfWorker.ts`); revisar `SUNDAY_TECHNICAL_AUDIT.md` §1.4.
 
 ---
 
-## 2. Radiografía del Frontend (React 19)
+## 2. Frontend (React 19 + Vite 7)
 
-### 2.1 Gestión de Estado y Navegación
-- **Ruteo Virtual**: No se usa `react-router`. La navegación es manejada por el estado `activePage` en `App.tsx`.
-- **Optimización de UI**: Uso de `ResizeObserver` y `matchMedia` para detectar cambios entre escritorio y móvil en tiempo real.
-- **Debouncing de Persistencia**: Las notas personales (`panel-notes`) usan un timeout de 500ms antes de sincronizar con el backend para reducir el tráfico en la VPN.
+### 2.1 Estado y navegación
+- **Sin react-router**: navegación por estado (`activePage`, etc.) en `App.tsx`.
+- **Responsive**: `matchMedia`, `ResizeObserver`, tema persistente, bootstrap de carga en móvil para evitar parpadeos.
 
-### 2.2 Sincronización de Sockets (Socket.IO Cliente)
-- **Patrón Singleton**: El socket se exporta como un objeto único desde `store/socket.ts`.
-- **Ciclo de Vida**: Los componentes registran listeners en `useEffect` y **deben** limpiar (`socket.off`) para evitar fugas de memoria.
-- **Rooms (Estado Actual)**: `join_board` y `leave_board` ya segmentan el tráfico por tablero. El handshake de Socket.IO también intenta unir a un `user:<userId>` room para notificaciones/comentarios cuando hay JWT.
-- **Notificaciones (hardening reciente)**: se evitó la auto-notificación en autoasignaciones/automenções y se reforzó ownership de `PushSubscription` por endpoint para impedir cruces entre usuarios.
-
-### 2.3 PWA y Service Worker
-- **Service Worker**: `frontend/public/sw.js` ahora valida método/protocolo de requests y garantiza devolver siempre un `Response` válido en fallos de red, evitando errores `Failed to convert value to 'Response'`.
-- **Compatibilidad offline**: se mantiene fallback de navegación a `index.html`/`/`, sin cachear `/api` ni `/socket.io`.
+### 2.2 Socket.IO cliente
+- **Singleton** en `frontend/src/store/socket.ts`.
+- **Rooms en servidor**: el cliente emite `join_board` / `leave_board`; el servidor une a `board:<boardId>`. Con JWT válido en el handshake, el servidor une a **`user:<userId>`** para notificaciones y comentarios dirigidos (no broadcast global de esos eventos).
+- Listeners en `useEffect` con `socket.off` al desmontar.
 
 ---
 
-## 3. Motor de Generación de PDF WYSIWYG
+## 3. Motor PDF WYSIWYG
 
-### 3.1 Pipeline de Build
-- **Bundle Compartido**: `backend/dist/documentViewBundle.cjs`. Se genera mediante `esbuild` a partir de `renderDocumentToHtml.tsx` y expone una función para construir el HTML del documento.
-- **Renderizado / Export (descarga)**: el endpoint `POST /api/templates/:kind/generate`:
-  - guarda el contenido en caché (`exportContentCache`) y firma un token de exportación,
-  - intenta una captura 1:1 de `/docs/export` con Puppeteer a 300/96,
-  - si falla, usa `generatePdfFromDocument` en worker (raster 300 dpi),
-  - y si también falla, cae a `generatePdfFromTemplate` (fallback vectorial). El backend informa el camino en `X-PDF-Method`.
-- **Renderizado / Export (1:1 en cliente)**: la ventana de preview usa `html2canvas` + `jsPDF` para “Guardar como PDF”.
-- **Unidades Físicas**: Uso estricto de `pt` (puntos) para evitar la ambigüedad de los píxeles en impresión (1pt = 1/72 pulgada).
-
-### 3.2 El Problema del Box-Model
-- **Discrepancia**: El editor usa cajas posicionadas y edición con `contentEditable` (mismo modelo geométrico) mientras el PDF se genera renderizando HTML en un motor de navegador (Puppeteer) y luego capturando a PNG/PDF.
-- **Solución / Mitigación**: Mantener un sistema geométrico unificado (mismas `customBoxes`, `fieldPositions` y tamaños en `pt`) para minimizar desalineaciones, y usar worker/raster con escala controlada (300 DPI efectivos).
+- **Build**: `esbuild` → `backend/dist/documentViewBundle.cjs` desde `renderDocumentToHtml.tsx`.
+- **Editor**: cajas con **contentEditable** (`PdfTemplateEditor`); flujo principal de **descarga 1:1** en cliente: preview → `html2canvas` + `jsPDF` (US Letter).
+- **Backend**: `POST /api/templates/:kind/generate` y worker para otros usos; fuentes Averta Std en `backend/assets/fonts`.
 
 ---
 
-## 4. Seguridad y Autenticación (Estado Actual)
+## 4. Seguridad y autenticación
 
-- **Identidad**: JWT en `Authorization: Bearer ...`. El backend adjunta `req.authUser` con `attachUserFromJwt` y fuerza autenticación con `authenticateToken` / `requireAuth` / `requireAdmin`.
-- **Criptografía**: Uso de **bcrypt** configurable por `BCRYPT_ROUNDS` (default 12) para hashear contraseñas.
-- **RBAC + Socket Hardening**: guardas por rol (`requireAdmin`, `requireRoles`) y eventos de Socket.IO endurecidos con `withSocketRoles` para evitar escrituras no autorizadas.
-
----
-
-## 5. Reglas de Negocio Embebidas
-
-- **Trigger Taller -> Facturación**: En `backend/src/index.ts`, al recibir un evento de socket que marca un ítem como `'colocado'`, el servidor dispara una lógica secundaria que crea la columna `'Estado Facturación'` si no existe.
-- **Exportación de Carpetas (desktop)**: se expone un manifiesto (`GET /api/export/folders/files`) con rutas lógicas `año-mes/cliente/ítem/archivo`; el frontend de escritorio usa File System Access API para sincronizar localmente sin ZIP intermedio en memoria.
-- **Plantillas PDF (base + configuración)**: el fondo base vive en `backend/templates/<kind>.pdf`; las cajas/estilos se resuelven desde la DB vía `TemplateConfig` (`GET /api/templates/:kind/config` y `PUT /api/templates/:kind/config`).
-- **Backups automáticos**: backup diario de `uploads/` en ZIP (`backups/YYYY-MM-DD.zip`) con limpieza de retención (30 días) y cron a las 2:00 AM (`America/Mexico_City`).
+- **JWT**: header `Authorization: Bearer`. El backend **no arranca** sin `JWT_SECRET` en `.env` (`backend/src/auth.ts`).
+- **Contraseñas**: **bcrypt**, rondas vía `BCRYPT_ROUNDS` (p. ej. 12).
+- **Middlewares**: `attachUserFromJwt`, `authenticateToken`, `requireAuth`, `requireAdmin`, `requireRoles([...])` (ADMIN con bypass).
+- **Socket.IO**: JWT en `handshake.auth`; RBAC por evento (`withSocketRoles`), `action_denied`, reglas por columna en `update_column_value`, `authorId` desde JWT en `add_update`.
 
 ---
 
-## 6. Estado de Implementación (Marzo 2026)
+## 5. Reglas de negocio (resumen)
+
+- **Taller → Facturación**: al marcar **Estado Taller** = `colocado`, el servidor crea/usar **Estado Facturación** y valor inicial (ver `update_column_value` en `backend/src/index.ts`).
+- **Exportación de carpetas**: salida bajo `~/SundayExports`; sincronización condicionada a asignación (columna `person`).
+- **Web Push**: `PushSubscription` + `sendWebPushToUser`; deep-link a bandeja de notificaciones cuando aplica.
+
+---
+
+## 6. Estado de implementación (marzo 2026)
 
 | Característica | Estado | Notas |
-|--- |--- |--- |
-| **Tableros en tiempo real** | 100% | Funcional vía Sockets; segmentación por `board:<boardId>` y rooms de usuario en gran parte del flujo. |
-| **Editor de PDF** | 95% | Export 1:1 basado en vista de exportación (y fallback raster/worker); se mantiene afinado el layout. |
-| **Seguridad JWT** | 100% | JWT validado en backend y endurecimiento en eventos Socket.IO. |
-| **PostgreSQL** | 80%+ | Prisma y schema en uso; pendiente limpieza de legacy y confirmación de cobertura total de migraciones/datos. |
-| **Modo Móvil** | 95% | PWA offline implementado parcialmente vía `frontend/public/sw.js`: cachea el “shell” y assets estáticos + fallback a `index.html`, pero explícitamente no cachea `/api` ni `/socket.io`. Pendiente: estrategia de caché más granular para datos dinámicos y QA en escenarios offline más agresivos. |
+|----------------|--------|--------|
+| **Tableros en tiempo real** | ~100% | Rooms por tablero + usuario; refinamiento (throttle, menos fallbacks). |
+| **Editor / PDF** | ~95% | Flujo 1:1 cliente consolidado; edge cases y server-side según auditoría. |
+| **Seguridad JWT + RBAC** | Alto | JWT obligatorio en arranque; REST + sockets endurecidos; revisar rutas nuevas. |
+| **PostgreSQL + Prisma 5** | Producción | Esquema actual en `schema.prisma`; migraciones en repo. |
+| **Modo móvil / PWA** | ~88% | Micro-editor embebido, temas, push; QA campo y offline pendientes donde aplique. |
+| **Paleta Ctrl/Cmd+K** | 100% | Autocompletado de comandos con `Tab` y ejecución con `Enter`. |
+| **Temas** | 100% | Sidebar rápido + lista extendida; sync de tema vía `PATCH /api/users/me` (campo `preferences` JSONB) con debounce. `manifest.webmanifest` y `theme_color` alineados al tema base. |
+| **Rail izquierdo colapsable (40px)** | 100% | Persistido en `localStorage` y con micro-UX: iconos compactos, avatar sin recorte y notificaciones en modo compacto. |
+| **Rail — reorganización visual** | 100% | Logo arriba; selector de tema; “EN LÍNEA” debajo; botón de colapsar justo encima del ícono de usuario. |
+| **Widgets Docs premium (Tareas/Recordatorios)** | ~90-95% | Estilo sticky/agenda: menos “chrome” (filas sin celdas/bordes fuertes), más compacto y con hover suave. |
+| **Widgets Docs premium (Calculadora)** | ~95-100% | Secciones internas (display + IVA) como controles tarjeta sin contornos que parezcan tabla. |
 
-*Este manifiesto es la fuente de verdad técnica. Cualquier cambio estructural debe reflejarse aquí.*
+*Cualquier cambio estructural debe reflejarse aquí y en `SUNDAY_TECHNICAL_AUDIT.md`.*

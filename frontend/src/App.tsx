@@ -1,55 +1,31 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { Suspense, lazy, useEffect, useMemo, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { socket } from './store/socket';
 import BoardContainer from './components/Board/BoardContainer';
 import { ItemDetailsPanel } from './components/Board/ItemDetailsPanel';
 import {
   Home, Bell, Search, ChevronDown, ChevronRight,
-  Users, BookOpen, BarChart2, Inbox, Star, Plus, Receipt, Calendar, Folder, PieChart, FolderOpen, UserCheck, GanttChart, Check, AlertCircle, X, Sun, Moon, Sparkles, LayoutGrid, Menu, ChevronLeft, Globe, GripVertical,
+  Users, BookOpen, BarChart2, Inbox, Star, Plus, Receipt, Calendar, Folder, PieChart, FolderOpen, UserCheck, GanttChart, Check, AlertCircle, X, Sun, Moon, Sparkles, LayoutGrid, Menu, ChevronLeft, Globe, GripVertical, PanelLeft,
 } from 'lucide-react';
 import { Item, Board, Workspace, User, DocType } from './types';
 import { useUser } from './store/UserContext';
 import { AnimatedLogo } from './components/AnimatedLogo';
 import { Login } from './components/Login';
-type AppTheme = 'light' | 'dark' | 'night' | 'dawn' | 'fog' | 'plum' | 'cacao' | 'aurora';
-const THEME_STORAGE_KEY = 'sunday-theme';
-const THEME_COLORS: Record<AppTheme, string> = {
-  light: '#f6f7fb',
-  dark: '#111827',
-  night: '#0a0a0a',
-  dawn: '#e1d4c0',
-  fog: '#b8b8b8',
-  plum: '#1b1026',
-  cacao: '#1a1410',
-  aurora: '#091821',
-};
-const THEME_LABELS: Record<AppTheme, string> = {
-  light: 'Claro',
-  dark: 'Oscuro',
-  night: 'Noche',
-  dawn: 'Dawn',
-  fog: 'Fog',
-  plum: 'Plum',
-  cacao: 'Cacao',
-  aurora: 'Aurora',
-};
-const THEME_SWATCHES: Record<AppTheme, [string, string]> = {
-  light: ['#f6f7fb', '#d0d4e4'],
-  dark: ['#111827', '#374151'],
-  night: ['#0a0a0a', '#262626'],
-  dawn: ['#e1d4c0', '#bda78a'],
-  fog: ['#b8b8b8', '#8f8f8f'],
-  plum: ['#12091a', '#3a244f'],
-  cacao: ['#1a1410', '#4a3526'],
-  aurora: ['#091821', '#234252'],
-};
+import {
+  type AppTheme,
+  SIDEBAR_THEME_IDS,
+  THEME_COLORS,
+  THEME_LABELS,
+  THEME_SWATCHES,
+  normalizeStoredTheme,
+} from './theme';
 import { AdminUsersPanel } from './components/AdminUsersPanel';
 import { UserPanel } from './components/UserPanel';
 import { InboxPage } from './components/pages/InboxPage';
 import { NotificationsPage } from './components/pages/NotificationsPage';
 import { BandejaUnificadaPage } from './components/pages/BandejaUnificadaPage';
 import { SearchPage } from './components/pages/SearchPage';
-import DocsPage from './components/pages/DocsPage';
+const DocsPageLazy = lazy(() => import('./components/pages/DocsPage'));
 import DocsExportPreviewPage from './components/pages/docs/DocsExportPreviewPage';
 import DocsPdfPreviewPage from './components/pages/docs/DocsPdfPreviewPage';
 import { TeamPage } from './components/pages/TeamPage';
@@ -59,6 +35,10 @@ import { MiTrabajoPage } from './components/pages/MiTrabajoPage';
 import { TodayPage } from './components/pages/TodayPage';
 import { type MobileBottomTab } from './components/MobileBottomNav';
 import { MobileLayout } from './components/layout/MobileLayout';
+import { SocketConnectionIndicator } from './components/SocketConnectionIndicator';
+import { CommandPalette, type CommandPaletteItemEntry } from './components/CommandPalette';
+import { NotificationDropdown } from './components/NotificationDropdown';
+import { exportBoardToExcel } from './utils/exportBoardToExcel';
 import { MobileBoardHeaderMinimal } from './components/MobileBoardHeaderMinimal';
 import { BoardViewBottomSheet } from './components/Board/BoardViewBottomSheet';
 import { MobileMoreDrawer } from './components/MobileMoreDrawer';
@@ -75,6 +55,15 @@ import * as Dialog from '@radix-ui/react-dialog';
 import { DndContext, PointerSensor, closestCenter, useSensor, useSensors, type DragEndEvent } from '@dnd-kit/core';
 import { SortableContext, arrayMove, horizontalListSortingStrategy, useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
+
+const THEME_STORAGE_KEY = 'sunday-theme';
+
+function ThemeSidebarGlyph({ theme, size = 20 }: { theme: AppTheme; size?: number }) {
+  if (theme === 'light') return <Sun size={size} strokeWidth={2.25} />;
+  if (theme === 'dark') return <Moon size={size} strokeWidth={2.25} />;
+  return <Sparkles size={size} strokeWidth={2.25} />;
+}
+
 type ViewMode = 'table' | 'kanban' | 'calendar' | 'facturacion' | 'resumen' | 'archivos' | 'miTrabajo' | 'timeline';
 
 const VIEW_LABELS: Record<ViewMode, string> = {
@@ -402,10 +391,23 @@ function App() {
 
   const [selectedItemObj, setSelectedItemObj] = useState<Item | null>(null);
 
+  // Tablero activo con `groups/items` (lo entrega BoardContainer para que Ctrl/Cmd+K pueda buscar elementos).
+  const [activeBoardData, setActiveBoardData] = useState<Board | null>(null);
+
   // Computed selectedItem based on selectedItemIdState and the current board's items
   const selectedItem = useMemo(() => {
     if (selectedItemObj) return selectedItemObj;
-    if (!selectedItemIdState || !boards.length) return null;
+    if (!selectedItemIdState) return null;
+
+    // Preferimos el tablero activo cargado (con items) para búsquedas desde Ctrl/Cmd+K.
+    if (activeBoardData) {
+      for (const g of activeBoardData.groups) {
+        const found = g.items.find(i => i.id === selectedItemIdState);
+        if (found) return found;
+      }
+    }
+
+    if (!boards.length) return null;
     for (const b of boards) {
       for (const g of b.groups) {
         const found = g.items.find(i => i.id === selectedItemIdState);
@@ -413,7 +415,18 @@ function App() {
       }
     }
     return null;
-  }, [selectedItemObj, selectedItemIdState, boards]);
+  }, [selectedItemObj, selectedItemIdState, activeBoardData, boards]);
+
+  const commandPaletteItems = useMemo((): CommandPaletteItemEntry[] => {
+    if (!activeBoardData) return [];
+    const out: CommandPaletteItemEntry[] = [];
+    for (const g of activeBoardData.groups) {
+      for (const it of g.items) {
+        out.push({ itemId: it.id, name: it.name, boardId: activeBoardData.id, boardName: activeBoardData.name });
+      }
+    }
+    return out;
+  }, [activeBoardData]);
 
   const setSelectedItem = (item: Item | null) => {
     setSelectedItemObj(item);
@@ -627,18 +640,26 @@ function App() {
     if (typeof window === 'undefined') return 'light';
     try {
       const raw = localStorage.getItem(THEME_STORAGE_KEY);
-      let stored = raw as AppTheme | 'zen' | 'zenPlus' | 'ember' | null;
-      // Migración de nombres antiguos a los nuevos
-      if (stored === 'zen') stored = 'dawn';
-      if (stored === 'zenPlus') stored = 'fog';
-      if (stored === 'ember') stored = 'cacao';
-      if (stored && ['light', 'dark', 'night', 'dawn', 'fog', 'plum', 'cacao', 'aurora'].includes(stored)) return stored as AppTheme;
+      const normalized = normalizeStoredTheme(raw);
+      if (normalized) return normalized;
       return window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
     } catch {
       return 'light';
     }
   });
   const [themeSelectorOpen, setThemeSelectorOpen] = useState(false);
+  /** Rail izquierdo estrecho (40px); persistido. */
+  const [railCollapsed, setRailCollapsed] = useState(() => {
+    try {
+      return typeof localStorage !== 'undefined' && localStorage.getItem('sunday-rail-collapsed') === '1';
+    } catch {
+      return false;
+    }
+  });
+  /** Oculta rail + sidebar + header (desktop). */
+  const [focusMode, setFocusMode] = useState(false);
+  /** Lista de docs para la paleta (/doc). */
+  const [paletteDocs, setPaletteDocs] = useState<{ id: string; title: string }[]>([]);
   const hasMountedRef = useRef(false);
   const prevUserRef = useRef<User | null>(null);
 
@@ -654,6 +675,48 @@ function App() {
     const meta = document.querySelector('meta[name="theme-color"]');
     if (meta) meta.setAttribute('content', THEME_COLORS[theme]);
   }, [theme]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('sunday-rail-collapsed', railCollapsed ? '1' : '0');
+    } catch {
+      /* ignore */
+    }
+  }, [railCollapsed]);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === '\\') {
+        e.preventDefault();
+        setRailCollapsed((r) => !r);
+      }
+      if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === 'f') {
+        e.preventDefault();
+        setFocusMode((f) => !f);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+
+  useEffect(() => {
+    if (!currentUser?.id) return;
+    const t = window.setTimeout(() => {
+      apiFetch(`${API_BASE}/api/users/me`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ preferences: { theme } }),
+      }).catch(() => {});
+    }, 500);
+    return () => window.clearTimeout(t);
+  }, [theme, currentUser?.id]);
+
+  useEffect(() => {
+    if (!currentUser?.preferences) return;
+    const raw = (currentUser.preferences as { theme?: string }).theme;
+    const n = normalizeStoredTheme(raw ?? null);
+    if (n) setTheme(n);
+  }, [currentUser?.id]);
 
   useEffect(() => {
     if (!hasMountedRef.current) {
@@ -867,6 +930,9 @@ function App() {
   const [createBoardError, setCreateBoardError] = useState<string | null>(null);
   const newBoardNameInputRef = useRef<HTMLInputElement>(null);
   const [unreadNotifCount, setUnreadNotifCount] = useState(0);
+  /** Notificación no leída creada hace < 2 min (badge “reciente” en campana). */
+  const [recentUnreadNotif, setRecentUnreadNotif] = useState(false);
+  const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const [showCreateBoardModal, setShowCreateBoardModal] = useState(false);
   const [composeToUser, setComposeToUser] = useState<User | null>(null);
   const [pendingInboxPostId, setPendingInboxPostId] = useState<string | null>(null);
@@ -934,6 +1000,8 @@ function App() {
     reminders?: ReminderItem[];
     reminderDraftTitle?: string;
     reminderDraftDueAt?: string;
+    // UI-only: controla si el formulario de añadir aparece colapsado o no
+    reminderComposerOpen?: boolean;
     kind?: 'tasks' | 'calculator' | 'reminders';
   }
 
@@ -943,6 +1011,30 @@ function App() {
     '#fed7aa', '#fdba74', '#fb923c',
   ];
   const DEFAULT_TASK_WINDOW_COLOR = '#fef08a';
+
+  const pickContrastingTextColor = (bg?: string) => {
+    const raw = (bg ?? '').trim();
+    const hex = raw.startsWith('#') ? raw.slice(1) : raw;
+    if (!/^[0-9a-fA-F]{6}$/.test(hex)) return '#0b1220';
+    const r = parseInt(hex.slice(0, 2), 16) / 255;
+    const g = parseInt(hex.slice(2, 4), 16) / 255;
+    const b = parseInt(hex.slice(4, 6), 16) / 255;
+    // luminancia relativa (WCAG)
+    const lin = (c: number) => (c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4));
+    const L = 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b);
+    return L > 0.6 ? '#0b1220' : '#ffffff';
+  };
+
+  const formatReminderDueAt = (dueAt: string) => {
+    const s = String(dueAt ?? '').trim();
+    if (!s) return '';
+    const dt = new Date(s);
+    if (!Number.isFinite(dt.getTime())) return s;
+    // Formato corto tipo “dd/mm/aaaa --:--”
+    const date = dt.toLocaleDateString('es', { day: '2-digit', month: '2-digit', year: 'numeric' });
+    const time = dt.toLocaleTimeString('es', { hour: '2-digit', minute: '2-digit', hour12: false });
+    return `${date} ${time}`;
+  };
 
   const [taskWindows, setTaskWindows] = useState<TaskWindow[]>([]);
   const [tasksLoading, setTasksLoading] = useState(false);
@@ -973,15 +1065,18 @@ function App() {
         return ts <= mentionsReadAt;
       };
 
-      const [notifRes, mentionsRes] = await Promise.all([
-        apiFetch(`${API_BASE}/api/notifications?userId=${userId}`),
+      const [summaryRes, mentionsRes] = await Promise.all([
+        apiFetch(`${API_BASE}/api/notifications/unread-summary`, { silent: true }),
         apiFetch(`${API_BASE}/api/feed?filter=mentions&userId=${encodeURIComponent(userId)}`),
       ]);
 
       let unreadAssignments = 0;
-      if (notifRes.ok) {
-        const data = await notifRes.json();
-        unreadAssignments = data.filter((n: { read: boolean }) => !n.read).length;
+      if (summaryRes.ok) {
+        const s = await summaryRes.json();
+        unreadAssignments = typeof s.unreadCount === 'number' ? s.unreadCount : 0;
+        setRecentUnreadNotif(Boolean(s.recentUnread));
+      } else {
+        setRecentUnreadNotif(false);
       }
 
       let unreadMentions = 0;
@@ -1003,6 +1098,18 @@ function App() {
   useEffect(() => {
     fetchUnreadNotifications();
   }, [fetchUnreadNotifications]);
+
+  useEffect(() => {
+    if (!currentUser) return;
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        setCommandPaletteOpen((o) => !o);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [currentUser]);
 
   // iOS/Android (cuando el navegador soporta Badging API):
   // mostrar contador en el ícono de la app con notificaciones sin leer.
@@ -1289,6 +1396,21 @@ function App() {
     } catch { /* ignore */ }
   }, [activeBoardId, activeWorkspaceId]);
 
+  useEffect(() => {
+    if (!activeWorkspaceId || !currentUser) {
+      setPaletteDocs([]);
+      return;
+    }
+    apiFetch(`${API_BASE}/api/docs?workspaceId=${encodeURIComponent(activeWorkspaceId)}`)
+      .then((r) => (r.ok ? r.json() : []))
+      .then((data: { id: string; title: string }[]) => {
+        if (Array.isArray(data)) {
+          setPaletteDocs(data.map((d) => ({ id: d.id, title: d.title })));
+        }
+      })
+      .catch(() => setPaletteDocs([]));
+  }, [activeWorkspaceId, currentUser?.id]);
+
   // Load boards for active workspace (ruta relativa en DEV para usar proxy Vite → backend)
   useEffect(() => {
     if (!currentUser) {
@@ -1376,14 +1498,16 @@ function App() {
     activePage === 'docs' ||
     ['search', 'team', 'notifications', 'facturacion', 'inbox'].includes(activePage);
 
+  const navIconSize = railCollapsed ? 18 : 22;
+
   const navIconsAll = [
-    { id: 'board', icon: <Home size={22} strokeWidth={2.25} />, label: 'Inicio' },
-    { id: 'calendar', icon: <Calendar size={22} strokeWidth={2.25} />, label: 'Calendario' },
-    { id: 'inbox', icon: <Inbox size={22} strokeWidth={2.25} />, label: 'Bandeja' },
-    { id: 'notifications', icon: <Bell size={22} strokeWidth={2.25} />, label: 'Notificaciones' },
-    { id: 'search', icon: <Search size={22} strokeWidth={2.25} />, label: 'Buscar' },
-    { id: 'docs', icon: <BookOpen size={22} strokeWidth={2.25} />, label: 'Docs' },
-    { id: 'team', icon: <Users size={22} strokeWidth={2.25} />, label: 'Equipo' },
+    { id: 'board', icon: <Home size={navIconSize} strokeWidth={2.25} />, label: 'Inicio' },
+    { id: 'calendar', icon: <Calendar size={navIconSize} strokeWidth={2.25} />, label: 'Calendario' },
+    { id: 'inbox', icon: <Inbox size={navIconSize} strokeWidth={2.25} />, label: 'Bandeja' },
+    { id: 'notifications', icon: <Bell size={navIconSize} strokeWidth={2.25} />, label: 'Notificaciones' },
+    { id: 'search', icon: <Search size={navIconSize} strokeWidth={2.25} />, label: 'Buscar' },
+    { id: 'docs', icon: <BookOpen size={navIconSize} strokeWidth={2.25} />, label: 'Docs' },
+    { id: 'team', icon: <Users size={navIconSize} strokeWidth={2.25} />, label: 'Equipo' },
   ];
   const navIcons = isTaller ? navIconsAll.filter(n => n.id === 'board' || n.id === 'calendar') : navIconsAll;
 
@@ -1502,6 +1626,7 @@ function App() {
         reminders: [],
         reminderDraftTitle: '',
         reminderDraftDueAt: '',
+        reminderComposerOpen: false,
       };
       const next = [...prev, reminderWindow];
       scheduleSavePanelNotes();
@@ -1760,6 +1885,7 @@ function App() {
                     onRowClick={setSelectedItem}
                     viewMode="calendar"
                     calendarStandalone
+                    onBoardData={setActiveBoardData}
                   />
                 </div>
               ) : boards.length === 0 ? (
@@ -1777,8 +1903,15 @@ function App() {
             </>
           ) : activePage === 'calendar' && isMobile ? (
             activeBoardId ? (
-              <div className="flex-1 flex flex-col min-h-0 w-full min-w-0">
-                <BoardContainer boardId={activeBoardId} onRowClick={setSelectedItem} viewMode="calendar" mobileCalendarOnly isMobile />
+              <div className="flex-1 flex flex-col min-h-0">
+                <BoardContainer
+                  boardId={activeBoardId}
+                  onRowClick={setSelectedItem}
+                  viewMode="calendar"
+                  mobileCalendarOnly
+                  isMobile={isMobile}
+                  onBoardData={setActiveBoardData}
+                />
               </div>
             ) : boards.length === 0 ? (
               <div className="flex-1 flex flex-col items-center justify-center text-monday-subtext p-6">
@@ -2040,7 +2173,12 @@ function App() {
               </header>
 
               <div className="flex-1 min-h-0 overflow-hidden relative flex flex-col">
-                <BoardContainer boardId={activeBoardId} onRowClick={setSelectedItem} viewMode={currentView} />
+                <BoardContainer
+                  boardId={activeBoardId}
+                  onRowClick={setSelectedItem}
+                  viewMode={currentView}
+                  onBoardData={setActiveBoardData}
+                />
               </div>
             </>
           ) : activePage === 'inbox' ? (
@@ -2087,19 +2225,27 @@ function App() {
                 onAddReminderWidget={ensureReminderWidgetVisible}
               />
             ) : (
-              <DocsPage
-                workspaceId={activeWorkspaceId ?? workspaces[0]?.id ?? null}
-                boards={boards}
-                initialCreateFromBoard={pendingDocFromBoard}
-                onConsumeInitialCreateFromBoard={() => setPendingDocFromBoard(null)}
-                initialCreateDocType={pendingCreateDocType}
-                onConsumeInitialCreateDocType={() => setPendingCreateDocType(null)}
-                initialOpenDocId={openDocId}
-                onConsumeInitialOpenDocId={() => setOpenDocId(null)}
-                onAddTaskList={addTaskWindow}
-                onAddCalculatorWidget={ensureCalculatorVisible}
-                onAddReminderWidget={ensureReminderWidgetVisible}
-              />
+              <Suspense
+                fallback={
+                  <div className="flex flex-1 items-center justify-center py-20 text-[13px] text-monday-subtext">
+                    Cargando documentos…
+                  </div>
+                }
+              >
+                <DocsPageLazy
+                  workspaceId={activeWorkspaceId ?? workspaces[0]?.id ?? null}
+                  boards={boards}
+                  initialCreateFromBoard={pendingDocFromBoard}
+                  onConsumeInitialCreateFromBoard={() => setPendingDocFromBoard(null)}
+                  initialCreateDocType={pendingCreateDocType}
+                  onConsumeInitialCreateDocType={() => setPendingCreateDocType(null)}
+                  initialOpenDocId={openDocId}
+                  onConsumeInitialOpenDocId={() => setOpenDocId(null)}
+                  onAddTaskList={addTaskWindow}
+                  onAddCalculatorWidget={ensureCalculatorVisible}
+                  onAddReminderWidget={ensureReminderWidgetVisible}
+                />
+              </Suspense>
             )
           ) : activePage === 'team' ? (
             <TeamPage
@@ -2128,6 +2274,8 @@ function App() {
     </>
   );
 
+  const chromeHidden = focusMode && !isMobile;
+
   return (
     <div
       className={[
@@ -2146,6 +2294,93 @@ function App() {
             </div>
           </div>
         </div>
+      )}
+
+      {currentUser && (
+        <CommandPalette
+          open={commandPaletteOpen}
+          onOpenChange={setCommandPaletteOpen}
+          boardNames={boards.map((b) => ({ id: b.id, name: b.name }))}
+          workspaces={workspaces.map((w) => ({ id: w.id, name: w.name }))}
+          docs={paletteDocs}
+          itemEntries={commandPaletteItems}
+          activeBoardId={activeBoardId}
+          currentUser={{
+            name: currentUser.name,
+            username: currentUser.username,
+            role: currentUser.role,
+          }}
+          currentTheme={theme}
+          onSelectTheme={setTheme}
+          onToggleLightDark={() => {
+            setTheme((t) => (t === 'dark' || t === 'night' ? 'light' : 'dark'));
+          }}
+          onSelectBoard={(id) => {
+            setActiveBoardId(id);
+            setActivePage('board');
+          }}
+          onSelectItem={(itemId, boardId) => {
+            setActiveBoardId(boardId);
+            setActivePage('board');
+            setSelectedItemObj(null);
+            setSelectedItemIdState(itemId);
+          }}
+          onSelectDoc={(id) => {
+            setOpenDocId(id);
+            setActivePage('docs');
+          }}
+          onSelectWorkspace={(id) => {
+            setActiveWorkspaceId(id);
+            setActiveBoardId(null);
+          }}
+          onNavigate={(page) => {
+            if (page === 'home') setActivePage('home');
+            if (page === 'notifications') setActivePage('notifications');
+            if (page === 'inbox') setActivePage('inbox');
+            if (page === 'search') setActivePage('search');
+            if (page === 'docs') setActivePage('docs');
+            if (page === 'calendar') {
+              setActivePage('calendar');
+              if (boards.length > 0 && !activeBoardId) setActiveBoardId(boards[0].id);
+            }
+            if (page === 'miTrabajo') setActivePage('miTrabajo');
+            if (page === 'team') setActivePage('team');
+          }}
+          onQuickNav={(dest) => {
+            if (dest === 'inicio') setActivePage('home');
+            if (dest === 'calendario') {
+              setActivePage('calendar');
+              if (boards.length > 0 && !activeBoardId) setActiveBoardId(boards[0].id);
+            }
+            if (dest === 'mi-trabajo') setActivePage('miTrabajo');
+            if (dest === 'docs') setActivePage('docs');
+          }}
+          onNewItem={() => {
+            window.dispatchEvent(new CustomEvent('sunday-fab-add-item'));
+          }}
+          onOpenAccount={() => setShowUserPanel(true)}
+          onExportBoard={() => {
+            const src = activeBoardData ?? boards.find((b) => b.id === activeBoardId);
+            if (src && src.groups?.length >= 0) {
+              exportBoardToExcel(src);
+            } else {
+              toast('No hay tablero cargado para exportar.', 'info');
+            }
+          }}
+          onGlobalSearch={(q) => {
+            try {
+              sessionStorage.setItem('sunday-search-prefill', q);
+            } catch {
+              /* ignore */
+            }
+            setActivePage('search');
+          }}
+          onLogout={() => {
+            logout();
+          }}
+          canOpenAdmin={currentUser?.role === 'ADMIN'}
+          onOpenAdmin={() => setShowAdminPanel(true)}
+        />
       )}
 
       {jwtIsExpired && (
@@ -2219,125 +2454,152 @@ function App() {
           boardsCount={boards.length}
           workspaceName={activeWorkspaceName}
           onOpenAdmin={() => setShowAdminPanel(true)}
-          onOpenTeam={() => setActivePage('team')}
+          onOpenCommandPalette={() => {
+            window.setTimeout(() => setCommandPaletteOpen(true), 200);
+          }}
         />
       )}
       {/* Left Nav Rail (solo desktop) */}
       {!isMobile && (
-      <aside className="w-[56px] min-w-[56px] bg-black flex flex-col items-center py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] gap-1 z-30">
+      <aside
+        className={`${railCollapsed ? 'w-[40px] min-w-[40px]' : 'w-[56px] min-w-[56px]'} bg-black flex flex-col items-center py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] gap-1 z-30 transition-[width,min-width] duration-200 ${chromeHidden ? 'hidden' : ''}`}
+      >
         {/* Logo */}
-        <div className="w-10 h-10 rounded-xl flex items-center justify-center mb-3 overflow-hidden">
-          <AnimatedLogo size={40} color="#f8fafc" />
+        <div className={`${railCollapsed ? 'w-8 h-8' : 'w-10 h-10'} rounded-xl flex items-center justify-center mb-2 overflow-hidden transition-all`}>
+          <AnimatedLogo size={railCollapsed ? 32 : 40} color="#f8fafc" />
         </div>
         <div className="w-8 h-px bg-white/10 mb-3" />
 
-        {!isMobile && navIcons.map(({ id, icon, label }) => (
-          <button
-            key={id}
-            title={label}
-            onClick={() => {
-              const pageIds = [
-                'board',
-                'calendar',
-                'inbox',
-                'search',
-                'docs',
-                'team',
-                'notifications',
-              ] as const;
-              if (pageIds.includes(id as (typeof pageIds)[number])) {
-                setActivePage(id as (typeof pageIds)[number]);
-                if (id === 'notifications') fetchUnreadNotifications();
-                if (id === 'calendar' && boards.length > 0 && !activeBoardId) setActiveBoardId(boards[0].id);
-              }
-            }}
-            className={`relative min-h-[44px] min-w-[44px] w-11 h-11 flex items-center justify-center rounded-lg transition-all duration-150 ${activePage === id ? 'bg-monday-sidebarHover text-white shadow-sm' : 'text-white/70 hover:text-white hover:bg-monday-sidebarHover'}`}
-          >
-            {icon}
-            {id === 'notifications' && unreadNotifCount > 0 && (
-              <span className="absolute -top-0.5 -right-0.5 min-w-[16px] h-4 px-1 flex items-center justify-center bg-red-500 text-white text-[10px] font-bold rounded-full">
-                {unreadNotifCount > 99 ? '99+' : unreadNotifCount}
-              </span>
-            )}
-          </button>
-        ))}
+        {!isMobile &&
+          navIcons.map(({ id, icon, label }) =>
+            id === 'notifications' ? (
+              <NotificationDropdown
+                key={id}
+                unreadCount={unreadNotifCount}
+                recentPulse={recentUnreadNotif}
+                isActive={activePage === 'notifications'}
+                compact={railCollapsed}
+                onNotificationsChange={fetchUnreadNotifications}
+                onOpenItem={(item, boardId) => {
+                  setActivePage('board');
+                  setActiveBoardId(boardId);
+                  setSelectedItem(item);
+                }}
+              />
+            ) : (
+              <button
+                key={id}
+                title={label}
+                onClick={() => {
+                  const pageIds = [
+                    'board',
+                    'calendar',
+                    'inbox',
+                    'search',
+                    'docs',
+                    'team',
+                    'notifications',
+                  ] as const;
+                  if (pageIds.includes(id as (typeof pageIds)[number])) {
+                    setActivePage(id as (typeof pageIds)[number]);
+                    if (id === 'notifications') fetchUnreadNotifications();
+                    if (id === 'calendar' && boards.length > 0 && !activeBoardId) setActiveBoardId(boards[0].id);
+                  }
+                }}
+                className={`relative flex items-center justify-center rounded-lg transition-all duration-150 ${
+                  railCollapsed ? 'min-h-[36px] min-w-[36px] w-[36px] h-[36px]' : 'min-h-[44px] min-w-[44px] w-11 h-11'
+                } ${
+                  activePage === id
+                    ? 'bg-monday-sidebarHover text-white shadow-sm'
+                    : 'text-white/70 hover:text-white hover:bg-monday-sidebarHover'
+                }`}
+              >
+                {icon}
+              </button>
+            )
+          )}
 
         {/* Spacer + avatar at bottom */}
         <div className="flex-1" />
-        <UserPanel
-          open={showUserPanel}
-          onOpenChange={setShowUserPanel}
-          trigger={
-            <button
-              title={currentUser.name}
-              className="min-h-[44px] min-w-[44px] w-11 h-11 rounded-full flex items-center justify-center text-white text-[12px] font-semibold shadow-sm mb-1 hover:opacity-90 transition-opacity ring-2 ring-white/20"
-              style={{ backgroundColor: currentUser.color }}
-            >
-              {currentUser.initials}
-            </button>
-          }
-          boardsCount={boards.length}
-          workspaceName={activeWorkspaceName}
-          onOpenAdmin={() => setShowAdminPanel(true)}
-        />
-        <Popover.Root open={themeSelectorOpen} onOpenChange={setThemeSelectorOpen}>
-          <Popover.Trigger asChild>
-            <button
-              title={`Tema ${THEME_LABELS[theme].toLowerCase()}`}
-              className="min-h-[44px] min-w-[44px] w-11 h-11 flex items-center justify-center rounded-lg text-white/70 hover:text-white hover:bg-monday-sidebarHover transition-all duration-150"
-            >
-              {theme === 'light' && <Sun size={20} strokeWidth={2.25} />}
-              {theme === 'dark' && <Moon size={20} strokeWidth={2.25} />}
-              {theme === 'night' && <Sparkles size={20} strokeWidth={2.25} />}
-              {theme === 'dawn' && <Sparkles size={20} strokeWidth={2.25} />}
-              {theme === 'fog' && <Sparkles size={20} strokeWidth={2.25} />}
-              {theme === 'plum' && <Sparkles size={20} strokeWidth={2.25} />}
-              {theme === 'cacao' && <Sparkles size={20} strokeWidth={2.25} />}
-              {theme === 'aurora' && <Sparkles size={20} strokeWidth={2.25} />}
-            </button>
-          </Popover.Trigger>
-          <Popover.Portal>
-            <Popover.Content
-              className="z-50 bg-white rounded-xl shadow-monday-lg border border-monday-border w-44 max-h-[70vh] overflow-y-auto custom-scrollbar p-2 fade-in"
-              sideOffset={8}
-              align="end"
-              side="bottom"
-              onClick={e => e.stopPropagation()}
-            >
-              <p className="text-[11px] font-semibold text-monday-subtext px-2 mb-1.5 uppercase tracking-wider">
-                Tema
-              </p>
-              {(['light', 'dark', 'night', 'dawn', 'fog', 'plum', 'cacao', 'aurora'] as const).map(t => (
-                <button
-                  key={t}
-                  onClick={() => { setTheme(t); setThemeSelectorOpen(false); }}
-                  className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-monday hover:bg-monday-hover transition-colors text-left text-[13px] ${theme === t ? 'bg-monday-pill text-monday-text' : 'text-monday-text'}`}
-                >
-                  {t === 'light' && <Sun size={16} className="shrink-0" />}
-                  {t === 'dark' && <Moon size={16} className="shrink-0" />}
-                  {t === 'night' && <Sparkles size={16} className="shrink-0" />}
-                  {t === 'dawn' && <Sparkles size={16} className="shrink-0" />}
-                  {t === 'fog' && <Sparkles size={16} className="shrink-0" />}
-                  {t === 'plum' && <Sparkles size={16} className="shrink-0" />}
-                  {t === 'cacao' && <Sparkles size={16} className="shrink-0" />}
-                  {t === 'aurora' && <Sparkles size={16} className="shrink-0" />}
-                  <span className="flex-1">{THEME_LABELS[t]}</span>
-                  <span className="ml-auto flex items-center gap-1">
-                    <span className="w-2.5 h-2.5 rounded-full border border-monday-border" style={{ backgroundColor: THEME_SWATCHES[t][0] }} />
-                    <span className="w-2.5 h-2.5 rounded-full border border-monday-border" style={{ backgroundColor: THEME_SWATCHES[t][1] }} />
-                  </span>
-                </button>
-              ))}
-            </Popover.Content>
-          </Popover.Portal>
-        </Popover.Root>
+        <div className="w-full flex flex-col items-center justify-center gap-1 pb-1">
+          <Popover.Root open={themeSelectorOpen} onOpenChange={setThemeSelectorOpen}>
+            <Popover.Trigger asChild>
+              <button
+                title={`Tema ${THEME_LABELS[theme].toLowerCase()}`}
+                className={`${railCollapsed ? 'min-h-[36px] min-w-[36px] w-[36px] h-[36px]' : 'min-h-[44px] min-w-[44px] w-11 h-11'} flex items-center justify-center rounded-lg text-white/70 hover:text-white hover:bg-monday-sidebarHover transition-all duration-150`}
+              >
+                <ThemeSidebarGlyph theme={theme} size={railCollapsed ? 16 : 20} />
+              </button>
+            </Popover.Trigger>
+            <Popover.Portal>
+              <Popover.Content
+                className="z-50 bg-white rounded-xl shadow-monday-lg border border-monday-border w-44 max-h-[70vh] overflow-y-auto custom-scrollbar p-2 fade-in"
+                sideOffset={8}
+                align="end"
+                side="bottom"
+                onClick={e => e.stopPropagation()}
+              >
+                <p className="text-[11px] font-semibold text-monday-subtext px-2 mb-1.5 uppercase tracking-wider">
+                  Tema
+                </p>
+                {SIDEBAR_THEME_IDS.map((t) => (
+                  <button
+                    key={t}
+                    onClick={() => { setTheme(t); setThemeSelectorOpen(false); }}
+                    className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-monday hover:bg-monday-hover transition-colors text-left text-[13px] ${theme === t ? 'bg-monday-pill text-monday-text' : 'text-monday-text'}`}
+                  >
+                    <span className="shrink-0"><ThemeSidebarGlyph theme={t} size={16} /></span>
+                    <span className="flex-1">{THEME_LABELS[t]}</span>
+                    <span className="ml-auto flex items-center gap-1">
+                      <span className="w-2.5 h-2.5 rounded-full border border-monday-border" style={{ backgroundColor: THEME_SWATCHES[t][0] }} />
+                      <span className="w-2.5 h-2.5 rounded-full border border-monday-border" style={{ backgroundColor: THEME_SWATCHES[t][1] }} />
+                    </span>
+                  </button>
+                ))}
+              </Popover.Content>
+            </Popover.Portal>
+          </Popover.Root>
+
+          {/* Botón de colapsar junto al selector de tema */}
+          <button
+            type="button"
+            title="Colapsar barra (Ctrl+\\)"
+            aria-label="Colapsar barra lateral"
+            onClick={() => setRailCollapsed((r) => !r)}
+            className={`${railCollapsed ? 'min-h-[36px] min-w-[36px] w-[36px] h-[36px]' : 'min-h-[44px] min-w-[44px] w-11 h-11'} flex items-center justify-center rounded-lg text-white/70 hover:text-white hover:bg-white/10 transition-colors`}
+          >
+            <PanelLeft size={railCollapsed ? 14 : 16} strokeWidth={2.25} />
+          </button>
+
+          {/* Texto + punto EN LÍNEA debajo del selector */}
+          <div className="mb-1 flex justify-center w-full px-1.5 min-w-0">
+            <SocketConnectionIndicator compact={railCollapsed} />
+          </div>
+
+          <UserPanel
+            open={showUserPanel}
+            onOpenChange={setShowUserPanel}
+            trigger={
+              <button
+                title={currentUser.name}
+                className={`${railCollapsed ? 'min-h-[36px] min-w-[36px] w-[36px] h-[36px] text-[11px]' : 'min-h-[44px] min-w-[44px] w-11 h-11 text-[12px]'} rounded-full flex items-center justify-center text-white font-semibold shadow-sm hover:opacity-90 transition-opacity ring-2 ring-white/20`}
+                style={{ backgroundColor: currentUser.color }}
+              >
+                {currentUser.initials}
+              </button>
+            }
+            boardsCount={boards.length}
+            workspaceName={activeWorkspaceName}
+            onOpenAdmin={() => setShowAdminPanel(true)}
+          />
+        </div>
       </aside>
       )}
 
       {/* Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ Workspace Sidebar Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ */}
       {!isMobile && (
       <aside
-        className={`${sidebarOpen ? 'w-[232px] min-w-[232px]' : 'w-0 min-w-0'} bg-monday-sidebarPanel flex flex-col overflow-hidden transition-all duration-200 z-20 border-r border-l border-monday-border ${sidebarOpen ? 'shadow-monday-xl' : ''}`}
+        className={`${sidebarOpen ? 'w-[232px] min-w-[232px]' : 'w-0 min-w-0'} ${chromeHidden ? 'hidden' : ''} bg-monday-sidebarPanel flex flex-col overflow-hidden transition-all duration-200 z-20 border-r border-l border-monday-border ${sidebarOpen ? 'shadow-monday-xl' : ''}`}
       >
         <div className="px-3 py-3 border-b border-monday-border">
           <Popover.Root open={workspaceSelectorOpen} onOpenChange={setWorkspaceSelectorOpen}>
@@ -2599,13 +2861,11 @@ if (ok && data && typeof data.id === 'string') {
                   {!tasksLoading && taskWindows.length === 0 && (
                     <p className="text-[12px] text-monday-subtext px-2 mb-2">No hay widgets. Usa &quot;Añadir widget&quot; en Docs.</p>
                   )}
-                  <div className="space-y-2 mb-3 px-2">
+                  <div className="space-y-1.5 mb-2 px-2">
                     {taskWindows.map(win => (
             <div
               key={win.id}
-              draggable
-              onDragStart={() => setDraggingWidgetId(win.id)}
-              onDragEnd={() => setDraggingWidgetId(null)}
+              draggable={false}
               onDragOver={e => {
                 e.preventDefault();
                 if (!draggingWidgetId || draggingWidgetId === win.id) return;
@@ -2620,11 +2880,19 @@ if (ok && data && typeof data.id === 'string') {
                   return next;
                 });
               }}
-              className="cursor-move group/widget"
+              className="relative group/widget"
             >
+              {/* Handle de drag: evita que clics en botones/inputs “arrastren” el widget */}
+              <div
+                draggable
+                aria-hidden
+                className="absolute top-2 left-2 w-6 h-6 cursor-grab opacity-0 z-[2]"
+                onDragStart={() => setDraggingWidgetId(win.id)}
+                onDragEnd={() => setDraggingWidgetId(null)}
+              />
               {win.kind === 'calculator' ? (
                 <div
-                  className="rounded-2xl border border-monday-border/25 bg-[var(--monday-surface)] shadow-[0_10px_24px_rgba(0,0,0,0.16)] backdrop-blur-md overflow-hidden outline-none transition-all duration-200 group-hover/widget:shadow-[0_14px_30px_rgba(0,0,0,0.2)]"
+                  className="rounded-2xl bg-[var(--monday-surface)] shadow-[0_10px_24px_rgba(0,0,0,0.16)] overflow-hidden transition-all duration-200 group-hover/widget:shadow-[0_14px_30px_rgba(0,0,0,0.2)]"
                   tabIndex={0}
                   onClick={e => {
                     (e.currentTarget as HTMLDivElement).focus();
@@ -2632,216 +2900,367 @@ if (ok && data && typeof data.id === 'string') {
                   }}
                   onKeyDown={e => {
                     const key = e.key;
-                    if (key === 'Enter') { e.preventDefault(); evaluateCalculator(); return; }
-                    if (key === 'Escape') { e.preventDefault(); setCalculatorExpression(''); setCalculatorResult(null); setCalculatorError(null); return; }
-                    if (key === 'Backspace') { e.preventDefault(); setCalculatorExpression(prev => prev.slice(0, -1)); setCalculatorError(null); return; }
-                    if (key === 'Delete') { e.preventDefault(); setCalculatorExpression(''); setCalculatorResult(null); setCalculatorError(null); return; }
-                    if (/^[0-9.+\-*/() ]$/.test(key)) { e.preventDefault(); setCalculatorExpression(prev => (prev ?? '') + key); setCalculatorError(null); }
+                    if (key === 'Enter') {
+                      e.preventDefault();
+                      evaluateCalculator();
+                      return;
+                    }
+                    if (key === 'Escape') {
+                      e.preventDefault();
+                      setCalculatorExpression('');
+                      setCalculatorResult(null);
+                      setCalculatorError(null);
+                      return;
+                    }
+                    if (key === 'Backspace') {
+                      e.preventDefault();
+                      setCalculatorExpression(prev => (prev ?? '').slice(0, -1));
+                      setCalculatorError(null);
+                      return;
+                    }
+                    if (key === 'Delete') {
+                      e.preventDefault();
+                      setCalculatorExpression('');
+                      setCalculatorResult(null);
+                      setCalculatorError(null);
+                      return;
+                    }
+                    if (/^[0-9.+\-*/() ]$/.test(key)) {
+                      e.preventDefault();
+                      setCalculatorExpression(prev => (prev ?? '') + key);
+                      setCalculatorError(null);
+                    }
                   }}
                 >
-                  {/* Cabecera: título + botón cerrar */}
-                  <div className="flex items-center justify-between gap-2 bg-gradient-to-r from-monday-hover/50 via-monday-hover/20 to-transparent px-3 pt-2.5 pb-2 border-b border-monday-border/30">
-                    <p className="text-[10px] font-semibold text-monday-subtext tracking-widest uppercase">Calculadora</p>
+                  {/* Header */}
+                  <div className="flex items-center justify-between gap-2 px-3 pt-3 pb-2">
+                    <p className="text-[12px] font-semibold text-monday-subtext/90">
+                      Calculadora
+                    </p>
                     <button
                       type="button"
                       onClick={() => {
                         setTaskWindows(prev => prev.filter(w => w.id !== win.id));
                         scheduleSavePanelNotes();
                       }}
-                      className="p-1 rounded-md text-monday-subtext hover:bg-monday-hover hover:text-monday-text transition-colors"
+                      className="w-7 h-7 flex items-center justify-center rounded-full text-monday-subtext/70 hover:bg-monday-hover hover:text-monday-text transition-colors"
                       title="Cerrar calculadora"
                     >
                       <X size={14} />
                     </button>
                   </div>
-                  {/* Display */}
-                  <div className="bg-monday-hover/10 px-2.5 py-2 select-none border-b border-monday-border/25">
-                    <div className="text-[10px] text-monday-subtext text-right min-h-[13px] break-all leading-none">
-                      {calculatorExpression || '\u00a0'}
+
+                  {/* Panel oscuro interno (referencia) */}
+                  <div className="mx-3 bg-white/5 rounded-xl px-3 pt-2 pb-2">
+                    <div className="h-[26px] rounded-xl bg-black/20" />
+                    <div className="flex items-baseline justify-end gap-2 mt-2">
+                      <motion.div
+                        key={calculatorResult != null ? `res:${calculatorResult}` : `expr:${calculatorExpression}`}
+                        initial={{ opacity: 0, y: 6, scale: 0.98 }}
+                        animate={{ opacity: 1, y: 0, scale: 1 }}
+                        transition={{ duration: 0.18, ease: [0.22, 1, 0.36, 1] }}
+                        className={`text-[22px] font-semibold tabular-nums ${calculatorError ? 'text-red-400' : 'text-monday-text'}`}
+                      >
+                        {calculatorResult != null ? calculatorResult : '0'}
+                      </motion.div>
                     </div>
-                    <div className={`text-[18px] font-semibold text-right leading-tight tracking-tight mt-0.5 min-h-[22px] ${calculatorError ? 'text-red-500' : 'text-monday-text'}`}>
-                      {calculatorResult != null ? calculatorResult : (calculatorExpression || '0')}
-                    </div>
-                    {calculatorError ? (
-                      <p className="text-[10px] text-red-500 flex items-center gap-1 justify-end mt-0.5">
-                        <AlertCircle size={10} />
-                        <span>{calculatorError}</span>
-                      </p>
-                    ) : (
-                      <div className="h-[14px]" />
-                    )}
                   </div>
 
-                  {/* Pills IVA */}
-                  <div className="flex gap-1 px-2.5 py-1.5 border-b border-monday-border/20 bg-[var(--monday-surface)]">
-                    <button
-                      type="button"
-                      className="flex-1 text-[10px] py-0.5 rounded-full border border-monday-border/35 text-monday-subtext hover:bg-monday-hover/70 hover:text-monday-text transition-colors"
-                      onClick={() => { setCalculatorExpression(prev => prev ? `(${prev})*1.16` : '1*1.16'); setCalculatorError(null); }}
-                    >
-                      +IVA 16%
-                    </button>
-                    <button
-                      type="button"
-                      className="flex-1 text-[10px] py-0.5 rounded-full border border-monday-border/35 text-monday-subtext hover:bg-monday-hover/70 hover:text-monday-text transition-colors"
-                      onClick={() => { setCalculatorExpression(prev => prev ? `(${prev})/1.16` : '0'); setCalculatorError(null); }}
-                    >
-                      −IVA 16%
-                    </button>
-                  </div>
-
-                  {/* 4 botones funcionales */}
-                  <div className="p-2 bg-monday-hover/15 grid grid-cols-2 gap-1.5">
-                    <button
-                      type="button"
-                      className="w-full text-[11px] py-1.5 rounded-lg bg-[var(--monday-surface)] border border-monday-border/30 text-monday-text hover:bg-monday-hover/75 hover:border-monday-blue/25 shadow-sm transition-colors"
-                      onClick={() => {
-                        const toCopy = calculatorError ? '' : (calculatorResult != null ? calculatorResult : (calculatorExpression || '0'));
-                        if (toCopy) navigator.clipboard.writeText(String(toCopy));
-                      }}
-                      title="Copiar resultado al portapapeles"
-                    >
-                      Copiar
-                    </button>
-                    <button
-                      type="button"
-                      className="w-full text-[11px] py-1.5 rounded-lg bg-[var(--monday-surface)] border border-monday-border/30 text-red-500 font-medium hover:bg-red-500/10 hover:border-red-400/25 shadow-sm transition-colors"
-                      onClick={() => { setCalculatorExpression(''); setCalculatorResult(null); setCalculatorError(null); }}
-                      title="Borrar todo"
-                    >
-                      Borrar
-                    </button>
-                    <button
-                      type="button"
-                      className="w-full text-[11px] py-1.5 rounded-lg bg-[var(--monday-surface)] border border-monday-border/30 text-monday-text hover:bg-monday-hover/75 hover:border-monday-blue/25 shadow-sm transition-colors"
-                      onClick={async () => {
-                        try {
-                          const text = await navigator.clipboard.readText();
-                          if (text.trim()) setCalculatorExpression(prev => (prev ?? '') + text.trim());
+                  {/* IVA */}
+                  <div className="px-3 pt-2">
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        className="flex-1 h-9 flex items-center justify-center text-[11px] rounded-full bg-transparent border border-monday-border/30 text-monday-text/80 hover:bg-monday-hover/40 transition-colors"
+                        onClick={() => {
+                          setCalculatorExpression(prev => (prev ? `(${prev})*1.16` : '1*1.16'));
+                          setCalculatorResult(null);
                           setCalculatorError(null);
-                        } catch {
-                          // sin permiso de lectura del portapapeles
-                        }
-                      }}
-                      title="Pegar desde el portapapeles"
-                    >
-                      Pegar
-                    </button>
-                    <button
-                      type="button"
-                      className="w-full text-[11px] py-1.5 rounded-lg bg-gradient-to-r from-monday-blue to-monday-blue/90 text-white font-semibold hover:brightness-105 shadow-sm ring-1 ring-monday-blue/25 transition-all"
-                      onClick={evaluateCalculator}
-                      title="Calcular"
-                    >
-                      =
-                    </button>
+                        }}
+                        title="+IVA 16%"
+                      >
+                        +IVA 16%
+                      </button>
+                      <button
+                        type="button"
+                        className="flex-1 h-9 flex items-center justify-center text-[11px] rounded-full bg-transparent border border-monday-border/30 text-monday-text/80 hover:bg-monday-hover/40 transition-colors"
+                        onClick={() => {
+                          setCalculatorExpression(prev => (prev ? `(${prev})/1.16` : '0'));
+                          setCalculatorResult(null);
+                          setCalculatorError(null);
+                        }}
+                        title="-IVA 16%"
+                      >
+                        −IVA 16%
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* 6 botones como referencia */}
+                  <div className="px-3 pt-2">
+                    <div className="grid grid-cols-2 gap-2">
+                      <button
+                        type="button"
+                        className="w-full h-9 flex items-center justify-center text-[12px] rounded-full bg-transparent border border-monday-border/20 text-monday-text/90 hover:bg-monday-hover/30 transition-colors"
+                        onClick={() => {
+                          const toCopy = calculatorResult != null ? calculatorResult : '0';
+                          navigator.clipboard.writeText(String(toCopy));
+                        }}
+                        title="Copiar resultado"
+                      >
+                        Copiar
+                      </button>
+                      <button
+                        type="button"
+                        className="w-full h-9 flex items-center justify-center text-[12px] rounded-full bg-transparent border border-red-400/25 text-red-400 hover:bg-red-500/10 transition-colors"
+                        onClick={() => {
+                          setCalculatorExpression('');
+                          setCalculatorResult(null);
+                          setCalculatorError(null);
+                        }}
+                        title="Borrar todo"
+                      >
+                        Borrar
+                      </button>
+                      <button
+                        type="button"
+                        className="w-full h-9 flex items-center justify-center text-[12px] rounded-full bg-transparent border border-monday-border/20 text-monday-text/90 hover:bg-monday-hover/30 transition-colors"
+                        onClick={async () => {
+                          try {
+                            const text = await navigator.clipboard.readText();
+                            if (text.trim()) setCalculatorExpression(prev => (prev ?? '') + text.trim());
+                            setCalculatorResult(null);
+                            setCalculatorError(null);
+                          } catch {
+                            /* ignore */
+                          }
+                        }}
+                        title="Pegar"
+                      >
+                        Pegar
+                      </button>
+                      <motion.button
+                        type="button"
+                        whileTap={{ scale: 0.98 }}
+                        className="w-full h-9 flex items-center justify-center text-[12px] rounded-full bg-monday-blue text-white font-semibold shadow-sm hover:brightness-105 transition-all"
+                        onClick={evaluateCalculator}
+                        title="Calcular"
+                      >
+                        <span aria-hidden className="text-[16px] leading-none">
+                          =
+                        </span>
+                      </motion.button>
+                    </div>
+                  </div>
+
+                  {/* 2 botones extra (AC y ⌫) */}
+                  <div className="px-3 pt-2 pb-3">
+                    <div className="grid grid-cols-2 gap-2">
+                      <button
+                        type="button"
+                        className="w-full h-9 flex items-center justify-center text-[12px] rounded-full bg-transparent border border-monday-border/20 text-monday-text/90 hover:bg-monday-hover/30 transition-colors"
+                        onClick={() => {
+                          setCalculatorExpression('');
+                          setCalculatorResult(null);
+                          setCalculatorError(null);
+                        }}
+                        title="AC"
+                      >
+                        AC
+                      </button>
+                      <button
+                        type="button"
+                        className="w-full h-9 flex items-center justify-center text-[12px] rounded-full bg-transparent border border-monday-border/20 text-monday-text/90 hover:bg-monday-hover/30 transition-colors"
+                        onClick={() => {
+                          setCalculatorExpression(prev => (prev ?? '').slice(0, -1));
+                          setCalculatorResult(null);
+                          setCalculatorError(null);
+                        }}
+                        title="⌫"
+                      >
+                        ⌫
+                      </button>
+                    </div>
                   </div>
                 </div>
               ) : win.kind === 'reminders' ? (
                 <div
-                  className="rounded-2xl border border-monday-border/25 shadow-[0_10px_24px_rgba(0,0,0,0.16)] p-2.5 bg-[var(--monday-surface)] backdrop-blur-md transition-all duration-200 group-hover/widget:shadow-[0_14px_30px_rgba(0,0,0,0.2)]"
+                  className="rounded-2xl bg-[var(--monday-surface)] shadow-[0_10px_24px_rgba(0,0,0,0.16)] p-2 backdrop-blur-md transition-all duration-200 group-hover/widget:shadow-[0_14px_30px_rgba(0,0,0,0.2)]"
                 >
-                  <div className="flex items-center justify-between gap-1.5 mb-2">
-                    <input
-                      type="text"
-                      value={win.title}
-                      onChange={e => updateTaskWindow(win.id, { title: e.target.value })}
-                      className="flex-1 min-w-0 text-[12px] font-medium text-monday-text bg-transparent border-0 outline-none placeholder:text-monday-subtext/70"
-                      placeholder="Recordatorios"
-                    />
+                  <div className="flex items-center justify-between gap-2 px-2 py-1.5 rounded-xl bg-black/20 border border-white/5">
+                    <p className="text-[12px] font-semibold text-monday-text/90">
+                      Recordatorios
+                    </p>
                     <button
                       type="button"
                       onClick={() => removeTaskWindow(win.id)}
-                      className="text-monday-subtext hover:text-monday-red text-[11px] p-0.5 rounded"
+                      className="p-1 rounded-md text-monday-subtext hover:bg-monday-hover/40 hover:text-red-400 transition-colors"
                       title="Eliminar widget"
                     >
                       <X size={12} />
                     </button>
                   </div>
-                  <div className="space-y-1.5">
-                    <input
-                      type="text"
-                      value={win.reminderDraftTitle ?? ''}
-                      onChange={(e) => updateTaskWindow(win.id, { reminderDraftTitle: e.target.value })}
-                      placeholder="Nuevo recordatorio..."
-                      className="w-full px-2 py-1.5 rounded-md border border-monday-border/30 bg-monday-bg/70 text-[11px] text-monday-text placeholder:text-monday-subtext/70"
-                    />
-                    <input
-                      type="datetime-local"
-                      value={win.reminderDraftDueAt ?? ''}
-                      onChange={(e) => updateTaskWindow(win.id, { reminderDraftDueAt: e.target.value })}
-                      className="w-full px-2 py-1.5 rounded-md border border-monday-border/30 bg-monday-bg/70 text-[11px] text-monday-text"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const title = String(win.reminderDraftTitle ?? '').trim();
-                        const dueAt = String(win.reminderDraftDueAt ?? '').trim();
-                        if (!title || !dueAt) return;
-                        updateTaskWindow(win.id, {
-                          reminders: [...(win.reminders ?? []), { id: crypto.randomUUID(), title, dueAt, done: false }],
-                          reminderDraftTitle: '',
-                          reminderDraftDueAt: '',
-                        });
-                      }}
-                      className="w-full px-2 py-1.5 rounded-md bg-gradient-to-r from-monday-blue to-monday-blue/90 text-white text-[11px] font-medium hover:brightness-105 transition-all"
-                    >
-                      Añadir recordatorio
-                    </button>
-                  </div>
-                  <div className="mt-2 space-y-1 max-h-40 overflow-auto pr-1 custom-scrollbar">
-                    {(win.reminders ?? []).length === 0 ? (
-                      <p className="text-[11px] text-monday-subtext">Sin recordatorios.</p>
-                    ) : (
-                      (win.reminders ?? []).map((r) => (
-                        <div key={r.id} className="rounded-md border border-monday-border/25 bg-monday-bg/60 px-2 py-1.5">
-                          <div className="flex items-start gap-2">
-                            <button
-                              type="button"
-                              onClick={() =>
+
+                  <div className="px-2 pb-2 pt-2">
+                    <AnimatePresence initial={false}>
+                      {!win.reminderComposerOpen ? (
+                        <motion.button
+                          type="button"
+                          whileTap={{ scale: 0.99 }}
+                          initial={{ opacity: 0, y: 6 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          exit={{ opacity: 0, y: -6 }}
+                          className="w-full px-3 py-1.5 rounded-lg bg-monday-blue text-white text-[12px] font-semibold hover:brightness-105 transition-all shadow-sm"
+                          onClick={() => updateTaskWindow(win.id, { reminderComposerOpen: true })}
+                        >
+                          Añadir recordatorio
+                        </motion.button>
+                      ) : (
+                        <motion.div
+                          initial={{ opacity: 0, y: 6 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          exit={{ opacity: 0, y: -6 }}
+                          transition={{ duration: 0.18 }}
+                          className="space-y-1.5"
+                        >
+                          <input
+                            type="text"
+                            value={win.reminderDraftTitle ?? ''}
+                            onChange={(e) => updateTaskWindow(win.id, { reminderDraftTitle: e.target.value })}
+                            placeholder="Nuevo recordatorio..."
+                            className="w-full px-2 py-1 rounded-md border border-monday-border/30 bg-transparent text-[11px] text-monday-text placeholder:text-monday-subtext/60 focus:outline-none focus:ring-1 focus:ring-monday-blue/40"
+                          />
+                          <div className="relative">
+                            <input
+                              type="text"
+                              value={win.reminderDraftDueAt ?? ''}
+                              onChange={(e) => updateTaskWindow(win.id, { reminderDraftDueAt: e.target.value })}
+                              placeholder="dd/mm/aaaa --:--"
+                              className="w-full px-2 py-1 rounded-md border border-monday-border/30 bg-transparent text-[11px] text-monday-text placeholder:text-monday-subtext/60 focus:outline-none focus:ring-1 focus:ring-monday-blue/40 pr-8"
+                              onKeyDown={(e) => {
+                                if (e.key !== 'Enter') return;
+                                e.preventDefault();
+                                const title = String(win.reminderDraftTitle ?? '').trim();
+                                const dueAt = String(win.reminderDraftDueAt ?? '').trim();
+                                if (!title || !dueAt) return;
                                 updateTaskWindow(win.id, {
-                                  reminders: (win.reminders ?? []).map((x) => (x.id === r.id ? { ...x, done: !x.done } : x)),
-                                })
-                              }
-                              className={`mt-0.5 w-3.5 h-3.5 rounded-sm border flex items-center justify-center ${
-                                r.done ? 'bg-monday-blue border-monday-blue text-white' : 'border-monday-border text-transparent'
-                              }`}
-                            >
-                              <Check size={9} />
-                            </button>
-                            <div className="flex-1 min-w-0">
-                              <p className={`text-[11px] truncate ${r.done ? 'line-through text-monday-subtext' : 'text-monday-text'}`}>{r.title}</p>
-                              <p className="text-[10px] text-monday-subtext">{new Date(r.dueAt).toLocaleString()}</p>
-                            </div>
-                            <button
-                              type="button"
-                              onClick={() =>
-                                updateTaskWindow(win.id, {
-                                  reminders: (win.reminders ?? []).filter((x) => x.id !== r.id),
-                                })
-                              }
-                              className="text-monday-subtext hover:text-monday-red text-[11px]"
-                              title="Eliminar"
-                            >
-                              ×
-                            </button>
+                                  reminders: [...(win.reminders ?? []), { id: crypto.randomUUID(), title, dueAt, done: false }],
+                                  reminderDraftTitle: '',
+                                  reminderDraftDueAt: '',
+                                  reminderComposerOpen: false,
+                                });
+                              }}
+                            />
+                            <Calendar
+                              size={14}
+                              className="absolute right-2 top-1/2 -translate-y-1/2 text-monday-subtext/70"
+                              aria-hidden
+                            />
                           </div>
-                        </div>
-                      ))
+                          <motion.button
+                            type="button"
+                            whileTap={{ scale: 0.99 }}
+                            onClick={() => {
+                              const title = String(win.reminderDraftTitle ?? '').trim();
+                              const dueAt = String(win.reminderDraftDueAt ?? '').trim();
+                              if (!title || !dueAt) return;
+                              updateTaskWindow(win.id, {
+                                reminders: [...(win.reminders ?? []), { id: crypto.randomUUID(), title, dueAt, done: false }],
+                                reminderDraftTitle: '',
+                                reminderDraftDueAt: '',
+                                reminderComposerOpen: false,
+                              });
+                            }}
+                            className="w-full px-3 py-1.5 rounded-lg bg-monday-blue text-white text-[12px] font-semibold hover:brightness-105 transition-all shadow-sm"
+                          >
+                            Añadir
+                          </motion.button>
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
+                  </div>
+
+                  <div className="px-2 pb-2">
+                    {(win.reminders ?? []).length === 0 ? (
+                      <div className="border border-monday-border/30 rounded-lg px-2 py-1.5">
+                        <p className="text-[11px] text-monday-subtext text-center">Sin recordatorios.</p>
+                      </div>
+                    ) : (
+                      <div className="max-h-24 overflow-auto pr-1 custom-scrollbar">
+                        <AnimatePresence initial={false}>
+                          {(win.reminders ?? []).map((r) => (
+                            <motion.div
+                              key={r.id}
+                              layout
+                              initial={{ opacity: 0, y: 6 }}
+                              animate={{ opacity: 1, y: 0 }}
+                              exit={{ opacity: 0, y: -6 }}
+                              transition={{ duration: 0.16, ease: [0.22, 1, 0.36, 1] }}
+                              className="flex items-center justify-between gap-2 px-1.5 py-1 rounded-md hover:bg-monday-hover/40 transition-colors"
+                            >
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  updateTaskWindow(win.id, {
+                                    reminders: (win.reminders ?? []).map((x) => (x.id === r.id ? { ...x, done: !x.done } : x)),
+                                  })
+                                }
+                                className={`w-4 h-4 rounded-sm border flex items-center justify-center ${
+                                  r.done
+                                    ? 'bg-monday-blue border-monday-blue text-white'
+                                    : 'border-monday-border/50 text-transparent hover:border-monday-border/70'
+                                }`}
+                                aria-label={r.done ? 'Marcar como pendiente' : 'Marcar como hecho'}
+                              >
+                                <Check size={10} />
+                              </button>
+
+                              <div className="flex-1 min-w-0">
+                                <p
+                                  className={`text-[11px] leading-snug truncate ${
+                                    r.done ? 'line-through text-monday-subtext' : 'text-monday-text'
+                                  }`}
+                                >
+                                  {r.title}
+                                </p>
+                                <p className="block text-[10px] text-monday-subtext/80 leading-none truncate">
+                                  {formatReminderDueAt(r.dueAt)}
+                                </p>
+                              </div>
+
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  updateTaskWindow(win.id, {
+                                    reminders: (win.reminders ?? []).filter((x) => x.id !== r.id),
+                                  })
+                                }
+                                className="text-monday-subtext hover:text-red-400 text-[11px] px-1 py-0.5"
+                                title="Eliminar"
+                              >
+                                ×
+                              </button>
+                            </motion.div>
+                          ))}
+                        </AnimatePresence>
+                      </div>
                     )}
                   </div>
                 </div>
               ) : (
                 <div
-                  className="rounded-2xl border border-monday-border/25 shadow-[0_10px_24px_rgba(0,0,0,0.16)] p-2.5 transition-all duration-200 bg-opacity-90 backdrop-blur-md group-hover/widget:shadow-[0_14px_30px_rgba(0,0,0,0.2)]"
-                  style={{ backgroundColor: win.color ?? DEFAULT_TASK_WINDOW_COLOR }}
+                  className="rounded-2xl shadow-[0_10px_24px_rgba(0,0,0,0.16)] p-2 transition-all duration-200 bg-opacity-90 backdrop-blur-md group-hover/widget:shadow-[0_14px_30px_rgba(0,0,0,0.2)]"
+                  style={{
+                    backgroundColor: win.color ?? DEFAULT_TASK_WINDOW_COLOR,
+                    color: pickContrastingTextColor(win.color ?? DEFAULT_TASK_WINDOW_COLOR),
+                  }}
                 >
-                  <div className="flex items-center gap-1.5 mb-2">
+                  <div className="flex items-center justify-between gap-2 mb-2 -mx-2 px-2 pt-2 pb-1.5 bg-gradient-to-r from-monday-hover/45 via-monday-hover/15 to-transparent">
                     <input
                       type="text"
                       value={win.title}
                       onChange={e => updateTaskWindow(win.id, { title: e.target.value })}
-                      className="flex-1 min-w-0 text-[12px] font-medium text-monday-text bg-transparent border-0 outline-none placeholder:text-monday-subtext/70"
+                      className="flex-1 min-w-0 text-[12px] font-semibold bg-transparent border-0 outline-none"
                       placeholder="Lista sin título"
                     />
                     <Popover.Root>
@@ -2880,7 +3299,7 @@ if (ok && data && typeof data.id === 'string') {
                           animate={{ opacity: 1, height: 'auto' }}
                           exit={{ opacity: 0, height: 0 }}
                           transition={{ duration: 0.2, ease: [0.22, 1, 0.36, 1] }}
-                          className="flex items-start gap-2 group/task py-0.5 overflow-hidden"
+                          className="flex items-start gap-2 group/task py-0.5 px-2 hover:bg-monday-bg/40 transition-colors overflow-hidden"
                         >
                           <motion.button
                             type="button"
@@ -2898,7 +3317,7 @@ if (ok && data && typeof data.id === 'string') {
                             className={`mt-0.5 w-4 h-4 rounded-md flex items-center justify-center flex-shrink-0 border shadow-inner transition-colors duration-200 ${
                               task.done
                                 ? 'border-0 text-white bg-monday-blue'
-                                : 'border border-monday-border text-transparent hover:border-monday-blue/50 bg-white/90'
+                                : 'border border-monday-border/40 text-transparent hover:border-monday-blue/50 bg-transparent'
                             }`}
                           >
                             <motion.span
@@ -2948,7 +3367,7 @@ if (ok && data && typeof data.id === 'string') {
                           ],
                         })
                       }
-                      className="text-[11px] text-monday-blue hover:underline mt-1.5 font-medium"
+                      className="mt-2 w-full text-[12px] text-monday-blue bg-monday-bg/40 hover:bg-monday-hover/40 px-2 py-1.25 rounded-lg transition-colors font-medium"
                     >
                       + Añadir tarea
                     </button>
@@ -2956,7 +3375,7 @@ if (ok && data && typeof data.id === 'string') {
                   <button
                     type="button"
                     onClick={() => removeTaskWindow(win.id)}
-                    className="mt-2 text-[11px] text-monday-subtext hover:text-monday-red transition-colors"
+                    className="mt-2 w-full px-2 py-1.25 rounded-lg text-[11px] text-monday-subtext hover:bg-red-50/20 hover:text-monday-red transition-colors font-medium"
                   >
                     Eliminar lista
                   </button>
@@ -2987,7 +3406,7 @@ if (ok && data && typeof data.id === 'string') {
       </aside>
       )}
 
-      {/* Main Content Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ */}
+      <div className="flex flex-1 min-w-0 min-h-0 overflow-hidden">
       <main
         className={[
           'flex-1 flex flex-col min-w-0 overflow-hidden min-h-0',
@@ -3008,17 +3427,13 @@ if (ok && data && typeof data.id === 'string') {
         >
           {/* Barra común: ocultar/mostrar panel lateral en todas las vistas */}
           <header
-            className={
-              calendarImmersiveLandscape
-                ? 'hidden'
-                : [
-                    'shrink-0 flex items-center gap-2 px-3 sm:px-4',
-                    calendarMinimalChrome ? 'h-10 min-h-[40px] py-0' : 'h-14',
-                    isMobile
-                      ? 'border-b border-monday-border bg-[var(--monday-surface)] backdrop-blur-xl'
-                      : 'border-b border-monday-border',
-                  ].join(' ')
-            }
+            className={[
+              'shrink-0 h-14 flex items-center gap-2 px-3 sm:px-4',
+              isMobile
+                ? 'border-b border-monday-border bg-[var(--monday-surface)] backdrop-blur-xl'
+                : 'border-b border-monday-border',
+              chromeHidden ? 'hidden' : '',
+            ].join(' ')}
           >
             {isMobile ? (
               mobileCanGoBack ? (
@@ -3189,6 +3604,7 @@ if (ok && data && typeof data.id === 'string') {
               }}
               compact={isLandscapeShort}
               unreadNotifCount={unreadNotifCount}
+              recentUnreadNotif={recentUnreadNotif}
             >
             {routeTree}
             </MobileLayout>
@@ -3209,80 +3625,66 @@ if (ok && data && typeof data.id === 'string') {
         </div>
       </main>
 
-      {calendarImmersiveLandscape && mobileCanGoBack && (
-        <button
-          type="button"
-          onClick={() => {
-            if (activePage === 'calendar') setActivePage('home');
-            else if (activePage === 'docs') setActivePage('home');
-            else if (activePage === 'inbox' || activePage === 'notifications') setActivePage(lastMainTab);
-            else if (['search', 'team', 'facturacion'].includes(activePage)) setActivePage('board');
-            else if (activePage === 'board' && activeBoardId !== null) setActiveBoardId(null);
-            else if (activePage === 'miTrabajo' && activeBoardId !== null) setActiveBoardId(null);
-          }}
-          className="fixed z-[55] min-h-[40px] min-w-[40px] flex items-center justify-center rounded-2xl bg-[var(--monday-surface)] border border-monday-border shadow-monday-md text-monday-text hover:bg-monday-hover touch-manipulation"
-          style={{
-            top: 'max(6px, env(safe-area-inset-top))',
-            left: 'max(6px, env(safe-area-inset-left))',
-          }}
-          aria-label="Volver"
+      {!isMobile && selectedItem && (
+        <motion.aside
+          key={selectedItem.id}
+          initial={{ x: 40, opacity: 0 }}
+          animate={{ x: 0, opacity: 1 }}
+          exit={{ x: 40, opacity: 0 }}
+          transition={{ duration: 0.15 }}
+          className="relative z-40 flex h-full w-[480px] shrink-0 flex-col overflow-hidden border-l border-monday-border bg-[var(--monday-surface)] shadow-monday-panel"
         >
-          <ChevronLeft size={22} />
-        </button>
+          <ItemDetailsPanel
+            embedded
+            item={selectedItem}
+            onClose={() => setSelectedItem(null)}
+            board={(() => {
+              const byActive = boards.find((b) => b.id === activeBoardId);
+              if (byActive) return byActive;
+              const byGroup = boards.find(
+                (b) => Array.isArray(b.groups) && b.groups.some((g) => g.id === selectedItem.groupId),
+              );
+              if (byGroup) return byGroup;
+              return (
+                boards.find(
+                  (b) =>
+                    Array.isArray(b.groups) &&
+                    b.groups.some(
+                      (gr) => Array.isArray(gr.items) && gr.items.some((it) => it.id === selectedItem.id),
+                    ),
+                ) ?? null
+              );
+            })()}
+          />
+        </motion.aside>
       )}
+      </div>
 
-      {/* Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ Item Details Panel Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ */}
-      {selectedItem && (
-        isMobile ? (
-          <div className="fixed inset-0 z-[60]">
-            <div className="absolute inset-0 bg-black/40" onClick={() => setSelectedItem(null)} aria-hidden />
-            <div className="absolute left-0 right-0 bottom-0 max-h-[90dvh] flex flex-col panel-slide-in" style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}>
-              <ItemDetailsPanel
-                item={selectedItem}
-                onClose={() => setSelectedItem(null)}
-                variant="sheet"
-                board={(() => {
-                  const byActive = boards.find(b => b.id === activeBoardId);
-                  if (byActive) return byActive;
-                  const byGroup = boards.find(b =>
-                    Array.isArray(b.groups) && b.groups.some(g => g.id === selectedItem.groupId)
-                  );
-                  if (byGroup) return byGroup;
-                  const byItem = boards.find(b =>
-                    Array.isArray(b.groups) &&
-                    b.groups.some(gr => Array.isArray(gr.items) && gr.items.some(it => it.id === selectedItem.id))
-                  );
-                  return byItem ?? null;
-                })()}
-              />
-            </div>
+      {/* Item Details Panel móvil */}
+      {isMobile && selectedItem && (
+        <div className="fixed inset-0 z-[60]">
+          <div className="absolute inset-0 bg-black/40" onClick={() => setSelectedItem(null)} aria-hidden />
+          <div className="absolute left-0 right-0 bottom-0 max-h-[90dvh] flex flex-col panel-slide-in" style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}>
+            <ItemDetailsPanel
+              item={selectedItem}
+              onClose={() => setSelectedItem(null)}
+              variant="sheet"
+              board={(() => {
+                const byActive = boards.find(b => b.id === activeBoardId);
+                if (byActive) return byActive;
+                const byGroup = boards.find(b =>
+                  Array.isArray(b.groups) && b.groups.some(g => g.id === selectedItem.groupId)
+                );
+                if (byGroup) return byGroup;
+                const byItem = boards.find(b =>
+                  Array.isArray(b.groups) &&
+                  b.groups.some(gr => Array.isArray(gr.items) && gr.items.some(it => it.id === selectedItem.id))
+                );
+                return byItem ?? null;
+              })()}
+            />
           </div>
-        ) : (
-          <div className="absolute inset-0 z-[60]" onClick={() => setSelectedItem(null)} aria-hidden>
-            <div
-              className="absolute top-0 right-0 h-full z-50 panel-slide-in"
-              onClick={(e) => { e.stopPropagation(); }}
-            >
-              <ItemDetailsPanel
-                item={selectedItem}
-                onClose={() => setSelectedItem(null)}
-                board={(() => {
-                  const byActive = boards.find(b => b.id === activeBoardId);
-                  if (byActive) return byActive;
-                  const byGroup = boards.find(b =>
-                    Array.isArray(b.groups) && b.groups.some(g => g.id === selectedItem.groupId)
-                  );
-                  if (byGroup) return byGroup;
-                  const byItem = boards.find(b =>
-                    Array.isArray(b.groups) &&
-                    b.groups.some(gr => Array.isArray(gr.items) && gr.items.some(it => it.id === selectedItem.id))
-                  );
-                  return byItem ?? null;
-                })()}
-              />
-            </div>
-          </div>
-        )
+        </div>
       )}
       
       <AdminUsersPanel open={showAdminPanel} onOpenChange={setShowAdminPanel} />

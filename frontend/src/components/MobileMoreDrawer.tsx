@@ -7,12 +7,19 @@ import {
   Sun,
   Moon,
   Sparkles,
+  X,
+  Inbox,
+  Command,
 } from 'lucide-react';
 import * as Popover from '@radix-ui/react-popover';
 import { UserPanel } from './UserPanel';
-import type { Workspace } from '../types';
-
-export type AppTheme = 'light' | 'dark' | 'night' | 'dawn' | 'fog' | 'plum' | 'cacao' | 'aurora';
+import type { Workspace, Board } from '../types';
+import {
+  type AppTheme,
+  SIDEBAR_THEME_IDS,
+  THEME_LABELS,
+  THEME_SWATCHES,
+} from '../theme';
 
 interface MobileMoreDrawerProps {
   open: boolean;
@@ -29,7 +36,8 @@ interface MobileMoreDrawerProps {
   boardsCount?: number;
   workspaceName?: string;
   onOpenAdmin?: () => void;
-  onOpenTeam?: () => void;
+  /** Abre la paleta de comandos (tableros, /temas, atajos). */
+  onOpenCommandPalette: () => void;
 }
 
 /** Misma fórmula que el FAB en `MobileLayout`: encima de `MobileBottomNav`. */
@@ -50,29 +58,31 @@ export function MobileMoreDrawer({
   boardsCount = 0,
   workspaceName = '',
   onOpenAdmin,
-  onOpenTeam,
+  onOpenCommandPalette,
 }: MobileMoreDrawerProps) {
   const [workspaceSelectorOpen, setWorkspaceSelectorOpen] = useState(false);
-  const themeLabel: Record<AppTheme, string> = {
-    light: 'Claro',
-    dark: 'Oscuro',
-    night: 'Noche',
-    dawn: 'Dawn',
-    fog: 'Fog',
-    plum: 'Plum',
-    cacao: 'Cacao',
-    aurora: 'Aurora',
+
+  const handleSelectBoard = (id: string | null) => {
+    if (navigator.vibrate) navigator.vibrate(15);
+    onSelectBoard(id);
+    onOpenChange(false);
   };
-  const themeSwatches: Record<AppTheme, [string, string]> = {
-    light: ['#f6f7fb', '#d0d4e4'],
-    dark: ['#111827', '#374151'],
-    night: ['#0a0a0a', '#262626'],
-    dawn: ['#e1d4c0', '#bda78a'],
-    fog: ['#b8b8b8', '#8f8f8f'],
-    plum: ['#12091a', '#3a244f'],
-    cacao: ['#1a1410', '#4a3526'],
-    aurora: ['#091821', '#234252'],
+
+  const handleNav = (page: 'notifications' | 'docs' | 'search' | 'team' | 'facturacion' | 'inbox') => {
+    if (navigator.vibrate) navigator.vibrate(15);
+    onNavigate(page);
+    onOpenChange(false);
   };
+
+  const handleOpenCommandPalette = () => {
+    if (navigator.vibrate) navigator.vibrate(12);
+    onOpenChange(false);
+    onOpenCommandPalette();
+  };
+
+  const filteredBoards = boards.filter(
+    (b) => b && (!boardSearch.trim() || b.name.toLowerCase().includes(boardSearch.trim().toLowerCase()))
+  );
 
   return (
     <>
@@ -182,20 +192,56 @@ export function MobileMoreDrawer({
                           {(theme === 'night' || theme === 'dawn' || theme === 'fog' || theme === 'plum' || theme === 'cacao' || theme === 'aurora') && (
                             <Sparkles size={15} className="text-monday-subtext" />
                           )}
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <div className="text-[10px] font-semibold text-monday-subtext uppercase tracking-wide leading-tight">
-                            Tema
-                          </div>
-                          <div className="text-[13px] font-semibold text-monday-text leading-snug flex items-center gap-1.5">
-                            {themeLabel[theme]}
-                            <span className="inline-flex gap-0.5">
-                              <span className="w-2 h-2 rounded-full border border-monday-border/80" style={{ backgroundColor: themeSwatches[theme][0] }} />
-                              <span className="w-2 h-2 rounded-full border border-monday-border/80" style={{ backgroundColor: themeSwatches[theme][1] }} />
-                            </span>
-                          </div>
-                        </div>
-                        <ChevronDown size={16} className="text-monday-subtext shrink-0" strokeWidth={2.5} />
+                        </button>
+                      )
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onRequestAddBoard();
+                    }}
+                    className="w-full flex items-center gap-2 text-[12px] px-2 py-1.5 text-monday-subtext hover:text-monday-text hover:bg-monday-hover transition-colors mt-1 rounded-lg"
+                  >
+                    <Plus size={14} />
+                    Agregar tablero
+                  </button>
+                </div>
+
+                {/* Bloque Navegación */}
+                <div className="mb-4">
+                  <p className="text-monday-subtext text-[11px] font-semibold px-2 mb-2 uppercase tracking-wider">
+                    Navegación
+                  </p>
+                  <div className="flex flex-col gap-0.5">
+                    <button
+                      onClick={() => handleNav('docs')}
+                      className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-monday-text hover:bg-monday-hover transition-colors text-left text-[13px]"
+                    >
+                      <BookOpen size={18} className="text-monday-subtext shrink-0" />
+                      Docs
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleOpenCommandPalette}
+                      className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-monday-text hover:bg-monday-hover transition-colors text-left text-[13px]"
+                    >
+                      <Command size={18} className="text-monday-subtext shrink-0" />
+                      Comandos
+                    </button>
+                    <button
+                      onClick={() => handleNav('search')}
+                      className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-monday-text hover:bg-monday-hover transition-colors text-left text-[13px]"
+                    >
+                      <Search size={18} className="text-monday-subtext shrink-0" />
+                      Buscar
+                    </button>
+                    {!isTaller && (
+                      <button
+                        onClick={() => handleNav('team')}
+                        className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-monday-text hover:bg-monday-hover transition-colors text-left text-[13px]"
+                      >
+                        <Users size={18} className="text-monday-subtext shrink-0" />
+                        Equipo
                       </button>
                     </Popover.Trigger>
                     <Popover.Portal>
@@ -214,56 +260,62 @@ export function MobileMoreDrawer({
                               theme === t ? 'bg-monday-pill font-semibold text-monday-text' : 'text-monday-text hover:bg-monday-hover'
                             }`}
                           >
-                            {t === 'light' && <Sun size={14} />}
-                            {t === 'dark' && <Moon size={14} />}
-                            {t !== 'light' && t !== 'dark' && <Sparkles size={14} />}
-                            <span className="flex-1">{themeLabel[t]}</span>
-                            <span className="flex gap-0.5 shrink-0">
-                              <span className="w-2 h-2 rounded-full border border-monday-border" style={{ backgroundColor: themeSwatches[t][0] }} />
-                              <span className="w-2 h-2 rounded-full border border-monday-border" style={{ backgroundColor: themeSwatches[t][1] }} />
+                            <span className="flex items-center gap-1.5 min-w-0">
+                              {theme === 'light' && <Sun size={14} />}
+                              {theme === 'dark' && <Moon size={14} />}
+                              {theme !== 'light' && theme !== 'dark' && <Sparkles size={14} />}
+                              <span className="truncate">{THEME_LABELS[theme]}</span>
                             </span>
+                            <span className="ml-auto flex items-center gap-1">
+                              <span className="w-2.5 h-2.5 rounded-full border border-monday-border" style={{ backgroundColor: THEME_SWATCHES[theme][0] }} />
+                              <span className="w-2.5 h-2.5 rounded-full border border-monday-border" style={{ backgroundColor: THEME_SWATCHES[theme][1] }} />
+                            </span>
+                            <ChevronDown size={14} className="text-monday-subtext shrink-0" />
                           </button>
-                        ))}
-                      </Popover.Content>
-                    </Popover.Portal>
-                  </Popover.Root>
-
-                  <div className="h-px bg-monday-border/70 mx-1" aria-hidden />
-
-                  {onOpenTeam && (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        onOpenTeam();
-                        onOpenChange(false);
-                      }}
-                      className="w-full flex items-center gap-2 min-h-[44px] px-2.5 rounded-2xl text-monday-text hover:bg-monday-hover/80 active:bg-monday-hover transition-colors text-left"
-                    >
-                      <div className="w-8 h-8 rounded-xl bg-monday-pill border border-monday-border flex items-center justify-center shrink-0">
-                        <Users size={15} />
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <div className="text-[10px] font-semibold text-monday-subtext uppercase tracking-wide leading-tight">
-                          Equipo
-                        </div>
-                        <div className="text-[13px] font-semibold text-monday-text leading-snug">
-                          Ver miembros
-                        </div>
-                      </div>
-                    </button>
-                  )}
-
-                  {onOpenTeam && <div className="h-px bg-monday-border/70 mx-1" aria-hidden />}
-
-                  <div className="[&_button]:min-h-[44px] [&_button]:rounded-2xl [&_button]:px-2.5">
-                    <UserPanel
-                      open={userPanelOpen}
-                      onOpenChange={onUserPanelOpenChange}
-                      trigger={userPanelTrigger}
-                      boardsCount={boardsCount}
-                      workspaceName={workspaceName}
-                      onOpenAdmin={onOpenAdmin}
-                    />
+                        </Popover.Trigger>
+                        <Popover.Portal>
+                          <Popover.Content
+                            className="z-50 bg-monday-sidebarPanel rounded-xl shadow-monday-lg border border-monday-border w-[min(calc(100vw-2rem),280px)] max-h-[min(70vh,420px)] overflow-y-auto custom-scrollbar p-1"
+                            sideOffset={6}
+                            align="start"
+                          >
+                            {SIDEBAR_THEME_IDS.map((t) => (
+                              <button
+                                key={t}
+                                type="button"
+                                onClick={() => onThemeChange(t)}
+                                className={`w-full flex items-center gap-2 px-3 py-2 rounded-lg text-[12px] text-left transition-colors ${
+                                  theme === t ? 'bg-monday-pill text-monday-text font-medium' : 'text-monday-text hover:bg-monday-hover'
+                                }`}
+                              >
+                                {t === 'light' && <Sun size={14} />}
+                                {t === 'dark' && <Moon size={14} />}
+                                {t !== 'light' && t !== 'dark' && <Sparkles size={14} />}
+                                <span className="flex-1">{THEME_LABELS[t]}</span>
+                                <span className="ml-auto flex items-center gap-1 shrink-0">
+                                  <span className="w-2.5 h-2.5 rounded-full border border-monday-border" style={{ backgroundColor: THEME_SWATCHES[t][0] }} />
+                                  <span className="w-2.5 h-2.5 rounded-full border border-monday-border" style={{ backgroundColor: THEME_SWATCHES[t][1] }} />
+                                </span>
+                              </button>
+                            ))}
+                          </Popover.Content>
+                        </Popover.Portal>
+                      </Popover.Root>
+                    </div>
+                    <p className="text-[10px] text-monday-subtext px-2.5 pt-1 leading-snug">
+                      Más temas y apariencias: <span className="font-medium text-monday-text">Comandos</span> y escribe{' '}
+                      <span className="font-mono text-monday-text">/temas</span>.
+                    </p>
+                    <div className="px-2.5 py-1">
+                      <UserPanel
+                        open={userPanelOpen}
+                        onOpenChange={onUserPanelOpenChange}
+                        trigger={userPanelTrigger}
+                        boardsCount={boardsCount}
+                        workspaceName={workspaceName}
+                        onOpenAdmin={onOpenAdmin}
+                      />
+                    </div>
                   </div>
                 </div>
               </div>

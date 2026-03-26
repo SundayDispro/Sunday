@@ -28,7 +28,7 @@
   - Introducción de Web Push (`PushSubscription`, `sendWebPushToUser`) ligado a reglas de negocio (asignaciones, comentarios).
 
 - **Estado a marzo 2026 (según manifiesto, actualizado)**  
-  - **Tableros en tiempo real**: 100% funcionales, pendiente seguir refinando rooms por usuario.  
+  - **Tableros en tiempo real**: 100% funcionales; rooms `board:<id>` y `user:<id>` en uso (handshake JWT + notificaciones/comentarios); refinamiento continuo (throttle cliente, menos fallbacks globales).  
   - **Editor/PDF**: ~95% (flujo 1:1 de descarga consolidado; quedan detalles finos en edge cases).  
   - **Seguridad JWT**: middleware y manejo en frontend implementados; pendiente endurecer algunos valores por defecto (`JWT_SECRET`, rondas bcrypt).  
   - **PostgreSQL**: esquema y campos sombra en producción, con migración lógica desde strings; continúan tareas de eliminación de código puramente legacy.  
@@ -210,7 +210,7 @@ flowchart LR
   Prisma --> DB
 ```
 
-> Nota: los rooms `user:<id>` están marcados con `*` porque forman parte de la hoja de ruta (Fase 3) y aún no se usan en todos los flujos.
+> Nota: los rooms `user:<id>` están activos para handshake + notificaciones/comentarios; el `*` en el diagrama alude a posibles extensiones futuras (p. ej. más eventos segmentados por usuario o por workspace).
 
 ### 1. Arquitectura de Red y Topología de Despliegue
 
@@ -644,29 +644,15 @@ Riesgo original (global emit):
 
 Estado actual:
 
-- Los principales eventos de tablero (`item_added`, `item_moved`, `column_value_updated`, etc.) ya usan rooms (`io.to(boardRoom(...))`), lo que segmenta el tráfico por tablero.
-- Aún existen algunos `io.emit(...)` (por ejemplo, ciertas notificaciones globales o eventos legacy):
-  - `io.emit('notification_created', notif)` (notificación a todos, aunque solo interese a un usuario).
-  - `io.emit('update_added', safeUpdate)` (comentarios en items).
+- Los principales eventos de tablero (`item_added`, `item_moved`, `column_value_updated`, etc.) usan rooms (`io.to(boardRoom(...))`), lo que segmenta el tráfico por tablero.
+- **Rooms por usuario (`user:<userId>`) — implementados**: en el handshake de Socket.IO, si el JWT es válido, el socket hace `join` al room del usuario. `notification_created` y `update_added` se emiten con `io.to(userRoom(...))` a los destinatarios (no broadcast global).
+- **Emisiones globales residuales (`io.emit`)**: solo en **fallbacks** cuando falta `boardId` en datos raros (p. ej. borrado de ítem/grupo/columna sin tablero resoluble) o rutas equivalentes documentadas en código; no para notificaciones ni comentarios.
 
-**Recomendación Fase 3 — Optimización de Sockets**:
+**Recomendación Fase 3 — Optimización de Sockets (pendiente)**:
 
-- Extender el concepto de rooms:
-  - `user:<userId>` para tráfico estrictamente personal (notificaciones, comentarios, etc.).
-  - Mantener `board:<boardId>` para tráfico de tablero.
-- Pseudocódigo:
-
-```text
-on connection(socket):
-  userId = authenticateSocketHandshake(socket) // derivado del JWT en la query/headers
-  if userId:
-    socket.join('user:' + userId)
-
-sendNotificationToUser(userId, notif):
-  io.to('user:' + userId).emit('notification_created', notif)
-```
-
-Con esto se elimina el broadcast global innecesario y se reduce la presión sobre la red móvil.
+- Reducir aún más ancho de banda: **throttle/debounce** en el cliente para acciones de alta frecuencia; batch de actualizaciones cuando sea posible.
+- Evaluar segmentación adicional por **workspace** u otros criterios si el volumen de eventos lo justifica.
+- Revisar fallbacks globales y `socket.broadcast` en casos límite (`group_moved` sin `boardId`, etc.) para alinearlos con el mismo criterio de rooms.
 
 #### 4.2 Editor vectorial Estudio (Fabric.js) — pestaña retirada
 
@@ -882,11 +868,29 @@ Componentes clave:
     - Reordenamiento de tabs de vistas del tablero mediante **drag & drop** (con persistencia en `localStorage` y controles de flecha como respaldo).
     - La pestaña **Estudio** fue eliminada; la pestaña **Navegador** fue retirada por no ser viable como iframe.
     - Detección responsive (`matchMedia`, `ResizeObserver`).
-    - Tema (`light` / `dark` / `night`) con persistencia en `localStorage` y sincronización con `<meta name="theme-color">`.
+    - Tema con persistencia en `localStorage` y sincronización con `<meta name="theme-color">`.
+      - Sync de tema hacia backend vía `PATCH /api/users/me` usando el campo `preferences` (JSONB), con debounce.
+      - `frontend/public/manifest.webmanifest` sincroniza `theme_color` con el tema base (p. ej. `#f6f7fb` para `light`).
+      - Selector rápido en sidebar/drawer móvil: `light`, `dark`, `night`, `plum`.
+      - Selector completo: lista extendida (incluye los 10 temas extra) y filtrado vía paleta con `/temas`.
+      - Persistencia/consistencia móvil asegurada para evitar “parches blancos” en overlays/drawers.
+    - `Ctrl/Cmd+K` (paleta de comandos): búsqueda de elementos del tablero activo + navegación.
+      - Prefijo `/`: muestra acciones disponibles.
+      - Prefijo `/temas`: permite elegir de la lista completa y filtrar apariencias.
+      - Autocompletado de comandos con `Tab` y ejecución con `Enter`.
+    - Rail izquierdo colapsable (40px): micro-UX con iconos compactos, avatar sin recorte y notificaciones en modo compacto.
+    - Reorganización visual del rail:
+      - Logo arriba.
+      - Selector de tema.
+      - “EN LÍNEA” debajo del selector de tema.
+      - Botón de colapsar justo encima del ícono de usuario.
   - Sidebar de Docs (desktop) actualizado:
     - Sistema de widgets persistentes por usuario/workspace (`panel-notes`) con orden arrastrable.
     - Widgets activos: **Tareas**, **Calculadora** y **Recordatorios**.
     - Rediseño visual unificado de widgets con estilo glass sutil, bordes de bajo contraste y separación por sombras para mejor integración con temas.
+    - Refinamiento actual: Tareas/Recordatorios con cabecera glass/gradient y filas con fondo/borde redondeado (evita look de “tabla” superpuesta).
+    - Refinamiento de widgets: listas tipo sticky/agenda (filas sin “celdas” con fondos/borde fuerte), más compacto y con hover suave.
+    - Calculadora: secciones internas (display + IVA) reforzadas como controles limpios, sin contornos tipo tabla.
   - Gestión de paneles móviles (bottom nav, sidebars) y drawer `MobileMoreDrawer`.
 
 - `frontend/src/store/socket.ts`:
@@ -964,12 +968,9 @@ Servicios:
 
 Objetivo: Reducir tráfico innecesario y mejorar la experiencia en VPN/móvil.
 
-- **Rooms por usuario**:
-  - Implementar `user:<userId>` además de `board:<boardId>`.
-  - En el handshake del socket (o primer mensaje tras conexión), autenticar el usuario vía JWT y unirlo a su room de usuario.
-  - Redirigir eventos de notificaciones y comentarios de:
-    - `io.emit('notification_created', notif)` → `io.to('user:' + notif.userId).emit(...)`.
-    - `io.emit('update_added', safeUpdate)` → rooms por item o por usuarios asignados.
+- **Rooms por usuario (hecho)**:
+  - `user:<userId>` está activo: JWT en el handshake, `join` al room, y emisión de `notification_created` / `update_added` a destinatarios vía `io.to(userRoom(...))` (ver `backend/src/index.ts`).
+  - Pendiente de la fase: pulir fallbacks globales puntuales, valorar más segmentación (p. ej. workspace) y optimización de cliente.
 
 - **Throttle/debounce en cliente**:
   - Para acciones de alta frecuencia (drag de items, actualizaciones rápidas), aplicar:
@@ -1163,7 +1164,7 @@ Checklist operativo para dejar la app estable en el equipo que actuará como ser
   - Si alguna ruta actualiza solo el campo string y no el JSONB (o viceversa), pueden aparecer divergencias de datos entre vistas antiguas y nuevas.
 
 - **Broadcast global residual**:
-  - Cualquier `io.emit` residual en eventos de alta frecuencia puede seguir saturando redes lentas.
+  - Quedan `io.emit`/`socket.broadcast` solo en **fallbacks** sin `boardId` o casos límite; no en notificaciones ni comentarios. Cualquier emisión global en eventos de alta frecuencia seguiría siendo un riesgo si reapareciera.
 
 - **Box-model en PDF**:
   - Hasta completar el ajuste fino de métricas/paddings en el motor vectorial, ciertos documentos pueden imprimir con pequeñas diferencias respecto a la vista del editor.

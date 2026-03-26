@@ -1,8 +1,23 @@
 import React, { useState } from 'react';
+import confetti from 'canvas-confetti';
 import { Item, BoardColumn, ColumnValue, StatusSettings } from '../../types';
 import * as Popover from '@radix-ui/react-popover';
 import { socket } from '../../store/socket';
 import { useUser } from '../../store/UserContext';
+
+function isCompletionLikeStatus(label: string, id: string): boolean {
+  const l = label.trim().toLowerCase();
+  if (!l) return false;
+  return (
+    l.includes('listo') ||
+    l.includes('hecho') ||
+    l.includes('complet') ||
+    l.includes('cerrad') ||
+    id === 'done' ||
+    id === 'listo' ||
+    id === 'hecho'
+  );
+}
 
 interface Props {
   item: Item;
@@ -36,19 +51,23 @@ export const StatusCellRenderer: React.FC<Props> = ({ item, column, value }) => 
 
   const handleSelect = (optionId: string) => {
     if (!canEdit) return;
+    const chosen = settings.options.find((o) => o.id === optionId);
     socket.emit('update_column_value', {
       itemId: item.id,
       columnId: column.id,
       value: JSON.stringify({ optionId }),
     });
     setOpen(false);
+    if (chosen && isCompletionLikeStatus(chosen.label, chosen.id)) {
+      confetti({ particleCount: 72, spread: 68, origin: { y: 0.72 }, ticks: 120 });
+    }
   };
 
   if (!canEdit) {
     // Vista solo lectura para TALLER en cualquier columna de estado distinta a "Estado Taller"
     return (
       <div
-        className="w-full h-full min-h-[42px] flex items-center justify-center text-white text-[13px] font-medium"
+        className="w-full h-full min-h-[42px] flex items-center justify-center text-white text-[13px] font-medium transition-colors duration-200"
         style={{ backgroundColor: currentOption.color, cursor: 'default' }}
       >
         {currentOption.label}
@@ -61,7 +80,7 @@ export const StatusCellRenderer: React.FC<Props> = ({ item, column, value }) => 
       <Popover.Trigger asChild>
         <button
           onClick={(e) => e.stopPropagation()}
-          className="w-full h-full min-h-[42px] flex items-center justify-center text-white text-[13px] font-medium transition hover:brightness-110 relative group/cell"
+          className="w-full h-full min-h-[42px] flex items-center justify-center text-white text-[13px] font-medium transition-[background-color,filter] duration-200 hover:brightness-110 relative group/cell"
           style={{ backgroundColor: currentOption.color }}
         >
           {currentOption.label}
@@ -83,7 +102,7 @@ export const StatusCellRenderer: React.FC<Props> = ({ item, column, value }) => 
             <button
               key={opt.id}
               onClick={() => handleSelect(opt.id)}
-              className="w-full text-center py-1.5 text-white text-[13px] font-medium hover:opacity-90 transition rounded-[2px]"
+              className="w-full text-center py-1.5 text-white text-[13px] font-medium hover:opacity-90 transition-[background-color,opacity] duration-200 rounded-[2px]"
               style={{ backgroundColor: opt.color }}
             >
               {opt.label || '\u00A0'}

@@ -11,6 +11,8 @@ export type MobileLayoutProps = {
   onNavigate: (tab: MobileBottomTab) => void;
   compact?: boolean;
   unreadNotifCount?: number;
+  /** Punto verde en campana si hay no leídas muy recientes (< 2 min). */
+  recentUnreadNotif?: boolean;
   showFAB?: boolean;
   onFABClick?: () => void;
   isLandscapeShort?: boolean;
@@ -29,6 +31,7 @@ export function MobileLayout({
   onNavigate,
   compact = false,
   unreadNotifCount = 0,
+  recentUnreadNotif = false,
   showFAB = false,
   onFABClick,
   isLandscapeShort = false,
@@ -72,14 +75,13 @@ export function MobileLayout({
         </button>
       )}
 
-      {!hideBottomNav && (
-        <MobileBottomNav
-          activeTab={activeTab}
-          onNavigate={onNavigate}
-          compact={compact}
-          unreadNotifCount={unreadNotifCount}
-        />
-      )}
+      <MobileBottomNav
+        activeTab={activeTab}
+        onNavigate={onNavigate}
+        compact={compact}
+        unreadNotifCount={unreadNotifCount}
+        recentUnreadNotif={recentUnreadNotif}
+      />
     </>
   );
 }

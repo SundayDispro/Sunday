@@ -5,7 +5,7 @@
   "id": "/?pwa=v9-home",
   "display": "standalone",
   "background_color": "#ffffff",
-  "theme_color": "#0055ff",
+  "theme_color": "#f6f7fb",
   "lang": "es-ES",
   "icons": [
     {
