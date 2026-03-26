@@ -5,9 +5,28 @@
  * - Si VITE_API_URL está definido, se usa (útil para producción o backend en otra máquina).
  * - Producción sin VITE_API_URL: cadena vacía (mismo origen).
  */
-export const API_BASE: string = import.meta.env.VITE_API_URL
-  ? (import.meta.env.VITE_API_URL as string)
-  : '';
+function resolveApiBase(): string {
+  const raw = (import.meta.env.VITE_API_URL as string | undefined)?.trim();
+  if (!raw) return '';
+
+  // Safety: avoid shipping a localhost backend URL to remote clients.
+  try {
+    const u = new URL(raw);
+    const isLocalhost = u.hostname === 'localhost' || u.hostname === '127.0.0.1';
+    const runningOnRemoteHost =
+      typeof window !== 'undefined' &&
+      window.location.hostname !== 'localhost' &&
+      window.location.hostname !== '127.0.0.1';
+    if (isLocalhost && runningOnRemoteHost) return '';
+  } catch {
+    // Ignore invalid URLs and fallback to same-origin.
+    return '';
+  }
+
+  return raw;
+}
+
+export const API_BASE: string = resolveApiBase();
 
 export function getAuthToken(): string | null {
   try {

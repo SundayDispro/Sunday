@@ -2,8 +2,16 @@ import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   ChevronDown,
+  ChevronRight,
   Folder,
+  LayoutGrid,
+  Star,
+  Plus,
+  Search,
+  Bell,
+  BookOpen,
   Users,
+  Receipt,
   Sun,
   Moon,
   Sparkles,
@@ -28,8 +36,18 @@ interface MobileMoreDrawerProps {
   activeWorkspaceId: string | null;
   activeWorkspaceName: string;
   onSelectWorkspace: (id: string) => void;
+  boards: Board[];
+  boardSearch: string;
+  onBoardSearchChange: (value: string) => void;
+  activeBoardId: string | null;
+  onSelectBoard: (boardId: string | null) => void;
+  onNavigate: (page: 'notifications' | 'docs' | 'search' | 'team' | 'facturacion' | 'inbox') => void;
   theme: AppTheme;
   onThemeChange: (theme: AppTheme) => void;
+  canSeeFacturacion: boolean;
+  isTaller: boolean;
+  onRequestAddBoard: () => void;
+  unreadNotifCount?: number;
   userPanelTrigger: React.ReactNode;
   userPanelOpen: boolean;
   onUserPanelOpenChange: (open: boolean) => void;
@@ -40,9 +58,6 @@ interface MobileMoreDrawerProps {
   onOpenCommandPalette: () => void;
 }
 
-/** Misma fórmula que el FAB en `MobileLayout`: encima de `MobileBottomNav`. */
-const SHEET_BOTTOM = 'max(72px, calc(env(safe-area-inset-bottom) + 56px))';
-
 export function MobileMoreDrawer({
   open,
   onOpenChange,
@@ -50,8 +65,18 @@ export function MobileMoreDrawer({
   activeWorkspaceId,
   activeWorkspaceName,
   onSelectWorkspace,
+  boards,
+  boardSearch,
+  onBoardSearchChange,
+  activeBoardId,
+  onSelectBoard,
+  onNavigate,
   theme,
   onThemeChange,
+  canSeeFacturacion,
+  isTaller,
+  onRequestAddBoard,
+  unreadNotifCount = 0,
   userPanelTrigger,
   userPanelOpen,
   onUserPanelOpenChange,
@@ -89,77 +114,105 @@ export function MobileMoreDrawer({
       <AnimatePresence>
         {open && (
           <>
-            <motion.button
-              type="button"
+            <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              transition={{ duration: 0.18 }}
-              className="fixed inset-0 z-[19] bg-black/25 border-0 cursor-default"
-              aria-label="Cerrar menú"
+              transition={{ duration: 0.2 }}
+              className="fixed inset-0 z-[19] bg-black/30"
+              aria-hidden
               onClick={() => onOpenChange(false)}
             />
-            <motion.div
-              role="dialog"
-              aria-modal="true"
-              aria-label="Ajustes rápidos"
-              initial={{ y: '110%', opacity: 0.98 }}
-              animate={{ y: 0, opacity: 1 }}
-              exit={{ y: '110%', opacity: 0.98 }}
-              transition={{ type: 'spring', damping: 28, stiffness: 320 }}
-              className="fixed left-0 right-0 z-20 flex justify-end pr-2 pl-2 sm:pr-3 pointer-events-none"
-              style={{ bottom: SHEET_BOTTOM }}
+            <motion.aside
+              initial={{ x: '-100%' }}
+              animate={{ x: 0 }}
+              exit={{ x: '-100%' }}
+              transition={{ type: 'tween', duration: 0.25, ease: [0.22, 1, 0.36, 1] }}
+              className="fixed left-0 top-0 z-20 w-[min(280px,85vw)] max-w-[280px] bg-monday-sidebarPanel flex flex-col shadow-monday-xl border-r border-monday-border overflow-hidden"
+              style={{ bottom: 'calc(56px + max(0.5rem, env(safe-area-inset-bottom)))' }}
+              aria-label="Menú Más"
             >
-              <div
-                className="pointer-events-auto w-[min(208px,calc(100vw-0.75rem))] shrink-0 rounded-[18px] border border-monday-border bg-[var(--monday-surface)] shadow-[0_-8px_32px_rgba(0,0,0,0.12)] overflow-hidden"
-                style={{ paddingBottom: 'max(0.35rem, env(safe-area-inset-bottom))' }}
-              >
-                {/* Asa tipo sheet + cierre por swipe implícito (tap fuera) */}
-                <div className="flex justify-end pr-4 pt-2 pb-1">
-                  <span className="h-1 w-8 rounded-full bg-monday-border/90" aria-hidden />
+              <div className="shrink-0 flex items-center justify-between h-14 px-3 border-b border-monday-border">
+                <span className="text-[15px] font-semibold text-monday-text">Más</span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (navigator.vibrate) navigator.vibrate(15);
+                    onOpenChange(false);
+                  }}
+                  className="min-h-[44px] min-w-[44px] flex items-center justify-center rounded-lg text-monday-subtext hover:bg-monday-hover hover:text-monday-text transition-colors"
+                  aria-label="Cerrar menú"
+                >
+                  <X size={22} />
+                </button>
+              </div>
+
+              <div className="flex-1 overflow-y-auto overflow-x-hidden custom-scrollbar scroll-touch py-3 px-2">
+                {/* Bandeja y Notificaciones destacados (acceso rápido desde 4 tabs) */}
+                <div className="mb-4 p-2 rounded-xl bg-monday-pill/40 border border-monday-border/60">
+                  <p className="text-monday-subtext text-[11px] font-semibold px-2 mb-2 uppercase tracking-wider">
+                    Ir a
+                  </p>
+                  <div className="flex flex-col gap-0.5">
+                    <button
+                      onClick={() => handleNav('notifications')}
+                      className="w-full flex items-center gap-2.5 px-2.5 py-2.5 rounded-lg text-monday-text hover:bg-monday-hover transition-colors text-left text-[13px] font-medium"
+                    >
+                      <Bell size={18} className="text-monday-subtext shrink-0" />
+                      <span>Notificaciones</span>
+                      {unreadNotifCount > 0 && (
+                        <span className="ml-auto min-w-[18px] h-[18px] px-1 flex items-center justify-center bg-red-500 text-white text-[10px] font-bold rounded-full">
+                          {unreadNotifCount > 99 ? '99+' : unreadNotifCount}
+                        </span>
+                      )}
+                    </button>
+                    <button
+                      onClick={() => handleNav('inbox')}
+                      className="w-full flex items-center gap-2.5 px-2.5 py-2.5 rounded-lg text-monday-text hover:bg-monday-hover transition-colors text-left text-[13px] font-medium"
+                    >
+                      <Inbox size={18} className="text-monday-subtext shrink-0" />
+                      <span>Bandeja</span>
+                    </button>
+                  </div>
                 </div>
 
-                <div className="px-2.5 pb-2 space-y-0.5">
+                {/* Bloque Workspace + Tableros */}
+                <div className="mb-4">
+                  <p className="text-monday-subtext text-[11px] font-semibold px-2 mb-2 uppercase tracking-wider">
+                    Workspace
+                  </p>
                   <Popover.Root open={workspaceSelectorOpen} onOpenChange={setWorkspaceSelectorOpen}>
                     <Popover.Trigger asChild>
                       <button
-                        type="button"
-                        className="w-full flex items-center gap-2 min-h-[44px] px-2.5 rounded-2xl text-monday-text hover:bg-monday-hover/80 active:bg-monday-hover transition-colors text-left"
+                        className="w-full flex items-center gap-2.5 text-monday-text hover:bg-monday-hover rounded-lg px-2.5 py-2 transition-colors shadow-sm border border-monday-border/60"
                         title={`Workspace: ${activeWorkspaceName}`}
                       >
-                        <div className="w-8 h-8 rounded-xl bg-monday-blue flex items-center justify-center text-white shrink-0">
-                          <Folder size={15} strokeWidth={2.2} />
+                        <div className="w-7 h-7 rounded-lg bg-monday-blue flex items-center justify-center text-white shrink-0 shadow-sm">
+                          <Folder size={16} />
                         </div>
-                        <div className="flex-1 min-w-0">
-                          <div className="text-[10px] font-semibold text-monday-subtext uppercase tracking-wide leading-tight">
-                            Workspace
-                          </div>
-                          <div className="text-[13px] font-semibold text-monday-text truncate leading-snug">
-                            {activeWorkspaceName}
-                          </div>
-                        </div>
+                        <span className="text-[13px] font-semibold flex-1 text-left text-monday-text truncate min-w-0">
+                          {activeWorkspaceName}
+                        </span>
                         <ChevronDown size={16} className="text-monday-subtext shrink-0" strokeWidth={2.5} />
                       </button>
                     </Popover.Trigger>
                     <Popover.Portal>
                       <Popover.Content
-                        className="z-[60] w-[min(280px,calc(100vw-1.5rem))] rounded-2xl shadow-monday-lg border border-monday-border bg-[var(--monday-surface)] p-1.5"
-                        side="top"
+                        className="z-50 w-64 rounded-xl shadow-monday-lg border border-monday-border bg-monday-sidebarPanel p-2"
                         sideOffset={8}
-                        align="center"
+                        align="start"
                         onClick={(e) => e.stopPropagation()}
                       >
-                        <p className="text-[10px] font-semibold text-monday-subtext px-2 py-1 uppercase tracking-wider">
-                          Cambiar workspace
+                        <p className="text-[11px] font-semibold text-monday-subtext px-1.5 mb-1.5 uppercase tracking-wider">
+                          Workspaces
                         </p>
-                        <div className="flex flex-col gap-0.5 max-h-48 overflow-y-auto custom-scrollbar scroll-touch">
+                        <div className="flex flex-col gap-0.5 max-h-64 overflow-y-auto custom-scrollbar">
                           {workspaces.map((ws) => (
                             <button
                               key={ws.id}
-                              type="button"
-                              className={`w-full flex items-center gap-2 px-2 py-2 rounded-xl text-[13px] transition-colors ${
+                              className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-[13px] transition-colors ${
                                 ws.id === activeWorkspaceId
-                                  ? 'bg-monday-blue/12 text-monday-blue font-semibold'
+                                  ? 'bg-monday-blue/15 text-monday-blue font-medium'
                                   : 'text-monday-text hover:bg-monday-hover'
                               }`}
                               onClick={() => {
@@ -167,7 +220,7 @@ export function MobileMoreDrawer({
                                 setWorkspaceSelectorOpen(false);
                               }}
                             >
-                              <div className="w-6 h-6 rounded-lg bg-monday-blue flex items-center justify-center text-white text-[11px] font-bold shrink-0">
+                              <div className="w-6 h-6 rounded-md bg-monday-blue flex items-center justify-center text-white text-xs font-bold shrink-0">
                                 {ws.name.charAt(0).toUpperCase()}
                               </div>
                               <span className="flex-1 text-left truncate">{ws.name}</span>
@@ -178,19 +231,46 @@ export function MobileMoreDrawer({
                     </Popover.Portal>
                   </Popover.Root>
 
-                  <div className="h-px bg-monday-border/70 mx-1" aria-hidden />
+                  <div className="relative mt-2 mb-2 group/search">
+                    <Search
+                      size={16}
+                      className="absolute left-3 top-1/2 -translate-y-1/2 text-monday-subtext group-hover/search:text-monday-text transition-colors"
+                    />
+                    <input
+                      type="text"
+                      placeholder="Buscar tableros..."
+                      className="w-full pl-9 pr-3 py-1.5 rounded-lg bg-monday-sidebarPanel border border-monday-border text-[13px] text-monday-text placeholder:text-monday-subtext focus:outline-none focus:ring-2 focus:ring-monday-blue"
+                      value={boardSearch}
+                      onChange={(e) => onBoardSearchChange(e.target.value)}
+                    />
+                  </div>
 
-                  <Popover.Root>
-                    <Popover.Trigger asChild>
-                      <button
-                        type="button"
-                        className="w-full flex items-center gap-2 min-h-[44px] px-2.5 rounded-2xl text-monday-text hover:bg-monday-hover/80 active:bg-monday-hover transition-colors text-left"
-                      >
-                        <div className="w-8 h-8 rounded-xl bg-monday-pill border border-monday-border flex items-center justify-center shrink-0">
-                          {theme === 'light' && <Sun size={15} />}
-                          {theme === 'dark' && <Moon size={15} />}
-                          {(theme === 'night' || theme === 'dawn' || theme === 'fog' || theme === 'plum' || theme === 'cacao' || theme === 'aurora') && (
-                            <Sparkles size={15} className="text-monday-subtext" />
+                  <p className="text-monday-subtext text-[11px] font-semibold px-2 mb-1 uppercase tracking-wider">
+                    Tableros
+                  </p>
+                  <button
+                    onClick={() => handleSelectBoard(null)}
+                    className={`w-full flex items-center gap-2 text-[13px] px-2.5 py-2 rounded-lg transition-colors mb-0.5 ${
+                      activeBoardId === null ? 'bg-monday-blue text-white font-medium' : 'text-monday-text hover:bg-monday-hover'
+                    }`}
+                  >
+                    <LayoutGrid size={15} className="shrink-0" strokeWidth={2.25} />
+                    Vista general
+                  </button>
+                  {filteredBoards.map(
+                    (b) =>
+                      b && (
+                        <button
+                          key={b.id}
+                          onClick={() => handleSelectBoard(b.id)}
+                          className={`w-full flex items-center gap-2 text-[13px] px-2.5 py-2 rounded-lg transition-colors mb-0.5 ${
+                            activeBoardId === b.id ? 'bg-monday-blue text-white font-medium' : 'text-monday-text hover:bg-monday-hover'
+                          }`}
+                        >
+                          <span className="w-1.5 h-1.5 rounded-full bg-current opacity-60 shrink-0" />
+                          <span className="truncate">{b.name}</span>
+                          {activeBoardId === b.id && (
+                            <Star size={13} className="ml-auto opacity-50 text-monday-orange shrink-0" />
                           )}
                         </button>
                       )
@@ -243,22 +323,32 @@ export function MobileMoreDrawer({
                         <Users size={18} className="text-monday-subtext shrink-0" />
                         Equipo
                       </button>
-                    </Popover.Trigger>
-                    <Popover.Portal>
-                      <Popover.Content
-                        className="z-[60] bg-[var(--monday-surface)] rounded-2xl shadow-monday-lg border border-monday-border w-[min(220px,calc(100vw-2rem))] max-h-[55vh] overflow-y-auto custom-scrollbar p-1"
-                        side="top"
-                        sideOffset={8}
-                        align="center"
+                    )}
+                    {canSeeFacturacion && (
+                      <button
+                        onClick={() => handleNav('facturacion')}
+                        className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-monday-text hover:bg-monday-hover transition-colors text-left text-[13px]"
                       >
-                        {(['light', 'dark', 'night', 'dawn', 'fog', 'plum', 'cacao', 'aurora'] as const).map((t) => (
+                        <Receipt size={18} className="text-monday-subtext shrink-0" />
+                        Facturación
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                {/* Bloque Cuenta: Tema + Usuario */}
+                <div>
+                  <p className="text-monday-subtext text-[11px] font-semibold px-2 mb-2 uppercase tracking-wider">
+                    Cuenta
+                  </p>
+                    <div className="flex flex-col gap-0.5">
+                    <div className="flex items-center gap-2 px-2.5 py-2">
+                      <span className="text-[12px] text-monday-subtext shrink-0">Tema</span>
+                      <Popover.Root>
+                        <Popover.Trigger asChild>
                           <button
-                            key={t}
                             type="button"
-                            onClick={() => onThemeChange(t)}
-                            className={`w-full flex items-center gap-2 px-2.5 py-2 rounded-xl text-[12px] text-left transition-colors ${
-                              theme === t ? 'bg-monday-pill font-semibold text-monday-text' : 'text-monday-text hover:bg-monday-hover'
-                            }`}
+                            className="flex-1 flex items-center justify-between gap-2 px-3 py-1.5 rounded-lg border border-monday-border bg-monday-sidebarPanel text-[12px] text-monday-text hover:bg-monday-hover transition-colors"
                           >
                             <span className="flex items-center gap-1.5 min-w-0">
                               {theme === 'light' && <Sun size={14} />}
@@ -319,7 +409,7 @@ export function MobileMoreDrawer({
                   </div>
                 </div>
               </div>
-            </motion.div>
+            </motion.aside>
           </>
         )}
       </AnimatePresence>

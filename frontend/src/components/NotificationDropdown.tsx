@@ -2,13 +2,11 @@ import React, { useEffect, useMemo, useState } from 'react';
 import * as Popover from '@radix-ui/react-popover';
 import { Bell, CheckCheck, ExternalLink } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { apiFetch } from '../api';
+import { API_BASE, apiFetch } from '../api';
 import { useUser } from '../store/UserContext';
 import { socket } from '../store/socket';
 import type { Notification, Item } from '../types';
 import { parseNotificationsListPayload } from '../utils/notificationsResponse';
-
-const API_BASE = import.meta.env.DEV ? '' : (import.meta.env.VITE_API_URL || 'http://localhost:3001');
 
 type TabId = 'all' | 'unread' | 'mentions' | 'assignments';
 
