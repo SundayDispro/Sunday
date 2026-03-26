@@ -5,7 +5,7 @@ import { BoardGroup } from './BoardGroup';
 import {
   Plus, Search, Filter, ArrowUpDown, EyeOff, ChevronDown, X, Folder,
   Copy, Download, Archive, Trash2, ArrowRightLeft, Circle, ListOrdered, FileText,
-  MoreHorizontal,
+  MoreHorizontal, Tag, UserCircle2, LayoutGrid, UserCheck,
 } from 'lucide-react';
 import {
   DndContext,
@@ -40,6 +40,7 @@ import { useHideOnScroll } from '../../hooks/useHideOnScroll';
 import { useViewport } from '../../hooks/useViewport';
 import { apiFetch } from '../../api';
 import { can } from '../../authz/can';
+import { EmptyState } from '../EmptyState';
 
 const API_BASE = import.meta.env.DEV ? '' : (import.meta.env.VITE_API_URL || 'http://localhost:3001');
 
@@ -47,6 +48,10 @@ interface Props {
   boardId: string;
   onRowClick: (item: Item) => void;
   viewMode: 'table' | 'kanban' | 'calendar' | 'facturacion' | 'resumen' | 'archivos' | 'miTrabajo' | 'timeline';
+  /**
+   * Entrega el tablero ya cargado (con `groups/items`) para búsquedas Ctrl/Cmd+K.
+   */
+  onBoardData?: (board: Board) => void;
   /** En móvil: solo calendario a pantalla completa, sin toolbar completo ni tabs */
   mobileCalendarOnly?: boolean;
   /** Vista de tablero optimizada para móvil: toolbar de una fila (Nuevo elemento, Buscar, Más) */
@@ -76,11 +81,27 @@ function GroupDragOverlay({ groups }: { groups: Group[] }) {
   );
 }
 
-const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode, mobileCalendarOnly = false, mobileOptimized = false, calendarStandalone = false, onHeaderVisibilityChange, isMobile = false }) => {
-  const { currentUser } = useUser();
+const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode, onBoardData, mobileCalendarOnly = false, mobileOptimized = false, calendarStandalone = false, onHeaderVisibilityChange, isMobile = false }) => {
+  const { currentUser, users } = useUser();
   const canDeleteItem = can(currentUser, 'item.delete');
-  const { useCardView, isLandscapeShort, isPortrait } = useViewport();
-  const { toast } = useToast();
+  const { useCardView, isLandscapeShort, isPortrait, isMobile: isViewportMobile } = useViewport();
+  const { toast, dismiss } = useToast();
+  const dismissRef = useRef(dismiss);
+  dismissRef.current = dismiss;
+  const [socketRowHighlight, setSocketRowHighlight] = useState<Set<string>>(new Set());
+  const flashRowFromSocket = useCallback((itemId: string) => {
+    setSocketRowHighlight((prev) => new Set(prev).add(itemId));
+    window.setTimeout(() => {
+      setSocketRowHighlight((prev) => {
+        const n = new Set(prev);
+        n.delete(itemId);
+        return n;
+      });
+    }, 2000);
+  }, []);
+  const pendingDeleteRef = useRef<
+    Map<string, { toastId: number; snapshot: Item; groupId: string }>
+  >(new Map());
   const [board, setBoard] = useState<Board | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [showSearch, setShowSearch] = useState(false);
@@ -99,6 +120,8 @@ const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode, mobile
     try { return localStorage.getItem('sunday-multiselect-hint') !== 'dismissed'; } catch { return true; }
   });
   const [showMovePopover, setShowMovePopover] = useState(false);
+  const [showBulkStatusPopover, setShowBulkStatusPopover] = useState(false);
+  const [showBulkAssignPopover, setShowBulkAssignPopover] = useState(false);
   const [showDeleteItemsConfirm, setShowDeleteItemsConfirm] = useState(false);
   const [showMoreMenu, setShowMoreMenu] = useState(false);
   const [addToProjectOpen, setAddToProjectOpen] = useState(false);
@@ -106,6 +129,7 @@ const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode, mobile
   const [addToProjectAfterItemId, setAddToProjectAfterItemId] = useState<string>('');
   const [addToProjectName, setAddToProjectName] = useState('');
   const [addToProjectSubmitting, setAddToProjectSubmitting] = useState(false);
+  const deleteItemsCancelRef = useRef<HTMLButtonElement>(null);
 
   /** FAB móvil: abrir menú "Nuevo elemento" desde fuera */
   useEffect(() => {
@@ -191,11 +215,18 @@ const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode, mobile
       if (res.ok) {
         const data = await res.json();
         setBoard(data);
+        onBoardData?.(data);
       }
     } catch (err) {
       console.error('Error fetching board:', err);
     }
   };
+
+  useEffect(() => {
+    if (!onBoardData) return;
+    if (!board) return;
+    onBoardData(board);
+  }, [onBoardData, board]);
 
   useEffect(() => {
     // Unirse a la sala del tablero en Socket.IO
@@ -204,6 +235,7 @@ const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode, mobile
     fetchBoard();
 
     socket.on('column_value_updated', (updatedValue) => {
+      flashRowFromSocket(updatedValue.itemId);
       setBoard((prev) => {
         if (!prev) return prev;
         const newGroups = prev.groups.map(g => ({
@@ -240,6 +272,7 @@ const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode, mobile
     });
 
     socket.on('item_updated', (updatedItem) => {
+      flashRowFromSocket(updatedItem.id);
       setBoard(prev => {
         if (!prev) return prev;
         return {
@@ -253,6 +286,7 @@ const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode, mobile
     });
 
     socket.on('item_moved', (movedItem) => {
+      flashRowFromSocket(movedItem.id);
       setBoard(prev => {
         if (!prev) return prev;
         let newGroups = [...prev.groups];
@@ -280,6 +314,11 @@ const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode, mobile
     });
 
     socket.on('item_deleted', ({ itemId }: { itemId: string }) => {
+      const pending = pendingDeleteRef.current.get(itemId);
+      if (pending) {
+        pendingDeleteRef.current.delete(itemId);
+        dismissRef.current(pending.toastId, { runExpire: false });
+      }
       setBoard(prev => {
         if (!prev) return prev;
         return {
@@ -328,7 +367,7 @@ const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode, mobile
       socket.off('group_renamed');
       socket.off('group_deleted');
     };
-  }, [boardId]);
+  }, [boardId, flashRowFromSocket]);
 
   const toggleItemSelection = (itemId: string, checked: boolean) => {
     setSelectedItemIds(prev => {
@@ -399,7 +438,7 @@ const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode, mobile
     // Enviar al backend para persistir (REST + socket para tiempo real)
     idsToDelete.forEach(itemId => {
       socket.emit('delete_item', { itemId });
-      apiFetch(`${API_BASE}/api/items/${itemId}`, { method: 'DELETE' }).catch(err =>
+      apiFetch(`${API_BASE}/api/items/${itemId}`, { method: 'DELETE' }).catch((err) =>
         console.error('Error persistiendo eliminación de item', itemId, err)
       );
     });
@@ -614,17 +653,80 @@ const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode, mobile
   };
 
   const handleOptimisticDelete = (itemId: string) => {
-    setBoard(prev => {
+    setBoard((prev) => {
       if (!prev) return prev;
       return {
         ...prev,
-        groups: prev.groups.map(g => ({
+        groups: prev.groups.map((g) => ({
           ...g,
-          items: g.items.filter(i => i.id !== itemId),
+          items: g.items.filter((i) => i.id !== itemId),
         })),
       };
     });
   };
+
+  const cancelPendingDelete = useCallback((itemId: string) => {
+    const p = pendingDeleteRef.current.get(itemId);
+    if (!p) return;
+    pendingDeleteRef.current.delete(itemId);
+    dismiss(p.toastId, { runExpire: false });
+  }, [dismiss]);
+
+  const commitDeleteItem = useCallback((itemId: string) => {
+    pendingDeleteRef.current.delete(itemId);
+    socket.emit('delete_item', { itemId });
+    apiFetch(`${API_BASE}/api/items/${itemId}`, { method: 'DELETE', silent: true }).catch((err) =>
+      console.error('Error persistiendo eliminación de item', itemId, err)
+    );
+  }, []);
+
+  const restoreItemSnapshot = useCallback((snapshot: Item, groupId: string) => {
+    setBoard((prev) => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        groups: prev.groups.map((g) => {
+          if (g.id !== groupId) return g;
+          if (g.items.some((i) => i.id === snapshot.id)) return g;
+          const items = [...g.items, snapshot].sort((a, b) => a.position - b.position);
+          return { ...g, items };
+        }),
+      };
+    });
+  }, []);
+
+  /** Borrado con toast Deshacer (un ítem); usado desde vista tarjeta / swipe. */
+  const handleDeleteItemWithUndo = useCallback(
+    (itemId: string) => {
+      if (!board || !canDeleteItem) return;
+      const group = board.groups.find((g) => g.items.some((i) => i.id === itemId));
+      if (!group) return;
+      const item = group.items.find((i) => i.id === itemId);
+      if (!item) return;
+      const snapshot: Item = JSON.parse(JSON.stringify(item));
+      const groupId = group.id;
+
+      handleOptimisticDelete(itemId);
+
+      const toastId = toast({
+        message: 'Elemento eliminado',
+        variant: 'success',
+        action: {
+          label: 'Deshacer',
+          onClick: () => {
+            cancelPendingDelete(itemId);
+            restoreItemSnapshot(snapshot, groupId);
+          },
+        },
+        onExpire: () => {
+          commitDeleteItem(itemId);
+        },
+      });
+
+      pendingDeleteRef.current.set(itemId, { toastId, snapshot, groupId });
+    },
+    [board, canDeleteItem, toast, commitDeleteItem, restoreItemSnapshot, cancelPendingDelete]
+  );
 
   const isTaller = currentUser?.role === 'TALLER';
   const isAdminOrVentas = currentUser?.role === 'ADMIN' || currentUser?.role === 'VENTAS';
@@ -819,6 +921,13 @@ const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode, mobile
     [displayGroups]
   );
 
+  const totalItemCount = useMemo(
+    () => (board ? board.groups.reduce((acc, g) => acc + g.items.length, 0) : 0),
+    [board]
+  );
+  const boardEmpty = totalItemCount === 0;
+  const hasFiltersOrSearch = Boolean(searchQuery.trim() || filterByStatusOptionId);
+
   // Asegurar que exista una columna "Estado Taller" con las opciones específicas.
   useEffect(() => {
     if (!board) return;
@@ -901,11 +1010,71 @@ const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode, mobile
     setCollapsedGroups(prev => ({ ...prev, [id]: !prev[id] }));
   };
 
+  const bulkStatusColumn = useMemo(() => {
+    if (!board) return null;
+    return (
+      board.columns.find((c) => c.type === 'status' && c.title === 'Estado') ||
+      board.columns.find((c) => c.type === 'status') ||
+      null
+    );
+  }, [board]);
+
+  const bulkPersonColumn = useMemo(() => {
+    if (!board) return null;
+    return board.columns.find((c) => c.type === 'person') || null;
+  }, [board]);
+
+  const bulkStatusOptions = useMemo(() => {
+    if (!bulkStatusColumn?.settings) return [] as { id: string; label: string; color?: string }[];
+    try {
+      const s = JSON.parse(bulkStatusColumn.settings);
+      return (s?.options ?? []) as { id: string; label: string; color?: string }[];
+    } catch {
+      return [];
+    }
+  }, [bulkStatusColumn]);
+
+  const applyBulkStatus = (optionId: string) => {
+    if (!board || !bulkStatusColumn || selectedItemIds.size === 0) return;
+    const valueStr = JSON.stringify({ optionId });
+    selectedItemIds.forEach((itemId) => {
+      handleOptimisticUpdate(itemId, bulkStatusColumn.id, valueStr);
+      socket.emit('update_column_value', {
+        itemId,
+        columnId: bulkStatusColumn.id,
+        value: valueStr,
+      });
+    });
+    setShowBulkStatusPopover(false);
+    clearSelection();
+  };
+
+  const applyBulkAssign = (userId: string | null) => {
+    if (!board || !bulkPersonColumn || selectedItemIds.size === 0) return;
+    const valueStr = userId ?? '';
+    selectedItemIds.forEach((itemId) => {
+      handleOptimisticUpdate(itemId, bulkPersonColumn.id, valueStr);
+      socket.emit('update_column_value', {
+        itemId,
+        columnId: bulkPersonColumn.id,
+        value: valueStr,
+      });
+    });
+    setShowBulkAssignPopover(false);
+    clearSelection();
+  };
 
   if (!board) return (
-    <div className="flex items-center justify-center h-full text-monday-subtext text-sm gap-2">
-      <div className="w-5 h-5 border-2 border-monday-blue border-t-transparent rounded-full animate-spin" />
-      Cargando tablero...
+    <div className="flex flex-col items-center justify-center h-full w-full p-6">
+      <div className="w-full max-w-3xl space-y-3">
+        {Array.from({ length: 8 }).map((_, i) => (
+          <div
+            key={i}
+            className="h-11 rounded-lg bg-monday-hover/80 animate-pulse border border-monday-border/40"
+          />
+        ))}
+      </div>
+      <p className="mt-4 text-[13px] text-monday-subtext">Cargando tablero…</p>
     </div>
   );
 
@@ -1074,11 +1243,34 @@ const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode, mobile
         ) : viewMode === 'timeline' && board ? (
           <TimelineBoardView board={board} onRowClick={onRowClick} isMobile={isMobile} isLandscapeShort={isLandscapeShort} />
         ) : (viewMode === 'table' || viewMode === 'miTrabajo') && board ? (
-          rootDisplayGroups.length === 0 && viewMode === 'miTrabajo' ? (
-            <div className="flex-1 flex flex-col items-center justify-center p-6 text-monday-subtext text-[13px]">
-              <p className="font-medium text-monday-text">Mi trabajo</p>
-              <p className="mt-1">No tienes elementos asignados en este tablero (columna Personas/Responsable).</p>
-            </div>
+          boardEmpty ? (
+            <EmptyState
+              icon={LayoutGrid}
+              title="Este tablero aún no tiene elementos"
+              description="Añade tareas desde «Agregar elemento» en un grupo o crea un grupo nuevo cuando la barra lo permita."
+              className="py-16"
+            />
+          ) : hasFiltersOrSearch && rootDisplayGroups.length === 0 ? (
+            <EmptyState
+              icon={Search}
+              title="Sin resultados"
+              description="Ningún elemento coincide con la búsqueda o el filtro de estado. Prueba otras palabras o ajusta el filtro."
+              action={{
+                label: 'Limpiar búsqueda y filtro',
+                onClick: () => {
+                  setSearchQuery('');
+                  setFilterByStatusOptionId(null);
+                },
+              }}
+              className="py-16"
+            />
+          ) : viewMode === 'miTrabajo' && rootDisplayGroups.length === 0 ? (
+            <EmptyState
+              icon={UserCheck}
+              title="Mi trabajo vacío"
+              description="No tienes elementos asignados en este tablero (columna Personas/Responsable)."
+              className="py-16"
+            />
           ) : (
           <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
             <GroupDragOverlay groups={displayGroups} />
@@ -1112,8 +1304,11 @@ const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode, mobile
                           onToggleGroupAll={toggleGroupAll}
                           stackIndex={idx}
                           useCardView={useCardView}
+                          enableSwipeActions={useCardView && isViewportMobile}
                           onOptimisticUpdate={handleOptimisticUpdate}
                           onOptimisticDelete={handleOptimisticDelete}
+                          onDeleteItemWithUndo={handleDeleteItemWithUndo}
+                          socketHighlightIds={socketRowHighlight}
                         />
                         {childGroups.map(sub => (
                           <div
@@ -1139,8 +1334,11 @@ const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode, mobile
                               onToggleGroupAll={toggleGroupAll}
                               stackIndex={idx}
                               useCardView={useCardView}
+                              enableSwipeActions={useCardView && isViewportMobile}
                               onOptimisticUpdate={handleOptimisticUpdate}
                               onOptimisticDelete={handleOptimisticDelete}
+                              onDeleteItemWithUndo={handleDeleteItemWithUndo}
+                              socketHighlightIds={socketRowHighlight}
                             />
                           </div>
                         ))}
@@ -1235,6 +1433,88 @@ const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode, mobile
                   Eliminar
                 </button>
               )}
+              {bulkStatusColumn && bulkStatusOptions.length > 0 && (
+                <Popover.Root open={showBulkStatusPopover} onOpenChange={setShowBulkStatusPopover}>
+                  <Popover.Trigger asChild>
+                    <button
+                      type="button"
+                      className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-monday text-[12px] text-monday-text hover:bg-monday-hover"
+                      title="Cambiar estado"
+                    >
+                      <Tag size={14} />
+                      Estado
+                    </button>
+                  </Popover.Trigger>
+                  <Popover.Portal>
+                    <Popover.Content
+                      className="z-[110] bg-[var(--monday-surface)] rounded-xl shadow-monday-lg border border-monday-border w-56 p-2 max-h-64 overflow-y-auto"
+                      sideOffset={8}
+                      side="top"
+                    >
+                      <div className="text-[11px] font-semibold text-monday-subtext px-2 py-1 uppercase">Estado</div>
+                      {bulkStatusOptions.map((opt) => (
+                        <button
+                          key={opt.id}
+                          type="button"
+                          onClick={() => applyBulkStatus(opt.id)}
+                          className="w-full flex items-center gap-2 px-2 py-1.5 rounded-monday text-[13px] text-left hover:bg-monday-hover"
+                        >
+                          {opt.color && (
+                            <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: opt.color }} />
+                          )}
+                          <span className="truncate">{opt.label || opt.id}</span>
+                        </button>
+                      ))}
+                    </Popover.Content>
+                  </Popover.Portal>
+                </Popover.Root>
+              )}
+              {bulkPersonColumn && (
+                <Popover.Root open={showBulkAssignPopover} onOpenChange={setShowBulkAssignPopover}>
+                  <Popover.Trigger asChild>
+                    <button
+                      type="button"
+                      className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-monday text-[12px] text-monday-text hover:bg-monday-hover"
+                      title="Asignar"
+                    >
+                      <UserCircle2 size={14} />
+                      Asignar
+                    </button>
+                  </Popover.Trigger>
+                  <Popover.Portal>
+                    <Popover.Content
+                      className="z-[110] bg-[var(--monday-surface)] rounded-xl shadow-monday-lg border border-monday-border w-56 p-2 max-h-64 overflow-y-auto"
+                      sideOffset={8}
+                      side="top"
+                    >
+                      <div className="text-[11px] font-semibold text-monday-subtext px-2 py-1 uppercase">Persona</div>
+                      <button
+                        type="button"
+                        onClick={() => applyBulkAssign(null)}
+                        className="w-full flex items-center gap-2 px-2 py-1.5 rounded-monday text-[13px] text-left text-monday-red hover:bg-red-500/10"
+                      >
+                        Quitar asignación
+                      </button>
+                      {users.map((u) => (
+                        <button
+                          key={u.id}
+                          type="button"
+                          onClick={() => applyBulkAssign(u.id)}
+                          className="w-full flex items-center gap-2 px-2 py-1.5 rounded-monday text-[13px] text-left hover:bg-monday-hover"
+                        >
+                          <span
+                            className="w-6 h-6 rounded-full text-white text-[10px] flex items-center justify-center font-semibold shrink-0"
+                            style={{ backgroundColor: u.color }}
+                          >
+                            {u.initials}
+                          </span>
+                          <span className="truncate">{u.name}</span>
+                        </button>
+                      ))}
+                    </Popover.Content>
+                  </Popover.Portal>
+                </Popover.Root>
+              )}
               <Popover.Root open={showMovePopover} onOpenChange={setShowMovePopover}>
                 <Popover.Trigger asChild>
                   <button
@@ -1285,6 +1565,10 @@ const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode, mobile
           <Dialog.Content
             className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 bg-[var(--monday-surface)] rounded-xl shadow-monday-xl border border-monday-border p-6 w-[400px] max-w-[90vw] z-[151]"
             onCloseAutoFocus={(e) => e.preventDefault()}
+            onOpenAutoFocus={(e) => {
+              e.preventDefault();
+              deleteItemsCancelRef.current?.focus();
+            }}
           >
             <Dialog.Title className="text-lg font-bold text-monday-text mb-1">
               Eliminar elementos
@@ -1295,6 +1579,7 @@ const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode, mobile
             <div className="flex justify-end gap-2">
               <Dialog.Close asChild>
                 <button
+                  ref={deleteItemsCancelRef}
                   type="button"
                   className="px-4 py-2 text-[13px] font-medium text-monday-text bg-monday-hover hover:bg-monday-border rounded-lg transition-colors"
                 >

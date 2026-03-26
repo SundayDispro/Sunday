@@ -1,12 +1,26 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Bell, Check, CheckCheck, ExternalLink, AtSign, UserPlus } from 'lucide-react';
+import { EmptyState } from '../EmptyState';
 import { useUser } from '../../store/UserContext';
 import { Notification as NotificationType, Item } from '../../types';
 import { apiFetch } from '../../api';
+import { parseNotificationsListPayload } from '../../utils/notificationsResponse';
 
 const API_BASE = import.meta.env.DEV ? '' : (import.meta.env.VITE_API_URL || 'http://localhost:3001');
 
 type TabId = 'all' | 'mentions' | 'assignments';
+
+function daySectionLabel(date: Date): string {
+  const d = new Date(date);
+  d.setHours(0, 0, 0, 0);
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const yesterday = new Date(today);
+  yesterday.setDate(yesterday.getDate() - 1);
+  if (d.getTime() === today.getTime()) return 'Hoy';
+  if (d.getTime() === yesterday.getTime()) return 'Ayer';
+  return d.toLocaleDateString('es', { weekday: 'long', day: 'numeric', month: 'long' });
+}
 
 type FeedPostMention = {
   id: string;
@@ -30,6 +44,9 @@ export const NotificationsPage: React.FC<NotificationsPageProps> = ({
   const { currentUser } = useUser();
   const [tab, setTab] = useState<TabId>('all');
   const [notifications, setNotifications] = useState<NotificationType[]>([]);
+  const [notifSkip, setNotifSkip] = useState(0);
+  const [notifHasMore, setNotifHasMore] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [mentions, setMentions] = useState<FeedPostMention[]>([]);
   const [loading, setLoading] = useState(true);
   const [onlyUnread, setOnlyUnread] = useState(false);
@@ -58,17 +75,48 @@ export const NotificationsPage: React.FC<NotificationsPageProps> = ({
     }
   };
 
-  const fetchNotifications = async () => {
+  const fetchNotificationsPage = async (reset: boolean) => {
     if (!currentUser?.id) return;
+    const skip = reset ? 0 : notifSkip;
+    const sp = new URLSearchParams();
+    sp.set('limit', '20');
+    sp.set('skip', String(skip));
+    if (tab === 'assignments') sp.set('type', 'assigned');
     try {
-      const res = await apiFetch(`${API_BASE}/api/notifications?userId=${currentUser.id}`);
+      if (reset) setLoading(true);
+      else setLoadingMore(true);
+      const res = await apiFetch(`${API_BASE}/api/notifications?${sp.toString()}`, { silent: true });
       if (res.ok) {
         const data = await res.json();
-        setNotifications(Array.isArray(data) ? data : []);
+        const parsed = parseNotificationsListPayload(data, skip);
+        const items = parsed.items as NotificationType[];
+        const { hasMore, nextSkip } = parsed;
+        if (reset) {
+          setNotifications(items);
+        } else {
+          setNotifications((prev) => {
+            const seen = new Set(prev.map((n) => n.id));
+            const merged = [...prev];
+            for (const n of items) {
+              if (!seen.has(n.id)) merged.push(n);
+            }
+            return merged;
+          });
+        }
+        setNotifSkip(nextSkip);
+        setNotifHasMore(hasMore);
       }
     } catch (err) {
       console.error('Error fetching notifications:', err);
+    } finally {
+      setLoading(false);
+      setLoadingMore(false);
     }
+  };
+
+  const loadMoreNotifications = () => {
+    if (!notifHasMore || loadingMore) return;
+    void fetchNotificationsPage(false);
   };
 
   const fetchMentions = async () => {
@@ -87,9 +135,12 @@ export const NotificationsPage: React.FC<NotificationsPageProps> = ({
   };
 
   useEffect(() => {
-    setLoading(true);
-    Promise.all([fetchNotifications(), fetchMentions()]).finally(() => setLoading(false));
-  }, [currentUser?.id]);
+    if (!currentUser?.id) return;
+    setNotifSkip(0);
+    void fetchNotificationsPage(true);
+    void fetchMentions();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- fetchNotificationsPage estable por cierre
+  }, [currentUser?.id, tab]);
 
   // Cargar el "read cursor" local de menciones (bandeja móvil).
   useEffect(() => {
@@ -118,13 +169,9 @@ export const NotificationsPage: React.FC<NotificationsPageProps> = ({
   const markAllAsRead = async () => {
     if (!currentUser?.id) return;
     try {
-      const res = await apiFetch(
-        `${API_BASE}/api/notifications/read-all?userId=${currentUser.id}`,
-        { method: 'PATCH' }
-      );
+      const res = await apiFetch(`${API_BASE}/api/notifications/read-all`, { method: 'PATCH' });
       if (res.ok) {
         setNotifications(prev => prev.map(n => ({ ...n, read: true })));
-        // Marca menciones como leídas localmente (no hay read/unread persistente para FeedPost).
         const next = Date.now();
         setMentionsReadAt(next);
         try {
@@ -133,6 +180,8 @@ export const NotificationsPage: React.FC<NotificationsPageProps> = ({
           // ignore
         }
         onNotificationsChange?.();
+        setNotifSkip(0);
+        await fetchNotificationsPage(true);
       }
     } catch (err) {
       console.error('Error marking all as read:', err);
@@ -173,6 +222,24 @@ export const NotificationsPage: React.FC<NotificationsPageProps> = ({
       n.item?.name?.toLowerCase().includes(q) ||
       n.item?.group?.board?.name?.toLowerCase().includes(q)
   );
+
+  const unreadAssignmentsByDay = useMemo(() => {
+    const sorted = [...filteredUnreadAssignments].sort(
+      (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+    );
+    const order: string[] = [];
+    const map = new Map<string, NotificationType[]>();
+    for (const n of sorted) {
+      const label = daySectionLabel(new Date(n.createdAt));
+      if (!map.has(label)) {
+        order.push(label);
+        map.set(label, []);
+      }
+      map.get(label)!.push(n);
+    }
+    return { order, map };
+  }, [filteredUnreadAssignments]);
+
   const mentionsByQuery = mentions.filter(
     m =>
       !q ||
@@ -274,71 +341,90 @@ export const NotificationsPage: React.FC<NotificationsPageProps> = ({
                     No hay asignaciones para mostrar.
                   </p>
                 ) : (
-                  <ul className="divide-y divide-monday-border">
-                    {filteredUnreadAssignments.map(n => (
-                      <li
-                        key={n.id}
-                        className={`py-3 flex items-start gap-3 hover:bg-monday-hover/50 transition-colors ${!n.read ? 'bg-blue-50/50' : ''}`}
-                      >
-                        <div className="flex-1 min-w-0">
-                          <button
-                            type="button"
-                            onClick={() => handleAssignmentClick(n)}
-                            className="text-left w-full"
-                          >
-                            <p className="text-[14px] text-monday-text font-medium">
-                              Te han asignado en un elemento
-                            </p>
-                            {n.item && (
-                              <p className="text-[13px] text-monday-subtext mt-0.5 truncate">
-                                {n.item.name}
-                                {n.item.group?.board?.name && (
-                                  <span> · {n.item.group.board.name}</span>
+                  <>
+                    {unreadAssignmentsByDay.order.map((dayLabel) => (
+                      <div key={dayLabel} className="mb-4 last:mb-0">
+                        <h3 className="text-[11px] font-semibold text-monday-subtext uppercase tracking-wider mb-2">
+                          {dayLabel}
+                        </h3>
+                        <ul className="divide-y divide-monday-border rounded-lg border border-monday-border overflow-hidden">
+                          {(unreadAssignmentsByDay.map.get(dayLabel) ?? []).map((n) => (
+                            <li
+                              key={n.id}
+                              className={`py-3 px-2 flex items-start gap-3 hover:bg-monday-hover/50 transition-colors ${!n.read ? 'bg-blue-50/50' : ''}`}
+                            >
+                              <div className="flex-1 min-w-0">
+                                <button
+                                  type="button"
+                                  onClick={() => handleAssignmentClick(n)}
+                                  className="text-left w-full"
+                                >
+                                  <p className="text-[14px] text-monday-text font-medium">
+                                    Te han asignado en un elemento
+                                  </p>
+                                  {n.item && (
+                                    <p className="text-[13px] text-monday-subtext mt-0.5 truncate">
+                                      {n.item.name}
+                                      {n.item.group?.board?.name && (
+                                        <span> · {n.item.group.board.name}</span>
+                                      )}
+                                    </p>
+                                  )}
+                                  <p className="text-[12px] text-monday-subtext mt-1">
+                                    {new Date(n.createdAt).toLocaleDateString('es', {
+                                      day: 'numeric',
+                                      month: 'short',
+                                      hour: '2-digit',
+                                      minute: '2-digit',
+                                    })}
+                                  </p>
+                                </button>
+                              </div>
+                              <div className="flex items-center gap-1 shrink-0">
+                                {!n.read && (
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      markAsRead(n.id);
+                                    }}
+                                    className="p-2 min-h-[44px] min-w-[44px] flex items-center justify-center rounded-lg text-monday-subtext hover:bg-monday-hover hover:text-monday-blue transition-colors touch-manipulation"
+                                    title="Marcar como leída"
+                                  >
+                                    <Check size={16} />
+                                  </button>
                                 )}
-                              </p>
-                            )}
-                            <p className="text-[12px] text-monday-subtext mt-1">
-                              {new Date(n.createdAt).toLocaleDateString('es', {
-                                day: 'numeric',
-                                month: 'short',
-                                hour: '2-digit',
-                                minute: '2-digit',
-                              })}
-                            </p>
-                          </button>
-                        </div>
-                        <div className="flex items-center gap-1 shrink-0">
-                          {!n.read && (
-                            <button
-                              type="button"
-                              onClick={e => {
-                                e.stopPropagation();
-                                markAsRead(n.id);
-                              }}
-                              className="p-2 min-h-[44px] min-w-[44px] flex items-center justify-center rounded-lg text-monday-subtext hover:bg-monday-hover hover:text-monday-blue transition-colors touch-manipulation"
-                              title="Marcar como leída"
-                            >
-                              <Check size={16} />
-                            </button>
-                          )}
-                          {n.item?.group?.board?.id && onOpenItem && (
-                            <button
-                              type="button"
-                              onClick={() =>
-                                n.item &&
-                                n.item.group?.board?.id &&
-                                onOpenItem(n.item as Item, n.item.group.board.id)
-                              }
-                              className="p-1.5 rounded-lg text-monday-subtext hover:bg-monday-hover hover:text-monday-blue transition-colors"
-                              title="Ir al tablero"
-                            >
-                              <ExternalLink size={16} />
-                            </button>
-                          )}
-                        </div>
-                      </li>
+                                {n.item?.group?.board?.id && onOpenItem && (
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      n.item &&
+                                      n.item.group?.board?.id &&
+                                      onOpenItem(n.item as Item, n.item.group.board.id)
+                                    }
+                                    className="p-1.5 rounded-lg text-monday-subtext hover:bg-monday-hover hover:text-monday-blue transition-colors"
+                                    title="Ir al tablero"
+                                  >
+                                    <ExternalLink size={16} />
+                                  </button>
+                                )}
+                              </div>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
                     ))}
-                  </ul>
+                    {notifHasMore && (
+                      <button
+                        type="button"
+                        onClick={loadMoreNotifications}
+                        disabled={loadingMore}
+                        className="mt-3 w-full py-2.5 text-[13px] font-medium text-monday-blue border border-monday-border rounded-lg hover:bg-monday-hover disabled:opacity-50"
+                      >
+                        {loadingMore ? 'Cargando…' : 'Cargar más'}
+                      </button>
+                    )}
+                  </>
                 )}
 
                 {showRead && filteredReadAssignments.length > 0 && (
@@ -531,15 +617,11 @@ export const NotificationsPage: React.FC<NotificationsPageProps> = ({
             )}
 
             {!loading && tab === 'all' && assignments.length === 0 && mentionsByQuery.length === 0 && (
-              <div className="flex flex-col items-center justify-center py-16 text-monday-subtext">
-                <div className="w-16 h-16 rounded-full bg-monday-hover flex items-center justify-center mb-4">
-                  <Bell size={28} className="opacity-60" />
-                </div>
-                <p className="text-[15px] font-medium text-monday-text">No hay notificaciones para mostrar</p>
-                <p className="text-[13px] mt-1 text-center">
-                  Te notificaremos aquí cuando alguien te @mencione o te asigne en un elemento.
-                </p>
-              </div>
+              <EmptyState
+                icon={Bell}
+                title="No hay notificaciones para mostrar"
+                description="Te avisaremos aquí cuando alguien te @mencione o te asigne en un elemento."
+              />
             )}
           </>
         )}

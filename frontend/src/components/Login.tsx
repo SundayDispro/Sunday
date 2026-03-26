@@ -2,13 +2,14 @@ import React, { useState, useEffect } from 'react';
 import { useUser } from '../store/UserContext';
 import { ArrowRight } from 'lucide-react';
 import { AnimatedLogo } from './AnimatedLogo';
+import { type AppTheme } from '../theme';
 
 type LoginProps = {
-  theme: 'light' | 'dark' | 'night' | 'dawn' | 'fog' | 'plum' | 'cacao' | 'aurora';
+  theme: AppTheme;
   layout?: 'horizontal' | 'vertical';
 };
 
-const LOGIN_LOGO_COLORS: Record<LoginProps['theme'], string> = {
+const LOGIN_LOGO_COLORS: Record<AppTheme, string> = {
   light: '#222221',
   dark: '#f8fafc',
   night: '#f8fafc',
@@ -17,9 +18,19 @@ const LOGIN_LOGO_COLORS: Record<LoginProps['theme'], string> = {
   plum: '#f3e9ff',
   cacao: '#f2e9df',
   aurora: '#e4f4ff',
+  forest: '#e8f5ef',
+  rose: '#fce7f3',
+  slate: '#f1f5f9',
+  ember: '#fef3e8',
+  cobalt: '#e8f0ff',
+  sand: '#2c2419',
+  ink: '#e2e8f0',
+  mint: '#134e4a',
+  sunset: '#fff1e6',
+  graphite: '#f4f4f5',
 };
 
-const LOGIN_CARD_CLASS: Record<LoginProps['theme'], string> = {
+const LOGIN_CARD_CLASS: Record<AppTheme, string> = {
   light: 'bg-white',
   dark: 'bg-[#1f2937]',
   night: 'bg-[#141414]',
@@ -28,7 +39,20 @@ const LOGIN_CARD_CLASS: Record<LoginProps['theme'], string> = {
   plum: 'bg-[#1b1026]',
   cacao: 'bg-[#241b15]',
   aurora: 'bg-[#0f2531]',
+  forest: 'bg-[#14231c]',
+  rose: 'bg-[#261820]',
+  slate: 'bg-[#273549]',
+  ember: 'bg-[#2a1810]',
+  cobalt: 'bg-[#122a52]',
+  sand: 'bg-[#e0d6c8]',
+  ink: 'bg-[#0f1624]',
+  mint: 'bg-[#dcf5eb]',
+  sunset: 'bg-[#3d2418]',
+  graphite: 'bg-[#3a3a42]',
 };
+
+/** Tarjeta clara (vertical): login legible sobre fondo claro. */
+const LOGIN_VERTICAL_LIGHT_THEMES: AppTheme[] = ['light', 'dawn', 'fog', 'sand', 'mint'];
 
 /* Tiempo tras el cual se pasa a idle (≥ duración de entrada del logo) */
 const LOGIN_LOGO_ENTER_MS = 900;
@@ -76,7 +100,7 @@ export const Login: React.FC<LoginProps> = ({ theme, layout = 'horizontal' }) =>
     return () => window.clearTimeout(t);
   }, []);
 
-  const verticalIsDark = theme === 'dark' || theme === 'night' || theme === 'plum' || theme === 'cacao' || theme === 'aurora';
+  const verticalIsDark = !LOGIN_VERTICAL_LIGHT_THEMES.includes(theme);
   const verticalCardClass = verticalIsDark
     ? 'relative w-full max-w-[430px] rounded-[22px] border border-white/10 bg-[#12091a] shadow-[0_28px_72px_rgba(0,0,0,0.55)] overflow-hidden'
     : 'relative w-full max-w-[430px] rounded-[22px] border border-black/10 bg-[#fbf7ef] shadow-[0_28px_72px_rgba(0,0,0,0.28)] overflow-hidden';

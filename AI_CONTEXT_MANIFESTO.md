@@ -70,5 +70,7 @@ Este documento es una radiografía técnica de Sunday. Define la arquitectura, l
 | **Seguridad JWT** | 20% | Planificado en Fase A; token almacenado pero no validado aún. |
 | **PostgreSQL** | 10% | Esquema preparado; falta migración física de datos. |
 | **Modo Móvil** | 80% | Optimizado; falta pulir PWA offline. |
+| **Paleta Ctrl/Cmd+K** | 100% | Busca elementos del tablero activo y navega; `/` muestra acciones; `/temas` filtra/elige apariencia. |
+| **Temas (sidebar + `/temas`)** | 100% | Sidebar rápido: `light`, `dark`, `night`, `plum`; lista extendida (18) disponible vía `/temas`; `manifest.webmanifest` sincroniza `theme_color` con el tema base (`#f6f7fb` en `light`). |
 
 *Este manifiesto es la fuente de verdad técnica. Cualquier cambio estructural debe reflejarse aquí.*

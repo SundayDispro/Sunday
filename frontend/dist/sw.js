@@ -1,11 +1,66 @@
-/* Service Worker para Sunday – PWA + Web Push */
+/* Service Worker para Sunday – PWA + Web Push + Offline Cache */
+
+const CACHE_NAME = 'sunday-cache-v1';
+const OFFLINE_URLS = [
+  '/',
+  '/index.html',
+  '/manifest.webmanifest',
+  '/favicon.ico',
+  '/icon-192.v6.png',
+  '/icon-512.v6.png',
+  '/apple-touch-icon-180x180.png'
+];
 
 self.addEventListener('install', (event) => {
-  event.waitUntil(self.skipWaiting());
+  event.waitUntil(
+    caches.open(CACHE_NAME).then((cache) => {
+      return cache.addAll(OFFLINE_URLS);
+    }).then(() => self.skipWaiting())
+  );
 });
 
 self.addEventListener('activate', (event) => {
-  event.waitUntil(self.clients.claim());
+  event.waitUntil(
+    caches.keys().then((cacheNames) => {
+      return Promise.all(
+        cacheNames.map((cacheName) => {
+          if (cacheName !== CACHE_NAME) {
+            return caches.delete(cacheName);
+          }
+        })
+      );
+    }).then(() => self.clients.claim())
+  );
+});
+
+self.addEventListener('fetch', (event) => {
+  // Ignorar peticiones a la API o web sockets para no cachearlas incorrectamente
+  if (event.request.url.includes('/api/') || event.request.url.includes('/socket.io/')) {
+    return;
+  }
+
+  event.respondWith(
+    caches.match(event.request).then((cachedResponse) => {
+      if (cachedResponse) {
+        return cachedResponse;
+      }
+      return fetch(event.request).then((networkResponse) => {
+        // Cachear estáticos (js, css, woff2) automáticamente
+        if (event.request.url.match(/\.(js|css|woff2|png|jpg|jpeg|svg)$/)) {
+          const responseToCache = networkResponse.clone();
+          caches.open(CACHE_NAME).then((cache) => {
+            cache.put(event.request, responseToCache);
+          });
+        }
+        return networkResponse;
+      }).catch(() => {
+        // Fallback a index.html para SPA routing offline
+        if (event.request.mode === 'navigate') {
+          return caches.match('/');
+        }
+      });
+    })
+  );
 });
 
 self.addEventListener('push', (event) => {

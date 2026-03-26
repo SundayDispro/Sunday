@@ -26,6 +26,10 @@ export function buildAuthHeaders(base: HeadersInit = {}): HeadersInit {
   };
 }
 
+import { notifyGlobalToast } from './toastGlobal';
+
+export type ApiFetchInit = RequestInit & { silent?: boolean };
+
 /**
  * Parsea la respuesta de fetch de forma segura:
  * - No llama a .json() en respuestas vacías (p. ej. 204).
@@ -95,9 +99,39 @@ function decodeJwtExpMs(token: string): number | null {
  * - Añade automáticamente el header Authorization: Bearer <token> si existe.
  * - Si recibe 401/403, guarda razón en sessionStorage, limpia sesión local y redirige al login.
  */
-export async function apiFetch(input: RequestInfo | URL, init: RequestInit = {}): Promise<Response> {
-  const headersWithAuth = buildAuthHeaders(init.headers ?? {});
-  const res = await fetch(input, { ...init, headers: headersWithAuth });
+async function extractErrorMessage(res: Response): Promise<string> {
+  let msg = 'Error al procesar la solicitud';
+  try {
+    const ct = res.headers.get('Content-Type') ?? '';
+    const clone = res.clone();
+    if (ct.includes('application/json')) {
+      const j = (await clone.json()) as Record<string, unknown>;
+      if (j && typeof j === 'object') {
+        if (typeof j.error === 'string') msg = j.error;
+        else if (typeof j.message === 'string') msg = j.message;
+      }
+    } else {
+      const t = await clone.text();
+      if (t?.trim()) msg = t.slice(0, 200);
+    }
+  } catch {
+    /* ignore */
+  }
+  return msg;
+}
+
+export async function apiFetch(input: RequestInfo | URL, init: ApiFetchInit = {}): Promise<Response> {
+  const { silent, ...rest } = init;
+  let res: Response;
+  try {
+    const headersWithAuth = buildAuthHeaders(rest.headers ?? {});
+    res = await fetch(input, { ...rest, headers: headersWithAuth });
+  } catch (e) {
+    if (!silent && e instanceof TypeError) {
+      notifyGlobalToast({ message: 'Sin conexión. Revisa tu red o VPN.', variant: 'error' });
+    }
+    throw e;
+  }
 
   // Solo forzar logout/redirección si había un token de sesión válido.
   // Si no hay token (pantalla de login), dejamos que el caller maneje el 401.
@@ -129,6 +163,16 @@ export async function apiFetch(input: RequestInfo | URL, init: RequestInit = {})
     } catch {
       // ignore en entornos sin window
     }
+  }
+
+  if (
+    !silent &&
+    !res.ok &&
+    res.status !== 401 &&
+    res.status !== 403
+  ) {
+    const msg = await extractErrorMessage(res);
+    notifyGlobalToast({ message: msg, variant: 'error' });
   }
 
   return res;

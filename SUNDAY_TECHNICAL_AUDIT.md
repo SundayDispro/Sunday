@@ -853,7 +853,14 @@ Componentes clave:
     - Reordenamiento de tabs de vistas del tablero mediante **drag & drop** (con persistencia en `localStorage` y controles de flecha como respaldo).
     - La pestaña **Estudio** fue eliminada; la pestaña **Navegador** fue retirada por no ser viable como iframe.
     - Detección responsive (`matchMedia`, `ResizeObserver`).
-    - Tema (`light` / `dark` / `night`) con persistencia en `localStorage` y sincronización con `<meta name="theme-color">`.
+    - Tema con persistencia en `localStorage` y sincronización con `<meta name="theme-color">`.
+      - `frontend/public/manifest.webmanifest` sincroniza `theme_color` con el tema base (p. ej. `#f6f7fb` para `light`).
+      - Selector rápido en sidebar/drawer móvil: `light`, `dark`, `night`, `plum`.
+      - Selector completo: lista extendida (incluye los 10 temas extra) y filtrado vía paleta con `/temas`.
+      - Persistencia/consistencia móvil asegurada para evitar “parches blancos” en overlays/drawers.
+    - `Ctrl/Cmd+K` (paleta de comandos): búsqueda de elementos del tablero activo + navegación.
+      - Prefijo `/`: muestra acciones disponibles.
+      - Prefijo `/temas`: permite elegir de la lista completa y filtrar apariencias.
   - Sidebar de Docs (desktop) actualizado:
     - Sistema de widgets persistentes por usuario/workspace (`panel-notes`) con orden arrastrable.
     - Widgets activos: **Tareas**, **Calculadora** y **Recordatorios**.

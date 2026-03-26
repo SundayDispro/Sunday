@@ -9,9 +9,11 @@ interface DraggableRowProps {
   row: Row<Item>;
   groupColor: string;
   isSelected?: boolean;
+  /** Pulso visual cuando otro usuario actualiza esta fila por socket. */
+  highlightSocket?: boolean;
 }
 
-export const DraggableRow: React.FC<DraggableRowProps> = ({ row, groupColor, isSelected }) => {
+export const DraggableRow: React.FC<DraggableRowProps> = ({ row, groupColor, isSelected, highlightSocket }) => {
   const {
     attributes,
     listeners,
@@ -49,8 +51,14 @@ export const DraggableRow: React.FC<DraggableRowProps> = ({ row, groupColor, isS
       transition={{ type: 'spring', stiffness: 350, damping: 30 }}
       ref={setNodeRef}
       style={style}
-      className={`h-[42px] transition group/row ${
-        isDragging ? 'shadow-xl ring-2 ring-monday-blue bg-white' : isSelected ? 'bg-monday-pill' : 'bg-white hover:bg-monday-hover'
+      className={`h-[42px] transition-[background-color,box-shadow] duration-300 group/row ${
+        isDragging
+          ? 'shadow-xl ring-2 ring-monday-blue bg-white'
+          : highlightSocket
+            ? 'bg-blue-50/90 ring-2 ring-inset ring-monday-blue/50 shadow-[inset_0_0_0_1px_rgba(0,101,255,0.2)]'
+            : isSelected
+              ? 'bg-monday-pill'
+              : 'bg-white hover:bg-monday-hover'
       }`}
     >
       {row.getVisibleCells().map((cell, i) => {

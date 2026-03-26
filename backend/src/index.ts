@@ -1197,11 +1197,37 @@ app.get('/api/notifications', authenticateToken, async (req, res) => {
     // IDOR fix: el usuario solo puede ver sus propias notificaciones.
     const userId = req.authUser?.id;
     if (!userId) return res.status(401).json({ error: 'No autenticado' });
-    const notifications = await notificationsService.findManyByUserId(prisma, userId);
-    res.json(notifications);
+    const limit = Math.min(parseInt(String(req.query.limit ?? '20'), 10) || 20, 50);
+    const skip = Math.max(parseInt(String(req.query.skip ?? '0'), 10) || 0, 0);
+    const type = typeof req.query.type === 'string' && req.query.type.trim() ? req.query.type.trim() : undefined;
+    const paginated = await notificationsService.findManyByUserIdPaginated(prisma, userId, {
+      skip,
+      take: limit,
+      type,
+    });
+    res.json(paginated);
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: 'Failed to fetch notifications' });
+  }
+});
+
+/** Resumen ligero para badge y punto “reciente” — no sustituye la lista paginada. */
+app.get('/api/notifications/unread-summary', authenticateToken, async (req, res) => {
+  try {
+    const userId = req.authUser?.id;
+    if (!userId) return res.status(401).json({ error: 'No autenticado' });
+    const [unreadCount, recentUnreadCount] = await Promise.all([
+      notificationsService.countUnreadForUser(prisma, userId),
+      notificationsService.countRecentUnreadForUser(prisma, userId, 2 * 60 * 1000),
+    ]);
+    res.json({
+      unreadCount,
+      recentUnread: recentUnreadCount > 0,
+    });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: 'Failed to fetch unread summary' });
   }
 });
 

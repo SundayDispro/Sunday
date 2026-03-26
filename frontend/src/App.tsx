@@ -11,38 +11,14 @@ import { Item, Board, Workspace, User, DocType } from './types';
 import { useUser } from './store/UserContext';
 import { AnimatedLogo } from './components/AnimatedLogo';
 import { Login } from './components/Login';
-type AppTheme = 'light' | 'dark' | 'night' | 'dawn' | 'fog' | 'plum' | 'cacao' | 'aurora';
-const THEME_STORAGE_KEY = 'sunday-theme';
-const THEME_COLORS: Record<AppTheme, string> = {
-  light: '#f6f7fb',
-  dark: '#111827',
-  night: '#0a0a0a',
-  dawn: '#e1d4c0',
-  fog: '#b8b8b8',
-  plum: '#1b1026',
-  cacao: '#1a1410',
-  aurora: '#091821',
-};
-const THEME_LABELS: Record<AppTheme, string> = {
-  light: 'Claro',
-  dark: 'Oscuro',
-  night: 'Noche',
-  dawn: 'Dawn',
-  fog: 'Fog',
-  plum: 'Plum',
-  cacao: 'Cacao',
-  aurora: 'Aurora',
-};
-const THEME_SWATCHES: Record<AppTheme, [string, string]> = {
-  light: ['#f6f7fb', '#d0d4e4'],
-  dark: ['#111827', '#374151'],
-  night: ['#0a0a0a', '#262626'],
-  dawn: ['#e1d4c0', '#bda78a'],
-  fog: ['#b8b8b8', '#8f8f8f'],
-  plum: ['#12091a', '#3a244f'],
-  cacao: ['#1a1410', '#4a3526'],
-  aurora: ['#091821', '#234252'],
-};
+import {
+  type AppTheme,
+  SIDEBAR_THEME_IDS,
+  THEME_COLORS,
+  THEME_LABELS,
+  THEME_SWATCHES,
+  normalizeStoredTheme,
+} from './theme';
 import { AdminUsersPanel } from './components/AdminUsersPanel';
 import { UserPanel } from './components/UserPanel';
 import { InboxPage } from './components/pages/InboxPage';
@@ -59,6 +35,8 @@ import { MiTrabajoPage } from './components/pages/MiTrabajoPage';
 import { TodayPage } from './components/pages/TodayPage';
 import { type MobileBottomTab } from './components/MobileBottomNav';
 import { MobileLayout } from './components/layout/MobileLayout';
+import { SocketConnectionIndicator } from './components/SocketConnectionIndicator';
+import { CommandPalette, type CommandPaletteItemEntry } from './components/CommandPalette';
 import { MobileBoardHeaderMinimal } from './components/MobileBoardHeaderMinimal';
 import { BoardViewBottomSheet } from './components/Board/BoardViewBottomSheet';
 import { MobileMoreDrawer } from './components/MobileMoreDrawer';
@@ -74,6 +52,15 @@ import * as Dialog from '@radix-ui/react-dialog';
 import { DndContext, PointerSensor, closestCenter, useSensor, useSensors, type DragEndEvent } from '@dnd-kit/core';
 import { SortableContext, arrayMove, horizontalListSortingStrategy, useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
+
+const THEME_STORAGE_KEY = 'sunday-theme';
+
+function ThemeSidebarGlyph({ theme, size = 20 }: { theme: AppTheme; size?: number }) {
+  if (theme === 'light') return <Sun size={size} strokeWidth={2.25} />;
+  if (theme === 'dark') return <Moon size={size} strokeWidth={2.25} />;
+  return <Sparkles size={size} strokeWidth={2.25} />;
+}
+
 type ViewMode = 'table' | 'kanban' | 'calendar' | 'facturacion' | 'resumen' | 'archivos' | 'miTrabajo' | 'timeline';
 
 const VIEW_LABELS: Record<ViewMode, string> = {
@@ -270,10 +257,23 @@ function App() {
 
   const [selectedItemObj, setSelectedItemObj] = useState<Item | null>(null);
 
+  // Tablero activo con `groups/items` (lo entrega BoardContainer para que Ctrl/Cmd+K pueda buscar elementos).
+  const [activeBoardData, setActiveBoardData] = useState<Board | null>(null);
+
   // Computed selectedItem based on selectedItemIdState and the current board's items
   const selectedItem = useMemo(() => {
     if (selectedItemObj) return selectedItemObj;
-    if (!selectedItemIdState || !boards.length) return null;
+    if (!selectedItemIdState) return null;
+
+    // Preferimos el tablero activo cargado (con items) para búsquedas desde Ctrl/Cmd+K.
+    if (activeBoardData) {
+      for (const g of activeBoardData.groups) {
+        const found = g.items.find(i => i.id === selectedItemIdState);
+        if (found) return found;
+      }
+    }
+
+    if (!boards.length) return null;
     for (const b of boards) {
       for (const g of b.groups) {
         const found = g.items.find(i => i.id === selectedItemIdState);
@@ -281,7 +281,18 @@ function App() {
       }
     }
     return null;
-  }, [selectedItemObj, selectedItemIdState, boards]);
+  }, [selectedItemObj, selectedItemIdState, activeBoardData, boards]);
+
+  const commandPaletteItems = useMemo((): CommandPaletteItemEntry[] => {
+    if (!activeBoardData) return [];
+    const out: CommandPaletteItemEntry[] = [];
+    for (const g of activeBoardData.groups) {
+      for (const it of g.items) {
+        out.push({ itemId: it.id, name: it.name, boardId: activeBoardData.id, boardName: activeBoardData.name });
+      }
+    }
+    return out;
+  }, [activeBoardData]);
 
   const setSelectedItem = (item: Item | null) => {
     setSelectedItemObj(item);
@@ -494,12 +505,8 @@ function App() {
     if (typeof window === 'undefined') return 'light';
     try {
       const raw = localStorage.getItem(THEME_STORAGE_KEY);
-      let stored = raw as AppTheme | 'zen' | 'zenPlus' | 'ember' | null;
-      // Migración de nombres antiguos a los nuevos
-      if (stored === 'zen') stored = 'dawn';
-      if (stored === 'zenPlus') stored = 'fog';
-      if (stored === 'ember') stored = 'cacao';
-      if (stored && ['light', 'dark', 'night', 'dawn', 'fog', 'plum', 'cacao', 'aurora'].includes(stored)) return stored as AppTheme;
+      const normalized = normalizeStoredTheme(raw);
+      if (normalized) return normalized;
       return window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
     } catch {
       return 'light';
@@ -672,6 +679,9 @@ function App() {
   const [createBoardError, setCreateBoardError] = useState<string | null>(null);
   const newBoardNameInputRef = useRef<HTMLInputElement>(null);
   const [unreadNotifCount, setUnreadNotifCount] = useState(0);
+  /** Notificación no leída creada hace < 2 min (badge “reciente” en campana). */
+  const [recentUnreadNotif, setRecentUnreadNotif] = useState(false);
+  const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const [showCreateBoardModal, setShowCreateBoardModal] = useState(false);
   const [composeToUser, setComposeToUser] = useState<User | null>(null);
   const [pendingDocFromBoard, setPendingDocFromBoard] = useState<{
@@ -769,15 +779,18 @@ function App() {
         return ts <= mentionsReadAt;
       };
 
-      const [notifRes, mentionsRes] = await Promise.all([
-        apiFetch(`${API_BASE}/api/notifications?userId=${userId}`),
+      const [summaryRes, mentionsRes] = await Promise.all([
+        apiFetch(`${API_BASE}/api/notifications/unread-summary`, { silent: true }),
         apiFetch(`${API_BASE}/api/feed?filter=mentions&userId=${encodeURIComponent(userId)}`),
       ]);
 
       let unreadAssignments = 0;
-      if (notifRes.ok) {
-        const data = await notifRes.json();
-        unreadAssignments = data.filter((n: { read: boolean }) => !n.read).length;
+      if (summaryRes.ok) {
+        const s = await summaryRes.json();
+        unreadAssignments = typeof s.unreadCount === 'number' ? s.unreadCount : 0;
+        setRecentUnreadNotif(Boolean(s.recentUnread));
+      } else {
+        setRecentUnreadNotif(false);
       }
 
       let unreadMentions = 0;
@@ -799,6 +812,18 @@ function App() {
   useEffect(() => {
     fetchUnreadNotifications();
   }, [fetchUnreadNotifications]);
+
+  useEffect(() => {
+    if (!currentUser) return;
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        setCommandPaletteOpen((o) => !o);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [currentUser]);
 
   // iOS/Android (cuando el navegador soporta Badging API):
   // mostrar contador en el ícono de la app con notificaciones sin leer.
@@ -1493,6 +1518,7 @@ function App() {
                     onRowClick={setSelectedItem}
                     viewMode="calendar"
                     calendarStandalone
+                    onBoardData={setActiveBoardData}
                   />
                 </div>
               ) : boards.length === 0 ? (
@@ -1511,7 +1537,14 @@ function App() {
           ) : activePage === 'calendar' && isMobile ? (
             activeBoardId ? (
               <div className="flex-1 flex flex-col min-h-0">
-                <BoardContainer boardId={activeBoardId} onRowClick={setSelectedItem} viewMode="calendar" mobileCalendarOnly isMobile />
+                <BoardContainer
+                  boardId={activeBoardId}
+                  onRowClick={setSelectedItem}
+                  viewMode="calendar"
+                  mobileCalendarOnly
+                  isMobile={isMobile}
+                  onBoardData={setActiveBoardData}
+                />
               </div>
             ) : boards.length === 0 ? (
               <div className="flex-1 flex flex-col items-center justify-center text-monday-subtext p-6">
@@ -1828,7 +1861,12 @@ function App() {
               </header>
 
               <div className="flex-1 min-h-0 overflow-hidden relative flex flex-col">
-                <BoardContainer boardId={activeBoardId} onRowClick={setSelectedItem} viewMode={currentView} />
+                <BoardContainer
+                  boardId={activeBoardId}
+                  onRowClick={setSelectedItem}
+                  viewMode={currentView}
+                  onBoardData={setActiveBoardData}
+                />
               </div>
             </>
           ) : isMobile && (activePage === 'inbox' || activePage === 'notifications') ? (
@@ -1936,6 +1974,38 @@ function App() {
         </div>
       )}
 
+      {currentUser && (
+        <CommandPalette
+          open={commandPaletteOpen}
+          onOpenChange={setCommandPaletteOpen}
+          boardNames={boards.map((b) => ({ id: b.id, name: b.name }))}
+          itemEntries={commandPaletteItems}
+          onSelectBoard={(id) => {
+            setActiveBoardId(id);
+            setActivePage('board');
+          }}
+          onSelectItem={(itemId, boardId) => {
+            setActiveBoardId(boardId);
+            setActivePage('board');
+            setSelectedItemObj(null);
+            setSelectedItemIdState(itemId);
+          }}
+          onNavigate={(page) => {
+            if (page === 'home') setActivePage('home');
+            if (page === 'notifications') setActivePage('notifications');
+            if (page === 'inbox') setActivePage('inbox');
+            if (page === 'search') setActivePage('search');
+          }}
+          currentTheme={theme}
+          onSelectTheme={setTheme}
+          onLogout={() => {
+            logout();
+          }}
+          canOpenAdmin={currentUser?.role === 'ADMIN'}
+          onOpenAdmin={() => setShowAdminPanel(true)}
+        />
+      )}
+
       {jwtIsExpired && (
         <div className="fixed inset-0 z-[2200] flex items-center justify-center bg-black/40 p-4">
           <div className="w-full max-w-md rounded-xl bg-white shadow-xl border border-black/10 overflow-hidden">
@@ -2025,6 +2095,9 @@ function App() {
           boardsCount={boards.length}
           workspaceName={activeWorkspaceName}
           onOpenAdmin={() => setShowAdminPanel(true)}
+          onOpenCommandPalette={() => {
+            window.setTimeout(() => setCommandPaletteOpen(true), 200);
+          }}
         />
       )}
       {/* Left Nav Rail (solo desktop) */}
@@ -2033,6 +2106,9 @@ function App() {
         {/* Logo */}
         <div className="w-10 h-10 rounded-xl flex items-center justify-center mb-3 overflow-hidden">
           <AnimatedLogo size={40} color="#f8fafc" />
+        </div>
+        <div className="mb-3 flex justify-center w-full px-1.5 min-w-0">
+          <SocketConnectionIndicator />
         </div>
         <div className="w-8 h-px bg-white/10 mb-3" />
 
@@ -2060,9 +2136,18 @@ function App() {
           >
             {icon}
             {id === 'notifications' && unreadNotifCount > 0 && (
-              <span className="absolute -top-0.5 -right-0.5 min-w-[16px] h-4 px-1 flex items-center justify-center bg-red-500 text-white text-[10px] font-bold rounded-full">
-                {unreadNotifCount > 99 ? '99+' : unreadNotifCount}
-              </span>
+              <>
+                {recentUnreadNotif && (
+                  <span
+                    className="absolute -top-1 -left-0.5 h-2 w-2 rounded-full bg-emerald-400 ring-2 ring-black"
+                    title="Actividad reciente"
+                    aria-hidden
+                  />
+                )}
+                <span className="absolute -top-0.5 -right-0.5 min-w-[16px] h-4 px-1 flex items-center justify-center bg-red-500 text-white text-[10px] font-bold rounded-full">
+                  {unreadNotifCount > 99 ? '99+' : unreadNotifCount}
+                </span>
+              </>
             )}
           </button>
         ))}
@@ -2091,14 +2176,7 @@ function App() {
               title={`Tema ${THEME_LABELS[theme].toLowerCase()}`}
               className="min-h-[44px] min-w-[44px] w-11 h-11 flex items-center justify-center rounded-lg text-white/70 hover:text-white hover:bg-monday-sidebarHover transition-all duration-150"
             >
-              {theme === 'light' && <Sun size={20} strokeWidth={2.25} />}
-              {theme === 'dark' && <Moon size={20} strokeWidth={2.25} />}
-              {theme === 'night' && <Sparkles size={20} strokeWidth={2.25} />}
-              {theme === 'dawn' && <Sparkles size={20} strokeWidth={2.25} />}
-              {theme === 'fog' && <Sparkles size={20} strokeWidth={2.25} />}
-              {theme === 'plum' && <Sparkles size={20} strokeWidth={2.25} />}
-              {theme === 'cacao' && <Sparkles size={20} strokeWidth={2.25} />}
-              {theme === 'aurora' && <Sparkles size={20} strokeWidth={2.25} />}
+              <ThemeSidebarGlyph theme={theme} size={20} />
             </button>
           </Popover.Trigger>
           <Popover.Portal>
@@ -2112,20 +2190,13 @@ function App() {
               <p className="text-[11px] font-semibold text-monday-subtext px-2 mb-1.5 uppercase tracking-wider">
                 Tema
               </p>
-              {(['light', 'dark', 'night', 'dawn', 'fog', 'plum', 'cacao', 'aurora'] as const).map(t => (
+              {SIDEBAR_THEME_IDS.map((t) => (
                 <button
                   key={t}
                   onClick={() => { setTheme(t); setThemeSelectorOpen(false); }}
                   className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-monday hover:bg-monday-hover transition-colors text-left text-[13px] ${theme === t ? 'bg-monday-pill text-monday-text' : 'text-monday-text'}`}
                 >
-                  {t === 'light' && <Sun size={16} className="shrink-0" />}
-                  {t === 'dark' && <Moon size={16} className="shrink-0" />}
-                  {t === 'night' && <Sparkles size={16} className="shrink-0" />}
-                  {t === 'dawn' && <Sparkles size={16} className="shrink-0" />}
-                  {t === 'fog' && <Sparkles size={16} className="shrink-0" />}
-                  {t === 'plum' && <Sparkles size={16} className="shrink-0" />}
-                  {t === 'cacao' && <Sparkles size={16} className="shrink-0" />}
-                  {t === 'aurora' && <Sparkles size={16} className="shrink-0" />}
+                  <span className="shrink-0"><ThemeSidebarGlyph theme={t} size={16} /></span>
                   <span className="flex-1">{THEME_LABELS[t]}</span>
                   <span className="ml-auto flex items-center gap-1">
                     <span className="w-2.5 h-2.5 rounded-full border border-monday-border" style={{ backgroundColor: THEME_SWATCHES[t][0] }} />
@@ -2963,6 +3034,7 @@ if (ok && data && typeof data.id === 'string') {
               }}
               compact={isLandscapeShort}
               unreadNotifCount={unreadNotifCount}
+              recentUnreadNotif={recentUnreadNotif}
             >
             {routeTree}
             </MobileLayout>
