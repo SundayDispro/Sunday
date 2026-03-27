@@ -11,6 +11,10 @@ export default defineConfig(({ mode }) => {
     .filter(Boolean)
 
   return {
+    // Si ves 504 "Outdated Optimize Dep" en dev: ejecuta `npm run dev:fresh` o borra `node_modules/.vite`.
+    optimizeDeps: {
+      include: ['react', 'react-dom/client', 'react/jsx-runtime', 'react/jsx-dev-runtime'],
+    },
     plugins: [
     react(),
     {

@@ -1338,44 +1338,35 @@ app.patch('/api/users/:id/status', auth_1.requireAuth, async (req, res) => {
         res.status(500).json({ error: 'Error al actualizar estado' });
     }
 });
-// Subir/actualizar foto de perfil del usuario
-app.patch('/api/users/:id/avatar', auth_1.requireAuth, (req, res) => {
-    const id = queryParamToString(req.params.id);
-    if (!id) {
-        return res.status(400).json({ error: 'id inválido' });
+/** Preferencias de UI (tema, etc.): merge superficial con el JSON existente. */
+app.patch('/api/users/me', auth_1.authenticateToken, async (req, res) => {
+    try {
+        const uid = req.authUser?.id;
+        if (!uid)
+            return res.status(401).json({ error: 'No autenticado' });
+        const { preferences } = req.body ?? {};
+        if (preferences !== undefined &&
+            (typeof preferences !== 'object' || preferences === null || Array.isArray(preferences))) {
+            return res.status(400).json({ error: 'preferences debe ser un objeto JSON' });
+        }
+        const existing = await prisma.user.findUnique({ where: { id: uid } });
+        if (!existing)
+            return res.status(404).json({ error: 'Usuario no encontrado' });
+        const prev = existing.preferences ?? {};
+        const merged = preferences && typeof preferences === 'object'
+            ? { ...prev, ...preferences }
+            : prev;
+        const updated = await prisma.user.update({
+            where: { id: uid },
+            data: { preferences: merged },
+        });
+        const { password: _p, ...safe } = updated;
+        res.json(safe);
     }
-    if (req.authUser?.id !== id) {
-        return res.status(403).json({ error: 'Solo puedes cambiar tu propio avatar' });
+    catch (e) {
+        console.error(e);
+        res.status(500).json({ error: 'Error al actualizar preferencias' });
     }
-    avatarUpload.single('avatar')(req, res, async (err) => {
-        if (err) {
-            if (err instanceof multer_1.default.MulterError) {
-                return res.status(400).json({ error: `Error de subida: ${err.message}` });
-            }
-            return res.status(400).json({ error: 'Archivo inválido o demasiado grande (máx 5 MB, solo imágenes)' });
-        }
-        if (!req.file) {
-            return res.status(400).json({ error: 'No se recibió ningún archivo' });
-        }
-        const avatarUrl = '/uploads/' + req.file.filename;
-        try {
-            const user = await prisma.user.findUnique({ where: { id } });
-            if (!user)
-                return res.status(404).json({ error: 'Usuario no encontrado' });
-            const updated = await prisma.user.update({
-                where: { id },
-                data: { avatarUrl },
-            });
-            const { password: _p, ...safe } = updated;
-            // Notificar por room de usuario para evitar broadcast global.
-            io.to(userRoom(safe.id)).emit('user_updated', safe);
-            res.json(safe);
-        }
-        catch (e) {
-            console.error(e);
-            res.status(500).json({ error: 'Error al guardar avatar' });
-        }
-    });
 });
 // Eliminar usuario (solo ADMIN)
 app.delete('/api/users/:id', auth_1.requireAuth, auth_1.requireAdmin, async (req, res) => {
@@ -1414,12 +1405,39 @@ app.get('/api/notifications', auth_1.authenticateToken, async (req, res) => {
         const userId = req.authUser?.id;
         if (!userId)
             return res.status(401).json({ error: 'No autenticado' });
-        const notifications = await notificationsService.findManyByUserId(prisma, userId);
-        res.json(notifications);
+        const limit = Math.min(parseInt(String(req.query.limit ?? '20'), 10) || 20, 50);
+        const skip = Math.max(parseInt(String(req.query.skip ?? '0'), 10) || 0, 0);
+        const type = typeof req.query.type === 'string' && req.query.type.trim() ? req.query.type.trim() : undefined;
+        const paginated = await notificationsService.findManyByUserIdPaginated(prisma, userId, {
+            skip,
+            take: limit,
+            type,
+        });
+        res.json(paginated);
     }
     catch (e) {
         console.error(e);
         res.status(500).json({ error: 'Failed to fetch notifications' });
+    }
+});
+/** Resumen ligero para badge y punto “reciente” — no sustituye la lista paginada. */
+app.get('/api/notifications/unread-summary', auth_1.authenticateToken, async (req, res) => {
+    try {
+        const userId = req.authUser?.id;
+        if (!userId)
+            return res.status(401).json({ error: 'No autenticado' });
+        const [unreadCount, recentUnreadCount] = await Promise.all([
+            notificationsService.countUnreadForUser(prisma, userId),
+            notificationsService.countRecentUnreadForUser(prisma, userId, 2 * 60 * 1000),
+        ]);
+        res.json({
+            unreadCount,
+            recentUnread: recentUnreadCount > 0,
+        });
+    }
+    catch (e) {
+        console.error(e);
+        res.status(500).json({ error: 'Failed to fetch unread summary' });
     }
 });
 app.patch('/api/notifications/:id/read', auth_1.authenticateToken, async (req, res) => {

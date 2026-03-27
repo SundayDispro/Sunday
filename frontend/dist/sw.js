@@ -1,6 +1,6 @@
 /* Service Worker para Sunday – PWA + Web Push + Offline Cache */
 
-const CACHE_NAME = 'sunday-cache-v1';
+const CACHE_NAME = 'sunday-cache-v11';
 const OFFLINE_URLS = [
   '/',
   '/index.html',
@@ -34,31 +34,63 @@ self.addEventListener('activate', (event) => {
 });
 
 self.addEventListener('fetch', (event) => {
-  // Ignorar peticiones a la API o web sockets para no cachearlas incorrectamente
-  if (event.request.url.includes('/api/') || event.request.url.includes('/socket.io/')) {
+  // Solo manejamos requests HTTP(s) GET
+  if (event.request.method !== 'GET') return;
+  const reqUrl = event.request.url || '';
+  if (!reqUrl.startsWith('http://') && !reqUrl.startsWith('https://')) return;
+
+  // Ignorar peticiones a la API o web sockets
+  if (reqUrl.includes('/api/') || reqUrl.includes('/socket.io/')) {
     return;
   }
 
+  // 1. Network-First para navegación (HTML) - Asegura ver la última versión si hay red
+  if (event.request.mode === 'navigate') {
+    event.respondWith(
+      fetch(event.request).then((networkResponse) => {
+        const responseToCache = networkResponse.clone();
+        caches.open(CACHE_NAME).then((cache) => {
+          cache.put(event.request, responseToCache);
+        });
+        return networkResponse;
+      }).catch(() => {
+        return caches.match(event.request).then((cachedResponse) => {
+          return cachedResponse || caches.match('/');
+        });
+      })
+    );
+    return;
+  }
+
+  // 2. Stale-While-Revalidate para estáticos (js, css, imágenes, fuentes)
+  if (reqUrl.match(/\.(js|css|woff2|png|jpg|jpeg|svg|ico)$/)) {
+    event.respondWith(
+      caches.match(event.request).then((cachedResponse) => {
+        const fetchPromise = fetch(event.request).then((networkResponse) => {
+          if (networkResponse && networkResponse.ok) {
+            const responseToCache = networkResponse.clone();
+            caches.open(CACHE_NAME).then((cache) => {
+              cache.put(event.request, responseToCache);
+            });
+          }
+          return networkResponse;
+        }).catch(() => {
+          // Fallback silencioso si falla la red durante la revalidación
+        });
+
+        return cachedResponse || fetchPromise;
+      })
+    );
+    return;
+  }
+
+  // 3. Cache-First por defecto para el resto de recursos cacheados (manifest, etc.)
   event.respondWith(
     caches.match(event.request).then((cachedResponse) => {
       if (cachedResponse) {
         return cachedResponse;
       }
-      return fetch(event.request).then((networkResponse) => {
-        // Cachear estáticos (js, css, woff2) automáticamente
-        if (event.request.url.match(/\.(js|css|woff2|png|jpg|jpeg|svg)$/)) {
-          const responseToCache = networkResponse.clone();
-          caches.open(CACHE_NAME).then((cache) => {
-            cache.put(event.request, responseToCache);
-          });
-        }
-        return networkResponse;
-      }).catch(() => {
-        // Fallback a index.html para SPA routing offline
-        if (event.request.mode === 'navigate') {
-          return caches.match('/');
-        }
-      });
+      return fetch(event.request);
     })
   );
 });
