@@ -94,7 +94,21 @@ export interface User {
   status?: UserStatus;
   /** Preferencias de UI sincronizadas con el backend (tema, etc.) */
   preferences?: Record<string, unknown> | null;
+  /** URL o ruta relativa del avatar (subida vía API). */
+  avatarUrl?: string | null;
 }
+
+/** Post del feed / bandeja (API /api/feed). */
+export interface FeedPost {
+  id: string;
+  content: string;
+  authorId: string;
+  author?: { id: string; name: string; initials: string; color: string };
+  createdAt: string;
+}
+
+/** Opciones al abrir la bandeja desde notificaciones. */
+export type InboxOpenOpts = { userId?: string; postId?: string; tab?: 'mentions' | 'all' };
 
 export interface Update {
   id: string;

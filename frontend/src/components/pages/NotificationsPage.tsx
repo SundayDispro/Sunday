@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { Bell, Check, CheckCheck, ExternalLink, AtSign, UserPlus } from 'lucide-react';
 import { EmptyState } from '../EmptyState';
 import { useUser } from '../../store/UserContext';
-import { FeedPost, Notification as NotificationType, Item } from '../../types';
+import { FeedPost, InboxOpenOpts, Notification as NotificationType, Item } from '../../types';
 import { apiFetch } from '../../api';
 import { parseNotificationsListPayload } from '../../utils/notificationsResponse';
 

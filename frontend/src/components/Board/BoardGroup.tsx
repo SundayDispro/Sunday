@@ -66,6 +66,8 @@ interface Props {
   onDeleteItemWithUndo?: (itemId: string) => void;
   /** IDs de filas/tarjetas a resaltar brevemente tras actualización por socket (otro usuario). */
   socketHighlightIds?: Set<string>;
+  /** Tras crear un subgrupo desde la UI (p. ej. + Cliente). */
+  onGroupCreated?: (group: Group) => void;
 }
 
 const columnHelper = createColumnHelper<Item>();
@@ -558,6 +560,7 @@ export const BoardGroup: React.FC<Props> = ({
   onOptimisticDelete,
   onDeleteItemWithUndo,
   socketHighlightIds = new Set(),
+  onGroupCreated,
 }) => {
   const { toast } = useToast();
   const API_BASE_BG = import.meta.env.DEV ? '' : (import.meta.env.VITE_API_URL ?? '');

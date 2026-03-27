@@ -90,7 +90,7 @@ interface Props {
   mobileLayout?: boolean;
   /** En móvil hub: el scroll lo hace el contenedor padre; la lista no debe tener overflow propio (arregla iOS Safari). */
   scrollListInParent?: boolean;
-  /** Shell tipo Word iOS: Inicio / Crear / Explorar + barra inferior flotante (solo con mobileLayout + isMobile). */
+  /** Shell tipo Word iOS: Inicio / Crear / Explorar + barra inferior flotante (solo con mobileLayout + viewport Docs móvil). */
   mobileWordShell?: boolean;
 }
 
@@ -1496,9 +1496,11 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
   const [reminderDraftRepeat, setReminderDraftRepeat] = useState<ReminderRepeat>('none');
   const [reminderDraftSound, setReminderDraftSound] = useState<ReminderSound>('beep');
 
-  const { isMobile } = useViewport();
+  const { isMobile: viewportMobile, isDocsMobile } = useViewport();
+  /** En hub móvil (`mobileLayout`) el umbral es más ancho (tablets); en Docs escritorio se mantiene el umbral estrecho. */
+  const docsUxMobile = mobileLayout ? isDocsMobile : viewportMobile;
   const [wordShellTab, setWordShellTab] = useState<WordShellTab>('inicio');
-  const useWordMobileShell = Boolean(mobileLayout && mobileWordShell && isMobile);
+  const useWordMobileShell = Boolean(mobileLayout && mobileWordShell && docsUxMobile);
 
   const selectedDoc = useMemo(
     () => docs.find(d => d.id === selectedId) ?? null,
@@ -1592,17 +1594,17 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
   /** En móvil vista Lista: true = se muestra el viewer (solo panel derecho); false = se muestra la lista (solo panel izquierdo). */
   const [mobileDocOpen, setMobileDocOpen] = useState(false);
   useEffect(() => {
-    if (isMobile && selectedId === null) setMobileDocOpen(false);
-  }, [isMobile, selectedId]);
+    if (docsUxMobile && selectedId === null) setMobileDocOpen(false);
+  }, [docsUxMobile, selectedId]);
   const beginNewDocDraft = useCallback((type: DocType) => {
     setViewMode('overview');
     setSelectedId(null);
-    if (isMobile) setMobileDocOpen(true);
+    if (docsUxMobile) setMobileDocOpen(true);
     setNewDocDraft({
       type,
       title: type === 'sheet' ? 'Nueva hoja' : getDocTypeTitle(type),
     });
-  }, [isMobile]);
+  }, [docsUxMobile]);
 
   const openTemplateInNewTab = useCallback((type: DocType) => {
     const url = new URL(window.location.href);
@@ -1617,9 +1619,9 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
     setViewMode('docs');
     setSelectedId(null);
     setNewDocDraft(null);
-    if (isMobile) setMobileDocOpen(false);
+    if (docsUxMobile) setMobileDocOpen(false);
     void handleCreate(type);
-  }, [isMobile]);
+  }, [docsUxMobile]);
   // Drawer móvil para editar plantillas (evita “scroll dentro de scroll”).
   const [templateEditorMobileOpen, setTemplateEditorMobileOpen] = useState(false);
   // Focus Mode (Micro-Editor) para edición contextual en móvil.
@@ -2316,14 +2318,14 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
   const hasInitializedMobileCollapseRef = useRef(false);
 
   useEffect(() => {
-    if (!isMobile || hasInitializedMobileCollapseRef.current) return;
+    if (!docsUxMobile || hasInitializedMobileCollapseRef.current) return;
     const typeKeys = DOC_TYPE_OPTIONS.map((opt) => `type:${opt.id}`);
     const customKeys = customGroups.map((grp) => `custom:${grp.id}`);
     const allKeys = [...typeKeys, ...customKeys];
     if (allKeys.length === 0) return;
     hasInitializedMobileCollapseRef.current = true;
     setCollapsedDocGroups(new Set(allKeys));
-  }, [isMobile, customGroups]);
+  }, [docsUxMobile, customGroups]);
 
   const toggleDocGroupCollapse = (key: string) => {
     setCollapsedDocGroups((prev) => {
@@ -2339,7 +2341,7 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
   // Si hay borrador nuevo activo, forzamos la vista de edición para evitar volver a "Explorar" por cambios de estado laterales.
   const effectiveViewMode: 'docs' | 'overview' = newDocDraft ? 'overview' : viewMode;
   const useEmbeddedTemplateEditor =
-    isMobile &&
+    docsUxMobile &&
     templateEditorMobileOpen &&
     !!selectedDoc &&
     isPdfDocType(selectedDoc.type as DocType);
@@ -2348,10 +2350,10 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
   // o al tocar "Editar plantilla" el efecto nos devolvería a lista.
   const hasSetInitialMobileViewRef = useRef(false);
   useEffect(() => {
-    if (!isMobile || hasSetInitialMobileViewRef.current) return;
+    if (!docsUxMobile || hasSetInitialMobileViewRef.current) return;
     hasSetInitialMobileViewRef.current = true;
     setViewMode('docs');
-  }, [isMobile]);
+  }, [docsUxMobile]);
 
   useEffect(() => {
     if (!workspaceId || !currentUserId) {
@@ -2903,8 +2905,8 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
   const closeEmbeddedTemplateEditor = useCallback(() => {
     templateEditorCloseAfterSaveRef.current = false;
     setTemplateEditorMobileOpen(false);
-    if (isMobile) setMobileDocOpen(templateEditorReturnToDocOpenRef.current);
-  }, [isMobile]);
+    if (docsUxMobile) setMobileDocOpen(templateEditorReturnToDocOpenRef.current);
+  }, [docsUxMobile]);
 
   const setDocWorkflowStatus = useCallback((docId: string, status: WorkflowStatus) => {
     setWorkflowStatusByDocId((prev) => ({ ...prev, [docId]: status }));
@@ -3094,7 +3096,7 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
       const created = data as Doc;
       setDocs(prev => [created, ...prev]);
       setSelectedId(created.id);
-      if (isMobile) setMobileDocOpen(true);
+      if (docsUxMobile) setMobileDocOpen(true);
       setNewDocDraft(null);
       if (subgroupId) {
         setSubgroupAssignments((prev) => ({ ...prev, [created.id]: subgroupId }));
@@ -3637,8 +3639,8 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
   const handleOpenExistingDoc = useCallback((id: string) => {
     setNewDocDraft(null);
     setSelectedId(id);
-    if (isMobile) setMobileDocOpen(true);
-  }, [isMobile]);
+    if (docsUxMobile) setMobileDocOpen(true);
+  }, [docsUxMobile]);
 
   /** En vista Lista: alias semántico para selección desde la tabla/listado. */
   const handleSelectDocInList = useCallback((id: string) => {
@@ -3777,7 +3779,7 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
       const created = data as Doc;
       setDocs(prev => [created, ...prev]);
       setSelectedId(created.id);
-      if (isMobile) setMobileDocOpen(true);
+      if (docsUxMobile) setMobileDocOpen(true);
       setNewDocDraft(null);
       setSaveModal(null);
       const link = linkToBoardItemRef.current;
@@ -4064,13 +4066,13 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
         </Dialog.Portal>
       </Dialog.Root>
 
-      {!(useWordMobileShell && isMobile) && (
+      {!useWordMobileShell && (
       <div className="p-3 sm:p-4 border-b border-monday-border flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <h1 className="text-[18px] sm:text-[20px] font-semibold text-monday-text flex items-center gap-2 shrink-0">
           <BookOpen size={20} className="text-monday-blue sm:w-[22px] sm:h-[22px]" />
           Documentos
         </h1>
-        {!isMobile && (
+        {!docsUxMobile && (
           <div className="flex rounded-lg border border-monday-border overflow-x-auto scroll-touch overflow-y-hidden bg-white shrink-0 flex-nowrap">
             <button
               type="button"
@@ -4135,7 +4137,7 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
                     </span>
                   </button>
                 ))}
-                {!isMobile && onAddTaskList && (
+                {!docsUxMobile && onAddTaskList && (
                   <Popover.Root>
                     <Popover.Trigger asChild>
                       <button
@@ -4222,7 +4224,7 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
                       <p className="mb-1">
                         Elige un tipo de documento arriba (texto, hoja, cotización, etc.) para comenzar.
                       </p>
-                      {!isMobile && (
+                      {!docsUxMobile && (
                         <p>
                           También puedes añadir un widget desde el bloque <span className="font-semibold">“Añadir widget”</span>.
                         </p>
@@ -4319,7 +4321,7 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
                       pushSheetHistory={pushSheetHistory}
                       undoSheet={undoSheet}
                       redoSheet={redoSheet}
-                      layoutVariant={isMobile ? 'mobile' : 'desktop'}
+                      layoutVariant={docsUxMobile ? 'mobile' : 'desktop'}
                     />
                   ) : (
                     <WordLikeEditor
@@ -4329,7 +4331,7 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
                       headerImageUrl={headerImageUrlDraft}
                       setHeaderImageUrl={setHeaderImageUrlDraft}
                       documentTitle={selectedDoc?.title ?? newDocDraft?.title ?? 'Documento'}
-                      enableMobileViewEditMode={useWordMobileShell && isMobile}
+                      enableMobileViewEditMode={useWordMobileShell}
                     />
                   )}
                 </>
@@ -4428,7 +4430,7 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
       ) : (
       <div className={`flex-1 flex flex-col md:flex-row bg-monday-bg min-h-0 ${scrollListInParent ? 'overflow-visible min-h-min' : 'overflow-hidden'}`}>
         {/* Panel izquierdo: lista de docs. En móvil solo visible cuando mobileDocOpen === false. */}
-        {(!isMobile || !mobileDocOpen) && (
+        {(!docsUxMobile || !mobileDocOpen) && (
         <div
           className={`flex-1 min-h-0 px-4 sm:px-6 py-4 sm:py-5 min-w-0 overscroll-contain ${useWordMobileShell ? 'pb-44' : 'pb-28'} ${scrollListInParent ? 'overflow-visible' : 'overflow-y-auto overflow-x-hidden custom-scrollbar scroll-touch'}`}
           style={scrollListInParent ? undefined : { WebkitOverflowScrolling: 'touch' }}
@@ -4626,7 +4628,7 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
         )}
 
         {/* Panel derecho: visualizador (solo lectura). En móvil solo visible cuando mobileDocOpen === true. */}
-        {(!isMobile || mobileDocOpen) && (
+        {(!docsUxMobile || mobileDocOpen) && (
         <section className="flex-1 flex flex-col min-w-0 min-h-0 w-full md:max-w-[60%] border-t md:border-t-0 md:border-l border-monday-border overflow-hidden bg-white">
           {error && (
             <div className="px-4 py-2 bg-red-50 text-red-700 text-[13px] border-b border-red-200">
@@ -4651,7 +4653,7 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
                   {selectedDoc.title || 'Sin título'}
                 </h2>
                 <div className="flex items-center gap-1.5 sm:gap-2 flex-shrink-0">
-                  {!isMobile && (
+                  {!docsUxMobile && (
                   <select
                     value={getDocWorkflowStatus(selectedDoc)}
                     onChange={(e) => setDocWorkflowStatus(selectedDoc.id, e.target.value as WorkflowStatus)}
@@ -4665,7 +4667,7 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
                   )}
                   <button
                     type="button"
-                    onClick={() => { setSelectedId(null); if (isMobile) setMobileDocOpen(false); }}
+                    onClick={() => { setSelectedId(null); if (docsUxMobile) setMobileDocOpen(false); }}
                     className="inline-flex items-center gap-1.5 px-2.5 py-1.5 min-h-[44px] sm:min-h-0 rounded-monday border border-monday-border text-[12px] text-monday-subtext hover:bg-monday-hover touch-manipulation"
                   >
                     <X size={14} className="sm:w-3 sm:h-3" />
@@ -4692,7 +4694,7 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
                       <button
                         type="button"
                         onClick={() => {
-                          if (isMobile) {
+                          if (docsUxMobile) {
                             openMobilePdfTemplateDrawer();
                           } else {
                             setViewMode('overview');
@@ -4706,7 +4708,7 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
                       <button
                         type="button"
                         onClick={() => {
-                          if (isMobile) {
+                          if (docsUxMobile) {
                             openMobilePdfTemplateDrawer();
                           } else {
                             setViewMode('overview');
@@ -4817,7 +4819,7 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
               ) : selectedDoc?.type === 'sheet' ? (
                 <div
                   className={
-                    isMobile
+                    docsUxMobile
                       ? 'flex-1 min-h-0 min-w-0 flex flex-col overflow-hidden'
                       : 'flex-1 min-h-0 overflow-auto scroll-touch custom-scrollbar'
                   }
@@ -4825,15 +4827,15 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
                   <ExcelLikeSheet
                     tableDraft={tableDraft}
                     setTableDraft={setTableDraft}
-                    ensureTableSize={isMobile ? ensureTableSizeWithHistory : ensureTableSize}
+                    ensureTableSize={docsUxMobile ? ensureTableSizeWithHistory : ensureTableSize}
                     cellStyles={cellStylesDraft}
-                    setCellStyles={isMobile ? setCellStylesDraft : undefined}
+                    setCellStyles={docsUxMobile ? setCellStylesDraft : undefined}
                     documentTitle={selectedDoc.title}
-                    readOnly={!isMobile}
-                    pushSheetHistory={isMobile ? pushSheetHistory : undefined}
-                    undoSheet={isMobile ? undoSheet : undefined}
-                    redoSheet={isMobile ? redoSheet : undefined}
-                    layoutVariant={isMobile ? 'mobile' : 'desktop'}
+                    readOnly={!docsUxMobile}
+                    pushSheetHistory={docsUxMobile ? pushSheetHistory : undefined}
+                    undoSheet={docsUxMobile ? undoSheet : undefined}
+                    redoSheet={docsUxMobile ? redoSheet : undefined}
+                    layoutVariant={docsUxMobile ? 'mobile' : 'desktop'}
                   />
                 </div>
               ) : selectedDoc?.type === 'text' ? (

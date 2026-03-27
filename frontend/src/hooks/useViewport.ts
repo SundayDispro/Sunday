@@ -3,9 +3,17 @@ import { useEffect, useState } from 'react';
 /** Altura máxima en landscape para considerar "poco espacio vertical" (nav compacto, menos padding). */
 const LANDSCAPE_SHORT_MAX_HEIGHT = 500;
 
+/**
+ * Ancho máximo para usar el módulo Docs móvil (shell tipo Word iOS, sheets móvil, lista+visor).
+ * Incluye tablets en portrait y la mayoría de ventanas “estrechas”; por encima se usa Docs escritorio.
+ */
+const DOCS_MOBILE_MAX_WIDTH_PX = 1024;
+
 export type ViewportState = {
   /** Ventana estrecha (≤767px) o landscape con poca altura → UI móvil (bottom nav, etc.). */
   isMobile: boolean;
+  /** Viewport apto para Docs móvil (Word shell, hub): ≤1024px o landscape con poca altura. */
+  isDocsMobile: boolean;
   /** Orientación horizontal (pantalla más ancha que alta). */
   isLandscape: boolean;
   /** Landscape con poca altura (≤500px) → barra inferior compacta, menos padding. */
@@ -22,6 +30,7 @@ function getViewportState(): ViewportState {
   if (typeof window === 'undefined') {
     return {
       isMobile: false,
+      isDocsMobile: false,
       isLandscape: false,
       isLandscapeShort: false,
       isPortrait: true,
@@ -30,6 +39,7 @@ function getViewportState(): ViewportState {
     };
   }
   const narrow = window.matchMedia('(max-width: 767px)').matches;
+  const docsNarrow = window.matchMedia(`(max-width: ${DOCS_MOBILE_MAX_WIDTH_PX}px)`).matches;
   const landscape = window.matchMedia('(orientation: landscape)').matches;
   const landscapeShort = window.matchMedia(
     `(orientation: landscape) and (max-height: ${LANDSCAPE_SHORT_MAX_HEIGHT}px)`
@@ -38,10 +48,12 @@ function getViewportState(): ViewportState {
   const hasWidthForDesktop = window.matchMedia('(min-width: 640px)').matches;
 
   const isMobile = narrow || landscapeShort;
+  const isDocsMobile = docsNarrow || landscapeShort;
   const useCardView = isMobile || !hasWidthForDesktop;
 
   return {
     isMobile,
+    isDocsMobile,
     isLandscape: landscape,
     isLandscapeShort: landscapeShort,
     isPortrait: portrait,
@@ -59,6 +71,7 @@ export function useViewport(): ViewportState {
 
   useEffect(() => {
     const mqNarrow = window.matchMedia('(max-width: 767px)');
+    const mqDocsNarrow = window.matchMedia(`(max-width: ${DOCS_MOBILE_MAX_WIDTH_PX}px)`);
     const mqLandscape = window.matchMedia('(orientation: landscape)');
     const mqLandscapeShort = window.matchMedia(
       `(orientation: landscape) and (max-height: ${LANDSCAPE_SHORT_MAX_HEIGHT}px)`
@@ -70,6 +83,7 @@ export function useViewport(): ViewportState {
 
     handler();
     mqNarrow.addEventListener('change', handler);
+    mqDocsNarrow.addEventListener('change', handler);
     mqLandscape.addEventListener('change', handler);
     mqLandscapeShort.addEventListener('change', handler);
     mqPortrait.addEventListener('change', handler);
@@ -77,6 +91,7 @@ export function useViewport(): ViewportState {
 
     return () => {
       mqNarrow.removeEventListener('change', handler);
+      mqDocsNarrow.removeEventListener('change', handler);
       mqLandscape.removeEventListener('change', handler);
       mqLandscapeShort.removeEventListener('change', handler);
       mqPortrait.removeEventListener('change', handler);

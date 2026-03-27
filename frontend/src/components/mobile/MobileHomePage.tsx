@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { LayoutGrid, Search, BookOpen, PanelsTopLeft, type LucideIcon } from 'lucide-react';
 import { useViewport } from '../../hooks/useViewport';
 
@@ -27,6 +27,17 @@ export function MobileHomePage({
   onOpenSearch: () => void;
 }) {
   const { isLandscape } = useViewport();
+  /** Tablet en portrait (p. ej. iPad): misma cabecera lateral que en landscape. */
+  const [wideTabletPortrait, setWideTabletPortrait] = useState(false);
+  useEffect(() => {
+    const mq = window.matchMedia('(min-width: 600px) and (max-width: 1024px) and (orientation: portrait)');
+    const apply = () => setWideTabletPortrait(mq.matches);
+    apply();
+    mq.addEventListener('change', apply);
+    return () => mq.removeEventListener('change', apply);
+  }, []);
+
+  const useSplitHomeLayout = isLandscape || wideTabletPortrait;
 
   const actions: QuickAction[] = [
     {
@@ -57,7 +68,7 @@ export function MobileHomePage({
     if (navigator.vibrate) navigator.vibrate(20);
   };
 
-  if (isLandscape) {
+  if (useSplitHomeLayout) {
     return (
       <div className="flex-1 min-h-0 flex flex-row items-stretch overflow-hidden bg-monday-bg">
         {/* Columna izquierda: gradiente a todo el alto (sin redondeo inferior = sin “corte” del fondo) */}

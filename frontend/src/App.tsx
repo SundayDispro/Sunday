@@ -1,4 +1,4 @@
-import React, { Suspense, lazy, useEffect, useMemo, useRef, useState } from 'react';
+import React, { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { socket } from './store/socket';
 import BoardContainer from './components/Board/BoardContainer';
@@ -366,7 +366,8 @@ function decodeJwtExpMs(token: string): number | null {
 
 function App() {
   const { currentUser, logout } = useUser();
-  const { isMobile, isLandscapeShort, isLandscape } = useViewport();
+  /** isDocsMobile = ≤1024px: shell móvil completo (inicio con cabecera lateral en landscape, tablero compacto, docs Word iOS). */
+  const { isDocsMobile, isLandscapeShort, isLandscape } = useViewport();
   useOrientationViewportFix();
   const { mobileState, updateMobileState } = useMobileState('board');
   const { toast } = useToast();
@@ -377,7 +378,7 @@ function App() {
   const [boardsLoaded, setBoardsLoaded] = useState(false);
 
   const [selectedItemIdState, setSelectedItemIdState] = useState<string | null>(() => {
-    if (typeof window !== 'undefined' && window.innerWidth <= 767) {
+    if (typeof window !== 'undefined' && window.innerWidth <= 1024) {
       try {
         const saved = localStorage.getItem('sunday_mobile_state');
         if (saved) {
@@ -434,10 +435,10 @@ function App() {
   };
 
   useEffect(() => {
-    if (isMobile) {
+    if (isDocsMobile) {
       updateMobileState({ selectedItemId: selectedItemIdState });
     }
-  }, [selectedItemIdState, isMobile]);
+  }, [selectedItemIdState, isDocsMobile]);
   const canSeeFacturacionView = can(currentUser, 'billing.view');
   const isTaller = currentUser?.role === 'TALLER';
 
@@ -748,22 +749,23 @@ function App() {
     } catch {
       // ignore
     }
-    const isMobileInitial = window.innerWidth <= 767 || (window.matchMedia?.('(orientation: landscape) and (max-height: 500px)')?.matches ?? false);
-    if (isMobileInitial && mobileState.activePage) {
+    const isDocsMobileInitial =
+      window.innerWidth <= 1024 || (window.matchMedia?.('(orientation: landscape) and (max-height: 500px)')?.matches ?? false);
+    if (isDocsMobileInitial && mobileState.activePage) {
       return mobileState.activePage as any;
     }
-    return isMobileInitial ? 'home' : 'board';
+    return isDocsMobileInitial ? 'home' : 'board';
   });
 
   // Sync mobile state
   useEffect(() => {
-    if (isMobile) {
+    if (isDocsMobile) {
       updateMobileState({ activePage });
     }
-  }, [activePage, isMobile]);
+  }, [activePage, isDocsMobile]);
 
   /** Calendario en móvil horizontal: menos chrome en la barra superior para ganar área útil. */
-  const calendarMinimalChrome = isMobile && activePage === 'calendar' && isLandscape;
+  const calendarMinimalChrome = isDocsMobile && activePage === 'calendar' && isLandscape;
 
   // Deep-link desde notificaciones push:
   // `/?tab=notifications` / `/?tab=inbox` (limpiamos el query param tras cargar).
@@ -835,7 +837,7 @@ function App() {
     }
   }, [activePage]);
   const [activeBoardId, setActiveBoardId] = useState<string | null>(() => {
-    if (typeof window !== 'undefined' && window.innerWidth <= 767) {
+    if (typeof window !== 'undefined' && window.innerWidth <= 1024) {
       try {
         const saved = localStorage.getItem('sunday_mobile_state');
         if (saved) {
@@ -848,14 +850,14 @@ function App() {
   });
 
   useEffect(() => {
-    if (isMobile) {
+    if (isDocsMobile) {
       updateMobileState({ activeBoardId });
     }
-  }, [activeBoardId, isMobile]);
+  }, [activeBoardId, isDocsMobile]);
   const [boardSearch, setBoardSearch] = useState('');
   const handleExportFolders = useCallback(async () => {
     if (!currentUser || !activeBoardId) return;
-    if (isMobile) return;
+    if (isDocsMobile) return;
 
     if (!supportsDirectoryPicker()) {
       toast('Esta función requiere Chrome o Edge en escritorio', 'info');
@@ -911,7 +913,7 @@ function App() {
     } finally {
       setExportingFolders(false);
     }
-  }, [activeBoardId, currentUser, isMobile, toast]);
+  }, [activeBoardId, currentUser, isDocsMobile, toast]);
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
   const [workspacesLoaded, setWorkspacesLoaded] = useState(false);
   const [activeWorkspaceId, setActiveWorkspaceId] = useState<string | null>(null);
@@ -949,17 +951,17 @@ function App() {
     setMobileHeaderHidden(false);
   }, [activeBoardId, activePage]);
 
-  const isMobileBoardView = isMobile && (activePage === 'board' && activeBoardId || activePage === 'miTrabajo' && activeBoardId);
+  const shellBoardView = isDocsMobile && (activePage === 'board' && activeBoardId || activePage === 'miTrabajo' && activeBoardId);
 
   /** Calendario horizontal con tablero: sin barra global ni bottom nav; ancho completo del viewport. */
   const calendarImmersiveLandscape =
-    isMobile && activePage === 'calendar' && isLandscape && activeBoardId != null;
+    isDocsMobile && activePage === 'calendar' && isLandscape && activeBoardId != null;
   /** Móvil en horizontal: sin barra inferior fija para ganar altura (navegación vía header / menú). */
-  const mobileLandscapeChrome = isMobile && isLandscape;
+  const mobileLandscapeChrome = isDocsMobile && isLandscape;
   const hideMobileMainBottomPad =
     activePage === 'docs' || calendarImmersiveLandscape || mobileLandscapeChrome;
   useEffect(() => {
-    if (!isMobileBoardView) return;
+    if (!shellBoardView) return;
     const el = mobileHeaderRef.current;
     if (!el) return;
     const ro = new ResizeObserver((entries) => {
@@ -970,7 +972,7 @@ function App() {
     });
     ro.observe(el);
     return () => ro.disconnect();
-  }, [isMobileBoardView]);
+  }, [shellBoardView]);
 
   const [calculatorExpression, setCalculatorExpression] = useState('');
   const [calculatorResult, setCalculatorResult] = useState<string | null>(null);
@@ -1783,7 +1785,7 @@ function App() {
   const routeTree = (
     <>
           {activePage === 'home' ? (
-            isMobile ? (
+            isDocsMobile ? (
               <MobileHomePage
                 userName={currentUser?.name ?? currentUser?.username ?? null}
                 onOpenSearch={() => {
@@ -1831,7 +1833,7 @@ function App() {
                 }}
               />
             )
-          ) : activePage === 'calendar' && !isMobile ? (
+          ) : activePage === 'calendar' && !isDocsMobile ? (
             <>
               <header className="shrink-0 border-b border-monday-border bg-white">
                 <div className="h-14 flex items-center px-4 sm:px-6 gap-3">
@@ -1901,7 +1903,7 @@ function App() {
                 </div>
               )}
             </>
-          ) : activePage === 'calendar' && isMobile ? (
+          ) : activePage === 'calendar' && isDocsMobile ? (
             activeBoardId ? (
               <div className="flex-1 flex flex-col min-h-0">
                 <BoardContainer
@@ -1909,7 +1911,7 @@ function App() {
                   onRowClick={setSelectedItem}
                   viewMode="calendar"
                   mobileCalendarOnly
-                  isMobile={isMobile}
+                  isMobile={isDocsMobile}
                   onBoardData={setActiveBoardData}
                 />
               </div>
@@ -1923,7 +1925,7 @@ function App() {
                 <p className="text-[13px]">Selecciona un tablero desde Inicio o el menú (icono de menú).</p>
               </div>
             )
-          ) : isMobile && !isBootstrapping && (activePage === 'board' && activeBoardId || activePage === 'miTrabajo' && activeBoardId) ? (
+          ) : isDocsMobile && !isBootstrapping && (activePage === 'board' && activeBoardId || activePage === 'miTrabajo' && activeBoardId) ? (
             <>
               <motion.div
                 className="min-h-0 overflow-hidden shrink-0"
@@ -1961,7 +1963,7 @@ function App() {
                   onRowClick={setSelectedItem}
                   viewMode={activePage === 'miTrabajo' ? 'miTrabajo' : currentView}
                   mobileOptimized
-                  isMobile
+                  isMobile={isDocsMobile}
                   onHeaderVisibilityChange={setMobileHeaderHidden}
                 />
               </div>
@@ -1993,7 +1995,7 @@ function App() {
               onRowClick={setSelectedItem}
             />
           ) : activePage === 'board' && !activeBoardId ? (
-            isMobile ? (
+            isDocsMobile ? (
               <MobileBoardsOverview
                 workspaces={workspaces}
                 activeWorkspaceId={activeWorkspaceId}
@@ -2212,7 +2214,7 @@ function App() {
               }}
             />
           ) : activePage === 'docs' ? (
-            isMobile ? (
+            isDocsMobile ? (
               <MobileDocsHub
                 workspaceId={activeWorkspaceId ?? workspaces[0]?.id ?? null}
                 boards={boards}
@@ -2274,7 +2276,7 @@ function App() {
     </>
   );
 
-  const chromeHidden = focusMode && !isMobile;
+  const chromeHidden = focusMode && !isDocsMobile;
 
   return (
     <div
@@ -2411,7 +2413,7 @@ function App() {
       )}
 
       {/* Drawer "Más" en móvil (sustituye sidebar + rail) */}
-      {isMobile && (
+      {isDocsMobile && (
         <MobileMoreDrawer
           open={sidebarOpen}
           onOpenChange={setSidebarOpen}
@@ -2457,10 +2459,29 @@ function App() {
           onOpenCommandPalette={() => {
             window.setTimeout(() => setCommandPaletteOpen(true), 200);
           }}
+          boards={boards}
+          boardSearch={boardSearch}
+          onBoardSearchChange={setBoardSearch}
+          activeBoardId={activeBoardId}
+          onSelectBoard={setActiveBoardId}
+          onNavigate={(page) => {
+            if (page === 'notifications') {
+              setActivePage('notifications');
+              fetchUnreadNotifications();
+            } else if (page === 'inbox') setActivePage('inbox');
+            else if (page === 'docs') setActivePage('docs');
+            else if (page === 'search') setActivePage('search');
+            else if (page === 'team') setActivePage('team');
+            else if (page === 'facturacion') setActivePage('facturacion');
+          }}
+          canSeeFacturacion={!!canSeeFacturacionView}
+          isTaller={!!isTaller}
+          onRequestAddBoard={() => setShowAddBoard(true)}
+          unreadNotifCount={unreadNotifCount}
         />
       )}
       {/* Left Nav Rail (solo desktop) */}
-      {!isMobile && (
+      {!isDocsMobile && (
       <aside
         className={`${railCollapsed ? 'w-[40px] min-w-[40px]' : 'w-[56px] min-w-[56px]'} bg-black flex flex-col items-center py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] gap-1 z-30 transition-[width,min-width] duration-200 ${chromeHidden ? 'hidden' : ''}`}
       >
@@ -2470,7 +2491,7 @@ function App() {
         </div>
         <div className="w-8 h-px bg-white/10 mb-3" />
 
-        {!isMobile &&
+        {!isDocsMobile &&
           navIcons.map(({ id, icon, label }) =>
             id === 'notifications' ? (
               <NotificationDropdown
@@ -2597,7 +2618,7 @@ function App() {
       )}
 
       {/* Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ Workspace Sidebar Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ */}
-      {!isMobile && (
+      {!isDocsMobile && (
       <aside
         className={`${sidebarOpen ? 'w-[232px] min-w-[232px]' : 'w-0 min-w-0'} ${chromeHidden ? 'hidden' : ''} bg-monday-sidebarPanel flex flex-col overflow-hidden transition-all duration-200 z-20 border-r border-l border-monday-border ${sidebarOpen ? 'shadow-monday-xl' : ''}`}
       >
@@ -2850,7 +2871,7 @@ if (ok && data && typeof data.id === 'string') {
                 <p className="text-monday-subtext text-[11px] font-semibold px-2 mb-2 uppercase tracking-wider">Docs</p>
                 <p className="text-monday-text text-[12px] px-2">Documentación del equipo.</p>
               </div>
-              {!isMobile && (
+              {!isDocsMobile && (
                 <>
                   <div className="px-2 mb-2 mt-2">
                     <p className="text-[11px] font-semibold text-monday-subtext uppercase tracking-wider">Tus widgets</p>
@@ -3410,9 +3431,9 @@ if (ok && data && typeof data.id === 'string') {
       <main
         className={[
           'flex-1 flex flex-col min-w-0 overflow-hidden min-h-0',
-          isMobile ? 'p-0 bg-monday-bg' : 'p-2 sm:p-3 pl-0 bg-monday-bg',
+          isDocsMobile ? 'p-0 bg-monday-bg' : 'p-2 sm:p-3 pl-0 bg-monday-bg',
           /* Sin padding inferior cuando no hay barra (Docs / calendario horizontal inmersivo). */
-          isMobile && !hideMobileMainBottomPad
+          isDocsMobile && !hideMobileMainBottomPad
             ? isLandscapeShort
               ? 'pb-[52px] main-mobile main-mobile-landscape'
               : 'pb-[80px] main-mobile'
@@ -3422,20 +3443,20 @@ if (ok && data && typeof data.id === 'string') {
         <div
           className={[
             'flex-1 flex flex-col min-h-0 overflow-hidden',
-            isMobile ? 'bg-monday-bg' : 'bg-white rounded-xl sm:rounded-2xl shadow-monday-sm border border-monday-border',
+            isDocsMobile ? 'bg-monday-bg' : 'bg-white rounded-xl sm:rounded-2xl shadow-monday-sm border border-monday-border',
           ].join(' ')}
         >
           {/* Barra común: ocultar/mostrar panel lateral en todas las vistas */}
           <header
             className={[
               'shrink-0 h-14 flex items-center gap-2 px-3 sm:px-4',
-              isMobile
+              isDocsMobile
                 ? 'border-b border-monday-border bg-[var(--monday-surface)] backdrop-blur-xl'
                 : 'border-b border-monday-border',
               chromeHidden ? 'hidden' : '',
             ].join(' ')}
           >
-            {isMobile ? (
+            {isDocsMobile ? (
               mobileCanGoBack ? (
                 <button
                   type="button"
@@ -3515,14 +3536,14 @@ if (ok && data && typeof data.id === 'string') {
                                   ? 'Inicio'
                                   : 'Inicio'}
             </span>
-            {isMobile && !calendarMinimalChrome && (
+            {isDocsMobile && !calendarMinimalChrome && (
               <div className="shrink-0">
                 <AnimatedLogo size={26} color="currentColor" />
               </div>
             )}
           </header>
 
-          {isMobile && isBootstrapping ? (
+          {isDocsMobile && isBootstrapping ? (
             <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
               <AnimatePresence mode="wait" initial={false}>
                 <motion.div
@@ -3540,7 +3561,7 @@ if (ok && data && typeof data.id === 'string') {
                 </motion.div>
               </AnimatePresence>
             </div>
-          ) : isMobile ? (
+          ) : isDocsMobile ? (
             <MobileLayout
               pageKey={`${activePage}:${activeBoardId ?? ''}`}
               hideBottomNav={activePage === 'docs' || mobileLandscapeChrome}
@@ -3625,7 +3646,7 @@ if (ok && data && typeof data.id === 'string') {
         </div>
       </main>
 
-      {!isMobile && selectedItem && (
+      {!isDocsMobile && selectedItem && (
         <motion.aside
           key={selectedItem.id}
           initial={{ x: 40, opacity: 0 }}
@@ -3661,7 +3682,7 @@ if (ok && data && typeof data.id === 'string') {
       </div>
 
       {/* Item Details Panel móvil */}
-      {isMobile && selectedItem && (
+      {isDocsMobile && selectedItem && (
         <div className="fixed inset-0 z-[60]">
           <div className="absolute inset-0 bg-black/40" onClick={() => setSelectedItem(null)} aria-hidden />
           <div className="absolute left-0 right-0 bottom-0 max-h-[90dvh] flex flex-col panel-slide-in" style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}>
@@ -3689,7 +3710,7 @@ if (ok && data && typeof data.id === 'string') {
       
       <AdminUsersPanel open={showAdminPanel} onOpenChange={setShowAdminPanel} />
 
-      {isMobile && (
+      {isDocsMobile && (
         <AnimatedDialog
           open={showCreateBoardModal}
           onOpenChange={(open) => {

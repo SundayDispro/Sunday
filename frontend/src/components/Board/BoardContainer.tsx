@@ -85,7 +85,7 @@ function GroupDragOverlay({ groups }: { groups: Group[] }) {
 const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode, onBoardData, mobileCalendarOnly = false, mobileOptimized = false, calendarStandalone = false, onHeaderVisibilityChange, isMobile = false }) => {
   const { currentUser, users } = useUser();
   const canDeleteItem = can(currentUser, 'item.delete');
-  const { useCardView, isLandscapeShort, isPortrait, isMobile: isViewportMobile } = useViewport();
+  const { useCardView, isLandscapeShort, isLandscape, isPortrait, isMobile: isViewportMobile } = useViewport();
   const { toast, dismiss } = useToast();
   const dismissRef = useRef(dismiss);
   dismissRef.current = dismiss;
@@ -131,6 +131,8 @@ const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode, onBoar
   const [showBulkAssignPopover, setShowBulkAssignPopover] = useState(false);
   const [showDeleteItemsConfirm, setShowDeleteItemsConfirm] = useState(false);
   const [showMoreMenu, setShowMoreMenu] = useState(false);
+  const [itemTextFilter, setItemTextFilter] = useState('');
+  const [mobileQuickFilter, setMobileQuickFilter] = useState<string | null>(null);
   const [addToProjectOpen, setAddToProjectOpen] = useState(false);
   const [addToProjectGroupId, setAddToProjectGroupId] = useState<string>('');
   const [addToProjectAfterItemId, setAddToProjectAfterItemId] = useState<string>('');
