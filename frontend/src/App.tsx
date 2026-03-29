@@ -5,7 +5,7 @@ import BoardContainer from './components/Board/BoardContainer';
 import { ItemDetailsPanel } from './components/Board/ItemDetailsPanel';
 import {
   Home, Bell, Search, ChevronDown, ChevronRight,
-  Users, BookOpen, BarChart2, Inbox, Star, Plus, Receipt, Calendar, Folder, PieChart, FolderOpen, UserCheck, GanttChart, Check, AlertCircle, X, Sun, Moon, Sparkles, LayoutGrid, Menu, ChevronLeft, Globe, GripVertical, PanelLeft,
+  Users, BookOpen, BarChart2, Inbox, Star, Plus, Receipt, Calendar, Folder, PieChart, FolderOpen, UserCheck, GanttChart, Check, AlertCircle, X, Sun, Moon, Sparkles, LayoutGrid, Menu, ChevronLeft, Globe, GripVertical,
 } from 'lucide-react';
 import { Item, Board, Workspace, User, DocType } from './types';
 import { useUser } from './store/UserContext';
@@ -35,7 +35,6 @@ import { MiTrabajoPage } from './components/pages/MiTrabajoPage';
 import { TodayPage } from './components/pages/TodayPage';
 import { type MobileBottomTab } from './components/MobileBottomNav';
 import { MobileLayout } from './components/layout/MobileLayout';
-import { SocketConnectionIndicator } from './components/SocketConnectionIndicator';
 import { CommandPalette, type CommandPaletteItemEntry } from './components/CommandPalette';
 import { NotificationDropdown } from './components/NotificationDropdown';
 import { exportBoardToExcel } from './utils/exportBoardToExcel';
@@ -649,14 +648,6 @@ function App() {
     }
   });
   const [themeSelectorOpen, setThemeSelectorOpen] = useState(false);
-  /** Rail izquierdo estrecho (40px); persistido. */
-  const [railCollapsed, setRailCollapsed] = useState(() => {
-    try {
-      return typeof localStorage !== 'undefined' && localStorage.getItem('sunday-rail-collapsed') === '1';
-    } catch {
-      return false;
-    }
-  });
   /** Oculta rail + sidebar + header (desktop). */
   const [focusMode, setFocusMode] = useState(false);
   /** Lista de docs para la paleta (/doc). */
@@ -678,19 +669,7 @@ function App() {
   }, [theme]);
 
   useEffect(() => {
-    try {
-      localStorage.setItem('sunday-rail-collapsed', railCollapsed ? '1' : '0');
-    } catch {
-      /* ignore */
-    }
-  }, [railCollapsed]);
-
-  useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && e.key === '\\') {
-        e.preventDefault();
-        setRailCollapsed((r) => !r);
-      }
       if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === 'f') {
         e.preventDefault();
         setFocusMode((f) => !f);
@@ -1500,7 +1479,13 @@ function App() {
     activePage === 'docs' ||
     ['search', 'team', 'notifications', 'facturacion', 'inbox'].includes(activePage);
 
-  const navIconSize = railCollapsed ? 18 : 22;
+  const navIconSize = 22;
+  const railAvatarSrc =
+    currentUser?.avatarUrl != null && String(currentUser.avatarUrl).trim() !== ''
+      ? currentUser.avatarUrl.startsWith('http')
+        ? currentUser.avatarUrl
+        : `${API_BASE}${currentUser.avatarUrl}`
+      : null;
 
   const navIconsAll = [
     { id: 'board', icon: <Home size={navIconSize} strokeWidth={2.25} />, label: 'Inicio' },
@@ -2013,6 +1998,9 @@ function App() {
                 workspace={workspaces.find(w => w.id === activeWorkspaceId) ?? null}
                 workspaces={workspaces}
                 boards={boards}
+                showAsHome
+                onOpenSearch={() => setActivePage('search')}
+                onRequestAddBoard={() => setShowAddBoard(true)}
                 onSelectBoard={setActiveBoardId}
                 onSelectWorkspace={(id) => {
                   setActiveWorkspaceId(id);
@@ -2336,7 +2324,10 @@ function App() {
             setActiveBoardId(null);
           }}
           onNavigate={(page) => {
-            if (page === 'home') setActivePage('home');
+            if (page === 'home') {
+              setActivePage('home');
+              setActiveBoardId(null);
+            }
             if (page === 'notifications') setActivePage('notifications');
             if (page === 'inbox') setActivePage('inbox');
             if (page === 'search') setActivePage('search');
@@ -2349,7 +2340,10 @@ function App() {
             if (page === 'team') setActivePage('team');
           }}
           onQuickNav={(dest) => {
-            if (dest === 'inicio') setActivePage('home');
+            if (dest === 'inicio') {
+              setActivePage('home');
+              setActiveBoardId(null);
+            }
             if (dest === 'calendario') {
               setActivePage('calendar');
               if (boards.length > 0 && !activeBoardId) setActiveBoardId(boards[0].id);
@@ -2483,11 +2477,11 @@ function App() {
       {/* Left Nav Rail (solo desktop) */}
       {!isDocsMobile && (
       <aside
-        className={`${railCollapsed ? 'w-[40px] min-w-[40px]' : 'w-[56px] min-w-[56px]'} bg-black flex flex-col items-center py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] gap-1 z-30 transition-[width,min-width] duration-200 ${chromeHidden ? 'hidden' : ''}`}
+        className={`w-[56px] min-w-[56px] bg-black flex flex-col items-center py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] gap-1 z-30 ${chromeHidden ? 'hidden' : ''}`}
       >
         {/* Logo */}
-        <div className={`${railCollapsed ? 'w-8 h-8' : 'w-10 h-10'} rounded-xl flex items-center justify-center mb-2 overflow-hidden transition-all`}>
-          <AnimatedLogo size={railCollapsed ? 32 : 40} color="#f8fafc" />
+        <div className="w-10 h-10 rounded-xl flex items-center justify-center mb-2 overflow-hidden">
+          <AnimatedLogo size={40} color="#f8fafc" />
         </div>
         <div className="w-8 h-px bg-white/10 mb-3" />
 
@@ -2499,7 +2493,7 @@ function App() {
                 unreadCount={unreadNotifCount}
                 recentPulse={recentUnreadNotif}
                 isActive={activePage === 'notifications'}
-                compact={railCollapsed}
+                compact={false}
                 onNotificationsChange={fetchUnreadNotifications}
                 onOpenItem={(item, boardId) => {
                   setActivePage('board');
@@ -2523,13 +2517,13 @@ function App() {
                   ] as const;
                   if (pageIds.includes(id as (typeof pageIds)[number])) {
                     setActivePage(id as (typeof pageIds)[number]);
+                    // Inicio (ícono casa): siempre volver a Vista general del workspace, no quedarse en un tablero abierto.
+                    if (id === 'board') setActiveBoardId(null);
                     if (id === 'notifications') fetchUnreadNotifications();
                     if (id === 'calendar' && boards.length > 0 && !activeBoardId) setActiveBoardId(boards[0].id);
                   }
                 }}
-                className={`relative flex items-center justify-center rounded-lg transition-all duration-150 ${
-                  railCollapsed ? 'min-h-[36px] min-w-[36px] w-[36px] h-[36px]' : 'min-h-[44px] min-w-[44px] w-11 h-11'
-                } ${
+                className={`relative flex items-center justify-center rounded-lg transition-all duration-150 min-h-[44px] min-w-[44px] w-11 h-11 ${
                   activePage === id
                     ? 'bg-monday-sidebarHover text-white shadow-sm'
                     : 'text-white/70 hover:text-white hover:bg-monday-sidebarHover'
@@ -2540,16 +2534,16 @@ function App() {
             )
           )}
 
-        {/* Spacer + avatar at bottom */}
+        {/* Spacer + tema + avatar */}
         <div className="flex-1" />
         <div className="w-full flex flex-col items-center justify-center gap-1 pb-1">
           <Popover.Root open={themeSelectorOpen} onOpenChange={setThemeSelectorOpen}>
             <Popover.Trigger asChild>
               <button
                 title={`Tema ${THEME_LABELS[theme].toLowerCase()}`}
-                className={`${railCollapsed ? 'min-h-[36px] min-w-[36px] w-[36px] h-[36px]' : 'min-h-[44px] min-w-[44px] w-11 h-11'} flex items-center justify-center rounded-lg text-white/70 hover:text-white hover:bg-monday-sidebarHover transition-all duration-150`}
+                className="min-h-[44px] min-w-[44px] w-11 h-11 flex items-center justify-center rounded-lg text-white/70 hover:text-white hover:bg-monday-sidebarHover transition-all duration-150"
               >
-                <ThemeSidebarGlyph theme={theme} size={railCollapsed ? 16 : 20} />
+                <ThemeSidebarGlyph theme={theme} size={20} />
               </button>
             </Popover.Trigger>
             <Popover.Portal>
@@ -2581,32 +2575,21 @@ function App() {
             </Popover.Portal>
           </Popover.Root>
 
-          {/* Botón de colapsar junto al selector de tema */}
-          <button
-            type="button"
-            title="Colapsar barra (Ctrl+\\)"
-            aria-label="Colapsar barra lateral"
-            onClick={() => setRailCollapsed((r) => !r)}
-            className={`${railCollapsed ? 'min-h-[36px] min-w-[36px] w-[36px] h-[36px]' : 'min-h-[44px] min-w-[44px] w-11 h-11'} flex items-center justify-center rounded-lg text-white/70 hover:text-white hover:bg-white/10 transition-colors`}
-          >
-            <PanelLeft size={railCollapsed ? 14 : 16} strokeWidth={2.25} />
-          </button>
-
-          {/* Texto + punto EN LÍNEA debajo del selector */}
-          <div className="mb-1 flex justify-center w-full px-1.5 min-w-0">
-            <SocketConnectionIndicator compact={railCollapsed} />
-          </div>
-
           <UserPanel
             open={showUserPanel}
             onOpenChange={setShowUserPanel}
             trigger={
               <button
+                type="button"
                 title={currentUser.name}
-                className={`${railCollapsed ? 'min-h-[36px] min-w-[36px] w-[36px] h-[36px] text-[11px]' : 'min-h-[44px] min-w-[44px] w-11 h-11 text-[12px]'} rounded-full flex items-center justify-center text-white font-semibold shadow-sm hover:opacity-90 transition-opacity ring-2 ring-white/20`}
-                style={{ backgroundColor: currentUser.color }}
+                className="min-h-[44px] min-w-[44px] w-11 h-11 rounded-full flex items-center justify-center text-white font-semibold shadow-sm hover:opacity-90 transition-opacity ring-2 ring-white/20 overflow-hidden p-0"
+                style={railAvatarSrc ? undefined : { backgroundColor: currentUser.color }}
               >
-                {currentUser.initials}
+                {railAvatarSrc ? (
+                  <img src={railAvatarSrc} alt="" className="w-full h-full object-cover" />
+                ) : (
+                  <span className="text-[12px]">{currentUser.initials}</span>
+                )}
               </button>
             }
             boardsCount={boards.length}
@@ -2761,20 +2744,27 @@ if (ok && data && typeof data.id === 'string') {
                 Vista general
               </button>
               {boards
-                .filter(b => b && (!boardSearch.trim() || b.name.toLowerCase().includes(boardSearch.trim().toLowerCase())))
+                .filter(b => b && (!boardSearch.trim() || b.name.toLowerCase().includes(boardSearch.trim().toLowerCase()) || activeWorkspaceName.toLowerCase().includes(boardSearch.trim().toLowerCase())))
                 .map((b) => b && (
                 <button
                   key={b.id}
+                  type="button"
+                  title={`${activeWorkspaceName} › ${b.name}`}
                   onClick={() => {
                     setActiveBoardId(b.id);
                     setCurrentView('table');
                     if (activePage === 'home') setActivePage('board');
                   }}
-                  className={`w-full min-w-max flex items-center gap-2 text-[13px] px-2.5 py-2 rounded-lg transition-colors mb-0.5 ${activeBoardId === b.id ? 'bg-monday-blue text-white font-medium' : 'text-monday-text hover:bg-monday-hover'}`}
+                  className={`w-full min-w-max flex items-start gap-2 text-[13px] px-2.5 py-2 rounded-lg transition-colors mb-0.5 text-left ${activeBoardId === b.id ? 'bg-monday-blue text-white font-medium' : 'text-monday-text hover:bg-monday-hover'}`}
                 >
-                  <span className="w-1.5 h-1.5 rounded-full bg-current opacity-60 shrink-0" />
-                  <span className="whitespace-nowrap">{b.name}</span>
-                  {activeBoardId === b.id && <Star size={13} className="ml-auto opacity-50 text-monday-orange shrink-0" />}
+                  <span className="w-1.5 h-1.5 rounded-full bg-current opacity-60 shrink-0 mt-1.5" />
+                  <span className="flex flex-col min-w-0 gap-0.5">
+                    <span className="whitespace-nowrap font-medium">{b.name}</span>
+                    <span className={`text-[10px] leading-tight truncate ${activeBoardId === b.id ? 'text-white/80' : 'text-monday-subtext'}`}>
+                      {activeWorkspaceName}
+                    </span>
+                  </span>
+                  {activeBoardId === b.id && <Star size={13} className="ml-auto opacity-50 text-monday-orange shrink-0 mt-0.5" />}
                 </button>
               ))}
               <Popover.Root
@@ -3592,6 +3582,7 @@ if (ok && data && typeof data.id === 'string') {
                 if (tab === 'home') {
                   setLastMainTab('home');
                   setActivePage('home');
+                  setActiveBoardId(null);
                   setSidebarOpen(false);
                   return;
                 }

@@ -1015,7 +1015,8 @@ const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode, onBoar
     () => (board ? board.groups.reduce((acc, g) => acc + g.items.length, 0) : 0),
     [board]
   );
-  const boardEmpty = totalItemCount === 0;
+  /** Solo sin grupos: la vista vacía completa. Si hay grupos pero sin ítems, se muestran los grupos con filas vacías. */
+  const noGroupsInBoard = Boolean(board && board.groups.length === 0);
   const hasFiltersOrSearch = Boolean(searchQuery.trim() || filterByStatusOptionId);
 
   // Asegurar que exista una columna "Estado Taller" con las opciones específicas.
@@ -1384,11 +1385,15 @@ const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode, onBoar
         ) : viewMode === 'timeline' && board ? (
           <TimelineBoardView board={board} onRowClick={onRowClick} isMobile={isMobile} isLandscapeShort={isLandscapeShort} />
         ) : (viewMode === 'table' || viewMode === 'miTrabajo') && board ? (
-          boardEmpty ? (
+          noGroupsInBoard ? (
             <EmptyState
               icon={LayoutGrid}
-              title="Este tablero aún no tiene elementos"
-              description="Añade tareas desde «Agregar elemento» en un grupo o crea un grupo nuevo cuando la barra lo permita."
+              title="Este tablero aún no tiene grupos"
+              description="Crea un grupo para empezar a añadir tareas. Usa el botón de abajo o el de la barra si está visible."
+              action={{
+                label: 'Agregar grupo',
+                onClick: () => void handleAddGroup(),
+              }}
               className="py-16"
             />
           ) : hasFiltersOrSearch && rootDisplayGroups.length === 0 ? (

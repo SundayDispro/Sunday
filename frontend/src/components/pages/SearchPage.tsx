@@ -9,6 +9,7 @@ type SearchResult = {
   item: { id: string; name: string; groupId: string };
   boardId: string;
   boardName: string;
+  workspaceName?: string;
   groupId: string;
   groupName: string;
 };
@@ -131,7 +132,12 @@ export const SearchPage: React.FC<{
                   </div>
                   <div className="flex-1 min-w-0">
                     <p className="text-[14px] font-medium text-monday-text truncate">{r.item.name}</p>
-                    <p className="text-[12px] text-monday-subtext">{r.boardName} · {r.groupName}</p>
+                    <p className="text-[12px] text-monday-subtext truncate" title={`${r.workspaceName ? `${r.workspaceName} › ` : ''}${r.boardName} › ${r.groupName}`}>
+                      {r.workspaceName ? (
+                        <><span className="font-medium text-monday-text/80">{r.workspaceName}</span><span className="mx-1">›</span></>
+                      ) : null}
+                      {r.boardName} · {r.groupName}
+                    </p>
                   </div>
                 </button>
               </li>

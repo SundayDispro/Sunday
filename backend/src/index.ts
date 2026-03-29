@@ -780,6 +780,7 @@ app.get('/api/search', authenticateToken, async (req, res) => {
     const boards = await prisma.board.findMany({
       where: workspaceId ? { workspaceId } : undefined,
       include: {
+        workspace: { select: { name: true } },
         columns: { select: { id: true, type: true } },
         groups: {
           include: {
@@ -795,7 +796,14 @@ app.get('/api/search', authenticateToken, async (req, res) => {
         },
       },
     });
-    const results: { item: { id: string; name: string; groupId: string }; boardId: string; boardName: string; groupId: string; groupName: string }[] = [];
+    const results: {
+      item: { id: string; name: string; groupId: string };
+      boardId: string;
+      boardName: string;
+      workspaceName: string;
+      groupId: string;
+      groupName: string;
+    }[] = [];
     for (const board of boards) {
       const personColumns = board.columns.filter((c) => c.type === 'person');
       for (const group of board.groups) {
@@ -815,6 +823,7 @@ app.get('/api/search', authenticateToken, async (req, res) => {
               item: { id: item.id, name: item.name, groupId: item.groupId },
               boardId: board.id,
               boardName: board.name,
+              workspaceName: board.workspace?.name ?? '',
               groupId: group.id,
               groupName: group.name,
             });
@@ -1394,6 +1403,69 @@ app.patch('/api/users/me', authenticateToken, async (req, res) => {
     res.status(500).json({ error: 'Error al actualizar preferencias' });
   }
 });
+
+/** Subir foto de perfil (solo el propio usuario). multipart field: "avatar" */
+app.patch(
+  '/api/users/:id/avatar',
+  authenticateToken,
+  (req, res, next) => {
+    avatarUpload.single('avatar')(req, res, (err: unknown) => {
+      if (err) {
+        const msg = err instanceof Error ? err.message : 'Archivo no válido';
+        return res.status(400).json({ error: msg });
+      }
+      next();
+    });
+  },
+  async (req, res) => {
+    try {
+      const id = queryParamToString(req.params.id);
+      if (!id) return res.status(400).json({ error: 'id inválido' });
+      if (req.authUser?.id !== id) {
+        return res.status(403).json({ error: 'Solo puedes actualizar tu propio avatar' });
+      }
+      const file = req.file as Express.Multer.File | undefined;
+      if (!file?.filename) {
+        return res.status(400).json({ error: 'Archivo de imagen requerido (campo avatar)' });
+      }
+
+      const existing = await prisma.user.findUnique({ where: { id } });
+      if (!existing) {
+        try {
+          fs.unlinkSync(path.join(UPLOADS_DIR, file.filename));
+        } catch {
+          /* ignore */
+        }
+        return res.status(404).json({ error: 'Usuario no encontrado' });
+      }
+
+      const prevUrl = existing.avatarUrl;
+      if (prevUrl && typeof prevUrl === 'string' && prevUrl.startsWith('/uploads/')) {
+        const prevBase = path.basename(prevUrl);
+        if (prevBase && prevBase !== file.filename) {
+          const prevPath = path.join(UPLOADS_DIR, prevBase);
+          try {
+            if (fs.existsSync(prevPath)) fs.unlinkSync(prevPath);
+          } catch {
+            /* ignore */
+          }
+        }
+      }
+
+      const publicPath = `/uploads/${file.filename}`;
+      const updated = await prisma.user.update({
+        where: { id },
+        data: { avatarUrl: publicPath },
+      });
+      const { password: _p, ...safe } = updated;
+      io.to(userRoom(safe.id)).emit('user_updated', safe);
+      res.json(safe);
+    } catch (e) {
+      console.error('PATCH /api/users/:id/avatar', e);
+      res.status(500).json({ error: 'Error al guardar el avatar' });
+    }
+  }
+);
 
 // Eliminar usuario (solo ADMIN)
 app.delete('/api/users/:id', requireAuth, requireAdmin, async (req, res) => {
