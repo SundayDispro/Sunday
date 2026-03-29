@@ -10,7 +10,7 @@ const enableServiceWorker = () => {
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
       navigator.serviceWorker
-        .register('/sw.js?v=10', { updateViaCache: 'none' })
+        .register('/sw.js?v=12', { updateViaCache: 'none' })
         .then((registration) => {
           // Revisar actualizaciones cada 1 hora
           setInterval(() => {

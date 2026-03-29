@@ -85,7 +85,7 @@ function GroupDragOverlay({ groups }: { groups: Group[] }) {
 const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode, onBoardData, mobileCalendarOnly = false, mobileOptimized = false, calendarStandalone = false, onHeaderVisibilityChange, isMobile = false }) => {
   const { currentUser, users } = useUser();
   const canDeleteItem = can(currentUser, 'item.delete');
-  const { useCardView, isLandscapeShort, isLandscape, isPortrait, isMobile: isViewportMobile } = useViewport();
+  const { useCardView, isLandscapeShort, isLandscape, isPortrait } = useViewport();
   const { toast, dismiss } = useToast();
   const dismissRef = useRef(dismiss);
   dismissRef.current = dismiss;
@@ -100,9 +100,6 @@ const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode, onBoar
       });
     }, 2000);
   }, []);
-  const pendingDeleteRef = useRef<
-    Map<string, { toastId: number; snapshot: Item; groupId: string }>
-  >(new Map());
   const [board, setBoard] = useState<Board | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
@@ -358,11 +355,6 @@ const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode, onBoar
     });
 
     socket.on('item_deleted', ({ itemId }: { itemId: string }) => {
-      const pending = pendingDeleteRef.current.get(itemId);
-      if (pending) {
-        pendingDeleteRef.current.delete(itemId);
-        dismissRef.current(pending.toastId, { runExpire: false });
-      }
       setBoard(prev => {
         if (!prev) return prev;
         return {
@@ -751,69 +743,6 @@ const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode, onBoar
       };
     });
   };
-
-  const cancelPendingDelete = useCallback((itemId: string) => {
-    const p = pendingDeleteRef.current.get(itemId);
-    if (!p) return;
-    pendingDeleteRef.current.delete(itemId);
-    dismiss(p.toastId, { runExpire: false });
-  }, [dismiss]);
-
-  const commitDeleteItem = useCallback((itemId: string) => {
-    pendingDeleteRef.current.delete(itemId);
-    socket.emit('delete_item', { itemId });
-    apiFetch(`${API_BASE}/api/items/${itemId}`, { method: 'DELETE', silent: true }).catch((err) =>
-      console.error('Error persistiendo eliminación de item', itemId, err)
-    );
-  }, []);
-
-  const restoreItemSnapshot = useCallback((snapshot: Item, groupId: string) => {
-    setBoard((prev) => {
-      if (!prev) return prev;
-      return {
-        ...prev,
-        groups: prev.groups.map((g) => {
-          if (g.id !== groupId) return g;
-          if (g.items.some((i) => i.id === snapshot.id)) return g;
-          const items = [...g.items, snapshot].sort((a, b) => a.position - b.position);
-          return { ...g, items };
-        }),
-      };
-    });
-  }, []);
-
-  /** Borrado con toast Deshacer (un ítem); usado desde vista tarjeta / swipe. */
-  const handleDeleteItemWithUndo = useCallback(
-    (itemId: string) => {
-      if (!board || !canDeleteItem) return;
-      const group = board.groups.find((g) => g.items.some((i) => i.id === itemId));
-      if (!group) return;
-      const item = group.items.find((i) => i.id === itemId);
-      if (!item) return;
-      const snapshot: Item = JSON.parse(JSON.stringify(item));
-      const groupId = group.id;
-
-      handleOptimisticDelete(itemId);
-
-      const toastId = toast({
-        message: 'Elemento eliminado',
-        variant: 'success',
-        action: {
-          label: 'Deshacer',
-          onClick: () => {
-            cancelPendingDelete(itemId);
-            restoreItemSnapshot(snapshot, groupId);
-          },
-        },
-        onExpire: () => {
-          commitDeleteItem(itemId);
-        },
-      });
-
-      pendingDeleteRef.current.set(itemId, { toastId, snapshot, groupId });
-    },
-    [board, canDeleteItem, toast, commitDeleteItem, restoreItemSnapshot, cancelPendingDelete]
-  );
 
   const isTaller = currentUser?.role === 'TALLER';
   const isAdminOrVentas = currentUser?.role === 'ADMIN' || currentUser?.role === 'VENTAS';
@@ -1448,10 +1377,8 @@ const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode, onBoar
                           onToggleGroupAll={toggleGroupAll}
                           stackIndex={idx}
                           useCardView={useCardView}
-                          enableSwipeActions={useCardView && (isViewportMobile || isMobile)}
                           onOptimisticUpdate={handleOptimisticUpdate}
                           onOptimisticDelete={handleOptimisticDelete}
-                          onDeleteItemWithUndo={handleDeleteItemWithUndo}
                           socketHighlightIds={socketRowHighlight}
                         />
                         {childGroups.map(sub => (
@@ -1478,10 +1405,8 @@ const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode, onBoar
                               onToggleGroupAll={toggleGroupAll}
                               stackIndex={idx}
                               useCardView={useCardView}
-                              enableSwipeActions={useCardView && (isViewportMobile || isMobile)}
                               onOptimisticUpdate={handleOptimisticUpdate}
                               onOptimisticDelete={handleOptimisticDelete}
-                              onDeleteItemWithUndo={handleDeleteItemWithUndo}
                               socketHighlightIds={socketRowHighlight}
                             />
                           </div>

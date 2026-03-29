@@ -3,18 +3,19 @@ import { useEffect } from 'react';
 const VIEWPORT_DEFAULT =
   'width=device-width, initial-scale=1, viewport-fit=cover, shrink-to-fit=no';
 
+/** Sin bloquear zoom del usuario: fuerza recálculo en WebKit con un tope alto temporal. */
+const VIEWPORT_NUDGE_MAX_SCALE =
+  'width=device-width, initial-scale=1, maximum-scale=5, minimum-scale=1, viewport-fit=cover, shrink-to-fit=no';
+
 /**
  * Safari/iOS a veces mantiene escala u offset al rotar; forzar recálculo del meta viewport
- * es un truco conocido para volver a escala 1.
+ * es un truco conocido. Evitamos `user-scalable=no` para no impedir zoom de accesibilidad.
  */
 function resetViewportMetaTag() {
   const viewport = document.querySelector('meta[name="viewport"]');
   if (!viewport) return;
   const restore = viewport.getAttribute('content') || VIEWPORT_DEFAULT;
-  viewport.setAttribute(
-    'content',
-    'width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover, shrink-to-fit=no',
-  );
+  viewport.setAttribute('content', VIEWPORT_NUDGE_MAX_SCALE);
   requestAnimationFrame(() => {
     viewport.setAttribute('content', restore);
     window.scrollTo(0, 0);
@@ -43,14 +44,13 @@ export function useOrientationViewportFix() {
     let orientationTimer: number | undefined;
     const onOrientationChange = () => {
       window.clearTimeout(orientationTimer);
-      resetViewportMetaTag();
+      // Primero solo recentrar scroll (menos agresivo); luego un empujón suave al viewport.
       scrollTopLeft();
       orientationTimer = window.setTimeout(() => {
         resetViewportMetaTag();
         scrollTopLeft();
       }, 120);
       window.setTimeout(() => {
-        resetViewportMetaTag();
         scrollTopLeft();
       }, 400);
     };

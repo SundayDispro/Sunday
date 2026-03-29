@@ -32,7 +32,6 @@ import { can } from '../../authz/can';
 import { apiFetch, parseResponse } from '../../api';
 import { useToast } from '../Toast';
 import { motion } from 'framer-motion';
-import { SwipeableItemCard } from './SwipeableItemCard';
 
 interface Props {
   group: Group;
@@ -58,12 +57,9 @@ interface Props {
   indentFromParent?: boolean;
   /** En viewport &lt; 640px: mostrar lista de tarjetas en lugar de tabla horizontal. */
   useCardView?: boolean;
-  enableSwipeActions?: boolean;
 
   onOptimisticUpdate?: (itemId: string, columnId: string, value: string) => void;
   onOptimisticDelete?: (itemId: string) => void;
-  /** Si existe (p. ej. móvil con swipe), sustituye optimistic+socket por borrado con undo. */
-  onDeleteItemWithUndo?: (itemId: string) => void;
   /** IDs de filas/tarjetas a resaltar brevemente tras actualización por socket (otro usuario). */
   socketHighlightIds?: Set<string>;
   /** Tras crear un subgrupo desde la UI (p. ej. + Cliente). */
@@ -555,10 +551,8 @@ export const BoardGroup: React.FC<Props> = ({
   stackIndex = 0,
   indentFromParent = false,
   useCardView = false,
-  enableSwipeActions = false,
   onOptimisticUpdate,
   onOptimisticDelete,
-  onDeleteItemWithUndo,
   socketHighlightIds = new Set(),
   onGroupCreated,
 }) => {
@@ -1015,44 +1009,7 @@ export const BoardGroup: React.FC<Props> = ({
               </div>
             );
 
-            if (!enableSwipeActions) return <React.Fragment key={item.id}>{card}</React.Fragment>;
-
-            const statusCol = columns.find(c => c.type === 'status');
-            return (
-              <SwipeableItemCard
-                key={item.id}
-                onDelete={canDeleteItem ? () => {
-                  if (onDeleteItemWithUndo) onDeleteItemWithUndo(item.id);
-                  else {
-                    onOptimisticDelete?.(item.id);
-                    socket.emit('delete_item', { boardId, itemId: item.id });
-                  }
-                } : undefined}
-                onComplete={() => {
-                  if (statusCol) {
-                    let optionId = 'listo';
-                    try {
-                      if (statusCol.settings) {
-                        const settings = JSON.parse(statusCol.settings);
-                        const doneOpt = settings.options?.find((o: { label?: string; id?: string }) => o.label?.toLowerCase() === 'listo' || o.label?.toLowerCase() === 'hecho' || o.id === 'done' || o.id === 'listo');
-                        if (doneOpt) optionId = doneOpt.id;
-                      }
-                    } catch { /* ignore */ }
-
-                    const valueStr = JSON.stringify({ optionId });
-                    onOptimisticUpdate?.(item.id, statusCol.id, valueStr);
-
-                    socket.emit('update_column_value', {
-                      itemId: item.id,
-                      columnId: statusCol.id,
-                      value: valueStr
-                    });
-                  }
-                }}
-              >
-                {card}
-              </SwipeableItemCard>
-            );
+            return <React.Fragment key={item.id}>{card}</React.Fragment>;
           })}
           {showAddRow && (
             <div

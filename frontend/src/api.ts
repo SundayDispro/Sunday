@@ -118,7 +118,8 @@ function decodeJwtExpMs(token: string): number | null {
  * - Añade automáticamente el header Authorization: Bearer <token> si existe.
  * - Si recibe 401 con el mismo token que se usó en la petición, guarda razón en sessionStorage,
  *   limpia sesión local y redirige al login.
- * - No trata 403 como fin de sesión (en el backend 403 = prohibido con sesión válida).
+ * - 403: no cierra sesión; muestra toast con el mensaje del servidor o texto genérico de permisos
+ *   (salvo `silent: true`).
  * - Si entre el envío y la respuesta cambió el token (p. ej. login nuevo tras un 401 tardío de otra petición),
  *   no limpia la sesión actual.
  */
@@ -187,6 +188,14 @@ export async function apiFetch(input: RequestInfo | URL, init: ApiFetchInit = {}
     } catch {
       // ignore en entornos sin window
     }
+  }
+
+  if (!silent && res.status === 403) {
+    const msg = await extractErrorMessage(res);
+    notifyGlobalToast({
+      message: msg.trim() ? msg : 'No tienes permiso para esta acción.',
+      variant: 'error',
+    });
   }
 
   if (

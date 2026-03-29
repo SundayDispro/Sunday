@@ -1,6 +1,6 @@
 /* Service Worker para Sunday – PWA + Web Push + Offline Cache */
 
-const CACHE_NAME = 'sunday-cache-v11';
+const CACHE_NAME = 'sunday-cache-v12';
 const OFFLINE_URLS = [
   '/',
   '/index.html',

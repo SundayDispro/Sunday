@@ -27,6 +27,9 @@ import { NotificationsPage } from './components/pages/NotificationsPage';
 import { BandejaUnificadaPage } from './components/pages/BandejaUnificadaPage';
 import { SearchPage } from './components/pages/SearchPage';
 const DocsPageLazy = lazy(() => import('./components/pages/DocsPage'));
+const MobileDocsHubLazy = lazy(() =>
+  import('./components/mobile/MobileDocsHub').then((m) => ({ default: m.MobileDocsHub }))
+);
 import DocsExportPreviewPage from './components/pages/docs/DocsExportPreviewPage';
 import DocsPdfPreviewPage from './components/pages/docs/DocsPdfPreviewPage';
 import { TeamPage } from './components/pages/TeamPage';
@@ -45,7 +48,6 @@ import { MobileMoreDrawer } from './components/MobileMoreDrawer';
 import { AnimatedDialog } from './components/AnimatedDialog';
 import { useToast } from './components/Toast';
 import { MobileHomePage } from './components/mobile/MobileHomePage';
-import { MobileDocsHub } from './components/mobile/MobileDocsHub';
 import { MobileBoardsOverview } from './components/mobile/MobileBoardsOverview';
 import { useViewport, isDocsMobileViewport } from './hooks/useViewport';
 import { useOrientationViewportFix } from './hooks/useOrientationViewportFix';
@@ -2235,17 +2237,26 @@ function App() {
             />
           ) : activePage === 'docs' ? (
             isDocsMobile ? (
-              <MobileDocsHub
-                workspaceId={activeWorkspaceId ?? workspaces[0]?.id ?? null}
-                boards={boards}
-                initialCreateFromBoard={pendingDocFromBoard}
-                onConsumeInitialCreateFromBoard={() => setPendingDocFromBoard(null)}
-                initialCreateDocType={pendingCreateDocType}
-                onConsumeInitialCreateDocType={() => setPendingCreateDocType(null)}
-                initialOpenDocId={openDocId}
-                onConsumeInitialOpenDocId={() => setOpenDocId(null)}
-                onAddReminderWidget={ensureReminderWidgetVisible}
-              />
+              <Suspense
+                fallback={
+                  <div className="flex flex-1 items-center justify-center py-20 text-[13px] text-monday-subtext gap-2">
+                    <div className="w-5 h-5 border-2 border-monday-blue border-t-transparent rounded-full animate-spin" />
+                    Cargando documentos…
+                  </div>
+                }
+              >
+                <MobileDocsHubLazy
+                  workspaceId={activeWorkspaceId ?? workspaces[0]?.id ?? null}
+                  boards={boards}
+                  initialCreateFromBoard={pendingDocFromBoard}
+                  onConsumeInitialCreateFromBoard={() => setPendingDocFromBoard(null)}
+                  initialCreateDocType={pendingCreateDocType}
+                  onConsumeInitialCreateDocType={() => setPendingCreateDocType(null)}
+                  initialOpenDocId={openDocId}
+                  onConsumeInitialOpenDocId={() => setOpenDocId(null)}
+                  onAddReminderWidget={ensureReminderWidgetVisible}
+                />
+              </Suspense>
             ) : (
               <Suspense
                 fallback={
@@ -2289,7 +2300,7 @@ function App() {
             <div className="flex-1 flex flex-col items-center justify-center text-monday-subtext">
               <BarChart2 size={48} className="mb-4 opacity-50" />
               <h2 className="text-xl font-semibold text-monday-text mb-2">Próximamente</h2>
-              <p className="text-[14px]">Esta vista "({activePage})" estarÃƒÂ¡ disponible en futuras actualizaciones.</p>
+              <p className="text-[14px]">Esta vista ({activePage}) estará disponible en futuras actualizaciones.</p>
             </div>
           )}
 
@@ -2491,12 +2502,7 @@ function App() {
           activeBoardId={activeBoardId}
           onSelectBoard={setActiveBoardId}
           onNavigate={(page) => {
-            if (page === 'notifications') {
-              setActivePage('notifications');
-              fetchUnreadNotifications();
-            } else if (page === 'inbox') setActivePage('inbox');
-            else if (page === 'docs') setActivePage('docs');
-            else if (page === 'search') setActivePage('search');
+            if (page === 'docs') setActivePage('docs');
             else if (page === 'team') setActivePage('team');
             else if (page === 'facturacion') setActivePage('facturacion');
           }}
@@ -2504,7 +2510,6 @@ function App() {
           isTaller={!!isTaller}
           canCreateBoard={canCreateBoard}
           onRequestAddBoard={() => setShowAddBoard(true)}
-          unreadNotifCount={unreadNotifCount}
           reserveBottomNavSpace={activePage !== 'docs' && !mobileLandscapeChrome}
         />
       )}
@@ -2616,7 +2621,7 @@ function App() {
       </aside>
       )}
 
-      {/* Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ Workspace Sidebar Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ */}
+      {/* Panel lateral workspace + tableros (escritorio) */}
       {!isDocsMobile && (
       <aside
         className={`${sidebarOpen ? 'w-[232px] min-w-[232px]' : 'w-0 min-w-0'} ${chromeHidden ? 'hidden' : ''} bg-monday-sidebarPanel flex flex-col overflow-hidden transition-all duration-200 z-20 border-r border-l border-monday-border ${sidebarOpen ? 'shadow-monday-xl' : ''}`}
@@ -2863,26 +2868,22 @@ if (ok && data && typeof data.id === 'string') {
                 {composeToUser ? `Enviar mensaje a ${composeToUser.name}` : 'Tareas asignadas a ti.'}
               </p>
             </div>
-          ) : activePage === 'team' ? (
+          ) : activePage === 'team' ||
+            activePage === 'search' ||
+            activePage === 'notifications' ||
+            activePage === 'facturacion' ? (
             <div className="p-3">
-              <p className="text-monday-subtext text-[11px] font-semibold px-2 mb-2 uppercase tracking-wider">Equipo</p>
-              <p className="text-monday-text text-[12px] px-2">Miembros del workspace.</p>
-            </div>
-          ) : activePage === 'search' ? (
-            <div className="p-3">
-              <p className="text-monday-subtext text-[11px] font-semibold px-2 mb-2 uppercase tracking-wider">Buscar</p>
-              <p className="text-monday-text text-[12px] px-2">Busca en todos los tableros.</p>
+              <p className="text-[12px] text-monday-subtext px-2 leading-relaxed">
+                Vista principal en el panel central. <span className="font-medium text-monday-text">Ctrl+K</span> comandos
+                y búsqueda global.
+              </p>
             </div>
           ) : activePage === 'docs' ? (
             <>
-              <div className="p-3">
-                <p className="text-monday-subtext text-[11px] font-semibold px-2 mb-2 uppercase tracking-wider">Docs</p>
-                <p className="text-monday-text text-[12px] px-2">Documentación del equipo.</p>
-              </div>
               {!isDocsMobile && (
                 <>
-                  <div className="px-2 mb-2 mt-2">
-                    <p className="text-[11px] font-semibold text-monday-subtext uppercase tracking-wider">Tus widgets</p>
+                  <div className="px-3 pt-3 pb-2">
+                    <p className="text-[11px] font-semibold text-monday-subtext uppercase tracking-wider">Widgets en Docs</p>
                   </div>
                   {tasksLoading && (
                     <p className="text-[12px] text-monday-subtext px-2 mb-2">Cargando tareas...</p>
@@ -3442,16 +3443,6 @@ if (ok && data && typeof data.id === 'string') {
                 </>
               )}
             </>
-          ) : activePage === 'notifications' ? (
-            <div className="p-3">
-              <p className="text-monday-subtext text-[11px] font-semibold px-2 mb-2 uppercase tracking-wider">Notificaciones</p>
-              <p className="text-monday-text text-[12px] px-2">Actualizaciones recientes.</p>
-            </div>
-          ) : activePage === 'facturacion' ? (
-            <div className="p-3">
-              <p className="text-monday-subtext text-[11px] font-semibold px-2 mb-2 uppercase tracking-wider">Facturación</p>
-              <p className="text-monday-text text-[12px] px-2">Proyectos aprobados.</p>
-            </div>
           ) : (
             <div className="p-4 text-center text-monday-subtext text-[13px]">
               Menú de {activePage}

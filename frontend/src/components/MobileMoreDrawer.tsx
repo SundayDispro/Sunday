@@ -1,14 +1,12 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   ChevronDown,
-  ChevronRight,
   Folder,
   LayoutGrid,
   Star,
   Plus,
   Search,
-  Bell,
   BookOpen,
   Users,
   Receipt,
@@ -16,7 +14,6 @@ import {
   Moon,
   Sparkles,
   X,
-  Inbox,
   Command,
 } from 'lucide-react';
 import * as Popover from '@radix-ui/react-popover';
@@ -28,6 +25,7 @@ import {
   THEME_LABELS,
   THEME_SWATCHES,
 } from '../theme';
+import { useFocusTrap } from '../hooks/useFocusTrap';
 
 interface MobileMoreDrawerProps {
   open: boolean;
@@ -41,7 +39,8 @@ interface MobileMoreDrawerProps {
   onBoardSearchChange: (value: string) => void;
   activeBoardId: string | null;
   onSelectBoard: (boardId: string | null) => void;
-  onNavigate: (page: 'notifications' | 'docs' | 'search' | 'team' | 'facturacion' | 'inbox') => void;
+  /** Páginas que solo están en este menú en móvil (notificaciones/bandeja van en la barra inferior). */
+  onNavigate: (page: 'docs' | 'team' | 'facturacion') => void;
   theme: AppTheme;
   onThemeChange: (theme: AppTheme) => void;
   canSeeFacturacion: boolean;
@@ -49,7 +48,6 @@ interface MobileMoreDrawerProps {
   /** Si el usuario puede crear tableros (POST /api/boards). */
   canCreateBoard: boolean;
   onRequestAddBoard: () => void;
-  unreadNotifCount?: number;
   userPanelTrigger: React.ReactNode;
   userPanelOpen: boolean;
   onUserPanelOpenChange: (open: boolean) => void;
@@ -84,7 +82,6 @@ export function MobileMoreDrawer({
   isTaller,
   canCreateBoard,
   onRequestAddBoard,
-  unreadNotifCount = 0,
   userPanelTrigger,
   userPanelOpen,
   onUserPanelOpenChange,
@@ -94,6 +91,18 @@ export function MobileMoreDrawer({
   onOpenCommandPalette,
   reserveBottomNavSpace = true,
 }: MobileMoreDrawerProps) {
+  const asideRef = useRef<HTMLElement | null>(null);
+  useFocusTrap(open, asideRef);
+
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onOpenChange(false);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [open, onOpenChange]);
+
   const [workspaceSelectorOpen, setWorkspaceSelectorOpen] = useState(false);
 
   const handleSelectBoard = (id: string | null) => {
@@ -102,7 +111,7 @@ export function MobileMoreDrawer({
     onOpenChange(false);
   };
 
-  const handleNav = (page: 'notifications' | 'docs' | 'search' | 'team' | 'facturacion' | 'inbox') => {
+  const handleNav = (page: 'docs' | 'team' | 'facturacion') => {
     if (navigator.vibrate) navigator.vibrate(15);
     onNavigate(page);
     onOpenChange(false);
@@ -133,6 +142,10 @@ export function MobileMoreDrawer({
               onClick={() => onOpenChange(false)}
             />
             <motion.aside
+              ref={asideRef}
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="mobile-more-drawer-title"
               initial={{ x: '-100%' }}
               animate={{ x: 0 }}
               exit={{ x: '-100%' }}
@@ -143,10 +156,11 @@ export function MobileMoreDrawer({
                   ? { bottom: 'calc(56px + max(0.5rem, env(safe-area-inset-bottom)))' }
                   : { bottom: 0, paddingBottom: 'env(safe-area-inset-bottom)' }
               }
-              aria-label="Menú Más"
             >
               <div className="shrink-0 flex items-center justify-between h-14 px-3 border-b border-monday-border">
-                <span className="text-[15px] font-semibold text-monday-text">Más</span>
+                <span id="mobile-more-drawer-title" className="text-[15px] font-semibold text-monday-text">
+                  Más
+                </span>
                 <button
                   type="button"
                   onClick={() => {
@@ -161,34 +175,6 @@ export function MobileMoreDrawer({
               </div>
 
               <div className="flex-1 overflow-y-auto overflow-x-hidden custom-scrollbar scroll-touch py-3 px-2">
-                {/* Bandeja y Notificaciones destacados (acceso rápido desde 4 tabs) */}
-                <div className="mb-4 p-2 rounded-xl bg-monday-pill/40 border border-monday-border/60">
-                  <p className="text-monday-subtext text-[11px] font-semibold px-2 mb-2 uppercase tracking-wider">
-                    Ir a
-                  </p>
-                  <div className="flex flex-col gap-0.5">
-                    <button
-                      onClick={() => handleNav('notifications')}
-                      className="w-full flex items-center gap-2.5 px-2.5 py-2.5 rounded-lg text-monday-text hover:bg-monday-hover transition-colors text-left text-[13px] font-medium"
-                    >
-                      <Bell size={18} className="text-monday-subtext shrink-0" />
-                      <span>Notificaciones</span>
-                      {unreadNotifCount > 0 && (
-                        <span className="ml-auto min-w-[18px] h-[18px] px-1 flex items-center justify-center bg-red-500 text-white text-[10px] font-bold rounded-full">
-                          {unreadNotifCount > 99 ? '99+' : unreadNotifCount}
-                        </span>
-                      )}
-                    </button>
-                    <button
-                      onClick={() => handleNav('inbox')}
-                      className="w-full flex items-center gap-2.5 px-2.5 py-2.5 rounded-lg text-monday-text hover:bg-monday-hover transition-colors text-left text-[13px] font-medium"
-                    >
-                      <Inbox size={18} className="text-monday-subtext shrink-0" />
-                      <span>Bandeja</span>
-                    </button>
-                  </div>
-                </div>
-
                 {/* Bloque Workspace + Tableros */}
                 <div className="mb-4">
                   <p className="text-monday-subtext text-[11px] font-semibold px-2 mb-2 uppercase tracking-wider">
@@ -302,7 +288,7 @@ export function MobileMoreDrawer({
                   )}
                 </div>
 
-                {/* Bloque Navegación */}
+                {/* Bloque Navegación (búsqueda global: Comandos → /buscar) */}
                 <div className="mb-4">
                   <p className="text-monday-subtext text-[11px] font-semibold px-2 mb-2 uppercase tracking-wider">
                     Navegación
@@ -322,13 +308,6 @@ export function MobileMoreDrawer({
                     >
                       <Command size={18} className="text-monday-subtext shrink-0" />
                       Comandos
-                    </button>
-                    <button
-                      onClick={() => handleNav('search')}
-                      className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-monday-text hover:bg-monday-hover transition-colors text-left text-[13px]"
-                    >
-                      <Search size={18} className="text-monday-subtext shrink-0" />
-                      Buscar
                     </button>
                     {!isTaller && (
                       <button
@@ -408,8 +387,9 @@ export function MobileMoreDrawer({
                       </Popover.Root>
                     </div>
                     <p className="text-[10px] text-monday-subtext px-2.5 pt-1 leading-snug">
-                      Más temas y apariencias: <span className="font-medium text-monday-text">Comandos</span> y escribe{' '}
-                      <span className="font-mono text-monday-text">/temas</span>.
+                      Temas: <span className="font-medium text-monday-text">Comandos</span> y{' '}
+                      <span className="font-mono text-monday-text">/temas</span>. Búsqueda:{' '}
+                      <span className="font-mono text-monday-text">/buscar</span>.
                     </p>
                     <div className="px-2.5 py-1">
                       <UserPanel

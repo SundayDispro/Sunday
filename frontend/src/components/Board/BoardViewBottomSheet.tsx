@@ -1,5 +1,6 @@
-import React from 'react';
+import React, { useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { useFocusTrap } from '../../hooks/useFocusTrap';
 import {
   X,
   Star,
@@ -54,6 +55,18 @@ export function BoardViewBottomSheet({
   exportingFolders,
   onOpenSearch,
 }: BoardViewBottomSheetProps) {
+  const sheetRef = useRef<HTMLDivElement | null>(null);
+  useFocusTrap(open, sheetRef);
+
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onOpenChange(false);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [open, onOpenChange]);
+
   const viewTabs = enabledViews
     .filter((v) => (isTaller ? (v === 'table' || v === 'calendar') : true))
     .filter((v) => (v === 'facturacion' ? canSeeFacturacion : true))
@@ -92,16 +105,21 @@ export function BoardViewBottomSheet({
             onClick={() => onOpenChange(false)}
           />
           <motion.div
+            ref={sheetRef}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="board-view-sheet-title"
             initial={{ y: '100%' }}
             animate={{ y: 0 }}
             exit={{ y: '100%' }}
             transition={{ type: 'tween', duration: 0.25, ease: [0.22, 1, 0.36, 1] }}
             className="fixed left-0 right-0 bottom-0 z-[46] bg-[var(--monday-surface)] rounded-t-2xl shadow-monday-xl border-t border-monday-border flex flex-col max-h-[58vh]"
             style={{ paddingBottom: 'max(0.5rem, env(safe-area-inset-bottom))' }}
-            aria-label="Vista del tablero"
           >
             <div className="shrink-0 flex items-center justify-between min-h-[52px] px-4 border-b border-monday-border">
-              <span className="text-[15px] font-semibold text-monday-text">Vista</span>
+              <span id="board-view-sheet-title" className="text-[15px] font-semibold text-monday-text">
+                Vista
+              </span>
               <button
                 type="button"
                 onClick={() => onOpenChange(false)}

@@ -5,6 +5,7 @@ import { X, Image, Smile, AtSign, Paperclip, Send, Clock, FileText, ExternalLink
 import { socket } from '../../store/socket';
 import { useUser } from '../../store/UserContext';
 import { API_BASE, apiFetch } from '../../api';
+import { useFocusTrap } from '../../hooks/useFocusTrap';
 
 interface Props {
   item: Item;
@@ -309,6 +310,18 @@ export const ItemDetailsPanel: React.FC<Props> = ({ item, onClose, variant = 'pa
   };
 
   const isSheet = variant === 'sheet';
+  const sheetRef = useRef<HTMLDivElement | null>(null);
+  useFocusTrap(isSheet, sheetRef);
+
+  useEffect(() => {
+    if (!isSheet) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [isSheet, onClose]);
+
   const panelClassName = embedded
     ? 'w-full h-full min-h-0 bg-[var(--monday-surface)] flex flex-col safe-area-padding overflow-hidden'
     : isSheet
@@ -818,16 +831,22 @@ export const ItemDetailsPanel: React.FC<Props> = ({ item, onClose, variant = 'pa
   };
 
   const Wrapper = isSheet ? motion.div : 'div';
-  const wrapperProps = isSheet ? {
-    drag: 'y' as const,
-    dragControls,
-    dragListener: false,
-    dragConstraints: { top: 0, bottom: 0 },
-    dragElastic: 0.2,
-    onDragEnd: handleDragEnd as any,
-    animate: animationControls,
-    className: panelClassName,
-  } : { className: panelClassName };
+  const wrapperProps = isSheet
+    ? {
+        ref: sheetRef,
+        role: 'dialog' as const,
+        'aria-modal': true as const,
+        'aria-labelledby': 'item-details-panel-title',
+        drag: 'y' as const,
+        dragControls,
+        dragListener: false,
+        dragConstraints: { top: 0, bottom: 0 },
+        dragElastic: 0.2,
+        onDragEnd: handleDragEnd as any,
+        animate: animationControls,
+        className: panelClassName,
+      }
+    : { className: panelClassName };
 
   return (
     <Wrapper {...wrapperProps}>
@@ -843,7 +862,12 @@ export const ItemDetailsPanel: React.FC<Props> = ({ item, onClose, variant = 'pa
       {/* Header: título + Cerrar siempre visible, altura táctil */}
       <div className="flex items-center justify-between px-4 sm:px-5 py-3 border-b border-monday-border shrink-0 gap-2">
         <div className="flex-1 min-w-0">
-          <h2 className="text-[16px] sm:text-[17px] font-semibold text-monday-text leading-tight truncate">{item.name}</h2>
+          <h2
+            id="item-details-panel-title"
+            className="text-[16px] sm:text-[17px] font-semibold text-monday-text leading-tight truncate"
+          >
+            {item.name}
+          </h2>
           <p className="text-[12px] text-monday-subtext mt-0.5">Elemento · ID #{item.id.slice(0, 8)}</p>
         </div>
         <button
