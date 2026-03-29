@@ -17,6 +17,7 @@ import * as Popover from '@radix-ui/react-popover';
 import * as Dialog from '@radix-ui/react-dialog';
 import { useUser } from '../../store/UserContext';
 import { apiFetch } from '../../api';
+import { can } from '../../authz/can';
 
 const API_BASE = import.meta.env.DEV ? '' : (import.meta.env.VITE_API_URL ?? '');
 
@@ -201,6 +202,8 @@ export const WorkspaceOverviewPage: React.FC<WorkspaceOverviewPageProps> = ({
 
   const { currentUser } = useUser();
   const canEditWorkspaceOrBoard = currentUser?.role === 'ADMIN' || currentUser?.role === 'VENTAS';
+  const canDeleteBoard = can(currentUser, 'board.delete');
+  const canCreateBoard = can(currentUser, 'board.create');
 
   const q = overviewSearch.trim().toLowerCase();
   const matchesQuery = useCallback(
@@ -538,7 +541,7 @@ export const WorkspaceOverviewPage: React.FC<WorkspaceOverviewPageProps> = ({
         </div>
 
         <AnimatePresence mode="wait">
-          {hasNoBoardsAnywhere && canEditWorkspaceOrBoard && (
+          {hasNoBoardsAnywhere && canCreateBoard && (
             <motion.div
               key="empty"
               initial={{ opacity: 0, y: 12 }}
@@ -748,7 +751,7 @@ export const WorkspaceOverviewPage: React.FC<WorkspaceOverviewPageProps> = ({
                               </div>
                               <span className="text-[16px] font-semibold text-monday-text truncate">{b.name}</span>
                             </button>
-                            {canEditWorkspaceOrBoard && (
+                            {canDeleteBoard && (
                               <button
                                 type="button"
                                 onClick={() => {

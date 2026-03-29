@@ -1155,19 +1155,17 @@ const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode, onBoar
     clearSelection();
   };
 
-  if (!board) return (
-    <div className="flex flex-col items-center justify-center h-full w-full p-6">
-      <div className="w-full max-w-3xl space-y-3">
-        {Array.from({ length: 8 }).map((_, i) => (
-          <div
-            key={i}
-            className="h-11 rounded-lg bg-monday-hover/80 animate-pulse border border-monday-border/40"
-          />
-        ))}
+  if (!board) {
+    return (
+      <div className="flex flex-1 flex-col items-center justify-center h-full min-h-[12rem] w-full gap-3 px-6 py-10">
+        <div
+          className="w-9 h-9 border-2 border-monday-blue border-t-transparent rounded-full animate-spin"
+          aria-hidden
+        />
+        <p className="text-[13px] text-monday-subtext">Cargando tablero…</p>
       </div>
-      <p className="mt-4 text-[13px] text-monday-subtext">Cargando tablero…</p>
-    </div>
-  );
+    );
+  }
 
   const isCalendarOnlyLayout = (mobileCalendarOnly || calendarStandalone) && viewMode === 'calendar' && boardForView;
   if (isCalendarOnlyLayout) {
@@ -1189,7 +1187,7 @@ const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode, onBoar
               isMobileLandscape={isMobile && isLandscape}
               onOpenAddToProject={() => setAddToProjectOpen(true)}
               onRegisterOpenCalendarEvent={registerOpenCalendarEvent}
-              defaultViewType={calendarStandalone ? 'week' : undefined}
+              defaultViewType={calendarStandalone ? 'month' : undefined}
             />
           </div>
         </div>
@@ -1250,7 +1248,7 @@ const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode, onBoar
             isMobileLandscape={isMobile && isLandscape}
             onOpenAddToProject={() => setAddToProjectOpen(true)}
             onRegisterOpenCalendarEvent={registerOpenCalendarEvent}
-            defaultViewType={calendarStandalone ? 'week' : undefined}
+            defaultViewType={calendarStandalone ? 'month' : undefined}
           />
         </div>
       </div>
@@ -1450,7 +1448,7 @@ const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode, onBoar
                           onToggleGroupAll={toggleGroupAll}
                           stackIndex={idx}
                           useCardView={useCardView}
-                          enableSwipeActions={useCardView && isViewportMobile}
+                          enableSwipeActions={useCardView && (isViewportMobile || isMobile)}
                           onOptimisticUpdate={handleOptimisticUpdate}
                           onOptimisticDelete={handleOptimisticDelete}
                           onDeleteItemWithUndo={handleDeleteItemWithUndo}
@@ -1480,7 +1478,7 @@ const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode, onBoar
                               onToggleGroupAll={toggleGroupAll}
                               stackIndex={idx}
                               useCardView={useCardView}
-                              enableSwipeActions={useCardView && isViewportMobile}
+                              enableSwipeActions={useCardView && (isViewportMobile || isMobile)}
                               onOptimisticUpdate={handleOptimisticUpdate}
                               onOptimisticDelete={handleOptimisticDelete}
                               onDeleteItemWithUndo={handleDeleteItemWithUndo}

@@ -116,7 +116,11 @@ function decodeJwtExpMs(token: string): number | null {
 /**
  * Wrapper de fetch que:
  * - Añade automáticamente el header Authorization: Bearer <token> si existe.
- * - Si recibe 401/403, guarda razón en sessionStorage, limpia sesión local y redirige al login.
+ * - Si recibe 401 con el mismo token que se usó en la petición, guarda razón en sessionStorage,
+ *   limpia sesión local y redirige al login.
+ * - No trata 403 como fin de sesión (en el backend 403 = prohibido con sesión válida).
+ * - Si entre el envío y la respuesta cambió el token (p. ej. login nuevo tras un 401 tardío de otra petición),
+ *   no limpia la sesión actual.
  */
 async function extractErrorMessage(res: Response): Promise<string> {
   let msg = 'Error al procesar la solicitud';
@@ -141,6 +145,7 @@ async function extractErrorMessage(res: Response): Promise<string> {
 
 export async function apiFetch(input: RequestInfo | URL, init: ApiFetchInit = {}): Promise<Response> {
   const { silent, ...rest } = init;
+  const tokenUsedForRequest = getAuthToken();
   let res: Response;
   try {
     const headersWithAuth = buildAuthHeaders(rest.headers ?? {});
@@ -152,16 +157,16 @@ export async function apiFetch(input: RequestInfo | URL, init: ApiFetchInit = {}
     throw e;
   }
 
-  // Solo forzar logout/redirección si había un token de sesión válido.
-  // Si no hay token (pantalla de login), dejamos que el caller maneje el 401.
-  const token = getAuthToken();
-  if (token && (res.status === 401 || res.status === 403)) {
+  const tokenNow = getAuthToken();
+  // Solo forzar logout si esta petición llevaba token y el almacenamiento sigue siendo el mismo.
+  // Evita: PATCH offline tras logout (sin Bearer) que responde 401 cuando ya hay otro JWT en localStorage.
+  if (tokenUsedForRequest && tokenNow === tokenUsedForRequest && res.status === 401) {
     // UX consistente: el Login mostrará un mensaje claro si la sesión expiró.
     try {
       sessionStorage.setItem('logout_reason', 'session_expired');
     } catch {/* ignore */}
 
-    const expMs = decodeJwtExpMs(token);
+    const expMs = decodeJwtExpMs(tokenNow);
     const isExpired = expMs != null ? expMs <= Date.now() : true;
 
     // Provisional: avisar a la UI para que muestre banner/modal antes del redirect.

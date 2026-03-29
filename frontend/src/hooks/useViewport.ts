@@ -63,6 +63,19 @@ function getViewportState(): ViewportState {
 }
 
 /**
+ * Misma regla que `isDocsMobile` en el hook, para inicializadores de estado que corren
+ * antes del primer render (sin duplicar números mágicos en App).
+ */
+export function isDocsMobileViewport(): boolean {
+  if (typeof window === 'undefined') return false;
+  const docsNarrow = window.matchMedia(`(max-width: ${DOCS_MOBILE_MAX_WIDTH_PX}px)`).matches;
+  const landscapeShort = window.matchMedia(
+    `(orientation: landscape) and (max-height: ${LANDSCAPE_SHORT_MAX_HEIGHT}px)`
+  ).matches;
+  return docsNarrow || landscapeShort;
+}
+
+/**
  * Estado del viewport: móvil, orientación y si el landscape tiene poca altura.
  * Útil para adaptar layout, bottom nav compacto y padding en modo horizontal.
  */

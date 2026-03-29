@@ -65,9 +65,13 @@ export function MobileLayout({
           }}
           className="fixed right-4 z-30 w-14 h-14 rounded-full bg-monday-blue text-white shadow-monday-lg flex items-center justify-center hover:bg-monday-blue/90 transition-colors safe-area-mr"
           style={{
-            bottom: isLandscapeShort
-              ? 'max(52px, calc(env(safe-area-inset-bottom) + 44px))'
-              : 'max(72px, calc(env(safe-area-inset-bottom) + 56px))',
+            bottom: hideBottomNav
+              ? isLandscapeShort
+                ? 'max(12px, calc(env(safe-area-inset-bottom) + 8px))'
+                : 'max(16px, calc(env(safe-area-inset-bottom) + 12px))'
+              : isLandscapeShort
+                ? 'max(52px, calc(env(safe-area-inset-bottom) + 44px))'
+                : 'max(72px, calc(env(safe-area-inset-bottom) + 56px))',
           }}
           aria-label="Añadir"
         >
@@ -75,13 +79,15 @@ export function MobileLayout({
         </button>
       )}
 
-      <MobileBottomNav
-        activeTab={activeTab}
-        onNavigate={onNavigate}
-        compact={compact}
-        unreadNotifCount={unreadNotifCount}
-        recentUnreadNotif={recentUnreadNotif}
-      />
+      {!hideBottomNav && (
+        <MobileBottomNav
+          activeTab={activeTab}
+          onNavigate={onNavigate}
+          compact={compact}
+          unreadNotifCount={unreadNotifCount}
+          recentUnreadNotif={recentUnreadNotif}
+        />
+      )}
     </>
   );
 }

@@ -2,6 +2,7 @@ import type { User } from '../types';
 
 export type Action =
   | 'billing.view'
+  | 'board.create'
   | 'board.delete'
   | 'group.delete'
   | 'column.delete'
@@ -18,6 +19,10 @@ export function can(user: User | null | undefined, action: Action): boolean {
 
   switch (action) {
     case 'billing.view':
+      return role === 'VENTAS';
+
+    // POST /api/boards — mismo conjunto que el backend.
+    case 'board.create':
       return role === 'VENTAS';
 
     // Misma capacidad de edición de tablero que add_group / rename_group (socket BOARD_EDIT_ROLES).

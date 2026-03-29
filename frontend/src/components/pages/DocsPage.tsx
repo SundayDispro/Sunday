@@ -1616,7 +1616,7 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
     }
   }, [beginNewDocDraft]);
   const createFromExploreFlow = useCallback((type: DocType) => {
-    setViewMode('docs');
+    setViewMode('overview');
     setSelectedId(null);
     setNewDocDraft(null);
     if (docsUxMobile) setMobileDocOpen(false);
@@ -2908,6 +2908,17 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
     if (docsUxMobile) setMobileDocOpen(templateEditorReturnToDocOpenRef.current);
   }, [docsUxMobile]);
 
+  /** Cierra el editor y vuelve al menú de tipos de documento (Vista general). */
+  const closeDocEditor = useCallback(() => {
+    setSelectedId(null);
+    setNewDocDraft(null);
+    setError(null);
+    setViewMode('overview');
+    if (docsUxMobile) setMobileDocOpen(false);
+    setTemplateEditorMobileOpen(false);
+    setTemplateMasterEditorOpen(false);
+  }, [docsUxMobile]);
+
   const setDocWorkflowStatus = useCallback((docId: string, status: WorkflowStatus) => {
     setWorkflowStatusByDocId((prev) => ({ ...prev, [docId]: status }));
   }, []);
@@ -3096,6 +3107,7 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
       const created = data as Doc;
       setDocs(prev => [created, ...prev]);
       setSelectedId(created.id);
+      setViewMode('overview');
       if (docsUxMobile) setMobileDocOpen(true);
       setNewDocDraft(null);
       if (subgroupId) {
@@ -3779,6 +3791,7 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
       const created = data as Doc;
       setDocs(prev => [created, ...prev]);
       setSelectedId(created.id);
+      setViewMode('overview');
       if (docsUxMobile) setMobileDocOpen(true);
       setNewDocDraft(null);
       setSaveModal(null);
@@ -4235,10 +4248,21 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
               ) : (
                 <>
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 px-3 sm:px-5 py-3 border-b border-monday-border bg-monday-hover/30 rounded-t-2xl">
-                    <div className="flex flex-col">
-                      <h2 className="text-[16px] font-semibold text-monday-text truncate">
-                        {selectedDoc?.title ?? newDocDraft?.title ?? 'Sin título'}
-                      </h2>
+                    <div className="flex items-start sm:items-center gap-2 min-w-0 flex-1">
+                      <button
+                        type="button"
+                        onClick={closeDocEditor}
+                        className="shrink-0 inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-monday-border bg-white text-[12px] font-medium text-monday-text hover:bg-monday-hover shadow-sm"
+                        title="Cerrar documento y volver al menú"
+                      >
+                        <X size={16} strokeWidth={2.25} aria-hidden />
+                        Cerrar
+                      </button>
+                      <div className="flex flex-col min-w-0">
+                        <h2 className="text-[16px] font-semibold text-monday-text truncate">
+                          {selectedDoc?.title ?? newDocDraft?.title ?? 'Sin título'}
+                        </h2>
+                      </div>
                     </div>
                   <div className="flex flex-wrap sm:flex-nowrap items-center gap-2 justify-end mt-2 sm:mt-0">
                     <button

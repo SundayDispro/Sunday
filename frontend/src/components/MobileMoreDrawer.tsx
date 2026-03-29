@@ -46,6 +46,8 @@ interface MobileMoreDrawerProps {
   onThemeChange: (theme: AppTheme) => void;
   canSeeFacturacion: boolean;
   isTaller: boolean;
+  /** Si el usuario puede crear tableros (POST /api/boards). */
+  canCreateBoard: boolean;
   onRequestAddBoard: () => void;
   unreadNotifCount?: number;
   userPanelTrigger: React.ReactNode;
@@ -56,6 +58,11 @@ interface MobileMoreDrawerProps {
   onOpenAdmin?: () => void;
   /** Abre la paleta de comandos (tableros, /temas, atajos). */
   onOpenCommandPalette: () => void;
+  /**
+   * Si la barra inferior global está visible (MobileBottomNav).
+   * Si es false (Docs, landscape sin bottom nav), el drawer llega al borde inferior.
+   */
+  reserveBottomNavSpace?: boolean;
 }
 
 export function MobileMoreDrawer({
@@ -75,6 +82,7 @@ export function MobileMoreDrawer({
   onThemeChange,
   canSeeFacturacion,
   isTaller,
+  canCreateBoard,
   onRequestAddBoard,
   unreadNotifCount = 0,
   userPanelTrigger,
@@ -84,6 +92,7 @@ export function MobileMoreDrawer({
   workspaceName = '',
   onOpenAdmin,
   onOpenCommandPalette,
+  reserveBottomNavSpace = true,
 }: MobileMoreDrawerProps) {
   const [workspaceSelectorOpen, setWorkspaceSelectorOpen] = useState(false);
 
@@ -129,7 +138,11 @@ export function MobileMoreDrawer({
               exit={{ x: '-100%' }}
               transition={{ type: 'tween', duration: 0.25, ease: [0.22, 1, 0.36, 1] }}
               className="fixed left-0 top-0 z-20 w-[min(280px,85vw)] max-w-[280px] bg-monday-sidebarPanel flex flex-col shadow-monday-xl border-r border-monday-border overflow-hidden"
-              style={{ bottom: 'calc(56px + max(0.5rem, env(safe-area-inset-bottom)))' }}
+              style={
+                reserveBottomNavSpace
+                  ? { bottom: 'calc(56px + max(0.5rem, env(safe-area-inset-bottom)))' }
+                  : { bottom: 0, paddingBottom: 'env(safe-area-inset-bottom)' }
+              }
               aria-label="Menú Más"
             >
               <div className="shrink-0 flex items-center justify-between h-14 px-3 border-b border-monday-border">
@@ -275,16 +288,18 @@ export function MobileMoreDrawer({
                         </button>
                       )
                   )}
-                  <button
-                    type="button"
-                    onClick={() => {
-                      onRequestAddBoard();
-                    }}
-                    className="w-full flex items-center gap-2 text-[12px] px-2 py-1.5 text-monday-subtext hover:text-monday-text hover:bg-monday-hover transition-colors mt-1 rounded-lg"
-                  >
-                    <Plus size={14} />
-                    Agregar tablero
-                  </button>
+                  {canCreateBoard && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        onRequestAddBoard();
+                      }}
+                      className="w-full flex items-center gap-2 text-[12px] px-2 py-1.5 text-monday-subtext hover:text-monday-text hover:bg-monday-hover transition-colors mt-1 rounded-lg"
+                    >
+                      <Plus size={14} />
+                      Agregar tablero
+                    </button>
+                  )}
                 </div>
 
                 {/* Bloque Navegación */}

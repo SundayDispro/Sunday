@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import * as Popover from '@radix-ui/react-popover';
-import { Bell, CheckCheck, ExternalLink } from 'lucide-react';
+import { Bell, CheckCheck, ChevronRight, ExternalLink } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { API_BASE, apiFetch } from '../api';
 import { useUser } from '../store/UserContext';
@@ -12,11 +12,15 @@ type TabId = 'all' | 'unread' | 'mentions' | 'assignments';
 
 type Props = {
   onOpenItem?: (item: Item, boardId: string) => void;
+  /** Abre la vista completa de notificaciones (p. ej. página dedicada). */
+  onOpenFullPage?: () => void;
   onNotificationsChange?: () => void;
   unreadCount: number;
   recentPulse?: boolean;
   isActive?: boolean;
   compact?: boolean;
+  /** 'sidebar' = rail negro; 'header' = barra superior clara */
+  variant?: 'sidebar' | 'header';
 };
 
 function dayLabel(d: Date): string {
@@ -33,11 +37,13 @@ function dayLabel(d: Date): string {
 
 export function NotificationDropdown({
   onOpenItem,
+  onOpenFullPage,
   onNotificationsChange,
   unreadCount,
   recentPulse,
   isActive,
   compact = false,
+  variant = 'sidebar',
 }: Props) {
   const { currentUser } = useUser();
   const [open, setOpen] = useState(false);
@@ -114,15 +120,24 @@ export function NotificationDropdown({
           className={`relative flex items-center justify-center rounded-lg transition-all duration-150 ${
             compact ? 'min-h-[36px] min-w-[36px] w-[36px] h-[36px]' : 'min-h-[44px] min-w-[44px] w-11 h-11'
           } ${
-            isActive
-              ? 'bg-monday-sidebarHover text-white shadow-sm'
-              : 'text-white/70 hover:text-white hover:bg-monday-sidebarHover'
+            variant === 'header'
+              ? isActive
+                ? 'bg-monday-pill text-monday-text shadow-sm'
+                : 'text-monday-subtext hover:text-monday-text hover:bg-monday-hover'
+              : isActive
+                ? 'bg-monday-sidebarHover text-white shadow-sm'
+                : 'text-white/70 hover:text-white hover:bg-monday-sidebarHover'
           }`}
           aria-label="Notificaciones"
         >
           <Bell size={compact ? 18 : 22} strokeWidth={2.25} />
           {recentPulse && (
-            <span className="absolute -top-1 -left-0.5 h-2 w-2 rounded-full bg-emerald-400 ring-2 ring-black" aria-hidden />
+            <span
+              className={`absolute -top-1 -left-0.5 h-2 w-2 rounded-full bg-emerald-400 ring-2 ${
+                variant === 'header' ? 'ring-white' : 'ring-black'
+              }`}
+              aria-hidden
+            />
           )}
           {unreadCount > 0 && (
             <span
@@ -215,6 +230,21 @@ export function NotificationDropdown({
               ))}
             </AnimatePresence>
           </div>
+          {onOpenFullPage && (
+            <div className="shrink-0 border-t border-monday-border px-2 py-1.5 bg-[var(--monday-bg)]/40">
+              <button
+                type="button"
+                onClick={() => {
+                  onOpenFullPage();
+                  setOpen(false);
+                }}
+                className="w-full flex items-center justify-center gap-1 rounded-lg px-2 py-2 text-[12px] font-medium text-monday-blue hover:bg-monday-hover transition-colors"
+              >
+                Ver todas las notificaciones
+                <ChevronRight size={14} strokeWidth={2.25} aria-hidden />
+              </button>
+            </div>
+          )}
         </Popover.Content>
       </Popover.Portal>
     </Popover.Root>

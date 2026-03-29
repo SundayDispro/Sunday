@@ -4,8 +4,9 @@ import { socket } from './store/socket';
 import BoardContainer from './components/Board/BoardContainer';
 import { ItemDetailsPanel } from './components/Board/ItemDetailsPanel';
 import {
-  Home, Bell, Search, ChevronDown, ChevronRight,
+  Home, Search, ChevronDown, ChevronRight,
   Users, BookOpen, BarChart2, Inbox, Star, Plus, Receipt, Calendar, Folder, PieChart, FolderOpen, UserCheck, GanttChart, Check, AlertCircle, X, Sun, Moon, Sparkles, LayoutGrid, Menu, ChevronLeft, Globe, GripVertical,
+  Copy, ClipboardPaste, Delete,
 } from 'lucide-react';
 import { Item, Board, Workspace, User, DocType } from './types';
 import { useUser } from './store/UserContext';
@@ -46,7 +47,7 @@ import { useToast } from './components/Toast';
 import { MobileHomePage } from './components/mobile/MobileHomePage';
 import { MobileDocsHub } from './components/mobile/MobileDocsHub';
 import { MobileBoardsOverview } from './components/mobile/MobileBoardsOverview';
-import { useViewport } from './hooks/useViewport';
+import { useViewport, isDocsMobileViewport } from './hooks/useViewport';
 import { useOrientationViewportFix } from './hooks/useOrientationViewportFix';
 import { useMobileState } from './hooks/useMobileState';
 import * as Popover from '@radix-ui/react-popover';
@@ -368,7 +369,7 @@ function App() {
   /** isDocsMobile = ≤1024px: shell móvil completo (inicio con cabecera lateral en landscape, tablero compacto, docs Word iOS). */
   const { isDocsMobile, isLandscapeShort, isLandscape } = useViewport();
   useOrientationViewportFix();
-  const { mobileState, updateMobileState } = useMobileState('board');
+  const { mobileState, updateMobileState } = useMobileState('home');
   const { toast } = useToast();
   const [jwtIsExpiringSoon, setJwtIsExpiringSoon] = useState(false);
   const [jwtIsExpired, setJwtIsExpired] = useState(false);
@@ -439,6 +440,7 @@ function App() {
     }
   }, [selectedItemIdState, isDocsMobile]);
   const canSeeFacturacionView = can(currentUser, 'billing.view');
+  const canCreateBoard = can(currentUser, 'board.create');
   const isTaller = currentUser?.role === 'TALLER';
 
   const defaultViewsForRole = isTaller ? (['table', 'calendar'] as ViewMode[]) : (['table', 'kanban'] as ViewMode[]);
@@ -604,7 +606,7 @@ function App() {
   const [showAddViewPopover, setShowAddViewPopover] = useState(false);
   const [calendarBoardPickerOpen, setCalendarBoardPickerOpen] = useState(false);
   const [boardVistaSheetOpen, setBoardVistaSheetOpen] = useState(() => {
-    if (typeof window !== 'undefined' && window.innerWidth <= 767) {
+    if (typeof window !== 'undefined' && isDocsMobileViewport()) {
       try {
         const saved = localStorage.getItem('sunday_mobile_state');
         if (saved) {
@@ -617,7 +619,7 @@ function App() {
   });
 
   useEffect(() => {
-    if (typeof window !== 'undefined' && window.innerWidth <= 767) {
+    if (typeof window !== 'undefined' && isDocsMobileViewport()) {
       const ms = localStorage.getItem('sunday_mobile_state');
       if (ms) {
         try {
@@ -1000,10 +1002,21 @@ function App() {
     const r = parseInt(hex.slice(0, 2), 16) / 255;
     const g = parseInt(hex.slice(2, 4), 16) / 255;
     const b = parseInt(hex.slice(4, 6), 16) / 255;
-    // luminancia relativa (WCAG)
     const lin = (c: number) => (c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4));
     const L = 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b);
-    return L > 0.6 ? '#0b1220' : '#ffffff';
+    return L > 0.55 ? '#0b1220' : '#fafafa';
+  };
+
+  const isLightNoteBackground = (bg?: string) => {
+    const raw = (bg ?? '').trim();
+    const hex = raw.startsWith('#') ? raw.slice(1) : raw;
+    if (!/^[0-9a-fA-F]{6}$/.test(hex)) return true;
+    const r = parseInt(hex.slice(0, 2), 16) / 255;
+    const g = parseInt(hex.slice(2, 4), 16) / 255;
+    const b = parseInt(hex.slice(4, 6), 16) / 255;
+    const lin = (c: number) => (c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4));
+    const L = 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b);
+    return L > 0.55;
   };
 
   const formatReminderDueAt = (dueAt: string) => {
@@ -1017,10 +1030,21 @@ function App() {
     return `${date} ${time}`;
   };
 
+  /** Valor para input datetime-local (YYYY-MM-DDTHH:mm) desde texto o ISO guardado. */
+  const toDatetimeLocalValue = (raw: string): string => {
+    const s = String(raw ?? '').trim();
+    if (!s) return '';
+    const d = new Date(s);
+    if (!Number.isFinite(d.getTime())) return '';
+    const pad = (n: number) => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  };
+
   const [taskWindows, setTaskWindows] = useState<TaskWindow[]>([]);
   const [tasksLoading, setTasksLoading] = useState(false);
   const taskWindowsRef = useRef<TaskWindow[]>([]);
   taskWindowsRef.current = taskWindows;
+  const reminderDatetimeInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
   const savePanelNotesTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const fetchUnreadNotifications = React.useCallback(async () => {
@@ -1491,7 +1515,6 @@ function App() {
     { id: 'board', icon: <Home size={navIconSize} strokeWidth={2.25} />, label: 'Inicio' },
     { id: 'calendar', icon: <Calendar size={navIconSize} strokeWidth={2.25} />, label: 'Calendario' },
     { id: 'inbox', icon: <Inbox size={navIconSize} strokeWidth={2.25} />, label: 'Bandeja' },
-    { id: 'notifications', icon: <Bell size={navIconSize} strokeWidth={2.25} />, label: 'Notificaciones' },
     { id: 'search', icon: <Search size={navIconSize} strokeWidth={2.25} />, label: 'Buscar' },
     { id: 'docs', icon: <BookOpen size={navIconSize} strokeWidth={2.25} />, label: 'Docs' },
     { id: 'team', icon: <Users size={navIconSize} strokeWidth={2.25} />, label: 'Equipo' },
@@ -1499,6 +1522,7 @@ function App() {
   const navIcons = isTaller ? navIconsAll.filter(n => n.id === 'board' || n.id === 'calendar') : navIconsAll;
 
   const handleCreateBoard = async () => {
+    if (!canCreateBoard) return;
     const name = newBoardName.trim() || 'Nuevo tablero';
     if (!name) return;
     setCreatingBoard(true);
@@ -1725,7 +1749,8 @@ function App() {
 
       const display =
         Number.isInteger(result) ? result.toString() : result.toFixed(4).replace(/\.0+$/, '').replace(/(\.\d*[1-9])0+$/, '$1');
-      setCalculatorResult(display);
+      setCalculatorExpression(display);
+      setCalculatorResult(null);
       setCalculatorError(null);
     } catch {
       setCalculatorResult('Error');
@@ -2049,14 +2074,21 @@ function App() {
           ) : activePage === 'board' && boards.length === 0 ? (
             <div className="flex-1 flex flex-col items-center justify-center text-monday-subtext p-8">
               <p className="text-[15px] font-medium text-monday-text mb-2">No hay tableros</p>
-              <p className="text-[13px] mb-4">Crea uno desde el menÃƒÂº de la izquierda con &quot;Agregar tablero&quot;.</p>
-              <button
-                onClick={() => setShowAddBoard(true)}
-                className="px-4 py-2 bg-monday-blue text-white text-[13px] font-medium rounded-monday hover:bg-monday-blue/90"
-              >
-                <Plus size={16} className="inline mr-1.5 -mt-0.5" />
-                Agregar tablero
-              </button>
+              <p className="text-[13px] mb-4 text-center max-w-sm">
+                {canCreateBoard
+                  ? 'Crea uno desde el menú de la izquierda con «Agregar tablero».'
+                  : 'Pide a un administrador o al equipo de ventas que cree un tablero en este espacio.'}
+              </p>
+              {canCreateBoard && (
+                <button
+                  type="button"
+                  onClick={() => setShowAddBoard(true)}
+                  className="px-4 py-2 bg-monday-blue text-white text-[13px] font-medium rounded-monday hover:bg-monday-blue/90"
+                >
+                  <Plus size={16} className="inline mr-1.5 -mt-0.5" />
+                  Agregar tablero
+                </button>
+              )}
             </div>
           ) : activePage === 'board' && activeBoardId ? (
             <>
@@ -2470,8 +2502,10 @@ function App() {
           }}
           canSeeFacturacion={!!canSeeFacturacionView}
           isTaller={!!isTaller}
+          canCreateBoard={canCreateBoard}
           onRequestAddBoard={() => setShowAddBoard(true)}
           unreadNotifCount={unreadNotifCount}
+          reserveBottomNavSpace={activePage !== 'docs' && !mobileLandscapeChrome}
         />
       )}
       {/* Left Nav Rail (solo desktop) */}
@@ -2486,53 +2520,35 @@ function App() {
         <div className="w-8 h-px bg-white/10 mb-3" />
 
         {!isDocsMobile &&
-          navIcons.map(({ id, icon, label }) =>
-            id === 'notifications' ? (
-              <NotificationDropdown
-                key={id}
-                unreadCount={unreadNotifCount}
-                recentPulse={recentUnreadNotif}
-                isActive={activePage === 'notifications'}
-                compact={false}
-                onNotificationsChange={fetchUnreadNotifications}
-                onOpenItem={(item, boardId) => {
-                  setActivePage('board');
-                  setActiveBoardId(boardId);
-                  setSelectedItem(item);
-                }}
-              />
-            ) : (
-              <button
-                key={id}
-                title={label}
-                onClick={() => {
-                  const pageIds = [
-                    'board',
-                    'calendar',
-                    'inbox',
-                    'search',
-                    'docs',
-                    'team',
-                    'notifications',
-                  ] as const;
-                  if (pageIds.includes(id as (typeof pageIds)[number])) {
-                    setActivePage(id as (typeof pageIds)[number]);
-                    // Inicio (ícono casa): siempre volver a Vista general del workspace, no quedarse en un tablero abierto.
-                    if (id === 'board') setActiveBoardId(null);
-                    if (id === 'notifications') fetchUnreadNotifications();
-                    if (id === 'calendar' && boards.length > 0 && !activeBoardId) setActiveBoardId(boards[0].id);
-                  }
-                }}
-                className={`relative flex items-center justify-center rounded-lg transition-all duration-150 min-h-[44px] min-w-[44px] w-11 h-11 ${
-                  activePage === id
-                    ? 'bg-monday-sidebarHover text-white shadow-sm'
-                    : 'text-white/70 hover:text-white hover:bg-monday-sidebarHover'
-                }`}
-              >
-                {icon}
-              </button>
-            )
-          )}
+          navIcons.map(({ id, icon, label }) => (
+            <button
+              key={id}
+              title={label}
+              onClick={() => {
+                const pageIds = [
+                  'board',
+                  'calendar',
+                  'inbox',
+                  'search',
+                  'docs',
+                  'team',
+                ] as const;
+                if (pageIds.includes(id as (typeof pageIds)[number])) {
+                  setActivePage(id as (typeof pageIds)[number]);
+                  // Inicio (ícono casa): siempre volver a Vista general del workspace, no quedarse en un tablero abierto.
+                  if (id === 'board') setActiveBoardId(null);
+                  if (id === 'calendar' && boards.length > 0 && !activeBoardId) setActiveBoardId(boards[0].id);
+                }
+              }}
+              className={`relative flex items-center justify-center rounded-lg transition-all duration-150 min-h-[44px] min-w-[44px] w-11 h-11 ${
+                activePage === id
+                  ? 'bg-monday-sidebarHover text-white shadow-sm'
+                  : 'text-white/70 hover:text-white hover:bg-monday-sidebarHover'
+              }`}
+            >
+              {icon}
+            </button>
+          ))}
 
         {/* Spacer + tema + avatar */}
         <div className="flex-1" />
@@ -2767,6 +2783,7 @@ if (ok && data && typeof data.id === 'string') {
                   {activeBoardId === b.id && <Star size={13} className="ml-auto opacity-50 text-monday-orange shrink-0 mt-0.5" />}
                 </button>
               ))}
+              {canCreateBoard && (
               <Popover.Root
                 open={showAddBoard}
                 onOpenChange={(open) => {
@@ -2837,6 +2854,7 @@ if (ok && data && typeof data.id === 'string') {
                   </Popover.Content>
                 </Popover.Portal>
               </Popover.Root>
+              )}
             </div>
           ) : activePage === 'inbox' ? (
             <div className="p-3">
@@ -2893,17 +2911,17 @@ if (ok && data && typeof data.id === 'string') {
               }}
               className="relative group/widget"
             >
-              {/* Handle de drag: evita que clics en botones/inputs “arrastren” el widget */}
+              {/* Handle de drag: esquina inferior derecha para no tapar selector/título (antes top-left bloqueaba clics) */}
               <div
                 draggable
                 aria-hidden
-                className="absolute top-2 left-2 w-6 h-6 cursor-grab opacity-0 z-[2]"
+                className="absolute bottom-2 right-2 w-6 h-6 cursor-grab opacity-0 z-[2]"
                 onDragStart={() => setDraggingWidgetId(win.id)}
                 onDragEnd={() => setDraggingWidgetId(null)}
               />
               {win.kind === 'calculator' ? (
                 <div
-                  className="rounded-2xl bg-[var(--monday-surface)] shadow-[0_10px_24px_rgba(0,0,0,0.16)] overflow-hidden transition-all duration-200 group-hover/widget:shadow-[0_14px_30px_rgba(0,0,0,0.2)]"
+                  className="max-w-[208px] w-full mx-auto rounded-[14px] bg-zinc-900 shadow-[0_10px_28px_rgba(0,0,0,0.35),inset_0_1px_0_rgba(255,255,255,0.06)] border border-zinc-800/90 overflow-hidden transition-all duration-200 group-hover/widget:shadow-[0_14px_34px_rgba(0,0,0,0.42)]"
                   tabIndex={0}
                   onClick={e => {
                     (e.currentTarget as HTMLDivElement).focus();
@@ -2925,6 +2943,7 @@ if (ok && data && typeof data.id === 'string') {
                     }
                     if (key === 'Backspace') {
                       e.preventDefault();
+                      setCalculatorResult((r) => (r === 'Error' ? null : r));
                       setCalculatorExpression(prev => (prev ?? '').slice(0, -1));
                       setCalculatorError(null);
                       return;
@@ -2938,14 +2957,14 @@ if (ok && data && typeof data.id === 'string') {
                     }
                     if (/^[0-9.+\-*/() ]$/.test(key)) {
                       e.preventDefault();
-                      setCalculatorExpression(prev => (prev ?? '') + key);
+                      setCalculatorResult((r) => (r === 'Error' ? null : r));
+                      setCalculatorExpression((prev) => (prev ?? '') + key);
                       setCalculatorError(null);
                     }
                   }}
                 >
-                  {/* Header */}
-                  <div className="flex items-center justify-between gap-2 px-3 pt-3 pb-2">
-                    <p className="text-[12px] font-semibold text-monday-subtext/90">
+                  <div className="flex items-center justify-between gap-1.5 px-2 pt-2 pb-1">
+                    <p className="text-[10px] font-semibold tracking-wide text-zinc-400">
                       Calculadora
                     </p>
                     <button
@@ -2954,165 +2973,147 @@ if (ok && data && typeof data.id === 'string') {
                         setTaskWindows(prev => prev.filter(w => w.id !== win.id));
                         scheduleSavePanelNotes();
                       }}
-                      className="w-7 h-7 flex items-center justify-center rounded-full text-monday-subtext/70 hover:bg-monday-hover hover:text-monday-text transition-colors"
-                      title="Cerrar calculadora"
+                      className="w-6 h-6 flex items-center justify-center rounded-full text-zinc-500 hover:bg-zinc-800 hover:text-zinc-200 transition-colors"
+                      title="Quitar widget"
                     >
-                      <X size={14} />
+                      <X size={12} />
                     </button>
                   </div>
 
-                  {/* Panel oscuro interno (referencia) */}
-                  <div className="mx-3 bg-white/5 rounded-xl px-3 pt-2 pb-2">
-                    <div className="h-[26px] rounded-xl bg-black/20" />
-                    <div className="flex items-baseline justify-end gap-2 mt-2">
-                      <motion.div
-                        key={calculatorResult != null ? `res:${calculatorResult}` : `expr:${calculatorExpression}`}
-                        initial={{ opacity: 0, y: 6, scale: 0.98 }}
-                        animate={{ opacity: 1, y: 0, scale: 1 }}
-                        transition={{ duration: 0.18, ease: [0.22, 1, 0.36, 1] }}
-                        className={`text-[22px] font-semibold tabular-nums ${calculatorError ? 'text-red-400' : 'text-monday-text'}`}
-                      >
-                        {calculatorResult != null ? calculatorResult : '0'}
-                      </motion.div>
-                    </div>
+                  {/* Pantalla: una sola línea grande (expresión al escribir, resultado tras Enter) */}
+                  <div className="mx-2 mb-1.5 rounded-xl bg-zinc-950/90 px-2 py-2 min-h-[52px] flex flex-col justify-center shadow-[inset_0_3px_12px_rgba(0,0,0,0.5)] border border-zinc-800/80">
+                    <motion.div
+                      key={`${calculatorExpression}|${calculatorResult}|${calculatorError ?? ''}`}
+                      initial={{ opacity: 0.85 }}
+                      animate={{ opacity: 1 }}
+                      transition={{ duration: 0.08 }}
+                      className={`text-right text-[22px] sm:text-[24px] font-semibold tabular-nums leading-tight tracking-tight break-all ${
+                        calculatorResult === 'Error' || calculatorError ? 'text-red-400' : 'text-zinc-50'
+                      }`}
+                    >
+                      {calculatorResult === 'Error' || calculatorError
+                        ? 'Error'
+                        : calculatorExpression.trim() !== ''
+                          ? calculatorExpression
+                          : '0'}
+                    </motion.div>
+                    {calculatorError && (
+                      <p className="text-[9px] text-red-400/95 leading-tight mt-1 text-right line-clamp-2">{calculatorError}</p>
+                    )}
                   </div>
 
-                  {/* IVA */}
-                  <div className="px-3 pt-2">
-                    <div className="flex gap-2">
-                      <button
-                        type="button"
-                        className="flex-1 h-9 flex items-center justify-center text-[11px] rounded-full bg-transparent border border-monday-border/30 text-monday-text/80 hover:bg-monday-hover/40 transition-colors"
-                        onClick={() => {
-                          setCalculatorExpression(prev => (prev ? `(${prev})*1.16` : '1*1.16'));
-                          setCalculatorResult(null);
-                          setCalculatorError(null);
-                        }}
-                        title="+IVA 16%"
-                      >
-                        +IVA 16%
-                      </button>
-                      <button
-                        type="button"
-                        className="flex-1 h-9 flex items-center justify-center text-[11px] rounded-full bg-transparent border border-monday-border/30 text-monday-text/80 hover:bg-monday-hover/40 transition-colors"
-                        onClick={() => {
-                          setCalculatorExpression(prev => (prev ? `(${prev})/1.16` : '0'));
-                          setCalculatorResult(null);
-                          setCalculatorError(null);
-                        }}
-                        title="-IVA 16%"
-                      >
-                        −IVA 16%
-                      </button>
-                    </div>
+                  <div className="px-2 pb-1.5 flex gap-2">
+                    <button
+                      type="button"
+                      className="flex-1 h-9 flex items-center justify-center text-[10px] font-semibold rounded-full bg-zinc-100 text-zinc-900 shadow-[0_3px_0_#18181b,inset_0_1px_0_rgba(255,255,255,0.5)] hover:brightness-105 active:translate-y-px active:shadow-[0_1px_0_#18181b] transition-all"
+                      onClick={() => {
+                        setCalculatorExpression(prev => (prev ? `(${prev})*1.16` : '1*1.16'));
+                        setCalculatorResult(null);
+                        setCalculatorError(null);
+                      }}
+                      title="+IVA 16%"
+                    >
+                      +IVA
+                    </button>
+                    <button
+                      type="button"
+                      className="flex-1 h-9 flex items-center justify-center text-[10px] font-semibold rounded-full bg-zinc-100 text-zinc-900 shadow-[0_3px_0_#18181b,inset_0_1px_0_rgba(255,255,255,0.5)] hover:brightness-105 active:translate-y-px active:shadow-[0_1px_0_#18181b] transition-all"
+                      onClick={() => {
+                        setCalculatorExpression(prev => (prev ? `(${prev})/1.16` : '0'));
+                        setCalculatorResult(null);
+                        setCalculatorError(null);
+                      }}
+                      title="−IVA 16%"
+                    >
+                      −IVA
+                    </button>
                   </div>
 
-                  {/* 6 botones como referencia */}
-                  <div className="px-3 pt-2">
-                    <div className="grid grid-cols-2 gap-2">
-                      <button
-                        type="button"
-                        className="w-full h-9 flex items-center justify-center text-[12px] rounded-full bg-transparent border border-monday-border/20 text-monday-text/90 hover:bg-monday-hover/30 transition-colors"
-                        onClick={() => {
-                          const toCopy = calculatorResult != null ? calculatorResult : '0';
-                          navigator.clipboard.writeText(String(toCopy));
-                        }}
-                        title="Copiar resultado"
-                      >
-                        Copiar
-                      </button>
-                      <button
-                        type="button"
-                        className="w-full h-9 flex items-center justify-center text-[12px] rounded-full bg-transparent border border-red-400/25 text-red-400 hover:bg-red-500/10 transition-colors"
-                        onClick={() => {
-                          setCalculatorExpression('');
+                  <div className="px-2 pb-2 grid grid-cols-3 gap-2 justify-items-center">
+                    <button
+                      type="button"
+                      className="w-11 h-11 flex items-center justify-center rounded-full bg-zinc-100 text-zinc-900 shadow-[0_4px_0_#18181b,inset_0_2px_0_rgba(255,255,255,0.45)] hover:brightness-105 active:translate-y-0.5 active:shadow-[0_2px_0_#18181b] transition-all"
+                      onClick={() => {
+                        const txt = calculatorExpression.trim() || '0';
+                        void navigator.clipboard.writeText(txt);
+                      }}
+                      title="Copiar"
+                      aria-label="Copiar"
+                    >
+                      <Copy size={16} strokeWidth={2.25} />
+                    </button>
+                    <button
+                      type="button"
+                      className="w-11 h-11 flex items-center justify-center rounded-full bg-zinc-100 text-zinc-900 shadow-[0_4px_0_#18181b,inset_0_2px_0_rgba(255,255,255,0.45)] hover:brightness-105 active:translate-y-0.5 active:shadow-[0_2px_0_#18181b] transition-all"
+                      onClick={async () => {
+                        try {
+                          const text = await navigator.clipboard.readText();
+                          if (text.trim()) setCalculatorExpression(prev => (prev ?? '') + text.trim());
                           setCalculatorResult(null);
                           setCalculatorError(null);
-                        }}
-                        title="Borrar todo"
-                      >
-                        Borrar
-                      </button>
-                      <button
-                        type="button"
-                        className="w-full h-9 flex items-center justify-center text-[12px] rounded-full bg-transparent border border-monday-border/20 text-monday-text/90 hover:bg-monday-hover/30 transition-colors"
-                        onClick={async () => {
-                          try {
-                            const text = await navigator.clipboard.readText();
-                            if (text.trim()) setCalculatorExpression(prev => (prev ?? '') + text.trim());
-                            setCalculatorResult(null);
-                            setCalculatorError(null);
-                          } catch {
-                            /* ignore */
-                          }
-                        }}
-                        title="Pegar"
-                      >
-                        Pegar
-                      </button>
-                      <motion.button
-                        type="button"
-                        whileTap={{ scale: 0.98 }}
-                        className="w-full h-9 flex items-center justify-center text-[12px] rounded-full bg-monday-blue text-white font-semibold shadow-sm hover:brightness-105 transition-all"
-                        onClick={evaluateCalculator}
-                        title="Calcular"
-                      >
-                        <span aria-hidden className="text-[16px] leading-none">
-                          =
-                        </span>
-                      </motion.button>
-                    </div>
-                  </div>
-
-                  {/* 2 botones extra (AC y ⌫) */}
-                  <div className="px-3 pt-2 pb-3">
-                    <div className="grid grid-cols-2 gap-2">
-                      <button
-                        type="button"
-                        className="w-full h-9 flex items-center justify-center text-[12px] rounded-full bg-transparent border border-monday-border/20 text-monday-text/90 hover:bg-monday-hover/30 transition-colors"
-                        onClick={() => {
-                          setCalculatorExpression('');
-                          setCalculatorResult(null);
-                          setCalculatorError(null);
-                        }}
-                        title="AC"
-                      >
-                        AC
-                      </button>
-                      <button
-                        type="button"
-                        className="w-full h-9 flex items-center justify-center text-[12px] rounded-full bg-transparent border border-monday-border/20 text-monday-text/90 hover:bg-monday-hover/30 transition-colors"
-                        onClick={() => {
-                          setCalculatorExpression(prev => (prev ?? '').slice(0, -1));
-                          setCalculatorResult(null);
-                          setCalculatorError(null);
-                        }}
-                        title="⌫"
-                      >
-                        ⌫
-                      </button>
-                    </div>
+                        } catch {
+                          /* ignore */
+                        }
+                      }}
+                      title="Pegar"
+                      aria-label="Pegar"
+                    >
+                      <ClipboardPaste size={16} strokeWidth={2.25} />
+                    </button>
+                    <button
+                      type="button"
+                      className="w-11 h-11 flex items-center justify-center rounded-full bg-zinc-100 text-zinc-900 text-[10px] font-bold shadow-[0_4px_0_#18181b,inset_0_2px_0_rgba(255,255,255,0.45)] hover:brightness-105 active:translate-y-0.5 active:shadow-[0_2px_0_#18181b] transition-all"
+                      onClick={() => {
+                        setCalculatorExpression('');
+                        setCalculatorResult(null);
+                        setCalculatorError(null);
+                      }}
+                      title="Borrar todo (AC)"
+                    >
+                      AC
+                    </button>
+                    <button
+                      type="button"
+                      className="col-span-2 w-full h-11 flex items-center justify-center gap-1.5 rounded-full bg-zinc-100 text-zinc-900 text-[11px] font-semibold shadow-[0_4px_0_#18181b,inset_0_2px_0_rgba(255,255,255,0.45)] hover:brightness-105 active:translate-y-0.5 active:shadow-[0_2px_0_#18181b] transition-all"
+                      onClick={() => {
+                        setCalculatorExpression(prev => (prev ?? '').slice(0, -1));
+                        setCalculatorResult(null);
+                        setCalculatorError(null);
+                      }}
+                      title="Borrar último carácter"
+                    >
+                      <Delete size={15} strokeWidth={2} className="opacity-80" aria-hidden />
+                      Borrar
+                    </button>
+                    <motion.button
+                      type="button"
+                      whileTap={{ scale: 0.96 }}
+                      className="w-11 h-11 flex items-center justify-center rounded-full bg-red-500 text-white text-lg font-bold shadow-[0_4px_0_#991b1b,inset_0_1px_0_rgba(255,255,255,0.25)] hover:bg-red-400 active:translate-y-0.5 active:shadow-[0_2px_0_#991b1b]"
+                      onClick={evaluateCalculator}
+                      title="Calcular (=)"
+                      aria-label="Calcular"
+                    >
+                      =
+                    </motion.button>
                   </div>
                 </div>
               ) : win.kind === 'reminders' ? (
-                <div
-                  className="rounded-2xl bg-[var(--monday-surface)] shadow-[0_10px_24px_rgba(0,0,0,0.16)] p-2 backdrop-blur-md transition-all duration-200 group-hover/widget:shadow-[0_14px_30px_rgba(0,0,0,0.2)]"
-                >
-                  <div className="flex items-center justify-between gap-2 px-2 py-1.5 rounded-xl bg-black/20 border border-white/5">
-                    <p className="text-[12px] font-semibold text-monday-text/90">
+                <div className="max-w-[208px] w-full mx-auto rounded-[14px] bg-zinc-900 shadow-[0_10px_28px_rgba(0,0,0,0.35),inset_0_1px_0_rgba(255,255,255,0.06)] border border-zinc-800/90 overflow-hidden transition-all duration-200 group-hover/widget:shadow-[0_14px_34px_rgba(0,0,0,0.42)] p-2">
+                  <div className="flex items-center justify-between gap-1.5 px-1 pt-0.5 pb-1.5">
+                    <p className="text-[10px] font-semibold tracking-wide text-zinc-400">
                       Recordatorios
                     </p>
                     <button
                       type="button"
                       onClick={() => removeTaskWindow(win.id)}
-                      className="p-1 rounded-md text-monday-subtext hover:bg-monday-hover/40 hover:text-red-400 transition-colors"
+                      className="w-6 h-6 flex items-center justify-center rounded-full text-zinc-500 hover:bg-zinc-800 hover:text-zinc-200 transition-colors"
                       title="Eliminar widget"
                     >
                       <X size={12} />
                     </button>
                   </div>
 
-                  <div className="px-2 pb-2 pt-2">
+                  <div className="px-0 pb-1">
                     <AnimatePresence initial={false}>
                       {!win.reminderComposerOpen ? (
                         <motion.button
@@ -3121,7 +3122,7 @@ if (ok && data && typeof data.id === 'string') {
                           initial={{ opacity: 0, y: 6 }}
                           animate={{ opacity: 1, y: 0 }}
                           exit={{ opacity: 0, y: -6 }}
-                          className="w-full px-3 py-1.5 rounded-lg bg-monday-blue text-white text-[12px] font-semibold hover:brightness-105 transition-all shadow-sm"
+                          className="w-full h-8 flex items-center justify-center text-[10px] font-semibold rounded-full bg-zinc-100 text-zinc-900 shadow-[0_3px_0_#18181b,inset_0_1px_0_rgba(255,255,255,0.5)] hover:brightness-105 active:translate-y-px transition-all"
                           onClick={() => updateTaskWindow(win.id, { reminderComposerOpen: true })}
                         >
                           Añadir recordatorio
@@ -3138,16 +3139,19 @@ if (ok && data && typeof data.id === 'string') {
                             type="text"
                             value={win.reminderDraftTitle ?? ''}
                             onChange={(e) => updateTaskWindow(win.id, { reminderDraftTitle: e.target.value })}
-                            placeholder="Nuevo recordatorio..."
-                            className="w-full px-2 py-1 rounded-md border border-monday-border/30 bg-transparent text-[11px] text-monday-text placeholder:text-monday-subtext/60 focus:outline-none focus:ring-1 focus:ring-monday-blue/40"
+                            placeholder="Título…"
+                            className="w-full px-2 py-1.5 rounded-lg border border-zinc-700 bg-zinc-950/90 text-[11px] text-zinc-100 placeholder:text-zinc-500 focus:outline-none focus:ring-1 focus:ring-red-500/50"
                           />
-                          <div className="relative">
+                          <div className="relative flex items-center gap-1">
                             <input
-                              type="text"
-                              value={win.reminderDraftDueAt ?? ''}
+                              ref={(el) => {
+                                if (el) reminderDatetimeInputRefs.current[win.id] = el;
+                                else delete reminderDatetimeInputRefs.current[win.id];
+                              }}
+                              type="datetime-local"
+                              value={toDatetimeLocalValue(win.reminderDraftDueAt ?? '')}
                               onChange={(e) => updateTaskWindow(win.id, { reminderDraftDueAt: e.target.value })}
-                              placeholder="dd/mm/aaaa --:--"
-                              className="w-full px-2 py-1 rounded-md border border-monday-border/30 bg-transparent text-[11px] text-monday-text placeholder:text-monday-subtext/60 focus:outline-none focus:ring-1 focus:ring-monday-blue/40 pr-8"
+                              className="min-w-0 flex-1 px-2 py-1.5 rounded-lg border border-zinc-700 bg-zinc-950/90 text-[11px] text-zinc-100 focus:outline-none focus:ring-1 focus:ring-red-500/50 [color-scheme:dark]"
                               onKeyDown={(e) => {
                                 if (e.key !== 'Enter') return;
                                 e.preventDefault();
@@ -3162,11 +3166,26 @@ if (ok && data && typeof data.id === 'string') {
                                 });
                               }}
                             />
-                            <Calendar
-                              size={14}
-                              className="absolute right-2 top-1/2 -translate-y-1/2 text-monday-subtext/70"
-                              aria-hidden
-                            />
+                            <button
+                              type="button"
+                              className="shrink-0 w-9 h-9 flex items-center justify-center rounded-full bg-zinc-100 text-zinc-900 shadow-[0_3px_0_#18181b,inset_0_1px_0_rgba(255,255,255,0.45)] hover:brightness-105 active:translate-y-px transition-all"
+                              title="Abrir calendario"
+                              aria-label="Abrir calendario"
+                              onClick={() => {
+                                const el = reminderDatetimeInputRefs.current[win.id];
+                                if (el && typeof el.showPicker === 'function') {
+                                  try {
+                                    el.showPicker();
+                                  } catch {
+                                    el.focus();
+                                  }
+                                } else if (el) {
+                                  el.focus();
+                                }
+                              }}
+                            >
+                              <Calendar size={16} strokeWidth={2.25} aria-hidden />
+                            </button>
                           </div>
                           <motion.button
                             type="button"
@@ -3182,7 +3201,7 @@ if (ok && data && typeof data.id === 'string') {
                                 reminderComposerOpen: false,
                               });
                             }}
-                            className="w-full px-3 py-1.5 rounded-lg bg-monday-blue text-white text-[12px] font-semibold hover:brightness-105 transition-all shadow-sm"
+                            className="w-full h-8 flex items-center justify-center text-[11px] font-semibold rounded-full bg-red-500 text-white shadow-[0_3px_0_#991b1b,inset_0_1px_0_rgba(255,255,255,0.2)] hover:bg-red-400 active:translate-y-px transition-all"
                           >
                             Añadir
                           </motion.button>
@@ -3191,10 +3210,10 @@ if (ok && data && typeof data.id === 'string') {
                     </AnimatePresence>
                   </div>
 
-                  <div className="px-2 pb-2">
+                  <div className="px-0 pb-0 pt-1">
                     {(win.reminders ?? []).length === 0 ? (
-                      <div className="border border-monday-border/30 rounded-lg px-2 py-1.5">
-                        <p className="text-[11px] text-monday-subtext text-center">Sin recordatorios.</p>
+                      <div className="rounded-lg border border-zinc-800 bg-zinc-950/50 px-2 py-1.5">
+                        <p className="text-[10px] text-zinc-500 text-center">Sin recordatorios.</p>
                       </div>
                     ) : (
                       <div className="max-h-24 overflow-auto pr-1 custom-scrollbar">
@@ -3207,7 +3226,7 @@ if (ok && data && typeof data.id === 'string') {
                               animate={{ opacity: 1, y: 0 }}
                               exit={{ opacity: 0, y: -6 }}
                               transition={{ duration: 0.16, ease: [0.22, 1, 0.36, 1] }}
-                              className="flex items-center justify-between gap-2 px-1.5 py-1 rounded-md hover:bg-monday-hover/40 transition-colors"
+                              className="flex items-center justify-between gap-2 px-1.5 py-1 rounded-md hover:bg-zinc-800/60 transition-colors"
                             >
                               <button
                                 type="button"
@@ -3218,8 +3237,8 @@ if (ok && data && typeof data.id === 'string') {
                                 }
                                 className={`w-4 h-4 rounded-sm border flex items-center justify-center ${
                                   r.done
-                                    ? 'bg-monday-blue border-monday-blue text-white'
-                                    : 'border-monday-border/50 text-transparent hover:border-monday-border/70'
+                                    ? 'bg-red-500 border-red-500 text-white'
+                                    : 'border-zinc-500 text-transparent hover:border-zinc-400'
                                 }`}
                                 aria-label={r.done ? 'Marcar como pendiente' : 'Marcar como hecho'}
                               >
@@ -3229,12 +3248,12 @@ if (ok && data && typeof data.id === 'string') {
                               <div className="flex-1 min-w-0">
                                 <p
                                   className={`text-[11px] leading-snug truncate ${
-                                    r.done ? 'line-through text-monday-subtext' : 'text-monday-text'
+                                    r.done ? 'line-through text-zinc-500' : 'text-zinc-100'
                                   }`}
                                 >
                                   {r.title}
                                 </p>
-                                <p className="block text-[10px] text-monday-subtext/80 leading-none truncate">
+                                <p className="block text-[10px] text-zinc-400 leading-none truncate">
                                   {formatReminderDueAt(r.dueAt)}
                                 </p>
                               </div>
@@ -3246,7 +3265,7 @@ if (ok && data && typeof data.id === 'string') {
                                     reminders: (win.reminders ?? []).filter((x) => x.id !== r.id),
                                   })
                                 }
-                                className="text-monday-subtext hover:text-red-400 text-[11px] px-1 py-0.5"
+                                className="text-zinc-500 hover:text-red-400 text-[11px] px-1 py-0.5"
                                 title="Eliminar"
                               >
                                 ×
@@ -3259,138 +3278,163 @@ if (ok && data && typeof data.id === 'string') {
                   </div>
                 </div>
               ) : (
+                (() => {
+                  const noteBg = win.color ?? DEFAULT_TASK_WINDOW_COLOR;
+                  const noteFg = pickContrastingTextColor(noteBg);
+                  const light = isLightNoteBackground(noteBg);
+                  const rowHover = light ? 'hover:bg-black/12' : 'hover:bg-white/14';
+                  const btnAdd = light
+                    ? 'bg-black/12 hover:bg-black/18 border-black/20 text-current'
+                    : 'bg-white/18 hover:bg-white/25 border-white/25 text-current';
+                  return (
                 <div
-                  className="rounded-2xl shadow-[0_10px_24px_rgba(0,0,0,0.16)] p-2 transition-all duration-200 bg-opacity-90 backdrop-blur-md group-hover/widget:shadow-[0_14px_30px_rgba(0,0,0,0.2)]"
-                  style={{
-                    backgroundColor: win.color ?? DEFAULT_TASK_WINDOW_COLOR,
-                    color: pickContrastingTextColor(win.color ?? DEFAULT_TASK_WINDOW_COLOR),
-                  }}
+                  className="max-w-[220px] w-full mx-auto rounded-lg overflow-hidden shadow-[0_10px_28px_rgba(0,0,0,0.22)] border border-zinc-400/35 transition-all duration-200 group-hover/widget:shadow-[0_14px_32px_rgba(0,0,0,0.28)] relative z-10"
                 >
-                  <div className="flex items-center justify-between gap-2 mb-2 -mx-2 px-2 pt-2 pb-1.5 bg-gradient-to-r from-monday-hover/45 via-monday-hover/15 to-transparent">
-                    <input
-                      type="text"
-                      value={win.title}
-                      onChange={e => updateTaskWindow(win.id, { title: e.target.value })}
-                      className="flex-1 min-w-0 text-[12px] font-semibold bg-transparent border-0 outline-none"
-                      placeholder="Lista sin título"
-                    />
+                  <div className="flex items-center gap-2 px-2.5 py-2 bg-zinc-800 border-b border-zinc-900/60">
                     <Popover.Root>
                       <Popover.Trigger asChild>
                         <button
                           type="button"
-                          className="w-5 h-5 rounded-md border border-monday-border/30 shadow-inner flex-shrink-0 hover:ring-2 ring-monday-blue/25 transition-shadow"
-                          style={{ backgroundColor: win.color ?? DEFAULT_TASK_WINDOW_COLOR }}
-                          title="Cambiar color"
+                          className="shrink-0 w-3.5 h-3.5 rounded-full border border-zinc-400/90 shadow-[inset_0_1px_0_rgba(255,255,255,0.25)] hover:ring-2 hover:ring-white/40 transition-shadow"
+                          style={{ backgroundColor: noteBg }}
+                          title="Color de la nota"
+                          aria-label="Elegir color de la nota"
                         />
                       </Popover.Trigger>
                       <Popover.Portal>
-                        <Popover.Content className="z-50 p-2 rounded-lg shadow-lg border border-monday-border bg-white" sideOffset={6}>
+                        <Popover.Content
+                          className="z-[100] p-2 rounded-lg shadow-lg border border-monday-border bg-white"
+                          sideOffset={6}
+                          collisionPadding={8}
+                        >
+                          <p className="text-[10px] font-semibold text-monday-subtext px-0.5 mb-1.5">Color de la nota</p>
                           <div className="grid grid-cols-4 gap-1">
                             {TASK_WINDOW_COLORS.map(c => (
-                              <button
-                                key={c}
-                                type="button"
-                                className="w-6 h-6 rounded border border-monday-border hover:ring-2 ring-monday-blue transition-shadow"
-                                style={{ backgroundColor: c }}
-                                onClick={() => updateTaskWindow(win.id, { color: c })}
-                              />
+                              <Popover.Close key={c} asChild>
+                                <button
+                                  type="button"
+                                  className="w-6 h-6 rounded border border-monday-border hover:ring-2 ring-monday-blue transition-shadow"
+                                  style={{ backgroundColor: c }}
+                                  onClick={() => updateTaskWindow(win.id, { color: c })}
+                                />
+                              </Popover.Close>
                             ))}
                           </div>
                         </Popover.Content>
                       </Popover.Portal>
                     </Popover.Root>
-                  </div>
-                  <div className="space-y-0.5">
-                    <AnimatePresence initial={false}>
-                      {win.tasks.map(task => (
-                        <motion.div
-                          key={task.id}
-                          layout
-                          initial={{ opacity: 0, height: 0 }}
-                          animate={{ opacity: 1, height: 'auto' }}
-                          exit={{ opacity: 0, height: 0 }}
-                          transition={{ duration: 0.2, ease: [0.22, 1, 0.36, 1] }}
-                          className="flex items-start gap-2 group/task py-0.5 px-2 hover:bg-monday-bg/40 transition-colors overflow-hidden"
-                        >
-                          <motion.button
-                            type="button"
-                            role="checkbox"
-                            aria-checked={!!task.done}
-                            onClick={() =>
-                              updateTaskWindow(win.id, {
-                                tasks: win.tasks.map(t =>
-                                  t.id === task.id ? { ...t, done: !t.done } : t,
-                                ),
-                              })
-                            }
-                            whileTap={{ scale: 0.9 }}
-                            transition={{ type: 'spring', stiffness: 400, damping: 25 }}
-                            className={`mt-0.5 w-4 h-4 rounded-md flex items-center justify-center flex-shrink-0 border shadow-inner transition-colors duration-200 ${
-                              task.done
-                                ? 'border-0 text-white bg-monday-blue'
-                                : 'border border-monday-border/40 text-transparent hover:border-monday-blue/50 bg-transparent'
-                            }`}
-                          >
-                            <motion.span
-                              initial={false}
-                              animate={{ opacity: task.done ? 1 : 0, scale: task.done ? 1 : 0.75 }}
-                              transition={{ duration: 0.2 }}
-                            >
-                              <Check size={10} strokeWidth={3} />
-                            </motion.span>
-                          </motion.button>
-                          <textarea
-                            value={task.text}
-                            onChange={e => {
-                              updateTaskWindow(win.id, {
-                                tasks: win.tasks.map(t =>
-                                  t.id === task.id ? { ...t, text: e.target.value } : t,
-                                ),
-                              });
-                            }}
-                            rows={Math.max(2, Math.min(6, (task.text.match(/\n/g)?.length ?? 0) + 2))}
-                            className={`flex-1 min-w-0 text-[12px] border-0 bg-transparent outline-none resize-none overflow-hidden placeholder:text-monday-subtext/80 transition-opacity duration-200 ${
-                              task.done ? 'opacity-60 line-through' : ''
-                            }`}
-                            placeholder="Nueva tarea..."
-                          />
-                          <button
-                            type="button"
-                            onClick={() =>
-                              updateTaskWindow(win.id, {
-                                tasks: win.tasks.filter(t => t.id !== task.id),
-                              })
-                            }
-                            className="text-monday-subtext hover:text-monday-red text-[11px] opacity-0 group-hover/task:opacity-100 transition-opacity p-0.5 rounded"
-                          >
-                            ×
-                          </button>
-                        </motion.div>
-                      ))}
-                    </AnimatePresence>
+                    <input
+                      type="text"
+                      value={win.title}
+                      onChange={e => updateTaskWindow(win.id, { title: e.target.value })}
+                      className="flex-1 min-w-0 text-[12px] font-semibold bg-transparent border-0 outline-none text-white placeholder:text-zinc-500"
+                      placeholder="Mis tareas"
+                    />
                     <button
                       type="button"
-                      onClick={() =>
-                        updateTaskWindow(win.id, {
-                          tasks: [
-                            ...win.tasks,
-                            { id: crypto.randomUUID(), text: '', done: false },
-                          ],
-                        })
-                      }
-                      className="mt-2 w-full text-[12px] text-monday-blue bg-monday-bg/40 hover:bg-monday-hover/40 px-2 py-1.25 rounded-lg transition-colors font-medium"
+                      onClick={() => removeTaskWindow(win.id)}
+                      className="shrink-0 w-6 h-6 flex items-center justify-center rounded-full text-zinc-500 hover:bg-zinc-800 hover:text-zinc-200 transition-colors"
+                      title="Quitar widget"
+                      aria-label="Quitar widget"
                     >
-                      + Añadir tarea
+                      <X size={12} />
                     </button>
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => removeTaskWindow(win.id)}
-                    className="mt-2 w-full px-2 py-1.25 rounded-lg text-[11px] text-monday-subtext hover:bg-red-50/20 hover:text-monday-red transition-colors font-medium"
+
+                  <div
+                    className="px-2.5 pt-2.5 pb-2.5 transition-colors"
+                    style={{ backgroundColor: noteBg, color: noteFg }}
                   >
-                    Eliminar lista
-                  </button>
+                    <div className="space-y-0.5">
+                      <AnimatePresence initial={false}>
+                        {win.tasks.map(task => (
+                          <motion.div
+                            key={task.id}
+                            layout
+                            initial={{ opacity: 0, height: 0 }}
+                            animate={{ opacity: 1, height: 'auto' }}
+                            exit={{ opacity: 0, height: 0 }}
+                            transition={{ duration: 0.2, ease: [0.22, 1, 0.36, 1] }}
+                            className={`flex items-start gap-2 group/task py-0.5 px-1 rounded-md ${rowHover} transition-colors overflow-hidden`}
+                          >
+                            <motion.button
+                              type="button"
+                              role="checkbox"
+                              aria-checked={!!task.done}
+                              onClick={() =>
+                                updateTaskWindow(win.id, {
+                                  tasks: win.tasks.map(t =>
+                                    t.id === task.id ? { ...t, done: !t.done } : t,
+                                  ),
+                                })
+                              }
+                              whileTap={{ scale: 0.9 }}
+                              transition={{ type: 'spring', stiffness: 400, damping: 25 }}
+                              className={`mt-0.5 w-4 h-4 rounded flex items-center justify-center flex-shrink-0 border shadow-sm transition-colors duration-200 ${
+                                task.done
+                                  ? 'border-red-800/40 text-white bg-red-600'
+                                  : light
+                                    ? 'border-black/35 text-transparent hover:border-black/50 bg-white/35'
+                                    : 'border-white/45 text-transparent hover:border-white/65 bg-black/15'
+                              }`}
+                            >
+                              <motion.span
+                                initial={false}
+                                animate={{ opacity: task.done ? 1 : 0, scale: task.done ? 1 : 0.75 }}
+                                transition={{ duration: 0.2 }}
+                              >
+                                <Check size={10} strokeWidth={3} />
+                              </motion.span>
+                            </motion.button>
+                            <textarea
+                              value={task.text}
+                              onChange={e => {
+                                updateTaskWindow(win.id, {
+                                  tasks: win.tasks.map(t =>
+                                    t.id === task.id ? { ...t, text: e.target.value } : t,
+                                  ),
+                                });
+                              }}
+                              rows={Math.max(2, Math.min(6, (task.text.match(/\n/g)?.length ?? 0) + 2))}
+                              className={`flex-1 min-w-0 text-[12px] border-0 bg-transparent outline-none resize-none overflow-hidden placeholder:text-current placeholder:opacity-50 transition-opacity duration-200 ${
+                                task.done ? 'opacity-55 line-through' : ''
+                              }`}
+                              style={{ color: noteFg }}
+                              placeholder="Nueva tarea..."
+                            />
+                            <button
+                              type="button"
+                              onClick={() =>
+                                updateTaskWindow(win.id, {
+                                  tasks: win.tasks.filter(t => t.id !== task.id),
+                                })
+                              }
+                              className="text-current text-[11px] opacity-0 group-hover/task:opacity-100 hover:text-red-600 transition-opacity p-0.5 rounded"
+                            >
+                              ×
+                            </button>
+                          </motion.div>
+                        ))}
+                      </AnimatePresence>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          updateTaskWindow(win.id, {
+                            tasks: [
+                              ...win.tasks,
+                              { id: crypto.randomUUID(), text: '', done: false },
+                            ],
+                          })
+                        }
+                        className={`mt-2 w-full text-[11px] font-semibold border px-2 py-1.5 rounded-md transition-colors ${btnAdd}`}
+                      >
+                        + Añadir tarea
+                      </button>
+                    </div>
+                  </div>
                 </div>
+                  );
+                })()
               )}
             </div>
                     ))}
@@ -3526,6 +3570,26 @@ if (ok && data && typeof data.id === 'string') {
                                   ? 'Inicio'
                                   : 'Inicio'}
             </span>
+            {!isDocsMobile && (
+              <div className="shrink-0 ml-auto flex items-center pr-0.5">
+                <NotificationDropdown
+                  variant="header"
+                  unreadCount={unreadNotifCount}
+                  recentPulse={recentUnreadNotif}
+                  isActive={activePage === 'notifications'}
+                  onNotificationsChange={fetchUnreadNotifications}
+                  onOpenFullPage={() => {
+                    setActivePage('notifications');
+                    fetchUnreadNotifications();
+                  }}
+                  onOpenItem={(item, boardId) => {
+                    setActivePage('board');
+                    setActiveBoardId(boardId);
+                    setSelectedItem(item);
+                  }}
+                />
+              </div>
+            )}
             {isDocsMobile && !calendarMinimalChrome && (
               <div className="shrink-0">
                 <AnimatedLogo size={26} color="currentColor" />
