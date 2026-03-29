@@ -9,7 +9,8 @@ if (!_jwtSecret) {
 }
 const JWT_SECRET: string = _jwtSecret;
 
-const JWT_EXPIRES_IN: string | number = process.env.JWT_EXPIRES_IN || '7d';
+// Por defecto 24h; en producción conviene fijar JWT_EXPIRES_IN en .env (p. ej. 8h o 12h).
+const JWT_EXPIRES_IN: string | number = process.env.JWT_EXPIRES_IN || '24h';
 
 const BCRYPT_ROUNDS_ENV = process.env.BCRYPT_ROUNDS;
 const BCRYPT_ROUNDS =
@@ -68,16 +69,6 @@ export function verifyExportToken(token: string): ExportTokenPayload {
     throw new Error('Token de exportación inválido');
   }
   return { userId: payload.userId, docId: payload.docId, purpose: 'export' };
-}
-
-/** Devuelve docId si el token es de exportación (solo decodifica, no verifica). Usar tras authenticateToken. */
-export function getExportDocIdFromToken(token: string): string | null {
-  try {
-    const payload = jwt.decode(token) as (ExportTokenPayload & { purpose?: string }) | null;
-    return payload?.purpose === 'export' && payload?.docId ? payload.docId : null;
-  } catch {
-    return null;
-  }
 }
 
 declare module 'express-serve-static-core' {

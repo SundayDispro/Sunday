@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { User, UserStatus, type WebPushSubscribeRequestBody } from '../types';
-import { API_BASE, apiFetch, buildAuthHeaders, clearAuthStorage, parseResponse } from '../api';
+import { API_BASE, apiFetch, buildAuthHeaders, clearAuthStorage, getAuthToken, parseResponse } from '../api';
 import { reconnectSocketWithAuth, socket } from './socket';
 
 interface UserContextType {
@@ -166,6 +166,15 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
       // ignore
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentUser?.id]);
+
+  useEffect(() => {
+    if (!currentUser?.id) return;
+    try {
+      if (!socket.connected && getAuthToken()) socket.connect();
+    } catch {
+      // ignore
+    }
   }, [currentUser?.id]);
 
   const login = async (username: string, password: string) => {

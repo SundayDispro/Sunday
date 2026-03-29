@@ -125,6 +125,8 @@ model ColumnValue {
   item     Item        @relation(fields: [itemId], references: [id], onDelete: Cascade)
   columnId String
   column   BoardColumn @relation(fields: [columnId], references: [id], onDelete: Cascade)
+  /// FIX 11: control de concurrencia (optimistic locking) en updates vía socket
+  updatedAt DateTime   @default(now()) @updatedAt
 
   @@unique([itemId, columnId])
 }

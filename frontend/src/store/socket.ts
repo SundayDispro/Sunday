@@ -34,7 +34,8 @@ function getSocketServerUrl(): string | undefined {
 }
 
 export const socket: Socket = io(getSocketServerUrl(), {
-  autoConnect: true,
+  // FIX 3: sin JWT el servidor rechaza el handshake; no reconectar en bucle en pantalla de login.
+  autoConnect: typeof window !== 'undefined' && !!getSocketToken(),
   // Token fresco en cada conexión/reconexión (evita handshake sin JWT si el módulo cargó antes de localStorage).
   auth: (cb) => {
     cb({ token: getSocketToken() });

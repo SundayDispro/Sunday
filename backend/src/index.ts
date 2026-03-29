@@ -1,6 +1,7 @@
 import './env';
 import crypto from 'crypto';
 import express from 'express';
+import rateLimit from 'express-rate-limit';
 import { createServer } from 'http';
 import { Server } from 'socket.io';
 import cors, { type CorsOptions } from 'cors';
@@ -10,7 +11,7 @@ import fs from 'fs';
 import { ensureUploadDirs, UPLOADS_DIR } from './config/paths';
 import multer from 'multer';
 import { PrismaClient, Prisma } from '@prisma/client';
-import { attachUserFromJwt, authenticateToken, hashPassword, requireAdmin, requireAuth, requireRoles, verifyPassword, signJwt, verifyJwt, verifyExportToken, signExportToken, getExportDocIdFromToken } from './auth';
+import { attachUserFromJwt, authenticateToken, hashPassword, requireAdmin, requireAuth, requireRoles, verifyPassword, signJwt, verifyJwt, verifyExportToken, signExportToken } from './auth';
 import webpush from 'web-push';
 import { getTemplatePathIfExists, getTemplateImagePathIfExists, generateFilledPdf, generatePdfFromTemplate, getTemplatesDir, TemplateKind } from './templatePdfGenerator';
 import * as notificationsService from './services/notifications';
@@ -18,6 +19,68 @@ import { runBackup, cleanOldBackups, getBackupList } from './backupService';
 
 const prisma = new PrismaClient();
 const app = express();
+
+/** FIX 8: no filtrar mensajes de Prisma/BD al cliente. */
+const GENERIC_INTERNAL_ERROR = 'Error interno del servidor';
+
+/**
+ * IDOR (docs/diseños): el workspace debe existir; si hay boardId, el tablero debe existir y coincidir en workspaceId.
+ * Sin membresía por usuario en el esquema actual: mismo alcance operativo que listar workspaces/tablas autenticado.
+ */
+async function assertUserCanAccessWorkspaceForDocOrDesign(
+  res: express.Response,
+  workspaceId: string,
+  boardId: string | null | undefined
+): Promise<boolean> {
+  const ws = await prisma.workspace.findUnique({ where: { id: workspaceId }, select: { id: true } });
+  if (!ws) {
+    res.status(404).json({ error: 'Workspace no encontrado' });
+    return false;
+  }
+  if (boardId) {
+    const board = await prisma.board.findUnique({ where: { id: boardId }, select: { workspaceId: true } });
+    if (!board) {
+      res.status(404).json({ error: 'Tablero no encontrado' });
+      return false;
+    }
+    if (board.workspaceId !== workspaceId) {
+      res.status(403).json({ error: 'No autorizado' });
+      return false;
+    }
+  }
+  return true;
+}
+
+/**
+ * FIX 10: respuestas HTTP coherentes para errores Prisma frecuentes (evita duplicar if (code === 'P2025') en cada ruta).
+ * Devuelve true si respondió y la ruta no debe seguir.
+ */
+function handlePrismaError(err: unknown, res: express.Response, notFoundDetail?: string): boolean {
+  const code =
+    err && typeof err === 'object' && 'code' in err ? String((err as { code?: string }).code ?? '') : '';
+  if (code === 'P2025') {
+    res.status(404).json({ error: notFoundDetail ?? 'Recurso no encontrado' });
+    return true;
+  }
+  if (code === 'P2002') {
+    res.status(409).json({ error: 'Conflicto: el registro ya existe' });
+    return true;
+  }
+  if (code === 'P2003') {
+    res.status(400).json({ error: 'Referencia inválida' });
+    return true;
+  }
+  return false;
+}
+
+/** FIX 10: mitigar fuerza bruta contra credenciales. */
+const loginRateLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Demasiados intentos de inicio de sesión. Espera 15 minutos o vuelve más tarde.' },
+});
 
 /** Errores típicos de Prisma/pg cuando la BD no está accesible o las credenciales fallan. */
 function isPrismaDbUnavailable(err: unknown): boolean {
@@ -136,6 +199,54 @@ const io = new Server(httpServer, {
 });
 
 let socketConnectionCount = 0;
+
+const boardRoom = (boardId: string) => `board:${boardId}`;
+const userRoom = (userId: string) => `user:${userId}`;
+const SOCKET_IO_ALLOWED_ROLES = new Set(['ADMIN', 'VENTAS', 'DISENO', 'TALLER', 'USER']);
+
+/** FIX 5: destinatarios de board_added por datos de Prisma (workspace), no solo sockets conectados. */
+async function getUserIdsForWorkspaceNotification(workspaceId: string): Promise<string[]> {
+  const [docRows, designRows, roleUsers] = await Promise.all([
+    prisma.doc.findMany({ where: { workspaceId }, select: { createdBy: true } }),
+    prisma.design.findMany({ where: { workspaceId }, select: { createdBy: true } }),
+    prisma.user.findMany({
+      where: { role: { in: ['ADMIN', 'VENTAS', 'DISENO'] } },
+      select: { id: true },
+    }),
+  ]);
+  const ids = new Set<string>();
+  docRows.forEach((d) => {
+    if (d.createdBy) ids.add(d.createdBy);
+  });
+  designRows.forEach((d) => {
+    if (d.createdBy) ids.add(d.createdBy);
+  });
+  roleUsers.forEach((u) => ids.add(u.id));
+  if (ids.size === 0) {
+    const all = await prisma.user.findMany({ select: { id: true } });
+    return all.map((u) => u.id);
+  }
+  return [...ids];
+}
+
+// FIX 3: JWT válido obligatorio en el handshake Socket.io (rechaza conexión anónima).
+io.use(async (socket, next) => {
+  const tokenMaybe = (socket.handshake.auth as { token?: string } | undefined)?.token;
+  const token = typeof tokenMaybe === 'string' ? tokenMaybe.trim() : '';
+  if (!token) return next(new Error('unauthorized'));
+  try {
+    const payload = verifyJwt(token);
+    const user = await prisma.user.findUnique({ where: { id: payload.userId } });
+    if (!user || !SOCKET_IO_ALLOWED_ROLES.has(user.role)) return next(new Error('unauthorized'));
+    const bag = (socket.data as Record<string, unknown> | null | undefined) ?? {};
+    Object.assign(bag, { userId: user.id, role: user.role });
+    socket.data = bag;
+    socket.join(userRoom(user.id));
+    next();
+  } catch {
+    next(new Error('unauthorized'));
+  }
+});
 
 // Configuración Web Push (VAPID)
 let VAPID_PUBLIC_KEY = process.env.VAPID_PUBLIC_KEY;
@@ -311,6 +422,7 @@ app.get('/api/health', (_req, res) => {
 
 // Mensaje de sistema en el feed (Bandeja): solo desde 127.0.0.1 / ::1 — sin JWT.
 // Autor: SYSTEM_FEED_AUTHOR_ID en .env, o el primer usuario ADMIN por createdAt.
+// FIX 11: el reverse proxy NO debe exponer /api/internal/* a Internet (solo localhost o red interna).
 app.post('/api/internal/feed/system-message', async (req, res) => {
   try {
     if (!isRequestFromLoopback(req)) {
@@ -496,9 +608,10 @@ app.patch('/api/workspaces/:workspaceId/panel-notes', authenticateToken, async (
     const others = (current as { ownerId?: string }[]).filter((item) =>
       item ? String(item.ownerId) !== effectiveUserId : false
     );
+    // FIX 3 (IDOR panel-notes): no permitir que el cliente fije ownerId ajeno; siempre el usuario efectivo (o el que un ADMIN edita vía userId).
     const withOwner = panelNotes.map((n: { ownerId?: string; [k: string]: unknown }) => ({
       ...n,
-      ownerId: n.ownerId ?? effectiveUserId,
+      ownerId: effectiveUserId,
     }));
     merged = [...others, ...withOwner];
 
@@ -513,7 +626,7 @@ app.patch('/api/workspaces/:workspaceId/panel-notes', authenticateToken, async (
     const toReturn = saved.filter((item: { ownerId?: string }) => String(item?.ownerId) === effectiveUserId);
     res.json({ panelNotes: toReturn });
   } catch (e) {
-    if ((e as { code?: string })?.code === 'P2025') return res.status(404).json({ error: 'Workspace no encontrado' });
+    if (handlePrismaError(e, res, 'Workspace no encontrado')) return;
     console.error('Error updating panel notes:', e);
     res.status(500).json({ error: 'Failed to update panel notes' });
   }
@@ -711,7 +824,7 @@ app.patch('/api/workspaces/:workspaceId/doc-groups', authenticateToken, async (r
       subgroupAssignments: current.subgroupAssignments,
     });
   } catch (e) {
-    if ((e as { code?: string })?.code === 'P2025') return res.status(404).json({ error: 'Workspace no encontrado' });
+    if (handlePrismaError(e, res, 'Workspace no encontrado')) return;
     console.error('Error updating doc-groups:', e);
     res.status(500).json({ error: 'Failed to update doc-groups' });
   }
@@ -740,9 +853,7 @@ app.patch('/api/workspaces/:id', authenticateToken, requireRoles(['ADMIN']), asy
     });
     res.json(workspace);
   } catch (error) {
-    if ((error as { code?: string })?.code === 'P2025') {
-      return res.status(404).json({ error: 'Workspace no encontrado' });
-    }
+    if (handlePrismaError(error, res, 'Workspace no encontrado')) return;
     console.error('Error updating workspace:', error);
     res.status(500).json({ error: 'Failed to update workspace' });
   }
@@ -756,9 +867,7 @@ app.delete('/api/workspaces/:id', authenticateToken, requireRoles(['ADMIN']), as
     await prisma.workspace.delete({ where: { id } });
     res.status(204).send();
   } catch (error) {
-    if ((error as { code?: string })?.code === 'P2025') {
-      return res.status(404).json({ error: 'Workspace no encontrado' });
-    }
+    if (handlePrismaError(error, res, 'Workspace no encontrado')) return;
     console.error('Error deleting workspace:', error);
     res.status(500).json({ error: 'Failed to delete workspace' });
   }
@@ -937,9 +1046,7 @@ app.delete('/api/boards/:id', authenticateToken, requireRoles(['ADMIN']), async 
     await prisma.board.delete({ where: { id } });
     res.status(204).send();
   } catch (error) {
-    if ((error as { code?: string })?.code === 'P2025') {
-      return res.status(404).json({ error: 'Board no encontrado' });
-    }
+    if (handlePrismaError(error, res, 'Board no encontrado')) return;
     console.error('Error deleting board:', error);
     res.status(500).json({ error: 'Failed to delete board' });
   }
@@ -1190,7 +1297,7 @@ app.post('/api/feed', authenticateToken, async (req, res) => {
 
 // --- Auth & Users API ---
 
-app.post('/api/login', async (req, res) => {
+app.post('/api/login', loginRateLimiter, async (req, res) => {
   try {
     const { username, password } = req.body;
     if (!username || !password) {
@@ -1272,12 +1379,30 @@ app.post('/api/users', requireAuth, requireAdmin, async (req, res) => {
   }
 });
 
-// Get all users (sin enviar password)
+// FIX 9: ADMIN ve el perfil completo (sin password); el resto solo datos necesarios para asignación/UI sin hash ni campos internos extra.
 app.get('/api/users', authenticateToken, async (req, res) => {
   try {
-    const users = await prisma.user.findMany({ orderBy: { name: 'asc' } });
-    const safe = users.map(({ password: _p, ...u }) => u);
-    res.json(safe);
+    if (req.authUser?.role === 'ADMIN') {
+      const users = await prisma.user.findMany({ orderBy: { name: 'asc' } });
+      const safe = users.map(({ password: _p, ...u }) => u);
+      res.json(safe);
+      return;
+    }
+    const users = await prisma.user.findMany({
+      orderBy: { name: 'asc' },
+      select: {
+        id: true,
+        username: true,
+        name: true,
+        initials: true,
+        color: true,
+        role: true,
+        status: true,
+        avatarUrl: true,
+        preferences: true,
+      },
+    });
+    res.json(users);
   } catch (e) {
     console.error('Error fetching users:', e);
     res.status(500).json({ error: 'Failed' });
@@ -1894,10 +2019,7 @@ app.get('/api/export/folders/files', authenticateToken, async (req, res) => {
     return res.json({ ok: true, files, total: files.length });
   } catch (e) {
     console.error('Export folders manifest error:', e);
-    return res.status(500).json({
-      ok: false,
-      error: e instanceof Error ? e.message : 'Error al obtener manifiesto de exportación',
-    });
+    return res.status(500).json({ ok: false, error: GENERIC_INTERNAL_ERROR });
   }
 });
 
@@ -1914,6 +2036,7 @@ app.get('/api/docs', authenticateToken, async (req, res) => {
     if (!workspaceId) {
       return res.status(400).json({ error: 'workspaceId es obligatorio' });
     }
+    if (!(await assertUserCanAccessWorkspaceForDocOrDesign(res, workspaceId, boardId))) return;
     const docs = await prisma.doc.findMany({
       where: {
         workspaceId,
@@ -1930,11 +2053,15 @@ app.get('/api/docs', authenticateToken, async (req, res) => {
 
 app.post('/api/docs', authenticateToken, async (req, res) => {
   try {
+    const authUser = req.authUser;
+    if (!authUser) return res.status(401).json({ error: 'No autenticado' });
     const body = req.body ?? {};
     const workspaceId = String(body.workspaceId || '').trim();
     if (!workspaceId) {
       return res.status(400).json({ error: 'workspaceId es obligatorio' });
     }
+    const boardId = body.boardId ? String(body.boardId) : null;
+    if (!(await assertUserCanAccessWorkspaceForDocOrDesign(res, workspaceId, boardId))) return;
     const title = (body.title && String(body.title).trim()) || 'Nuevo doc';
     const type = (body.type && String(body.type).trim()) || 'text';
     const rawContent = body.content ?? {};
@@ -1944,6 +2071,7 @@ app.post('/api/docs', authenticateToken, async (req, res) => {
       typeof rawContent === 'string'
         ? (JSON.parse(rawContent) as unknown as Prisma.JsonValue)
         : (rawContent as unknown as Prisma.JsonValue);
+    // FIX 4: atribución de autor solo en servidor (evita spoofing de createdBy).
     const doc = await prisma.doc.create({
       data: {
         title,
@@ -1951,15 +2079,14 @@ app.post('/api/docs', authenticateToken, async (req, res) => {
         content,
         contentJson: jsonToInput(contentJson),
         workspaceId,
-        boardId: body.boardId ? String(body.boardId) : null,
-        createdBy: body.createdBy ? String(body.createdBy) : null,
+        boardId,
+        createdBy: authUser.id,
       },
     });
     res.status(201).json(doc);
   } catch (e) {
     console.error('Error creating doc:', e);
-    const msg = e instanceof Error ? e.message : 'Failed to create doc';
-    res.status(500).json({ error: msg });
+    res.status(500).json({ error: GENERIC_INTERNAL_ERROR });
   }
 });
 
@@ -1974,8 +2101,12 @@ app.head('/api/docs/:id', authenticateToken, async (req, res) => {
   try {
     const id = queryParamToString(req.params.id);
     if (!id) return res.status(400).end();
-    const doc = await prisma.doc.findUnique({ where: { id }, select: { id: true } });
+    const doc = await prisma.doc.findUnique({
+      where: { id },
+      select: { id: true, workspaceId: true, boardId: true },
+    });
     if (!doc) return res.status(404).end();
+    if (!(await assertUserCanAccessWorkspaceForDocOrDesign(res, doc.workspaceId, doc.boardId))) return;
     res.status(200).end();
   } catch (e) {
     console.error('Error checking doc:', e);
@@ -2029,12 +2160,22 @@ app.get('/api/docs/:id', authenticateToken, async (req, res) => {
     if (!id) return res.status(400).json({ error: 'id inválido' });
     const auth = req.get('Authorization') || '';
     const token = auth.startsWith('Bearer ') ? auth.slice(7).trim() : '';
-    const exportDocId = token ? getExportDocIdFromToken(token) : null;
+    // FIX 7: docId de exportación solo desde JWT verificado (firma), no jwt.decode.
+    let exportDocId: string | null = null;
+    if (token) {
+      try {
+        const exp = verifyExportToken(token);
+        exportDocId = exp.docId;
+      } catch {
+        exportDocId = null;
+      }
+    }
     if (exportDocId != null && exportDocId !== id) {
       return res.status(403).json({ error: 'No autorizado para este documento' });
     }
     const doc = await prisma.doc.findUnique({ where: { id } });
     if (!doc) return res.status(404).json({ error: 'Doc no encontrado' });
+    if (!(await assertUserCanAccessWorkspaceForDocOrDesign(res, doc.workspaceId, doc.boardId))) return;
     res.json(doc);
   } catch (e) {
     console.error('Error fetching doc:', e);
@@ -2046,6 +2187,12 @@ app.patch('/api/docs/:id', authenticateToken, async (req, res) => {
   try {
     const id = queryParamToString(req.params.id);
     if (!id) return res.status(400).json({ error: 'id inválido' });
+    const existing = await prisma.doc.findUnique({
+      where: { id },
+      select: { workspaceId: true, boardId: true },
+    });
+    if (!existing) return res.status(404).json({ error: 'Doc no encontrado' });
+    if (!(await assertUserCanAccessWorkspaceForDocOrDesign(res, existing.workspaceId, existing.boardId))) return;
     const body = req.body ?? {};
     const data: {
       title?: string;
@@ -2083,6 +2230,12 @@ app.delete('/api/docs/:id', authenticateToken, async (req, res) => {
   try {
     const id = queryParamToString(req.params.id);
     if (!id) return res.status(400).json({ error: 'id inválido' });
+    const meta = await prisma.doc.findUnique({
+      where: { id },
+      select: { workspaceId: true, boardId: true },
+    });
+    if (!meta) return res.status(404).json({ error: 'Doc no encontrado' });
+    if (!(await assertUserCanAccessWorkspaceForDocOrDesign(res, meta.workspaceId, meta.boardId))) return;
     const cleanupUrls = new Set<string>();
     const updatesToEmit: Array<{ boardId: string; updated: any }> = [];
 
@@ -2206,6 +2359,7 @@ app.get('/api/designs', authenticateToken, async (req, res) => {
     if (!workspaceId) {
       return res.status(400).json({ error: 'workspaceId es obligatorio' });
     }
+    if (!(await assertUserCanAccessWorkspaceForDocOrDesign(res, workspaceId, null))) return;
     const designs = await prisma.design.findMany({
       where: { workspaceId },
       orderBy: { updatedAt: 'desc' },
@@ -2219,11 +2373,15 @@ app.get('/api/designs', authenticateToken, async (req, res) => {
 
 app.post('/api/designs', authenticateToken, async (req, res) => {
   try {
+    const authUser = req.authUser;
+    if (!authUser) return res.status(401).json({ error: 'No autenticado' });
     const body = req.body ?? {};
     const workspaceId = String(body.workspaceId || '').trim();
     if (!workspaceId) {
       return res.status(400).json({ error: 'workspaceId es obligatorio' });
     }
+    const boardId = body.boardId ? String(body.boardId) : null;
+    if (!(await assertUserCanAccessWorkspaceForDocOrDesign(res, workspaceId, boardId))) return;
     const name = (body.name && String(body.name).trim()) || 'Nuevo diseño';
     const rawContent = body.content ?? {};
     let content: string;
@@ -2239,21 +2397,21 @@ app.post('/api/designs', authenticateToken, async (req, res) => {
       content = JSON.stringify(rawContent);
       contentJson = rawContent as unknown as Prisma.JsonValue;
     }
+    // FIX 4: createdBy solo desde la sesión (evita spoofing).
     const design = await prisma.design.create({
       data: {
         name,
         content,
         contentJson: jsonToInput(contentJson),
         workspaceId,
-        boardId: body.boardId ? String(body.boardId) : null,
-        createdBy: body.createdBy ? String(body.createdBy) : null,
+        boardId,
+        createdBy: authUser.id,
       },
     });
     res.status(201).json(design);
   } catch (e) {
     console.error('Error creating design:', e);
-    const msg = e instanceof Error ? e.message : 'Failed to create design';
-    res.status(500).json({ error: msg });
+    res.status(500).json({ error: GENERIC_INTERNAL_ERROR });
   }
 });
 
@@ -2263,7 +2421,8 @@ app.get('/api/designs/:id', authenticateToken, async (req, res) => {
     if (!id) return res.status(400).json({ error: 'id inválido' });
     const design = await prisma.design.findUnique({ where: { id } });
     if (!design) return res.status(404).json({ error: 'Design no encontrado' });
-    // TODO: verificar que el usuario tiene acceso al workspace design.workspaceId
+    // FIX 1 (IDOR): mismo criterio de workspace/board que en docs.
+    if (!(await assertUserCanAccessWorkspaceForDocOrDesign(res, design.workspaceId, design.boardId))) return;
     res.json(design);
   } catch (e) {
     console.error('Error fetching design:', e);
@@ -2275,6 +2434,12 @@ app.patch('/api/designs/:id', authenticateToken, async (req, res) => {
   try {
     const id = queryParamToString(req.params.id);
     if (!id) return res.status(400).json({ error: 'id inválido' });
+    const existing = await prisma.design.findUnique({
+      where: { id },
+      select: { workspaceId: true, boardId: true },
+    });
+    if (!existing) return res.status(404).json({ error: 'Design no encontrado' });
+    if (!(await assertUserCanAccessWorkspaceForDocOrDesign(res, existing.workspaceId, existing.boardId))) return;
     const body = req.body ?? {};
     const data: {
       name?: string;
@@ -2318,6 +2483,12 @@ app.delete('/api/designs/:id', authenticateToken, async (req, res) => {
   try {
     const id = queryParamToString(req.params.id);
     if (!id) return res.status(400).json({ error: 'id inválido' });
+    const meta = await prisma.design.findUnique({
+      where: { id },
+      select: { workspaceId: true, boardId: true },
+    });
+    if (!meta) return res.status(404).json({ error: 'Design no encontrado' });
+    if (!(await assertUserCanAccessWorkspaceForDocOrDesign(res, meta.workspaceId, meta.boardId))) return;
     await prisma.design.delete({ where: { id } });
     res.status(204).end();
   } catch (e) {
@@ -2417,11 +2588,11 @@ app.post('/api/templates/:kind/fill', authenticateToken, async (req, res) => {
     return res.send(buffer);
   } catch (e) {
     console.error('Error rellenando plantilla PDF:', e);
-    const msg = e instanceof Error ? e.message : 'Error al generar PDF desde plantilla';
+    const msg = e instanceof Error ? e.message : '';
     if (msg.includes('Plantilla') && msg.includes('no encontrada')) {
-      return res.status(404).json({ error: msg });
+      return res.status(404).json({ error: 'Plantilla no encontrada' });
     }
-    return res.status(500).json({ error: msg });
+    return res.status(500).json({ error: GENERIC_INTERNAL_ERROR });
   }
 });
 
@@ -2501,7 +2672,7 @@ app.post('/api/templates/:kind/generate', authenticateToken, async (req, res) =>
     res.send(buffer);
   } catch (e) {
     console.error('Error generating PDF:', e);
-    res.status(500).json({ error: e instanceof Error ? e.message : 'Error al generar PDF' });
+    res.status(500).json({ error: GENERIC_INTERNAL_ERROR });
   }
 });
 
@@ -2593,7 +2764,8 @@ app.get('/api/templates/:kind/config', authenticateToken, async (req, res) => {
   }
 });
 
-app.put('/api/templates/:kind/config', authenticateToken, async (req, res) => {
+// FIX 2: configuración global de plantillas PDF solo modificable por ADMIN (evita takeover de layout PDF).
+app.put('/api/templates/:kind/config', authenticateToken, requireAdmin, async (req, res) => {
   try {
     const kind = req.params.kind as string;
     if (!TEMPLATE_KINDS.includes(kind as (typeof TEMPLATE_KINDS)[number])) {
@@ -2695,8 +2867,7 @@ app.put('/api/templates/:kind/config', authenticateToken, async (req, res) => {
         error: 'La tabla de configuración de plantillas no existe. Ejecuta: npx prisma migrate deploy o npx prisma db push',
       });
     }
-    const msg = e instanceof Error ? e.message : 'Error al guardar configuración de plantilla';
-    return res.status(500).json({ error: msg });
+    return res.status(500).json({ error: GENERIC_INTERNAL_ERROR });
   }
 });
 
@@ -2815,13 +2986,13 @@ app.delete('/api/items/:id', authenticateToken, requireRoles(['ADMIN', 'VENTAS']
       prisma.notification.deleteMany({ where: { itemId } }),
       prisma.item.delete({ where: { id: itemId } }),
     ]);
-    void Promise.all(uploadUrls.map(url => deletePhysicalFileIfUnreferenced(url, itemId)));
+    void Promise.all(uploadUrls.map(url => deletePhysicalFileIfUnreferenced(url, itemId))).catch((err) =>
+      console.error('Error borrando archivos (DELETE /api/items):', err)
+    );
     res.status(204).send();
   } catch (e) {
     console.error('Error deleting item:', e);
-    if ((e as { code?: string })?.code === 'P2025') {
-      return res.status(404).json({ error: 'Item no encontrado' });
-    }
+    if (handlePrismaError(e, res)) return;
     res.status(500).json({ error: 'Error al eliminar el elemento' });
   }
 });
@@ -2835,10 +3006,6 @@ app.get('/api/admin/backups', authenticateToken, requireAdmin, async (_req, res)
     res.status(500).json({ ok: false, error: 'No se pudo listar backups' });
   }
 });
-
-// Helper: room por tablero y por usuario (Fase 3)
-const boardRoom = (boardId: string) => `board:${boardId}`;
-const userRoom = (userId: string) => `user:${userId}`;
 
 // Crear grupo por HTTP (fuente de verdad para la UI; Socket.IO sigue notificando a otros clientes).
 app.post(
@@ -2873,6 +3040,18 @@ app.post(
   }
 );
 
+// FIX 9: middleware global de errores Express (captura next(err) y fallos no manejados en rutas async).
+app.use((err: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
+  console.error('[Express Error]', err);
+  const status =
+    err && typeof err === 'object' && 'status' in err && typeof (err as { status?: number }).status === 'number'
+      ? (err as { status: number }).status
+      : 500;
+  if (!res.headersSent) {
+    res.status(status >= 400 && status < 600 ? status : 500).json({ error: GENERIC_INTERNAL_ERROR });
+  }
+});
+
 // Socket.io real-time connection handler
 io.on('connection', (socket) => {
   socketConnectionCount += 1;
@@ -2880,26 +3059,14 @@ io.on('connection', (socket) => {
 
   // TODO(security/types): tipar socket.data con una interfaz concreta para evitar casts repetidos.
   type SocketAuth = { userId: string; role: string };
-  const SOCKET_ALLOWED_ROLES = new Set(['ADMIN', 'VENTAS', 'DISENO', 'TALLER', 'USER']);
 
+  /** Autenticación ya validada en io.use (FIX 3); leemos identidad del socket. */
   const getSocketAuth = (): SocketAuth | null => {
-    const data = (socket as unknown as { data?: any }).data;
-    const fromDataUserId = typeof data?.userId === 'string' ? data.userId : null;
-    const fromDataRole = typeof data?.role === 'string' ? data.role : null;
-    if (fromDataUserId && fromDataRole && SOCKET_ALLOWED_ROLES.has(fromDataRole)) {
-      return { userId: fromDataUserId, role: fromDataRole };
+    const bag = socket.data as { userId?: string; role?: string } | undefined;
+    if (bag?.userId && bag?.role && SOCKET_IO_ALLOWED_ROLES.has(bag.role)) {
+      return { userId: bag.userId, role: bag.role };
     }
-    const tokenMaybe = (socket.handshake.auth as { token?: string } | undefined)?.token;
-    const token = typeof tokenMaybe === 'string' ? tokenMaybe : null;
-    if (!token) return null;
-    try {
-      const payload = verifyJwt(token);
-      if (!SOCKET_ALLOWED_ROLES.has(payload.role)) return null;
-      (socket as unknown as { data?: any }).data = { ...(data || {}), userId: payload.userId, role: payload.role };
-      return { userId: payload.userId, role: payload.role };
-    } catch {
-      return null;
-    }
+    return null;
   };
 
   const denySocketAction = (event: string, reason: 'unauthenticated' | 'unauthorized') => {
@@ -2907,39 +3074,43 @@ io.on('connection', (socket) => {
     socket.emit('action_denied', { event, reason });
   };
 
+  // FIX 7: try/catch envuelve el handler completo (evita unhandled rejection en async).
   const withSocketRoles =
     <T>(event: string, rolesAllowed: string[], handler: (auth: SocketAuth, data: T) => Promise<void> | void) =>
     async (data: T) => {
-      const auth = getSocketAuth();
-      if (!auth) return denySocketAction(event, 'unauthenticated');
-      if (auth.role !== 'ADMIN' && !rolesAllowed.includes(auth.role)) {
-        return denySocketAction(event, 'unauthorized');
+      try {
+        const auth = getSocketAuth();
+        if (!auth) return denySocketAction(event, 'unauthenticated');
+        if (auth.role !== 'ADMIN' && !rolesAllowed.includes(auth.role)) {
+          return denySocketAction(event, 'unauthorized');
+        }
+        await Promise.resolve(handler(auth, data));
+      } catch (err) {
+        console.error(JSON.stringify({ level: 'error', msg: 'socket_handler_error', event, detail: err instanceof Error ? err.message : String(err) }));
+        socket.emit('socket_handler_error', { event, message: 'internal_error' });
       }
-      return handler(auth, data);
     };
 
-  // Autenticación por JWT en handshake: unir al room del usuario para notificaciones/comentarios
-  const token = (socket.handshake.auth as { token?: string } | undefined)?.token;
-  if (token && typeof token === 'string') {
+  socket.on('join_board', async (data: { boardId?: string }) => {
     try {
-      const payload = verifyJwt(token);
-      socket.join(userRoom(payload.userId));
-      (socket as unknown as { data?: any }).data = { ...((socket as unknown as { data?: any }).data || {}), userId: payload.userId, role: payload.role };
-    } catch {
-      // Token inválido o expirado: no unir a user room
+      const boardId = typeof data?.boardId === 'string' ? data.boardId : null;
+      if (!boardId) return;
+      const auth = getSocketAuth();
+      if (!auth) {
+        socket.emit('action_denied', { event: 'join_board', reason: 'unauthenticated' });
+        return;
+      }
+      // FIX 4: no unir a board:<id> si el tablero no existe (misma política de alcance que GET /api/boards/:id autenticado).
+      const board = await prisma.board.findUnique({ where: { id: boardId }, select: { id: true } });
+      if (!board) {
+        socket.emit('action_denied', { event: 'join_board', reason: 'unauthorized' });
+        return;
+      }
+      socket.join(boardRoom(boardId));
+    } catch (e) {
+      console.error('join_board', e);
+      socket.emit('socket_handler_error', { event: 'join_board', message: 'internal_error' });
     }
-  }
-
-  socket.on('join_board', (data: { boardId?: string }) => {
-    const boardId = typeof data?.boardId === 'string' ? data.boardId : null;
-    if (!boardId) return;
-    // Misma lógica que el resto de handlers: JWT en handshake puede rellenar socket.data si el bloque de connection falló.
-    const auth = getSocketAuth();
-    if (!auth) {
-      socket.emit('action_denied', { event: 'join_board', reason: 'unauthenticated' });
-      return;
-    }
-    socket.join(boardRoom(boardId));
   });
 
   socket.on('leave_board', (data: { boardId?: string }) => {
@@ -3022,7 +3193,8 @@ io.on('connection', (socket) => {
         },
       });
       const room = boardRoom(updated.group.boardId);
-      socket.to(room).emit('item_moved', updated);
+      // FIX 12: mismo criterio que el resto de eventos de tablero (io.to incluye al emisor; confirmación servidor).
+      io.to(room).emit('item_moved', updated);
     } catch (err) {
       console.error('Error moving item:', err);
     }
@@ -3051,13 +3223,16 @@ io.on('connection', (socket) => {
         prisma.notification.deleteMany({ where: { itemId } }),
         prisma.item.delete({ where: { id: itemId } }),
       ]);
-      void Promise.all(uploadUrls.map(url => deletePhysicalFileIfUnreferenced(url, itemId)));
+      void Promise.all(uploadUrls.map(url => deletePhysicalFileIfUnreferenced(url, itemId))).catch((err) =>
+        console.error('Error borrando archivos (delete_item):', err)
+      );
       if (item?.group?.boardId) {
         io.to(boardRoom(item.group.boardId)).emit('item_deleted', { itemId });
       } else {
-        // Caso raro sin boardId: mantener global por compatibilidad.
-        // TODO: segmentar por room cuando boardId esté disponible.
-        io.emit('item_deleted', { itemId });
+        // FIX 6: sin boardId no hacer broadcast global; solo trazabilidad.
+        console.warn(
+          JSON.stringify({ level: 'warn', msg: 'socket_item_deleted_skip_emit', itemId, reason: 'missing_boardId' })
+        );
       }
     } catch (e) {
       console.error('Error deleting item:', e);
@@ -3080,6 +3255,23 @@ io.on('connection', (socket) => {
         where: { itemId_columnId: { itemId, columnId } },
       });
       const prevValue = prevColumnValue?.value ?? null;
+
+      // FIX 11: optimistic locking si el cliente envía clientColumnValueUpdatedAt (ISO); sin campo, comportamiento anterior.
+      const clientCvAt =
+        typeof data?.clientColumnValueUpdatedAt === 'string' ? data.clientColumnValueUpdatedAt.trim() : '';
+      if (clientCvAt && prevColumnValue?.updatedAt) {
+        const clientMs = Date.parse(clientCvAt);
+        const serverMs = prevColumnValue.updatedAt.getTime();
+        if (Number.isFinite(clientMs) && clientMs !== serverMs) {
+          socket.emit('column_value_conflict', {
+            itemId,
+            columnId,
+            currentValue: prevColumnValue.value,
+            serverUpdatedAt: prevColumnValue.updatedAt.toISOString(),
+          });
+          return;
+        }
+      }
 
       // RBAC por columna (Fase 3+): evitar que roles restrictivos modifiquen columnas sensibles.
       // - ADMIN: bypass ya aplicado en withSocketRoles()
@@ -3115,7 +3307,9 @@ io.on('connection', (socket) => {
       io.to(boardRoom(column.boardId)).emit('column_value_updated', updated);
       if (prevValue && prevValue !== value) {
         const prevUrls = extractUploadUrls(prevValue);
-        void Promise.all(prevUrls.map(url => deletePhysicalFileIfUnreferenced(url)));
+        void Promise.all(prevUrls.map(url => deletePhysicalFileIfUnreferenced(url))).catch((err) =>
+          console.error('Error borrando archivos huérfanos (update_column_value):', err)
+        );
       }
 
       // ── AUDITORÍA (Registro de actividad) ──────────────────────────────────────────
@@ -3483,14 +3677,9 @@ io.on('connection', (socket) => {
       const newBoard = await prisma.board.create({
         data: { name, workspaceId: workspace.id },
       });
-      // Evitar broadcast global: emitimos a rooms de usuarios conectados.
-      const sockets = await io.fetchSockets();
-      const userIds = new Set<string>();
-      sockets.forEach((s: any) => {
-        const uid = typeof s?.data?.userId === 'string' ? s.data.userId : null;
-        if (uid) userIds.add(uid);
-      });
-      userIds.forEach((uid) => io.to(userRoom(uid)).emit('board_added', newBoard));
+      // FIX 5: notificar vía Prisma quién pertenece al workspace (docs/diseños/roles), no fetchSockets global.
+      const notifyIds = await getUserIdsForWorkspaceNotification(workspace.id);
+      notifyIds.forEach((uid) => io.to(userRoom(uid)).emit('board_added', newBoard));
     } catch (e) {
       console.error('Error adding board:', e);
     }
@@ -3509,9 +3698,7 @@ io.on('connection', (socket) => {
       if (group?.boardId) {
         io.to(boardRoom(group.boardId)).emit('group_deleted', { groupId });
       } else {
-        // Fallback global si no hay board asociado.
-        // TODO: segmentar por room cuando boardId esté disponible.
-        io.emit('group_deleted', { groupId });
+        console.warn(JSON.stringify({ level: 'warn', msg: 'socket_group_deleted_skip_emit', groupId, reason: 'missing_boardId' }));
       }
     } catch (e) {
       console.error('Error deleting group:', e);
@@ -3560,9 +3747,14 @@ io.on('connection', (socket) => {
       if (group?.boardId) {
         io.to(boardRoom(group.boardId)).emit('group_renamed', { id: updated.id, name: updated.name, color: updated.color });
       } else {
-        // Fallback global si no hay board asociado.
-        // TODO: segmentar por room cuando boardId esté disponible.
-        io.emit('group_renamed', { id: updated.id, name: updated.name, color: updated.color });
+        console.warn(
+          JSON.stringify({
+            level: 'warn',
+            msg: 'socket_group_renamed_skip_emit',
+            groupId: updated.id,
+            reason: 'missing_boardId',
+          })
+        );
       }
     } catch (e) {
       console.error('Error renaming group:', e);
@@ -3655,9 +3847,7 @@ io.on('connection', (socket) => {
       if (column?.boardId) {
         io.to(boardRoom(column.boardId)).emit('column_renamed', updated);
       } else {
-        // Fallback global si no hay board asociado.
-        // TODO: segmentar por room cuando boardId esté disponible.
-        io.emit('column_renamed', updated);
+        console.warn(JSON.stringify({ level: 'warn', msg: 'socket_column_renamed_skip_emit', columnId: updated.id, reason: 'missing_boardId' }));
       }
     } catch (e) {
       console.error('Error renaming column:', e);
@@ -3685,9 +3875,9 @@ io.on('connection', (socket) => {
       if (column?.boardId) {
         io.to(boardRoom(column.boardId)).emit('column_settings_updated', updated);
       } else {
-        // Fallback global si no hay board asociado.
-        // TODO: segmentar por room cuando boardId esté disponible.
-        io.emit('column_settings_updated', updated);
+        console.warn(
+          JSON.stringify({ level: 'warn', msg: 'socket_column_settings_skip_emit', columnId: updated.id, reason: 'missing_boardId' })
+        );
       }
     } catch (e) {
       console.error('Error updating column settings:', e);
@@ -3706,9 +3896,7 @@ io.on('connection', (socket) => {
       if (column?.boardId) {
         io.to(boardRoom(column.boardId)).emit('column_deleted', { columnId });
       } else {
-        // Fallback global si no hay board asociado.
-        // TODO: segmentar por room cuando boardId esté disponible.
-        io.emit('column_deleted', { columnId });
+        console.warn(JSON.stringify({ level: 'warn', msg: 'socket_column_deleted_skip_emit', columnId, reason: 'missing_boardId' }));
       }
     } catch (e) {
       console.error('Error deleting column:', e);

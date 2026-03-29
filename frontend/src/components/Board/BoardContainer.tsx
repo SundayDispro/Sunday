@@ -275,7 +275,8 @@ const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode, onBoar
 
     fetchBoard();
 
-    socket.on('column_value_updated', (updatedValue) => {
+    // FIX 2: callbacks nombrados; cleanup con socket.off(event, fn) para no borrar listeners ajenos al tablero.
+    const onColumnValueUpdated = (updatedValue: Item['columnValues'][0] & { itemId: string }) => {
       flashRowFromSocket(updatedValue.itemId);
       setBoard((prev) => {
         if (!prev) return prev;
@@ -294,13 +295,13 @@ const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode, onBoar
         }));
         return { ...prev, groups: newGroups };
       });
-    });
+    };
 
-    socket.on('group_added', (newGroup) => {
+    const onGroupAdded = (newGroup: Group) => {
       setBoard(prev => prev ? { ...prev, groups: [...prev.groups, newGroup] } : prev);
-    });
+    };
 
-    socket.on('item_added', (newItem) => {
+    const onItemAdded = (newItem: Item) => {
       setBoard(prev => {
         if (!prev) return prev;
         return {
@@ -310,9 +311,9 @@ const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode, onBoar
           )
         };
       });
-    });
+    };
 
-    socket.on('item_updated', (updatedItem) => {
+    const onItemUpdated = (updatedItem: Item) => {
       flashRowFromSocket(updatedItem.id);
       setBoard(prev => {
         if (!prev) return prev;
@@ -324,9 +325,9 @@ const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode, onBoar
           }))
         };
       });
-    });
+    };
 
-    socket.on('item_moved', (movedItem) => {
+    const onItemMoved = (movedItem: Item) => {
       flashRowFromSocket(movedItem.id);
       setBoard(prev => {
         if (!prev) return prev;
@@ -339,22 +340,22 @@ const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode, onBoar
         }
         return { ...prev, groups: newGroups };
       });
-    });
+    };
 
-    socket.on('column_added', (col: BoardColumn) => {
+    const onColumnAdded = (col: BoardColumn) => {
       setBoard(prev => prev ? { ...prev, columns: [...prev.columns, col] } : prev);
-    });
-    socket.on('column_renamed', (col: BoardColumn) => {
+    };
+    const onColumnRenamed = (col: BoardColumn) => {
       setBoard(prev => prev ? { ...prev, columns: prev.columns.map(c => c.id === col.id ? col : c) } : prev);
-    });
-    socket.on('column_settings_updated', (col: BoardColumn) => {
+    };
+    const onColumnSettingsUpdated = (col: BoardColumn) => {
       setBoard(prev => prev ? { ...prev, columns: prev.columns.map(c => c.id === col.id ? col : c) } : prev);
-    });
-    socket.on('column_deleted', ({ columnId }: { columnId: string }) => {
+    };
+    const onColumnDeleted = ({ columnId }: { columnId: string }) => {
       setBoard(prev => prev ? { ...prev, columns: prev.columns.filter(c => c.id !== columnId) } : prev);
-    });
+    };
 
-    socket.on('item_deleted', ({ itemId }: { itemId: string }) => {
+    const onItemDeleted = ({ itemId }: { itemId: string }) => {
       setBoard(prev => {
         if (!prev) return prev;
         return {
@@ -370,9 +371,9 @@ const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode, onBoar
         next.delete(itemId);
         return next;
       });
-    });
+    };
 
-    socket.on('group_renamed', (updated: { id: string; name: string; color: string }) => {
+    const onGroupRenamed = (updated: { id: string; name: string; color: string }) => {
       setBoard(prev => {
         if (!prev) return prev;
         return {
@@ -382,12 +383,12 @@ const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode, onBoar
           ),
         };
       });
-    });
+    };
 
-    socket.on('group_deleted', ({ groupId }: { groupId: string }) => {
+    const onGroupDeleted = ({ groupId }: { groupId: string }) => {
       setBoard(prev => prev ? { ...prev, groups: prev.groups.filter(g => g.id !== groupId) } : prev);
-    });
-    socket.on('groups_reordered', (payload: { boardId: string; groups: Array<{ id: string; position: number }> }) => {
+    };
+    const onGroupsReordered = (payload: { boardId: string; groups: Array<{ id: string; position: number }> }) => {
       if (!payload || payload.boardId !== boardId || !Array.isArray(payload.groups)) return;
       setBoard(prev => {
         if (!prev) return prev;
@@ -397,26 +398,46 @@ const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode, onBoar
           .sort((a, b) => a.position - b.position);
         return { ...prev, groups };
       });
-    });
+    };
+
+    socket.on('column_value_updated', onColumnValueUpdated);
+    socket.on('group_added', onGroupAdded);
+    socket.on('item_added', onItemAdded);
+    socket.on('item_updated', onItemUpdated);
+    socket.on('item_moved', onItemMoved);
+    socket.on('column_added', onColumnAdded);
+    socket.on('column_renamed', onColumnRenamed);
+    socket.on('column_settings_updated', onColumnSettingsUpdated);
+    socket.on('column_deleted', onColumnDeleted);
+    socket.on('item_deleted', onItemDeleted);
+    socket.on('group_renamed', onGroupRenamed);
+    socket.on('group_deleted', onGroupDeleted);
+    socket.on('groups_reordered', onGroupsReordered);
+
+    const socketListeners: Array<[string, (...args: unknown[]) => void]> = [
+      ['column_value_updated', onColumnValueUpdated as (...args: unknown[]) => void],
+      ['group_added', onGroupAdded as (...args: unknown[]) => void],
+      ['item_added', onItemAdded as (...args: unknown[]) => void],
+      ['item_updated', onItemUpdated as (...args: unknown[]) => void],
+      ['item_moved', onItemMoved as (...args: unknown[]) => void],
+      ['column_added', onColumnAdded as (...args: unknown[]) => void],
+      ['column_renamed', onColumnRenamed as (...args: unknown[]) => void],
+      ['column_settings_updated', onColumnSettingsUpdated as (...args: unknown[]) => void],
+      ['column_deleted', onColumnDeleted as (...args: unknown[]) => void],
+      ['item_deleted', onItemDeleted as (...args: unknown[]) => void],
+      ['group_renamed', onGroupRenamed as (...args: unknown[]) => void],
+      ['group_deleted', onGroupDeleted as (...args: unknown[]) => void],
+      ['groups_reordered', onGroupsReordered as (...args: unknown[]) => void],
+    ];
 
     return () => {
       socket.emit('leave_board', { boardId });
       socket.off('connect', handleSocketConnect);
       socket.off('action_denied', onActionDenied);
       socket.off('group_add_failed', onGroupAddFailed);
-      socket.off('column_value_updated');
-      socket.off('group_added');
-      socket.off('item_added');
-      socket.off('item_updated');
-      socket.off('item_moved');
-      socket.off('column_added');
-      socket.off('column_renamed');
-      socket.off('column_settings_updated');
-      socket.off('column_deleted');
-      socket.off('item_deleted');
-      socket.off('group_renamed');
-      socket.off('group_deleted');
-      socket.off('groups_reordered');
+      for (const [ev, fn] of socketListeners) {
+        socket.off(ev, fn);
+      }
     };
   }, [boardId, flashRowFromSocket]);
 

@@ -70,6 +70,8 @@ export interface ColumnValue {
   value: string;
   itemId: string;
   columnId: string;
+  /** FIX 11: presente cuando el backend envía versión para concurrencia (socket/API). */
+  updatedAt?: string;
 }
 
 export interface StatusOption {

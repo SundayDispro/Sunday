@@ -1141,11 +1141,13 @@ function App() {
 
   useEffect(() => {
     if (!currentUser?.id) return;
-    socket.on('notification_created', (notif: { userId: string }) => {
+    // FIX 1: socket.off(event) sin handler borra listeners de otros componentes (p. ej. NotificationDropdown).
+    const onNotificationCreated = (notif: { userId: string }) => {
       if (notif.userId === currentUser.id) fetchUnreadNotifications();
-    });
+    };
+    socket.on('notification_created', onNotificationCreated);
     return () => {
-      socket.off('notification_created');
+      socket.off('notification_created', onNotificationCreated);
     };
   }, [currentUser?.id, fetchUnreadNotifications]);
 
@@ -1463,19 +1465,21 @@ function App() {
         setBoardsLoaded(true);
       });
 
-    socket.on('board_renamed', (updated: Board) => {
+    const onBoardRenamed = (updated: Board) => {
       setBoards(prev => prev.map(b => b.id === updated.id ? { ...b, name: updated.name } : b));
-    });
-    socket.on('board_added', (newBoard: Board) => {
+    };
+    const onBoardAdded = (newBoard: Board) => {
       // Sólo añadimos automáticamente si pertenece al workspace activo (o si no hay ninguno activo)
       if (!activeWorkspaceId || newBoard.workspaceId === activeWorkspaceId) {
         setBoards(prev => [...prev, newBoard]);
         setActiveBoardId(newBoard.id);
       }
-    });
+    };
+    socket.on('board_renamed', onBoardRenamed);
+    socket.on('board_added', onBoardAdded);
     return () => {
-      socket.off('board_renamed');
-      socket.off('board_added');
+      socket.off('board_renamed', onBoardRenamed);
+      socket.off('board_added', onBoardAdded);
     };
   }, [currentUser, activeWorkspaceId, hydrateFromBootstrap]);
 
