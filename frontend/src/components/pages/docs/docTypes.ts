@@ -87,3 +87,48 @@ export function mergeInitialPdfContentWithMasterDefaults(
   }
   return { ...initial, ...masterDefaults };
 }
+
+/** Líneas del cotizador → contenido inicial del doc PDF “cotización” (tabla y totales). */
+export function buildCotizacionContentFromCartPrefill(prefill: {
+  cliente: string;
+  folio?: number;
+  total: number;
+  creadoEn?: string;
+  items: Array<{
+    servicio: string;
+    cant: number;
+    sufijo: string;
+    precioUnit: number;
+    total: number;
+    desc: string;
+  }>;
+}): Record<string, unknown> {
+  const fecha = prefill.creadoEn
+    ? new Date(prefill.creadoEn).toLocaleDateString('es-MX')
+    : new Date().toLocaleDateString('es-MX');
+  const itemsRows = prefill.items.map((i) => ({
+    descripcion: [i.servicio, i.desc].filter((s) => s && s.trim()).join(' · '),
+    cantidad: `${i.cant} ${i.sufijo}`,
+    precio: String(i.precioUnit),
+    total: i.total.toFixed(2),
+  }));
+  const subtotal = prefill.items.reduce((s, i) => s + i.total, 0);
+  const base = { ...COTIZACION_INITIAL };
+  return {
+    ...base,
+    cliente: prefill.cliente.trim() || base.cliente,
+    fecha,
+    folio: prefill.folio != null ? String(prefill.folio) : '',
+    descripcion_corta:
+      prefill.folio != null ? `Cotización express #${prefill.folio}` : 'Cotización express (cotizador)',
+    elemento: prefill.folio != null ? `Cotización #${prefill.folio}` : 'Cotización express',
+    items: itemsRows,
+    subtotal: subtotal.toFixed(2),
+    iva: '00.00',
+    total: `Total : ${prefill.total.toLocaleString('es-MX', { style: 'currency', currency: 'MXN' })}`,
+    notas:
+      prefill.folio != null
+        ? `Folio ${prefill.folio} registrado en Sunday. Revisa totales antes de enviar al cliente.`
+        : 'Generado desde el cotizador Sunday.',
+  } as Record<string, unknown>;
+}

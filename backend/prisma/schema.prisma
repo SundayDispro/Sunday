@@ -25,6 +25,31 @@ model User {
   feedPosts            FeedPost[]
   pushSubscriptions    PushSubscription[]
   updates              Update[]
+  cotizaciones         Cotizacion[]
+}
+
+/// Cotización guardada (folio autoincremental; PDF en cliente; pdfUrl reservado para subida futura).
+model Cotizacion {
+  id          String           @id @default(cuid())
+  folio       Int              @unique @default(autoincrement())
+  creadoPorId String
+  creadoPor   User             @relation(fields: [creadoPorId], references: [id], onDelete: Restrict)
+  cliente     String?
+  total       Float
+  creadoEn    DateTime         @default(now())
+  pdfUrl      String?
+  items       CotizacionItem[]
+}
+
+model CotizacionItem {
+  id           String     @id @default(cuid())
+  cotizacionId String
+  cotizacion   Cotizacion @relation(fields: [cotizacionId], references: [id], onDelete: Cascade)
+  servicio     String
+  cantidad     Float
+  sufijo       String
+  precioUnit   Float
+  total        Float
 }
 
 model Workspace {

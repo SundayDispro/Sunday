@@ -6,9 +6,11 @@ import { ItemDetailsPanel } from './components/Board/ItemDetailsPanel';
 import {
   Home, Search, ChevronDown, ChevronRight,
   Users, BookOpen, BarChart2, Inbox, Star, Plus, Receipt, Calendar, Folder, PieChart, FolderOpen, UserCheck, GanttChart, Check, AlertCircle, X, Sun, Moon, Sparkles, LayoutGrid, Menu, ChevronLeft, Globe, GripVertical,
+  FileText,
   Copy, ClipboardPaste, Delete,
 } from 'lucide-react';
 import { Item, Board, Workspace, User, DocType } from './types';
+import type { CotizacionDocsPrefill } from './types/cotizacion';
 import { useUser } from './store/UserContext';
 import { AnimatedLogo } from './components/AnimatedLogo';
 import { Login } from './components/Login';
@@ -34,6 +36,7 @@ import DocsExportPreviewPage from './components/pages/docs/DocsExportPreviewPage
 import DocsPdfPreviewPage from './components/pages/docs/DocsPdfPreviewPage';
 import { TeamPage } from './components/pages/TeamPage';
 import { FacturacionPage } from './components/pages/FacturacionPage';
+import { CotizacionPage } from './components/pages/CotizacionPage';
 import { WorkspaceOverviewPage } from './components/pages/WorkspaceOverviewPage';
 import { MiTrabajoPage } from './components/pages/MiTrabajoPage';
 import { TodayPage } from './components/pages/TodayPage';
@@ -478,6 +481,7 @@ function App() {
     return defaultViewsForRole;
   });
   const [pendingCreateDocType, setPendingCreateDocType] = useState<DocType | null>(null);
+  const [pendingCotizacionDocsPrefill, setPendingCotizacionDocsPrefill] = useState<CotizacionDocsPrefill | null>(null);
 
   const setCurrentView = (v: ViewMode) => {
     let allowed: ViewMode = isTaller ? (v === 'table' || v === 'calendar' ? v : 'table') : v;
@@ -720,6 +724,7 @@ function App() {
     | 'docs'
     | 'team'
     | 'facturacion'
+    | 'cotizacion'
     | 'miTrabajo'
   >(() => {
     if (typeof window === 'undefined') return 'board';
@@ -1309,6 +1314,19 @@ function App() {
     return () => window.removeEventListener('sunday:open-doc', handler as EventListener);
   }, []);
 
+  /** Cotizador → crear doc de cotización en Docs con las mismas líneas. */
+  useEffect(() => {
+    const handler = (event: Event) => {
+      const ev = event as CustomEvent<CotizacionDocsPrefill>;
+      const d = ev.detail;
+      if (!d?.id || !Array.isArray(d.items) || d.items.length === 0) return;
+      setActivePage('docs');
+      setPendingCotizacionDocsPrefill(d);
+    };
+    window.addEventListener('sunday:cotizacion-to-docs', handler as EventListener);
+    return () => window.removeEventListener('sunday:cotizacion-to-docs', handler as EventListener);
+  }, []);
+
   const hydrateFromBootstrap = React.useCallback(async () => {
     const res = await apiFetch(`${API_BASE}/api/bootstrap`);
     if (!res.ok) return null;
@@ -1507,7 +1525,7 @@ function App() {
     (activePage === 'miTrabajo' && activeBoardId !== null) ||
     activePage === 'calendar' ||
     activePage === 'docs' ||
-    ['search', 'team', 'notifications', 'facturacion', 'inbox'].includes(activePage);
+    ['search', 'team', 'notifications', 'facturacion', 'cotizacion', 'inbox'].includes(activePage);
 
   const navIconSize = 22;
   const railAvatarSrc =
@@ -1523,9 +1541,12 @@ function App() {
     { id: 'inbox', icon: <Inbox size={navIconSize} strokeWidth={2.25} />, label: 'Bandeja' },
     { id: 'search', icon: <Search size={navIconSize} strokeWidth={2.25} />, label: 'Buscar' },
     { id: 'docs', icon: <BookOpen size={navIconSize} strokeWidth={2.25} />, label: 'Docs' },
+    { id: 'cotizacion', icon: <FileText size={navIconSize} strokeWidth={2.25} />, label: 'Cotizaciones' },
     { id: 'team', icon: <Users size={navIconSize} strokeWidth={2.25} />, label: 'Equipo' },
   ];
-  const navIcons = isTaller ? navIconsAll.filter(n => n.id === 'board' || n.id === 'calendar') : navIconsAll;
+  const navIcons = isTaller
+    ? navIconsAll.filter(n => n.id === 'board' || n.id === 'calendar' || n.id === 'cotizacion')
+    : navIconsAll;
 
   const handleCreateBoard = async () => {
     if (!canCreateBoard) return;
@@ -2256,6 +2277,8 @@ function App() {
                   onConsumeInitialCreateFromBoard={() => setPendingDocFromBoard(null)}
                   initialCreateDocType={pendingCreateDocType}
                   onConsumeInitialCreateDocType={() => setPendingCreateDocType(null)}
+                  initialCotizacionCartPrefill={pendingCotizacionDocsPrefill}
+                  onConsumeInitialCotizacionCartPrefill={() => setPendingCotizacionDocsPrefill(null)}
                   initialOpenDocId={openDocId}
                   onConsumeInitialOpenDocId={() => setOpenDocId(null)}
                   onAddReminderWidget={ensureReminderWidgetVisible}
@@ -2276,6 +2299,8 @@ function App() {
                   onConsumeInitialCreateFromBoard={() => setPendingDocFromBoard(null)}
                   initialCreateDocType={pendingCreateDocType}
                   onConsumeInitialCreateDocType={() => setPendingCreateDocType(null)}
+                  initialCotizacionCartPrefill={pendingCotizacionDocsPrefill}
+                  onConsumeInitialCotizacionCartPrefill={() => setPendingCotizacionDocsPrefill(null)}
                   initialOpenDocId={openDocId}
                   onConsumeInitialOpenDocId={() => setOpenDocId(null)}
                   onAddTaskList={addTaskWindow}
@@ -2291,6 +2316,8 @@ function App() {
                 setActivePage('inbox');
               }}
             />
+          ) : activePage === 'cotizacion' ? (
+            <CotizacionPage />
           ) : activePage === 'facturacion' ? (
             <FacturacionPage
               boards={boards}
@@ -2509,6 +2536,7 @@ function App() {
             if (page === 'docs') setActivePage('docs');
             else if (page === 'team') setActivePage('team');
             else if (page === 'facturacion') setActivePage('facturacion');
+            else if (page === 'cotizacion') setActivePage('cotizacion');
           }}
           canSeeFacturacion={!!canSeeFacturacionView}
           isTaller={!!isTaller}
@@ -2540,6 +2568,7 @@ function App() {
                   'inbox',
                   'search',
                   'docs',
+                  'cotizacion',
                   'team',
                 ] as const;
                 if (pageIds.includes(id as (typeof pageIds)[number])) {
@@ -2870,6 +2899,16 @@ if (ok && data && typeof data.id === 'string') {
               <p className="text-monday-subtext text-[11px] font-semibold px-2 mb-2 uppercase tracking-wider">Bandeja</p>
               <p className="text-monday-text text-[12px] px-2">
                 {composeToUser ? `Enviar mensaje a ${composeToUser.name}` : 'Tareas asignadas a ti.'}
+              </p>
+            </div>
+          ) : activePage === 'cotizacion' ? (
+            <div className="p-3">
+              <p className="text-monday-subtext text-[11px] font-semibold px-2 mb-2 uppercase tracking-wider">
+                Cotizaciones
+              </p>
+              <p className="text-[12px] text-monday-text px-2 leading-relaxed">
+                Elige categoría y servicio, ajusta medidas en el panel central y cierra en el carrito con PDF y folio
+                en servidor (mismos roles que documentos operativos).
               </p>
             </div>
           ) : activePage === 'team' ||
@@ -3494,7 +3533,7 @@ if (ok && data && typeof data.id === 'string') {
                     else if (activePage === 'miTrabajo' && activeBoardId !== null) setActiveBoardId(null);
                     else if (activePage === 'calendar') setActivePage('home');
                     else if (activePage === 'docs') setActivePage('home');
-                    else if (['search', 'team', 'facturacion'].includes(activePage)) setActivePage('board');
+                    else if (['search', 'team', 'facturacion', 'cotizacion'].includes(activePage)) setActivePage('board');
                     else if (activePage === 'inbox' || activePage === 'notifications') setActivePage(lastMainTab);
                   }}
                   className="min-h-[44px] min-w-[44px] flex items-center justify-center p-2 rounded-2xl text-monday-subtext hover:bg-monday-hover hover:text-monday-text transition-colors"
@@ -3557,7 +3596,9 @@ if (ok && data && typeof data.id === 'string') {
                           ? 'Docs'
                             : activePage === 'team'
                             ? 'Equipo'
-                            : activePage === 'facturacion'
+                            : activePage === 'cotizacion'
+                              ? 'Cotizaciones'
+                              : activePage === 'facturacion'
                               ? 'Facturación'
                               : activePage === 'miTrabajo'
                                 ? 'Mi trabajo'
@@ -3633,7 +3674,8 @@ if (ok && data && typeof data.id === 'string') {
                       : (activePage === 'board' && !activeBoardId) ||
                           activePage === 'docs' ||
                           activePage === 'team' ||
-                          activePage === 'facturacion'
+                          activePage === 'facturacion' ||
+                          activePage === 'cotizacion'
                         ? 'more'
                         : 'home'
               }

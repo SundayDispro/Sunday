@@ -34,6 +34,7 @@ import { GROUP_PALETTE } from '../Board/GroupColorPicker';
 import * as Popover from '@radix-ui/react-popover';
 import * as Dialog from '@radix-ui/react-dialog';
 import { Board, Doc, DocType } from '../../types';
+import type { CotizacionDocsPrefill } from '../../types/cotizacion';
 import { MobileDocsShell, type WordShellTab } from '../mobile/docs/MobileDocsShell';
 import { DocsHomeFeed } from '../mobile/docs/DocsHomeFeed';
 import { DocsCreateGallery } from '../mobile/docs/DocsCreateGallery';
@@ -44,6 +45,7 @@ import {
   getDocTypeLabel,
   DOC_TYPE_OPTIONS,
   isPdfDocType,
+  buildCotizacionContentFromCartPrefill,
 } from './docs/docTypes';
 import { ExcelLikeSheet } from './docs/ExcelLikeSheet';
 import type { CellStyleDef, CellStylesMap } from './docs/sheetCellTypes';
@@ -84,6 +86,9 @@ interface Props {
   onConsumeInitialOpenDocId?: () => void;
   initialCreateDocType?: DocType | null;
   onConsumeInitialCreateDocType?: () => void;
+  /** Crear doc cotización relleno desde el cotizador (Sunday → Docs). */
+  initialCotizacionCartPrefill?: CotizacionDocsPrefill | null;
+  onConsumeInitialCotizacionCartPrefill?: () => void;
   onAddTaskList?: () => void;
   onAddCalculatorWidget?: () => void;
   onAddReminderWidget?: () => void;
@@ -1473,7 +1478,24 @@ function DocsOverviewPanel({
   );
 }
 
-export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFromBoard, onConsumeInitialCreateFromBoard, initialOpenDocId, onConsumeInitialOpenDocId, initialCreateDocType, onConsumeInitialCreateDocType, onAddTaskList, onAddCalculatorWidget, onAddReminderWidget, mobileLayout = false, scrollListInParent = false, mobileWordShell = false }) => {
+export const DocsPage: React.FC<Props> = ({
+  workspaceId,
+  boards,
+  initialCreateFromBoard,
+  onConsumeInitialCreateFromBoard,
+  initialOpenDocId,
+  onConsumeInitialOpenDocId,
+  initialCreateDocType,
+  onConsumeInitialCreateDocType,
+  initialCotizacionCartPrefill,
+  onConsumeInitialCotizacionCartPrefill,
+  onAddTaskList,
+  onAddCalculatorWidget,
+  onAddReminderWidget,
+  mobileLayout = false,
+  scrollListInParent = false,
+  mobileWordShell = false,
+}) => {
   const { currentUser } = useUser();
   const currentUserId = currentUser?.id ?? null;
   const isAdmin = !!(currentUser && String(currentUser.role || '').toUpperCase() === 'ADMIN');
@@ -2220,6 +2242,7 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
 
   // Evitar que React StrictMode dispare dos veces la creación desde tablero
   const lastCreateFromBoardKeyRef = useRef<string | null>(null);
+  const cotizacionPrefillDoneRef = useRef<Set<string>>(new Set());
   // Ref para que performSaveNew vea el link actual al guardar (el doc se crea solo al hacer clic en Guardar)
   const linkToBoardItemRef = useRef<typeof linkToBoardItem>(null);
   useEffect(() => {
@@ -3260,6 +3283,31 @@ export const DocsPage: React.FC<Props> = ({ workspaceId, boards, initialCreateFr
     createFromExploreFlow(initialCreateDocType);
     onConsumeInitialCreateDocType?.();
   }, [initialCreateDocType, onConsumeInitialCreateDocType, createFromExploreFlow]);
+
+  useEffect(() => {
+    if (!workspaceId || !initialCotizacionCartPrefill) return;
+    const payload = initialCotizacionCartPrefill;
+    if (cotizacionPrefillDoneRef.current.has(payload.id)) return;
+    cotizacionPrefillDoneRef.current.add(payload.id);
+
+    const content = buildCotizacionContentFromCartPrefill({
+      cliente: payload.cliente,
+      folio: payload.folio,
+      total: payload.total,
+      creadoEn: payload.creadoEn,
+      items: payload.items,
+    });
+
+    void (async () => {
+      try {
+        await handleCreate('cotizacion', undefined, content);
+        onConsumeInitialCotizacionCartPrefill?.();
+      } catch {
+        cotizacionPrefillDoneRef.current.delete(payload.id);
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- intencional: una vez por payload.id
+  }, [workspaceId, initialCotizacionCartPrefill, onConsumeInitialCotizacionCartPrefill]);
 
   const [overwriteDialog, setOverwriteDialog] = useState<{
     mode: 'update' | 'create';

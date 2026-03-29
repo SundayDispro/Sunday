@@ -2997,6 +2997,141 @@ app.delete('/api/items/:id', authenticateToken, requireRoles(['ADMIN', 'VENTAS']
   }
 });
 
+// --- Cotizaciones (folio autoincremental; PDF solo en cliente) ---
+app.post(
+  '/api/cotizaciones',
+  authenticateToken,
+  requireRoles(['ADMIN', 'VENTAS', 'DISENO', 'TALLER']),
+  async (req, res) => {
+    try {
+      const auth = req.authUser;
+      if (!auth) return res.status(401).json({ error: 'No autenticado' });
+      const body = req.body ?? {};
+      const clienteRaw = body.cliente;
+      const cliente =
+        typeof clienteRaw === 'string' && clienteRaw.trim() ? clienteRaw.trim() : null;
+      const rawItems = body.items;
+      if (!Array.isArray(rawItems) || rawItems.length === 0) {
+        return res.status(400).json({ error: 'items debe ser un array no vacío' });
+      }
+      const items: Array<{
+        servicio: string;
+        cantidad: number;
+        sufijo: string;
+        precioUnit: number;
+        total: number;
+      }> = [];
+      for (const raw of rawItems) {
+        if (!raw || typeof raw !== 'object') {
+          return res.status(400).json({ error: 'Ítem inválido' });
+        }
+        const r = raw as Record<string, unknown>;
+        const servicio = typeof r.servicio === 'string' ? r.servicio.trim() : '';
+        if (!servicio) return res.status(400).json({ error: 'Cada ítem requiere servicio' });
+        const sufijo = typeof r.sufijo === 'string' ? r.sufijo.trim() : '';
+        if (!sufijo) return res.status(400).json({ error: 'Cada ítem requiere sufijo' });
+        const cantidad = Number(r.cantidad);
+        const precioUnit = Number(r.precioUnit);
+        const total = Number(r.total);
+        if (!Number.isFinite(cantidad) || cantidad < 0) {
+          return res.status(400).json({ error: 'cantidad inválida' });
+        }
+        if (!Number.isFinite(precioUnit) || precioUnit < 0) {
+          return res.status(400).json({ error: 'precioUnit inválido' });
+        }
+        if (!Number.isFinite(total) || total < 0) {
+          return res.status(400).json({ error: 'total inválido' });
+        }
+        items.push({ servicio, cantidad, sufijo, precioUnit, total });
+      }
+      const total = items.reduce((s, i) => s + i.total, 0);
+      const created = await prisma.$transaction(async (tx) =>
+        tx.cotizacion.create({
+          data: {
+            creadoPorId: auth.id,
+            cliente,
+            total,
+            items: {
+              create: items.map((i) => ({
+                servicio: i.servicio,
+                cantidad: i.cantidad,
+                sufijo: i.sufijo,
+                precioUnit: i.precioUnit,
+                total: i.total,
+              })),
+            },
+          },
+          include: { items: true },
+        })
+      );
+      res.status(201).json(created);
+    } catch (e) {
+      console.error('POST /api/cotizaciones', e);
+      if (handlePrismaError(e, res)) return;
+      res.status(500).json({ error: GENERIC_INTERNAL_ERROR });
+    }
+  }
+);
+
+app.get(
+  '/api/cotizaciones',
+  authenticateToken,
+  requireRoles(['ADMIN', 'VENTAS']),
+  async (_req, res) => {
+    try {
+      const rows = await prisma.cotizacion.findMany({
+        orderBy: { creadoEn: 'desc' },
+        include: {
+          items: true,
+          creadoPor: { select: { name: true } },
+        },
+      });
+      res.json(
+        rows.map((r) => {
+          const { creadoPor, ...rest } = r;
+          return {
+            ...rest,
+            creadoPorNombre: creadoPor.name,
+          };
+        })
+      );
+    } catch (e) {
+      console.error('GET /api/cotizaciones', e);
+      if (handlePrismaError(e, res)) return;
+      res.status(500).json({ error: GENERIC_INTERNAL_ERROR });
+    }
+  }
+);
+
+app.get(
+  '/api/cotizaciones/:id',
+  authenticateToken,
+  requireRoles(['ADMIN', 'VENTAS']),
+  async (req, res) => {
+    const id = queryParamToString(req.params.id);
+    if (!id) return res.status(400).json({ error: 'id inválido' });
+    try {
+      const row = await prisma.cotizacion.findUnique({
+        where: { id },
+        include: {
+          items: true,
+          creadoPor: { select: { name: true } },
+        },
+      });
+      if (!row) return res.status(404).json({ error: 'Cotización no encontrada' });
+      const { creadoPor, ...rest } = row;
+      res.json({
+        ...rest,
+        creadoPorNombre: creadoPor.name,
+      });
+    } catch (e) {
+      console.error('GET /api/cotizaciones/:id', e);
+      if (handlePrismaError(e, res)) return;
+      res.status(500).json({ error: GENERIC_INTERNAL_ERROR });
+    }
+  }
+);
+
 app.get('/api/admin/backups', authenticateToken, requireAdmin, async (_req, res) => {
   try {
     const backups = await getBackupList();

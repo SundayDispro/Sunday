@@ -2,6 +2,7 @@ import React from 'react';
 import DocsPage from '../pages/DocsPage';
 import type { Board } from '../../types';
 import type { DocType as GlobalDocType } from '../../types';
+import type { CotizacionDocsPrefill } from '../../types/cotizacion';
 
 export function MobileDocsHub({
   workspaceId,
@@ -12,6 +13,8 @@ export function MobileDocsHub({
   onConsumeInitialOpenDocId,
   initialCreateDocType,
   onConsumeInitialCreateDocType,
+  initialCotizacionCartPrefill,
+  onConsumeInitialCotizacionCartPrefill,
   onAddReminderWidget,
 }: {
   workspaceId: string | null;
@@ -22,6 +25,8 @@ export function MobileDocsHub({
   onConsumeInitialOpenDocId: () => void;
   initialCreateDocType?: GlobalDocType | null;
   onConsumeInitialCreateDocType?: () => void;
+  initialCotizacionCartPrefill?: CotizacionDocsPrefill | null;
+  onConsumeInitialCotizacionCartPrefill?: () => void;
   onAddReminderWidget?: () => void;
 }) {
   return (
@@ -39,6 +44,8 @@ export function MobileDocsHub({
             onConsumeInitialCreateFromBoard={onConsumeInitialCreateFromBoard}
             initialCreateDocType={initialCreateDocType}
             onConsumeInitialCreateDocType={onConsumeInitialCreateDocType}
+            initialCotizacionCartPrefill={initialCotizacionCartPrefill}
+            onConsumeInitialCotizacionCartPrefill={onConsumeInitialCotizacionCartPrefill}
             initialOpenDocId={initialOpenDocId}
             onConsumeInitialOpenDocId={onConsumeInitialOpenDocId}
             onAddReminderWidget={onAddReminderWidget}
