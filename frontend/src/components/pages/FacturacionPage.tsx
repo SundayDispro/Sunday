@@ -1,7 +1,10 @@
 import React, { useEffect, useState } from 'react';
-import { Receipt } from 'lucide-react';
+import { Receipt, ExternalLink } from 'lucide-react';
 import { Board, Item, BoardColumn, Group, StatusSettings } from '../../types';
 import { apiFetch } from '../../api';
+import { parseBillingDocsEntries } from '../../utils/billingDocsParse';
+
+const API_BASE_STATIC = import.meta.env.DEV ? '' : (import.meta.env.VITE_API_URL ?? '');
 
 const API_BASE = import.meta.env.DEV ? '' : (import.meta.env.VITE_API_URL ?? '');
 
@@ -66,17 +69,42 @@ export const FacturacionPage: React.FC<FacturacionPageProps> = ({ boards, onOpen
 
   const statusColumns = fullBoard?.columns.filter(c => c.type === 'status') ?? [];
   const statusColumnIds = statusColumns.map(c => c.id);
+  const billingDocsColumn: BoardColumn | undefined = fullBoard?.columns.find(
+    c => c.type === 'billing_docs' || c.title === 'Documentos Facturación'
+  );
 
-  const approvedRows: { item: Item; group: Group; boardName: string; statusLabel: string }[] = [];
+  const approvedRows: {
+    item: Item;
+    group: Group;
+    boardName: string;
+    statusLabel: string;
+    billingEntries: { label: string; href: string }[];
+  }[] = [];
   if (fullBoard) {
     fullBoard.groups.forEach(group => {
       group.items.forEach(item => {
         if (isItemApproved(item, statusColumnIds)) {
+          let billingEntries: { label: string; href: string }[] = [];
+          if (billingDocsColumn) {
+            const cv = item.columnValues.find(v => v.columnId === billingDocsColumn!.id);
+            const raw = cv?.value ?? '';
+            billingEntries = parseBillingDocsEntries(raw).map((e) => {
+              const u = e.url.trim();
+              const href =
+                u.startsWith('http://') || u.startsWith('https://')
+                  ? u
+                  : u.startsWith('/')
+                  ? `${API_BASE_STATIC}${u}`
+                  : `https://${u}`;
+              return { label: e.label || 'Documento', href };
+            });
+          }
           approvedRows.push({
             item,
             group,
             boardName: fullBoard.name,
             statusLabel: getStatusLabel(item, statusColumns),
+            billingEntries,
           });
         }
       });
@@ -141,10 +169,15 @@ export const FacturacionPage: React.FC<FacturacionPageProps> = ({ boards, onOpen
                   <th className="text-[12px] font-semibold text-monday-subtext uppercase tracking-wider px-4 py-3">
                     Estatus
                   </th>
+                  {billingDocsColumn && (
+                    <th className="text-[12px] font-semibold text-monday-subtext uppercase tracking-wider px-4 py-3">
+                      Docs facturación
+                    </th>
+                  )}
                 </tr>
               </thead>
               <tbody>
-                {approvedRows.map(({ item, group, boardName, statusLabel }) => (
+                {approvedRows.map(({ item, group, boardName, statusLabel, billingEntries }) => (
                   <tr
                     key={item.id}
                     className="border-b border-monday-border last:border-0 hover:bg-monday-hover/50 transition-colors"
@@ -167,6 +200,29 @@ export const FacturacionPage: React.FC<FacturacionPageProps> = ({ boards, onOpen
                     <td className="px-4 py-3">
                       <span className="text-[13px] text-monday-text font-medium">{statusLabel}</span>
                     </td>
+                    {billingDocsColumn && (
+                      <td className="px-4 py-3 align-top">
+                        {billingEntries.length === 0 ? (
+                          <span className="text-[12px] text-monday-subtext">—</span>
+                        ) : (
+                          <ul className="space-y-1">
+                            {billingEntries.map((b, i) => (
+                              <li key={`${item.id}-bill-${i}`}>
+                                <a
+                                  href={b.href}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="inline-flex items-center gap-1 text-[12px] text-monday-blue hover:underline"
+                                >
+                                  <span className="truncate max-w-[200px]">{b.label}</span>
+                                  <ExternalLink size={12} className="shrink-0 opacity-70" />
+                                </a>
+                              </li>
+                            ))}
+                          </ul>
+                        )}
+                      </td>
+                    )}
                   </tr>
                 ))}
               </tbody>

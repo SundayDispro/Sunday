@@ -647,14 +647,29 @@ export const BoardGroup: React.FC<Props> = ({
           { id: 'default',      label: '',             color: '#c4c4c4' },
         ]
       });
+    } else if (type === 'custom_status') {
+      settings = JSON.stringify({
+        options: [
+          { id: 'cs_1', label: 'Etapa 1', color: '#579bfc' },
+          { id: 'cs_2', label: 'Etapa 2', color: '#fdab3d' },
+          { id: 'cs_3', label: 'Etapa 3', color: '#00c875' },
+          { id: 'default', label: '', color: '#c4c4c4' },
+        ],
+      });
     }
 
-    const emitType = type === 'colocacion' ? 'date' : type === 'billing_docs' ? 'billing_docs' : type;
+    const customCount = columns.filter(c => c.title.startsWith('Estado personalizado')).length;
+    const emitType =
+      type === 'colocacion' ? 'date' : type === 'billing_docs' ? 'billing_docs' : type === 'custom_status' ? 'status' : type;
     const emitTitle =
       type === 'colocacion'
         ? 'Colocación'
         : type === 'billing_docs'
         ? 'Documentos Facturación'
+        : type === 'custom_status'
+        ? customCount === 0
+          ? 'Estado personalizado'
+          : `Estado personalizado (${customCount + 1})`
         : label;
     socket.emit('add_column', { boardId, title: emitTitle, type: emitType, position: newPosition, settings });
   };

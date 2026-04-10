@@ -10,7 +10,7 @@ import {
   BookOpen,
   Users,
   Receipt,
-  FileText,
+  ListTodo,
   Sun,
   Moon,
   Sparkles,
@@ -41,7 +41,7 @@ interface MobileMoreDrawerProps {
   activeBoardId: string | null;
   onSelectBoard: (boardId: string | null) => void;
   /** Páginas que solo están en este menú en móvil (notificaciones/bandeja van en la barra inferior). */
-  onNavigate: (page: 'docs' | 'team' | 'facturacion' | 'cotizacion') => void;
+  onNavigate: (page: 'docs' | 'team' | 'facturacion' | 'tasks') => void;
   theme: AppTheme;
   onThemeChange: (theme: AppTheme) => void;
   canSeeFacturacion: boolean;
@@ -112,7 +112,7 @@ export function MobileMoreDrawer({
     onOpenChange(false);
   };
 
-  const handleNav = (page: 'docs' | 'team' | 'facturacion' | 'cotizacion') => {
+  const handleNav = (page: 'docs' | 'team' | 'facturacion' | 'tasks') => {
     if (navigator.vibrate) navigator.vibrate(15);
     onNavigate(page);
     onOpenChange(false);
@@ -330,11 +330,11 @@ export function MobileMoreDrawer({
                     )}
                     <button
                       type="button"
-                      onClick={() => handleNav('cotizacion')}
+                      onClick={() => handleNav('tasks')}
                       className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-monday-text hover:bg-monday-hover transition-colors text-left text-[13px]"
                     >
-                      <FileText size={18} className="text-monday-subtext shrink-0" />
-                      Cotizaciones
+                      <ListTodo size={18} className="text-monday-subtext shrink-0" />
+                      Tareas
                     </button>
                   </div>
                 </div>

@@ -26,6 +26,44 @@ model User {
   pushSubscriptions    PushSubscription[]
   updates              Update[]
   cotizaciones         Cotizacion[]
+  userTasks            UserTask[]
+  userTaskLists        UserTaskList[]
+}
+
+/// Lista de tareas (varias por usuario, estilo Google Tasks).
+model UserTaskList {
+  id        String    @id @default(uuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name      String    @default("Mis tareas")
+  position  Float     @default(0)
+  tasks     UserTask[]
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  @@index([userId, position])
+}
+
+/// Tarea o subtarea dentro de una lista (parentId null = raíz).
+model UserTask {
+  id        String    @id @default(uuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  listId    String
+  list      UserTaskList @relation(fields: [listId], references: [id], onDelete: Cascade)
+  parentId  String?
+  parent    UserTask? @relation("TaskSubtasks", fields: [parentId], references: [id], onDelete: Cascade)
+  children  UserTask[] @relation("TaskSubtasks")
+  title     String
+  notes     String    @default("")
+  completed Boolean   @default(false)
+  position  Float     @default(0)
+  dueDate   DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  @@index([userId, listId, parentId, position])
+  @@index([userId, completed])
 }
 
 /// Cotización guardada (folio autoincremental; PDF en cliente; pdfUrl reservado para subida futura).

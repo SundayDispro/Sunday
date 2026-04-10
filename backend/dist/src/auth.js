@@ -9,7 +9,6 @@ exports.signJwt = signJwt;
 exports.verifyJwt = verifyJwt;
 exports.signExportToken = signExportToken;
 exports.verifyExportToken = verifyExportToken;
-exports.getExportDocIdFromToken = getExportDocIdFromToken;
 exports.attachUserFromJwt = attachUserFromJwt;
 exports.authenticateToken = authenticateToken;
 exports.requireAuth = requireAuth;
@@ -23,7 +22,8 @@ if (!_jwtSecret) {
     throw new Error('JWT_SECRET no está definido. Configúralo en .env');
 }
 const JWT_SECRET = _jwtSecret;
-const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '7d';
+// Por defecto 24h; en producción conviene fijar JWT_EXPIRES_IN en .env (p. ej. 8h o 12h).
+const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '24h';
 const BCRYPT_ROUNDS_ENV = process.env.BCRYPT_ROUNDS;
 const BCRYPT_ROUNDS = BCRYPT_ROUNDS_ENV && !Number.isNaN(Number.parseInt(BCRYPT_ROUNDS_ENV, 10))
     ? Number.parseInt(BCRYPT_ROUNDS_ENV, 10)
@@ -63,16 +63,6 @@ function verifyExportToken(token) {
         throw new Error('Token de exportación inválido');
     }
     return { userId: payload.userId, docId: payload.docId, purpose: 'export' };
-}
-/** Devuelve docId si el token es de exportación (solo decodifica, no verifica). Usar tras authenticateToken. */
-function getExportDocIdFromToken(token) {
-    try {
-        const payload = jsonwebtoken_1.default.decode(token);
-        return payload?.purpose === 'export' && payload?.docId ? payload.docId : null;
-    }
-    catch {
-        return null;
-    }
 }
 const prisma = new client_1.PrismaClient();
 async function attachUserFromJwt(req, _res, next) {

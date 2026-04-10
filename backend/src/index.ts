@@ -700,6 +700,271 @@ app.get('/api/my-work', authenticateToken, async (req, res) => {
   }
 });
 
+// ── Listas de tareas (Google Tasks) ─────────────────────────────────────────
+async function ensureDefaultTaskList(userId: string) {
+  const count = await prisma.userTaskList.count({ where: { userId } });
+  if (count > 0) return;
+  await prisma.userTaskList.create({
+    data: { userId, name: 'Mis tareas', position: 1024 },
+  });
+}
+
+app.get(['/api/user-task-lists', '/api/user_task_lists'], authenticateToken, async (req, res) => {
+  try {
+    const userId = req.authUser?.id;
+    if (!userId) return res.status(401).json({ error: 'No autenticado' });
+    await ensureDefaultTaskList(userId);
+    const lists = await prisma.userTaskList.findMany({
+      where: { userId },
+      orderBy: { position: 'asc' },
+      include: { _count: { select: { tasks: true } } },
+    });
+    res.json(lists);
+  } catch (e) {
+    console.error('Error GET /api/user-task-lists:', e);
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
+
+app.post(['/api/user-task-lists', '/api/user_task_lists'], authenticateToken, async (req, res) => {
+  try {
+    const userId = req.authUser?.id;
+    if (!userId) return res.status(401).json({ error: 'No autenticado' });
+    const name = String(req.body?.name ?? '').trim() || 'Lista sin título';
+    const maxPos = await prisma.userTaskList.aggregate({
+      where: { userId },
+      _max: { position: true },
+    });
+    const position = (maxPos._max.position ?? 0) + 1024;
+    const list = await prisma.userTaskList.create({
+      data: { userId, name, position },
+    });
+    res.status(201).json(list);
+  } catch (e) {
+    console.error('Error POST /api/user-task-lists:', e);
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
+
+app.patch(['/api/user-task-lists/:id', '/api/user_task_lists/:id'], authenticateToken, async (req, res) => {
+  try {
+    const userId = req.authUser?.id;
+    if (!userId) return res.status(401).json({ error: 'No autenticado' });
+    const id = String(req.params.id ?? '').trim();
+    const list = await prisma.userTaskList.findFirst({ where: { id, userId } });
+    if (!list) return res.status(404).json({ error: 'Lista no encontrada' });
+    const name = req.body?.name !== undefined ? String(req.body.name).trim() : undefined;
+    const position =
+      req.body?.position !== undefined && Number.isFinite(Number(req.body.position))
+        ? Number(req.body.position)
+        : undefined;
+    const updated = await prisma.userTaskList.update({
+      where: { id },
+      data: {
+        ...(name ? { name } : {}),
+        ...(position !== undefined ? { position } : {}),
+      },
+    });
+    res.json(updated);
+  } catch (e) {
+    console.error('Error PATCH /api/user-task-lists/:id:', e);
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
+
+app.delete(['/api/user-task-lists/:id', '/api/user_task_lists/:id'], authenticateToken, async (req, res) => {
+  try {
+    const userId = req.authUser?.id;
+    if (!userId) return res.status(401).json({ error: 'No autenticado' });
+    const id = String(req.params.id ?? '').trim();
+    const list = await prisma.userTaskList.findFirst({ where: { id, userId } });
+    if (!list) return res.status(404).json({ error: 'Lista no encontrada' });
+    const totalLists = await prisma.userTaskList.count({ where: { userId } });
+    if (totalLists <= 1) {
+      return res.status(400).json({ error: 'Debe quedar al menos una lista' });
+    }
+    await prisma.userTaskList.delete({ where: { id } });
+    res.status(204).end();
+  } catch (e) {
+    console.error('Error DELETE /api/user-task-lists/:id:', e);
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
+
+// Tareas personales (listas + subtareas). Query: listId requerido.
+app.get(['/api/user-tasks', '/api/user_tasks'], authenticateToken, async (req, res) => {
+  try {
+    const userId = req.authUser?.id;
+    if (!userId) return res.status(401).json({ error: 'No autenticado' });
+    const listId = queryParamToString(req.query.listId);
+    if (!listId) return res.status(400).json({ error: 'listId requerido' });
+    const list = await prisma.userTaskList.findFirst({ where: { id: listId, userId } });
+    if (!list) return res.status(404).json({ error: 'Lista no encontrada' });
+    const tasks = await prisma.userTask.findMany({
+      where: { userId, listId },
+      orderBy: [{ completed: 'asc' }, { position: 'asc' }],
+    });
+    res.json(tasks);
+  } catch (e) {
+    console.error('Error en /api/user-tasks:', e);
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
+
+app.post(['/api/user-tasks', '/api/user_tasks'], authenticateToken, async (req, res) => {
+  try {
+    const userId = req.authUser?.id;
+    if (!userId) return res.status(401).json({ error: 'No autenticado' });
+    const title = String(req.body?.title ?? '').trim();
+    if (!title) return res.status(400).json({ error: 'Título requerido' });
+    const listId = String(req.body?.listId ?? '').trim();
+    if (!listId) return res.status(400).json({ error: 'listId requerido' });
+    const list = await prisma.userTaskList.findFirst({ where: { id: listId, userId } });
+    if (!list) return res.status(404).json({ error: 'Lista no encontrada' });
+
+    let parentId: string | null = null;
+    if (req.body?.parentId != null && req.body?.parentId !== '') {
+      const pid = String(req.body.parentId).trim();
+      const parent = await prisma.userTask.findFirst({
+        where: { id: pid, userId, listId },
+      });
+      if (!parent) return res.status(400).json({ error: 'Tarea padre no válida' });
+      parentId = pid;
+    }
+
+    const notes = String(req.body?.notes ?? '').trim();
+    let dueDate: Date | null = null;
+    if (req.body?.dueDate != null && req.body?.dueDate !== '') {
+      const d = new Date(String(req.body.dueDate));
+      if (!Number.isNaN(d.getTime())) dueDate = d;
+    }
+    const maxPos = await prisma.userTask.aggregate({
+      where: { userId, listId, parentId },
+      _max: { position: true },
+    });
+    const position = (maxPos._max.position ?? 0) + 1024;
+    const task = await prisma.userTask.create({
+      data: { userId, listId, parentId, title, notes, dueDate, position },
+    });
+    res.status(201).json(task);
+  } catch (e) {
+    console.error('Error POST /api/user-tasks:', e);
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
+
+app.patch(['/api/user-tasks/:id', '/api/user_tasks/:id'], authenticateToken, async (req, res) => {
+  try {
+    const userId = req.authUser?.id;
+    if (!userId) return res.status(401).json({ error: 'No autenticado' });
+    const id = String(req.params.id ?? '').trim();
+    if (!id) return res.status(400).json({ error: 'ID inválido' });
+    const existing = await prisma.userTask.findFirst({ where: { id, userId } });
+    if (!existing) return res.status(404).json({ error: 'Tarea no encontrada' });
+
+    const data: {
+      title?: string;
+      notes?: string;
+      completed?: boolean;
+      position?: number;
+      dueDate?: Date | null;
+      listId?: string;
+      parentId?: string | null;
+    } = {};
+
+    if (req.body?.title !== undefined) data.title = String(req.body.title).trim() || existing.title;
+    if (req.body?.notes !== undefined) data.notes = String(req.body.notes);
+    if (req.body?.completed !== undefined) data.completed = Boolean(req.body.completed);
+    if (req.body?.position !== undefined && Number.isFinite(Number(req.body.position))) {
+      data.position = Number(req.body.position);
+    }
+    if (req.body?.dueDate !== undefined) {
+      if (req.body.dueDate === null || req.body.dueDate === '') data.dueDate = null;
+      else {
+        const d = new Date(String(req.body.dueDate));
+        if (!Number.isNaN(d.getTime())) data.dueDate = d;
+      }
+    }
+    if (req.body?.listId !== undefined) {
+      const lid = String(req.body.listId).trim();
+      const ok = await prisma.userTaskList.findFirst({ where: { id: lid, userId } });
+      if (!ok) return res.status(400).json({ error: 'Lista no válida' });
+      data.listId = lid;
+    }
+    if (req.body?.parentId !== undefined) {
+      if (req.body.parentId === null || req.body.parentId === '') {
+        data.parentId = null;
+      } else {
+        const pid = String(req.body.parentId).trim();
+        if (pid === id) return res.status(400).json({ error: 'parentId inválido' });
+        const parent = await prisma.userTask.findFirst({
+          where: { id: pid, userId, listId: data.listId ?? existing.listId },
+        });
+        if (!parent) return res.status(400).json({ error: 'Tarea padre no válida' });
+        data.parentId = pid;
+      }
+    }
+
+    const task = await prisma.userTask.update({ where: { id }, data });
+    res.json(task);
+  } catch (e) {
+    console.error('Error PATCH /api/user-tasks/:id:', e);
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
+
+app.delete(['/api/user-tasks/:id', '/api/user_tasks/:id'], authenticateToken, async (req, res) => {
+  try {
+    const userId = req.authUser?.id;
+    if (!userId) return res.status(401).json({ error: 'No autenticado' });
+    const id = String(req.params.id ?? '').trim();
+    if (!id) return res.status(400).json({ error: 'ID inválido' });
+    const deleted = await prisma.userTask.deleteMany({ where: { id, userId } });
+    if (deleted.count === 0) return res.status(404).json({ error: 'Tarea no encontrada' });
+    res.status(204).end();
+  } catch (e) {
+    console.error('Error DELETE /api/user-tasks/:id:', e);
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
+
+app.post(['/api/user-tasks/reorder', '/api/user_tasks/reorder'], authenticateToken, async (req, res) => {
+  try {
+    const userId = req.authUser?.id;
+    if (!userId) return res.status(401).json({ error: 'No autenticado' });
+    const listId = String(req.body?.listId ?? '').trim();
+    if (!listId) return res.status(400).json({ error: 'listId requerido' });
+    const list = await prisma.userTaskList.findFirst({ where: { id: listId, userId } });
+    if (!list) return res.status(404).json({ error: 'Lista no encontrada' });
+    const parentId =
+      req.body?.parentId === null || req.body?.parentId === ''
+        ? null
+        : req.body?.parentId != null
+          ? String(req.body.parentId).trim()
+          : null;
+    const orderedIds = Array.isArray(req.body?.orderedIds) ? req.body.orderedIds : [];
+    const ids = orderedIds.map((x: unknown) => String(x)).filter(Boolean);
+    if (ids.length === 0) return res.status(400).json({ error: 'orderedIds requerido' });
+
+    await prisma.$transaction(
+      ids.map((taskId: string, index: number) =>
+        prisma.userTask.updateMany({
+          where: { id: taskId, userId, listId, parentId },
+          data: { position: (index + 1) * 1024 },
+        })
+      )
+    );
+    const tasks = await prisma.userTask.findMany({
+      where: { userId, listId },
+      orderBy: [{ completed: 'asc' }, { position: 'asc' }],
+    });
+    res.json(tasks);
+  } catch (e) {
+    console.error('Error POST /api/user-tasks/reorder:', e);
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
+
 // Grupos de documentos por usuario (custom groups + assignments), mismo patrón que panel-notes
 // TODO(ts-debt/doc-groups): revisar contrato API compartido con el frontend (payload extendido vs legacy solo groups/assignments).
 type DocGroupsUserEntry = {
@@ -1409,6 +1674,37 @@ app.get('/api/users', authenticateToken, async (req, res) => {
   }
 });
 
+/** Preferencias de UI (tema, etc.): debe ir ANTES de PATCH /api/users/:id para que "me" no se interprete como :id. */
+app.patch('/api/users/me', authenticateToken, async (req, res) => {
+  try {
+    const uid = req.authUser?.id;
+    if (!uid) return res.status(401).json({ error: 'No autenticado' });
+    const { preferences } = req.body ?? {};
+    if (
+      preferences !== undefined &&
+      (typeof preferences !== 'object' || preferences === null || Array.isArray(preferences))
+    ) {
+      return res.status(400).json({ error: 'preferences debe ser un objeto JSON' });
+    }
+    const existing = await prisma.user.findUnique({ where: { id: uid } });
+    if (!existing) return res.status(404).json({ error: 'Usuario no encontrado' });
+    const prev = (existing.preferences as Record<string, unknown> | null) ?? {};
+    const merged =
+      preferences && typeof preferences === 'object'
+        ? { ...prev, ...(preferences as Record<string, unknown>) }
+        : prev;
+    const updated = await prisma.user.update({
+      where: { id: uid },
+      data: { preferences: merged as Prisma.InputJsonValue },
+    });
+    const { password: _p, ...safe } = updated;
+    res.json(safe);
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: 'Error al actualizar preferencias' });
+  }
+});
+
 // Actualizar datos básicos de un usuario (solo ADMIN)
 app.patch('/api/users/:id', requireAuth, requireAdmin, async (req, res) => {
   try {
@@ -1495,37 +1791,6 @@ app.patch('/api/users/:id/status', requireAuth, async (req, res) => {
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: 'Error al actualizar estado' });
-  }
-});
-
-/** Preferencias de UI (tema, etc.): merge superficial con el JSON existente. */
-app.patch('/api/users/me', authenticateToken, async (req, res) => {
-  try {
-    const uid = req.authUser?.id;
-    if (!uid) return res.status(401).json({ error: 'No autenticado' });
-    const { preferences } = req.body ?? {};
-    if (
-      preferences !== undefined &&
-      (typeof preferences !== 'object' || preferences === null || Array.isArray(preferences))
-    ) {
-      return res.status(400).json({ error: 'preferences debe ser un objeto JSON' });
-    }
-    const existing = await prisma.user.findUnique({ where: { id: uid } });
-    if (!existing) return res.status(404).json({ error: 'Usuario no encontrado' });
-    const prev = (existing.preferences as Record<string, unknown> | null) ?? {};
-    const merged =
-      preferences && typeof preferences === 'object'
-        ? { ...prev, ...(preferences as Record<string, unknown>) }
-        : prev;
-    const updated = await prisma.user.update({
-      where: { id: uid },
-      data: { preferences: merged as Prisma.InputJsonValue },
-    });
-    const { password: _p, ...safe } = updated;
-    res.json(safe);
-  } catch (e) {
-    console.error(e);
-    res.status(500).json({ error: 'Error al actualizar preferencias' });
   }
 });
 

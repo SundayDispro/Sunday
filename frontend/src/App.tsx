@@ -7,6 +7,7 @@ import {
   Home, Search, ChevronDown, ChevronRight,
   Users, BookOpen, BarChart2, Inbox, Star, Plus, Receipt, Calendar, Folder, PieChart, FolderOpen, UserCheck, GanttChart, Check, AlertCircle, X, Sun, Moon, Sparkles, LayoutGrid, Menu, ChevronLeft, Globe, GripVertical,
   FileText,
+  ListTodo,
   Copy, ClipboardPaste, Delete,
 } from 'lucide-react';
 import { Item, Board, Workspace, User, DocType } from './types';
@@ -36,7 +37,7 @@ import DocsExportPreviewPage from './components/pages/docs/DocsExportPreviewPage
 import DocsPdfPreviewPage from './components/pages/docs/DocsPdfPreviewPage';
 import { TeamPage } from './components/pages/TeamPage';
 import { FacturacionPage } from './components/pages/FacturacionPage';
-import { CotizacionPage } from './components/pages/CotizacionPage';
+import { TasksPage } from './components/pages/TasksPage';
 import { WorkspaceOverviewPage } from './components/pages/WorkspaceOverviewPage';
 import { MiTrabajoPage } from './components/pages/MiTrabajoPage';
 import { TodayPage } from './components/pages/TodayPage';
@@ -62,6 +63,9 @@ import { SortableContext, arrayMove, horizontalListSortingStrategy, useSortable 
 import { CSS } from '@dnd-kit/utilities';
 
 const THEME_STORAGE_KEY = 'sunday-theme';
+
+/** Cotizaciones ocultas en v1.0; reactivar import de CotizacionPage y entrada en nav al retomar la feature. */
+const SHOW_COTIZACIONES_NAV = false;
 
 function ThemeSidebarGlyph({ theme, size = 20 }: { theme: AppTheme; size?: number }) {
   if (theme === 'light') return <Sun size={size} strokeWidth={2.25} />;
@@ -725,6 +729,7 @@ function App() {
     | 'team'
     | 'facturacion'
     | 'cotizacion'
+    | 'tasks'
     | 'miTrabajo'
   >(() => {
     if (typeof window === 'undefined') return 'board';
@@ -751,6 +756,10 @@ function App() {
       updateMobileState({ activePage });
     }
   }, [activePage, isDocsMobile]);
+
+  useEffect(() => {
+    if (activePage === 'cotizacion' && !SHOW_COTIZACIONES_NAV) setActivePage('board');
+  }, [activePage]);
 
   /** Calendario en móvil horizontal: menos chrome en la barra superior para ganar área útil. */
   const calendarMinimalChrome = isDocsMobile && activePage === 'calendar' && isLandscape;
@@ -1525,7 +1534,7 @@ function App() {
     (activePage === 'miTrabajo' && activeBoardId !== null) ||
     activePage === 'calendar' ||
     activePage === 'docs' ||
-    ['search', 'team', 'notifications', 'facturacion', 'cotizacion', 'inbox'].includes(activePage);
+    ['search', 'team', 'notifications', 'facturacion', 'cotizacion', 'tasks', 'inbox'].includes(activePage);
 
   const navIconSize = 22;
   const railAvatarSrc =
@@ -1541,11 +1550,14 @@ function App() {
     { id: 'inbox', icon: <Inbox size={navIconSize} strokeWidth={2.25} />, label: 'Bandeja' },
     { id: 'search', icon: <Search size={navIconSize} strokeWidth={2.25} />, label: 'Buscar' },
     { id: 'docs', icon: <BookOpen size={navIconSize} strokeWidth={2.25} />, label: 'Docs' },
-    { id: 'cotizacion', icon: <FileText size={navIconSize} strokeWidth={2.25} />, label: 'Cotizaciones' },
+    ...(SHOW_COTIZACIONES_NAV
+      ? [{ id: 'cotizacion' as const, icon: <FileText size={navIconSize} strokeWidth={2.25} />, label: 'Cotizaciones' }]
+      : []),
+    { id: 'tasks', icon: <ListTodo size={navIconSize} strokeWidth={2.25} />, label: 'Tareas' },
     { id: 'team', icon: <Users size={navIconSize} strokeWidth={2.25} />, label: 'Equipo' },
   ];
   const navIcons = isTaller
-    ? navIconsAll.filter(n => n.id === 'board' || n.id === 'calendar' || n.id === 'cotizacion')
+    ? navIconsAll.filter(n => n.id === 'board' || n.id === 'calendar' || n.id === 'tasks')
     : navIconsAll;
 
   const handleCreateBoard = async () => {
@@ -2316,8 +2328,8 @@ function App() {
                 setActivePage('inbox');
               }}
             />
-          ) : activePage === 'cotizacion' ? (
-            <CotizacionPage />
+          ) : activePage === 'tasks' ? (
+            <TasksPage />
           ) : activePage === 'facturacion' ? (
             <FacturacionPage
               boards={boards}
@@ -2536,7 +2548,7 @@ function App() {
             if (page === 'docs') setActivePage('docs');
             else if (page === 'team') setActivePage('team');
             else if (page === 'facturacion') setActivePage('facturacion');
-            else if (page === 'cotizacion') setActivePage('cotizacion');
+            else if (page === 'tasks') setActivePage('tasks');
           }}
           canSeeFacturacion={!!canSeeFacturacionView}
           isTaller={!!isTaller}
@@ -2562,21 +2574,18 @@ function App() {
               key={id}
               title={label}
               onClick={() => {
-                const pageIds = [
-                  'board',
-                  'calendar',
-                  'inbox',
-                  'search',
-                  'docs',
-                  'cotizacion',
-                  'team',
-                ] as const;
-                if (pageIds.includes(id as (typeof pageIds)[number])) {
-                  setActivePage(id as (typeof pageIds)[number]);
-                  // Inicio (ícono casa): siempre volver a Vista general del workspace, no quedarse en un tablero abierto.
-                  if (id === 'board') setActiveBoardId(null);
-                  if (id === 'calendar' && boards.length > 0 && !activeBoardId) setActiveBoardId(boards[0].id);
-                }
+                if (id === 'board') {
+                  setActivePage('board');
+                  setActiveBoardId(null);
+                } else if (id === 'calendar') {
+                  setActivePage('calendar');
+                  if (boards.length > 0 && !activeBoardId) setActiveBoardId(boards[0].id);
+                } else if (id === 'inbox') setActivePage('inbox');
+                else if (id === 'search') setActivePage('search');
+                else if (id === 'docs') setActivePage('docs');
+                else if (id === 'tasks') setActivePage('tasks');
+                else if (id === 'team') setActivePage('team');
+                else if (id === 'cotizacion' && SHOW_COTIZACIONES_NAV) setActivePage('cotizacion');
               }}
               className={`relative flex items-center justify-center rounded-lg transition-all duration-150 min-h-[44px] min-w-[44px] w-11 h-11 ${
                 activePage === id
@@ -2901,14 +2910,13 @@ if (ok && data && typeof data.id === 'string') {
                 {composeToUser ? `Enviar mensaje a ${composeToUser.name}` : 'Tareas asignadas a ti.'}
               </p>
             </div>
-          ) : activePage === 'cotizacion' ? (
+          ) : activePage === 'tasks' ? (
             <div className="p-3">
               <p className="text-monday-subtext text-[11px] font-semibold px-2 mb-2 uppercase tracking-wider">
-                Cotizaciones
+                Tareas
               </p>
               <p className="text-[12px] text-monday-text px-2 leading-relaxed">
-                Elige categoría y servicio, ajusta medidas en el panel central y cierra en el carrito con PDF y folio
-                en servidor (mismos roles que documentos operativos).
+                Lista personal por usuario. Marca completadas, añade notas y fecha de vencimiento; todo se guarda en tu cuenta.
               </p>
             </div>
           ) : activePage === 'team' ||
@@ -3533,7 +3541,7 @@ if (ok && data && typeof data.id === 'string') {
                     else if (activePage === 'miTrabajo' && activeBoardId !== null) setActiveBoardId(null);
                     else if (activePage === 'calendar') setActivePage('home');
                     else if (activePage === 'docs') setActivePage('home');
-                    else if (['search', 'team', 'facturacion', 'cotizacion'].includes(activePage)) setActivePage('board');
+                    else if (['search', 'team', 'facturacion', 'cotizacion', 'tasks'].includes(activePage)) setActivePage('board');
                     else if (activePage === 'inbox' || activePage === 'notifications') setActivePage(lastMainTab);
                   }}
                   className="min-h-[44px] min-w-[44px] flex items-center justify-center p-2 rounded-2xl text-monday-subtext hover:bg-monday-hover hover:text-monday-text transition-colors"
@@ -3596,7 +3604,9 @@ if (ok && data && typeof data.id === 'string') {
                           ? 'Docs'
                             : activePage === 'team'
                             ? 'Equipo'
-                            : activePage === 'cotizacion'
+                            : activePage === 'tasks'
+                              ? 'Tareas'
+                              : activePage === 'cotizacion'
                               ? 'Cotizaciones'
                               : activePage === 'facturacion'
                               ? 'Facturación'
@@ -3675,7 +3685,8 @@ if (ok && data && typeof data.id === 'string') {
                           activePage === 'docs' ||
                           activePage === 'team' ||
                           activePage === 'facturacion' ||
-                          activePage === 'cotizacion'
+                          activePage === 'cotizacion' ||
+                          activePage === 'tasks'
                         ? 'more'
                         : 'home'
               }

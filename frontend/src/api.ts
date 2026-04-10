@@ -28,6 +28,13 @@ function resolveApiBase(): string {
 
 export const API_BASE: string = resolveApiBase();
 
+/** URL completa al backend: `/api/...` con mismo origen, o `origen/api/...` si hay `VITE_API_URL`. */
+export function apiUrl(path: string): string {
+  const p = path.startsWith('/') ? path : `/${path}`;
+  if (!API_BASE) return p;
+  return `${API_BASE.replace(/\/$/, '')}${p}`;
+}
+
 export function getAuthToken(): string | null {
   try {
     return localStorage.getItem('sunday_token');

@@ -6,6 +6,7 @@ import { socket } from '../../store/socket';
 import { useUser } from '../../store/UserContext';
 import { API_BASE, apiFetch } from '../../api';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
+import { parseBillingDocsEntries } from '../../utils/billingDocsParse';
 
 interface Props {
   item: Item;
@@ -239,27 +240,6 @@ function looksLikeMachineValue(raw: string): boolean {
   return false;
 }
 
-function extractBillingDocsUrl(raw: string): { url: string; name?: string } | null {
-  const s = raw.trim();
-  if (!s) return null;
-
-  const parsed = tryParseJson<unknown>(s);
-  if (typeof parsed === 'string') {
-    const url = parsed.trim();
-    return url ? { url } : null;
-  }
-  if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-    const obj = parsed as Record<string, unknown>;
-    const url = typeof obj.url === 'string' ? obj.url.trim() : '';
-    const name = typeof obj.name === 'string' ? obj.name.trim() : undefined;
-    return url ? { url, name } : null;
-  }
-
-  // Fallback: valor directo tipo URL.
-  if (s.startsWith('http://') || s.startsWith('https://') || s.startsWith('/')) return { url: s };
-  return { url: s };
-}
-
 export const ItemDetailsPanel: React.FC<Props> = ({ item, onClose, variant = 'panel', board = null, embedded = false }) => {
   const { currentUser, users } = useUser();
   const [activeTab, setActiveTab] = useState<Tab>('Info');
@@ -396,8 +376,8 @@ export const ItemDetailsPanel: React.FC<Props> = ({ item, onClose, variant = 'pa
       }
 
       if (col.type === 'billing_docs') {
-        const parsed = extractBillingDocsUrl(raw);
-        return parsed?.name?.trim() || 'Documento enlazado';
+        const entries = parseBillingDocsEntries(raw);
+        return entries.length ? entries.map((e) => e.label).join(', ') : '—';
       }
 
       if (col.type === 'status' || col.type === 'priority') {
@@ -597,16 +577,17 @@ export const ItemDetailsPanel: React.FC<Props> = ({ item, onClose, variant = 'pa
       }
 
       if (col.type === 'billing_docs') {
-        const parsed = extractBillingDocsUrl(rawValue);
-        const href = parsed ? normalizeExternalHref(parsed.url) : null;
-        if (href) {
-          entries.push({
-            id: `${col.id}-billing`,
-            columnTitle: col.title,
-            kind: 'external',
-            primaryLabel: parsed?.name?.trim() || 'Enlace',
-            href,
-          });
+        for (const bd of parseBillingDocsEntries(rawValue)) {
+          const href = normalizeExternalHref(bd.url);
+          if (href) {
+            entries.push({
+              id: `${col.id}-billing-${bd.id}`,
+              columnTitle: col.title,
+              kind: 'external',
+              primaryLabel: bd.label?.trim() || 'Enlace',
+              href,
+            });
+          }
         }
         continue;
       }
@@ -697,15 +678,14 @@ export const ItemDetailsPanel: React.FC<Props> = ({ item, onClose, variant = 'pa
           }
 
           // billing docs
-          const billing = extractBillingDocsUrl(rawValue);
-          if (billing?.url) {
+          for (const billing of parseBillingDocsEntries(rawValue)) {
             const href = normalizeExternalHref(billing.url);
             if (href) {
               entries.push({
-                id: `${cv.columnId}-billing-${billing.url}`,
+                id: `${cv.columnId}-billing-${billing.id}`,
                 columnTitle: 'Facturación',
                 kind: 'external',
-                primaryLabel: billing.name?.trim() || 'Documento',
+                primaryLabel: billing.label?.trim() || 'Documento',
                 href,
               });
             }
@@ -804,8 +784,12 @@ export const ItemDetailsPanel: React.FC<Props> = ({ item, onClose, variant = 'pa
       }
 
       if (col.type === 'billing_docs') {
-        const parsed = extractBillingDocsUrl(raw);
-        docEntries.push({ id: col.id, title: col.title, value: parsed?.name?.trim() || 'Enlace' });
+        const bds = parseBillingDocsEntries(raw);
+        docEntries.push({
+          id: col.id,
+          title: col.title,
+          value: bds.length ? bds.map((b) => b.label).join(', ') : '—',
+        });
       }
     }
 
