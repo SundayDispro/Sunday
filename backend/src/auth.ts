@@ -29,6 +29,7 @@ export async function hashPassword(plain: string): Promise<string> {
   return bcrypt.hash(plain, BCRYPT_ROUNDS);
 }
 
+// SECURITY-VERIFIED: almacenamiento de contraseñas con bcrypt (rondas configurables vía BCRYPT_ROUNDS).
 export async function verifyPassword(plain: string, hash: string): Promise<boolean> {
   if (!hash) return false;
   try {
@@ -42,6 +43,7 @@ export function signJwt(payload: JwtPayload): string {
   return jwt.sign(payload, JWT_SECRET, { expiresIn: JWT_EXPIRES_IN as SignOptions['expiresIn'] });
 }
 
+// SECURITY-VERIFIED: JWT firmado (HS256), validación de expiración y de role permitido en payload.
 export function verifyJwt(token: string): JwtPayload {
   const payload = jwt.verify(token, JWT_SECRET) as JwtPayload;
   if (!payload.userId || typeof payload.role !== 'string' || !ALLOWED_ROLES.has(payload.role)) {
@@ -63,6 +65,7 @@ export function signExportToken(payload: ExportTokenPayload): string {
 }
 
 /** Verifica un token de exportación; lanza si es inválido. */
+// SECURITY-VERIFIED: token de exportación PDF de corta duración y propósito acotado (export).
 export function verifyExportToken(token: string): ExportTokenPayload {
   const payload = jwt.verify(token, JWT_SECRET) as ExportTokenPayload & { role?: string };
   if (payload.purpose !== 'export' || !payload.userId || !payload.docId) {

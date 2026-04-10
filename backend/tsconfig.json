@@ -9,5 +9,10 @@
     "strict": true,
     "skipLibCheck": true
   },
-  "exclude": ["node_modules", "dist", "scripts/migrateSqliteToPostgres.ts"]
+  "exclude": [
+    "node_modules",
+    "dist",
+    "scripts/migrateSqliteToPostgres.ts",
+    "scripts/exportSqliteToJson.ts"
+  ]
 }

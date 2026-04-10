@@ -25,6 +25,7 @@
     "@tanstack/react-virtual": "^3.13.23",
     "canvas-confetti": "^1.9.4",
     "clsx": "^2.1.1",
+    "dompurify": "^3.3.3",
     "fabric": "^6.9.1",
     "fabric-pen-tool": "^1.1.1",
     "framer-motion": "^12.36.0",

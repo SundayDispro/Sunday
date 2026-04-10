@@ -32,6 +32,7 @@ const ALLOWED_ROLES = new Set(['ADMIN', 'VENTAS', 'DISENO', 'TALLER', 'USER']);
 async function hashPassword(plain) {
     return bcrypt_1.default.hash(plain, BCRYPT_ROUNDS);
 }
+// SECURITY-VERIFIED: almacenamiento de contraseñas con bcrypt (rondas configurables vía BCRYPT_ROUNDS).
 async function verifyPassword(plain, hash) {
     if (!hash)
         return false;
@@ -45,6 +46,7 @@ async function verifyPassword(plain, hash) {
 function signJwt(payload) {
     return jsonwebtoken_1.default.sign(payload, JWT_SECRET, { expiresIn: JWT_EXPIRES_IN });
 }
+// SECURITY-VERIFIED: JWT firmado (HS256), validación de expiración y de role permitido en payload.
 function verifyJwt(token) {
     const payload = jsonwebtoken_1.default.verify(token, JWT_SECRET);
     if (!payload.userId || typeof payload.role !== 'string' || !ALLOWED_ROLES.has(payload.role)) {
@@ -57,6 +59,7 @@ function signExportToken(payload) {
     return jsonwebtoken_1.default.sign({ ...payload, role: 'USER' }, JWT_SECRET, { expiresIn: '120s' });
 }
 /** Verifica un token de exportación; lanza si es inválido. */
+// SECURITY-VERIFIED: token de exportación PDF de corta duración y propósito acotado (export).
 function verifyExportToken(token) {
     const payload = jsonwebtoken_1.default.verify(token, JWT_SECRET);
     if (payload.purpose !== 'export' || !payload.userId || !payload.docId) {

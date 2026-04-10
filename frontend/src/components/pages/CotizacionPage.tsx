@@ -9,6 +9,7 @@ import {
   Package,
 } from 'lucide-react';
 import { jsPDF } from 'jspdf';
+import { sanitizePdfText } from '../../utils/sanitizePdfText';
 import { API_BASE, buildAuthHeaders } from '../../api';
 import { useToast } from '../Toast';
 import { useUser } from '../../store/UserContext';
@@ -503,7 +504,7 @@ export const CotizacionPage: React.FC = () => {
       doc.text(`Fecha: ${new Date(data.creadoEn).toLocaleString('es-MX')}`, 14, y);
       y += 7;
       if (data.cliente?.trim()) {
-        doc.text(`Cliente: ${data.cliente.trim()}`, 14, y);
+        doc.text(`Cliente: ${sanitizePdfText(data.cliente.trim())}`, 14, y);
         y += 7;
       }
       y += 4;
@@ -516,9 +517,11 @@ export const CotizacionPage: React.FC = () => {
       doc.line(14, y, 196, y);
       y += 6;
       for (const it of data.items) {
-        const line = doc.splitTextToSize(it.servicio, 80);
+        const servicioSafe = sanitizePdfText(String(it.servicio ?? ''));
+        const sufijoSafe = sanitizePdfText(String(it.sufijo ?? ''), 256);
+        const line = doc.splitTextToSize(servicioSafe, 80);
         doc.text(line, 14, y);
-        doc.text(`${it.cantidad} ${it.sufijo}`, 100, y);
+        doc.text(`${it.cantidad} ${sufijoSafe}`, 100, y);
         doc.text(`$${it.precioUnit.toFixed(2)}`, 125, y);
         doc.text(`$${it.total.toLocaleString('es-MX', { minimumFractionDigits: 2 })}`, 165, y);
         y += Math.max(6, line.length * 5);

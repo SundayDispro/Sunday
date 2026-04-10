@@ -35,6 +35,7 @@ export function apiUrl(path: string): string {
   return `${API_BASE.replace(/\/$/, '')}${p}`;
 }
 
+/** SECURITY-ACCEPTED-RISK: token en localStorage; ver comentario en UserContext.tsx (red privada / Tailscale). */
 export function getAuthToken(): string | null {
   try {
     return localStorage.getItem('sunday_token');

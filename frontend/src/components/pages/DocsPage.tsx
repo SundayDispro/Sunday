@@ -69,6 +69,7 @@ import {
   EMERGENCY_PDF_DRAFT_TTL_MS,
   deepCloneJson,
 } from '../../utils/emergencyPdfTemplateDraft';
+import DOMPurify from 'dompurify';
 
 const API_BASE = import.meta.env.DEV ? '' : (import.meta.env.VITE_API_URL ?? '');
 
@@ -4926,7 +4927,9 @@ export const DocsPage: React.FC<Props> = ({
               ) : (
                 <div
                   className="flex-1 min-h-0 overflow-auto scroll-touch custom-scrollbar p-4 sm:p-6 bg-monday-bg/50 prose prose-sm max-w-none font-averta [&_h1]:text-xl [&_h2]:text-lg [&_h3]:text-base [&_ul]:list-disc [&_ol]:list-decimal [&_li]:ml-4"
-                  dangerouslySetInnerHTML={{ __html: getInitialHtml(parseContent(selectedDoc).text ?? '') }}
+                  dangerouslySetInnerHTML={{
+                    __html: DOMPurify.sanitize(getInitialHtml(parseContent(selectedDoc).text ?? '')),
+                  }}
                 />
               )}
             </>

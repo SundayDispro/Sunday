@@ -11,6 +11,7 @@ import { Download, X, MessageCircle, Mail } from 'lucide-react';
 import html2canvas from 'html2canvas';
 import { jsPDF } from 'jspdf';
 import { apiFetch } from '../../../api';
+import { sanitizePdfText } from '../../../utils/sanitizePdfText';
 
 const API_BASE = import.meta.env.DEV ? '' : (import.meta.env.VITE_API_URL ?? '');
 const STORAGE_KEY = 'sunday_pdf_preview';
@@ -131,7 +132,8 @@ export default function DocsPdfPreviewPage() {
             format: 'letter',
           });
           pdf.addImage(imgData, 'PNG', 0, 0, 612, 792);
-          pdf.save(`${payload.docType}.pdf`);
+          const fileBase = sanitizePdfText(String(payload.docType ?? 'documento'), 128).replace(/[^a-zA-Z0-9._-]+/g, '_') || 'documento';
+          pdf.save(`${fileBase}.pdf`);
         })(),
         PDF_EXPORT_TIMEOUT_MS
       );

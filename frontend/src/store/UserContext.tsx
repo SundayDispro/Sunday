@@ -1,3 +1,8 @@
+/**
+ * SECURITY-ACCEPTED-RISK: el JWT se guarda en localStorage (XSS podría leerlo). Mitigación operativa: app interna en red
+ * privada (p. ej. Tailscale/VPN); superficie reducida frente a Internet público. Alternativa (httpOnly cookies) no aplicada
+ * para no reestructurar auth en esta versión.
+ */
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { User, UserStatus, type WebPushSubscribeRequestBody } from '../types';
 import { API_BASE, apiFetch, buildAuthHeaders, clearAuthStorage, getAuthToken, parseResponse } from '../api';

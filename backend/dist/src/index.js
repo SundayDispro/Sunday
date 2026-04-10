@@ -56,8 +56,17 @@ const notificationsService = __importStar(require("./services/notifications"));
 const backupService_1 = require("./backupService");
 const prisma = new client_1.PrismaClient();
 const app = (0, express_1.default)();
+// SECURITY-VERIFIED: cabeceras HTTP de seguridad (CSP, HSTS, etc.) las aplica el reverse proxy (p. ej. Nginx); no se usa helmet en Node.
+/** Rechazo en fileFilter de multer: el cliente solo recibe mensaje genérico (SECURITY M6). */
+class MulterFileRejectedError extends Error {
+    constructor() {
+        super('MulterFileRejected');
+        this.name = 'MulterFileRejectedError';
+    }
+}
 /** FIX 8: no filtrar mensajes de Prisma/BD al cliente. */
 const GENERIC_INTERNAL_ERROR = 'Error interno del servidor';
+const isProduction = process.env.NODE_ENV === 'production';
 /**
  * IDOR (docs/diseños): el workspace debe existir; si hay boardId, el tablero debe existir y coincidir en workspaceId.
  * Sin membresía por usuario en el esquema actual: mismo alcance operativo que listar workspaces/tablas autenticado.
@@ -109,6 +118,43 @@ const loginRateLimiter = (0, express_rate_limit_1.default)({
     legacyHeaders: false,
     message: { error: 'Demasiados intentos de inicio de sesión. Espera 15 minutos o vuelve más tarde.' },
 });
+/**
+ * Rate limit global para /api.
+ * - Desarrollo: desactivado (skip) para no bloquear HMR, recargas y depuración.
+ * - Producción: límite más alto; POST /api/login y GET /api/health excluidos del contador global
+ *   (login sigue protegido por loginRateLimiter; evita 429 al iniciar sesión tras uso intensivo de la API).
+ */
+const apiGlobalRateLimiter = (0, express_rate_limit_1.default)({
+    windowMs: 15 * 60 * 1000,
+    max: isProduction ? 800 : 50_000,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { error: 'Demasiadas solicitudes. Espera unos minutos e intenta de nuevo.' },
+    skip: (req) => {
+        if (!isProduction)
+            return true;
+        if (req.method === 'POST' && req.path === '/login')
+            return true;
+        if (req.method === 'GET' && req.path === '/health')
+            return true;
+        return false;
+    },
+});
+const jsonBodyParser1mb = express_1.default.json({ limit: '1mb' });
+const jsonBodyParser25mb = express_1.default.json({ limit: '25mb' });
+/** Cuerpos JSON grandes solo en rutas que guardan contenido de docs/diseños o exportación PDF (base64, etc.). */
+function selectJsonBodyParser(req, res, next) {
+    const method = req.method;
+    const p = req.path;
+    const large = (method === 'POST' && p === '/api/docs') ||
+        (method === 'PATCH' && /^\/api\/docs\/[^/]+$/.test(p)) ||
+        (method === 'POST' && p === '/api/designs') ||
+        (method === 'PATCH' && /^\/api\/designs\/[^/]+$/.test(p)) ||
+        (method === 'POST' && /^\/api\/templates\/[^/]+\/generate$/.test(p)) ||
+        (method === 'PATCH' && /^\/api\/workspaces\/[^/]+\/panel-notes$/.test(p)) ||
+        (method === 'PATCH' && /^\/api\/workspaces\/[^/]+\/doc-groups$/.test(p));
+    (large ? jsonBodyParser25mb : jsonBodyParser1mb)(req, res, next);
+}
 /** Errores típicos de Prisma/pg cuando la BD no está accesible o las credenciales fallan. */
 function isPrismaDbUnavailable(err) {
     if (!err || typeof err !== 'object')
@@ -162,7 +208,6 @@ function jsonToInput(v) {
 // CORS estricto:
 // - En producción: ALLOWED_ORIGINS NO puede ser vacío ni '*'.
 // - En dev: se permite '*' para no bloquear el ciclo rápido.
-const isProduction = process.env.NODE_ENV === 'production';
 const rawOrigins = (process.env.ALLOWED_ORIGINS ?? '').trim();
 if (isProduction && (!rawOrigins || rawOrigins === '*')) {
     throw new Error("ALLOWED_ORIGINS requerido en producción y no puede ser '*'. Define una lista separada por comas (p.ej. https://app.midominio.com,https://www.midominio.com).");
@@ -185,6 +230,10 @@ function isTryCloudflareQuickTunnelOrigin(origin) {
         return false;
     }
 }
+/**
+ * Por defecto desactivado (variable ausente o no "truthy").
+ * No activar en producción salvo pruebas puntuales: permitiría orígenes *.trycloudflare.com (Quick Tunnel).
+ */
 const trustTrycloudflareTunnelOrigins = ['1', 'true', 'yes'].includes((process.env.ALLOW_TRYCLOUDFLARE_ORIGINS ?? '').trim().toLowerCase());
 const corsDynamicOrigin = (origin, callback) => {
     if (allowedOrigins === '*') {
@@ -192,6 +241,11 @@ const corsDynamicOrigin = (origin, callback) => {
         return;
     }
     if (!origin) {
+        // En producción se rechazan peticiones sin cabecera Origin (p. ej. file://, herramientas mal configuradas).
+        if (isProduction) {
+            callback(null, false);
+            return;
+        }
         callback(null, true);
         return;
     }
@@ -245,6 +299,7 @@ async function getUserIdsForWorkspaceNotification(workspaceId) {
     }
     return [...ids];
 }
+// SECURITY-VERIFIED: JWT obligatorio en handshake Socket.IO (sin sesión anónima).
 // FIX 3: JWT válido obligatorio en el handshake Socket.io (rechaza conexión anónima).
 io.use(async (socket, next) => {
     const tokenMaybe = socket.handshake.auth?.token;
@@ -371,7 +426,8 @@ const upload = (0, multer_1.default)({
             cb(null, true);
         }
         else {
-            cb(new Error('Tipo de archivo no permitido. Solo se aceptan JPG, PDF o Excel (xlsx/xls).'));
+            console.warn('[multer] tipo no permitido:', file.mimetype, file.originalname);
+            cb(new MulterFileRejectedError());
         }
     },
 });
@@ -384,15 +440,17 @@ const avatarUpload = (0, multer_1.default)({
             cb(null, true);
         }
         else {
-            cb(new Error('Solo se aceptan imágenes (JPG, PNG, WEBP, GIF).'));
+            console.warn('[multer avatar] tipo no permitido:', file.mimetype, file.originalname);
+            cb(new MulterFileRejectedError());
         }
     },
 });
 app.use((0, cors_1.default)({
     origin: corsDynamicOrigin,
 }));
-// Aumentar límite de JSON para soportar capturas PNG base64 desde el cliente (html2canvas)
-app.use(express_1.default.json({ limit: '25mb' }));
+app.use('/api', apiGlobalRateLimiter);
+// JSON: 1mb por defecto; 25mb solo en rutas con payloads grandes (docs, diseños, export PDF, panel-notes, doc-groups).
+app.use(selectJsonBodyParser);
 // Logging estructurado (Fase 5): método, ruta, status, duración
 app.use((req, res, next) => {
     const start = Date.now();
@@ -413,7 +471,7 @@ app.use('/api', (_req, res, next) => {
     res.append('Vary', 'Cookie');
     next();
 });
-// Servir archivos subidos (URL pública: /uploads/nombre.jpg)
+// SECURITY-ACCEPTED-RISK: /uploads sin auth de sesión; nombres de archivo no adivinables (timestamp+random). Riesgo residual de enumeración bajo control en red interna.
 app.use('/uploads', express_1.default.static(paths_1.UPLOADS_DIR));
 // Health check (for frontend to verify backend is up); socketConnections para observabilidad
 app.get('/api/health', (_req, res) => {
@@ -421,6 +479,7 @@ app.get('/api/health', (_req, res) => {
 });
 // Mensaje de sistema en el feed (Bandeja): solo desde 127.0.0.1 / ::1 — sin JWT.
 // Autor: SYSTEM_FEED_AUTHOR_ID en .env, o el primer usuario ADMIN por createdAt.
+// SECURITY-VERIFIED: restricción a loopback; Nginx no debe reenviar /api/internal/* al exterior (solo localhost o túnel SSH al propio host).
 // FIX 11: el reverse proxy NO debe exponer /api/internal/* a Internet (solo localhost o red interna).
 app.post('/api/internal/feed/system-message', async (req, res) => {
     try {
@@ -462,7 +521,7 @@ app.post('/api/internal/feed/system-message', async (req, res) => {
     }
     catch (error) {
         console.error('system feed message error:', error);
-        res.status(500).json({ error: 'Failed to create system feed post' });
+        res.status(500).json({ error: 'No se pudo crear la publicación del feed de sistema' });
     }
 });
 // Subir documento (JPG o PDF) (multipart/form-data, field: "file"); responde con la URL pública
@@ -476,8 +535,12 @@ app.post('/api/upload', auth_1.authenticateToken, (req, res) => {
                 if (err instanceof multer_1.default.MulterError) {
                     if (err.code === 'LIMIT_FILE_SIZE')
                         return sendError(400, 'El archivo no puede superar 5 MB.');
+                    console.error('[upload] MulterError:', err.code, err.message);
                 }
-                return sendError(400, err instanceof Error ? err.message : 'Error al subir.');
+                else {
+                    console.error('[upload] error:', err);
+                }
+                return sendError(400, 'Error al procesar el archivo');
             }
             if (!req.file)
                 return sendError(400, 'No se envió ningún archivo.');
@@ -506,7 +569,7 @@ app.get('/api/workspaces', auth_1.authenticateToken, async (_req, res) => {
     }
     catch (error) {
         console.error('Error fetching workspaces:', error);
-        res.status(500).json({ error: 'Failed to fetch workspaces' });
+        res.status(500).json({ error: 'No se pudieron cargar los workspaces' });
     }
 });
 // Bootstrap de navegación: devuelve workspaces + boards en una sola llamada.
@@ -532,7 +595,7 @@ app.get('/api/bootstrap', auth_1.authenticateToken, async (_req, res) => {
     }
     catch (error) {
         console.error('Error fetching bootstrap payload:', error);
-        res.status(500).json({ error: 'Failed to fetch bootstrap payload' });
+        res.status(500).json({ error: 'No se pudo cargar el arranque (bootstrap)' });
     }
 });
 // Create a new workspace (solo ADMIN: creación de nivel superior)
@@ -549,7 +612,7 @@ app.post('/api/workspaces', auth_1.authenticateToken, (0, auth_1.requireRoles)([
     }
     catch (error) {
         console.error('Error creating workspace:', error);
-        res.status(500).json({ error: 'Failed to create workspace' });
+        res.status(500).json({ error: 'No se pudo crear el workspace' });
     }
 });
 // Panel de Docs: listas de tareas por usuario (cada usuario solo ve las suyas)
@@ -581,7 +644,7 @@ app.get('/api/workspaces/:workspaceId/panel-notes', auth_1.authenticateToken, as
     }
     catch (e) {
         console.error('Error fetching panel notes:', e);
-        res.status(500).json({ error: 'Failed to fetch panel notes' });
+        res.status(500).json({ error: 'No se pudieron cargar las notas del panel' });
     }
 });
 app.patch('/api/workspaces/:workspaceId/panel-notes', auth_1.authenticateToken, async (req, res) => {
@@ -634,7 +697,7 @@ app.patch('/api/workspaces/:workspaceId/panel-notes', auth_1.authenticateToken, 
         if (handlePrismaError(e, res, 'Workspace no encontrado'))
             return;
         console.error('Error updating panel notes:', e);
-        res.status(500).json({ error: 'Failed to update panel notes' });
+        res.status(500).json({ error: 'No se pudieron actualizar las notas del panel' });
     }
 });
 // Trabajo asignado al usuario (para pantalla Hoy agregada).
@@ -1091,7 +1154,7 @@ app.patch('/api/workspaces/:workspaceId/doc-groups', auth_1.authenticateToken, a
         if (handlePrismaError(e, res, 'Workspace no encontrado'))
             return;
         console.error('Error updating doc-groups:', e);
-        res.status(500).json({ error: 'Failed to update doc-groups' });
+        res.status(500).json({ error: 'No se pudieron actualizar los grupos de documentos' });
     }
 });
 // Update workspace (rename, description) — solo ADMIN
@@ -1124,7 +1187,7 @@ app.patch('/api/workspaces/:id', auth_1.authenticateToken, (0, auth_1.requireRol
         if (handlePrismaError(error, res, 'Workspace no encontrado'))
             return;
         console.error('Error updating workspace:', error);
-        res.status(500).json({ error: 'Failed to update workspace' });
+        res.status(500).json({ error: 'No se pudo actualizar el workspace' });
     }
 });
 // Delete workspace (cascade deletes boards)
@@ -1140,7 +1203,7 @@ app.delete('/api/workspaces/:id', auth_1.authenticateToken, (0, auth_1.requireRo
         if (handlePrismaError(error, res, 'Workspace no encontrado'))
             return;
         console.error('Error deleting workspace:', error);
-        res.status(500).json({ error: 'Failed to delete workspace' });
+        res.status(500).json({ error: 'No se pudo eliminar el workspace' });
     }
 });
 // Search items and boards by query (all boards)
@@ -1206,7 +1269,7 @@ app.get('/api/search', auth_1.authenticateToken, async (req, res) => {
     }
     catch (error) {
         console.error('Search error:', error);
-        res.status(500).json({ error: 'Failed to search' });
+        res.status(500).json({ error: 'Error en la búsqueda' });
     }
 });
 // Get all boards (for sidebar list), optionally filtered by workspace
@@ -1222,7 +1285,7 @@ app.get('/api/boards', auth_1.authenticateToken, async (req, res) => {
         res.json(boards);
     }
     catch (error) {
-        res.status(500).json({ error: 'Failed to fetch boards' });
+        res.status(500).json({ error: 'No se pudieron cargar los tableros' });
     }
 });
 // Reorder columns within a board (estructura del tablero: ADMIN, VENTAS)
@@ -1233,7 +1296,7 @@ app.post('/api/boards/:id/columns/reorder', auth_1.authenticateToken, (0, auth_1
             return res.status(400).json({ error: 'board id inválido' });
         const updates = (req.body?.updates ?? []);
         if (!Array.isArray(updates) || updates.length === 0) {
-            return res.status(400).json({ error: 'updates array is required' });
+            return res.status(400).json({ error: 'Se requiere el array updates' });
         }
         // Ensure all columns belong to the board
         const columnIds = updates.map(u => u.id);
@@ -1241,7 +1304,7 @@ app.post('/api/boards/:id/columns/reorder', auth_1.authenticateToken, (0, auth_1
             where: { id: { in: columnIds }, boardId },
         });
         if (columns.length !== updates.length) {
-            return res.status(400).json({ error: 'Some columns do not belong to this board' });
+            return res.status(400).json({ error: 'Algunas columnas no pertenecen a este tablero' });
         }
         await Promise.all(updates.map(u => prisma.boardColumn.update({
             where: { id: u.id },
@@ -1255,7 +1318,7 @@ app.post('/api/boards/:id/columns/reorder', auth_1.authenticateToken, (0, auth_1
     }
     catch (error) {
         console.error('Error reordering columns:', error);
-        res.status(500).json({ error: 'Failed to reorder columns' });
+        res.status(500).json({ error: 'No se pudo reordenar las columnas' });
     }
 });
 // Create a new board (REST – no dependency on socket)
@@ -1289,7 +1352,7 @@ app.post('/api/boards', auth_1.authenticateToken, (0, auth_1.requireRoles)(['ADM
     }
     catch (error) {
         console.error('Error creating board:', error);
-        res.status(500).json({ error: 'Failed to create board' });
+        res.status(500).json({ error: 'No se pudo crear el tablero' });
     }
 });
 // Delete board (cascade via Prisma relations)
@@ -1302,10 +1365,10 @@ app.delete('/api/boards/:id', auth_1.authenticateToken, (0, auth_1.requireRoles)
         res.status(204).send();
     }
     catch (error) {
-        if (handlePrismaError(error, res, 'Board no encontrado'))
+        if (handlePrismaError(error, res, 'Tablero no encontrado'))
             return;
         console.error('Error deleting board:', error);
-        res.status(500).json({ error: 'Failed to delete board' });
+        res.status(500).json({ error: 'No se pudo eliminar el tablero' });
     }
 });
 // Get the first Board dynamically
@@ -1330,7 +1393,7 @@ app.get('/api/boards/first', auth_1.authenticateToken, async (req, res) => {
         res.json(board);
     }
     catch (error) {
-        res.status(500).json({ error: 'Failed to fetch' });
+        res.status(500).json({ error: 'No se pudo cargar el recurso' });
     }
 });
 // Ligar un doc/sheet guardado al elemento del tablero (ruta literal antes de /:id) — creación/edición de ítem
@@ -1398,6 +1461,7 @@ app.post('/api/boards/link-doc', auth_1.authenticateToken, (0, auth_1.requireRol
         res.status(500).json({ error: 'Error al ligar el documento' });
     }
 });
+// SECURITY-ACCEPTED-RISK: app interna sin multi-tenancy; todo usuario autenticado puede acceder a un tablero por id (no hay modelo de membresía en Prisma).
 app.get('/api/boards/:id', auth_1.authenticateToken, async (req, res) => {
     try {
         const id = queryParamToString(req.params.id);
@@ -1421,14 +1485,15 @@ app.get('/api/boards/:id', auth_1.authenticateToken, async (req, res) => {
             }
         });
         if (!board)
-            return res.status(404).json({ error: 'Board not found' });
+            return res.status(404).json({ error: 'Tablero no encontrado' });
         res.json(board);
     }
     catch (error) {
         console.error(error);
-        res.status(500).json({ error: 'Failed to fetch board' });
+        res.status(500).json({ error: 'No se pudo cargar el tablero' });
     }
 });
+// SECURITY-ACCEPTED-RISK: mismo criterio que GET /api/boards/:id; no se valida pertenencia del ítem al tablero del usuario (app interna, sin membresía).
 // Get updates for an item
 app.get('/api/items/:itemId/updates', auth_1.authenticateToken, async (req, res) => {
     try {
@@ -1459,7 +1524,7 @@ app.get('/api/items/:itemId/updates', auth_1.authenticateToken, async (req, res)
         res.json(safe);
     }
     catch (error) {
-        res.status(500).json({ error: 'Failed to fetch updates' });
+        res.status(500).json({ error: 'No se pudieron cargar las actualizaciones' });
     }
 });
 // --- Bandeja feed (publicaciones con @mentions) ---
@@ -1497,7 +1562,7 @@ app.get('/api/feed', auth_1.authenticateToken, async (req, res) => {
     }
     catch (error) {
         console.error('Feed error:', error);
-        res.status(500).json({ error: 'Failed to fetch feed' });
+        res.status(500).json({ error: 'No se pudo cargar el feed' });
     }
 });
 app.post('/api/feed', auth_1.authenticateToken, async (req, res) => {
@@ -1554,7 +1619,7 @@ app.post('/api/feed', auth_1.authenticateToken, async (req, res) => {
     }
     catch (error) {
         console.error('Feed post error:', error);
-        res.status(500).json({ error: 'Failed to create post' });
+        res.status(500).json({ error: 'No se pudo crear la publicación' });
     }
 });
 // --- Auth & Users API ---
@@ -1658,7 +1723,7 @@ app.get('/api/users', auth_1.authenticateToken, async (req, res) => {
     }
     catch (e) {
         console.error('Error fetching users:', e);
-        res.status(500).json({ error: 'Failed' });
+        res.status(500).json({ error: GENERIC_INTERNAL_ERROR });
     }
 });
 /** Preferencias de UI (tema, etc.): debe ir ANTES de PATCH /api/users/:id para que "me" no se interprete como :id. */
@@ -1774,8 +1839,8 @@ app.patch('/api/users/:id/status', auth_1.requireAuth, async (req, res) => {
 app.patch('/api/users/:id/avatar', auth_1.authenticateToken, (req, res, next) => {
     avatarUpload.single('avatar')(req, res, (err) => {
         if (err) {
-            const msg = err instanceof Error ? err.message : 'Archivo no válido';
-            return res.status(400).json({ error: msg });
+            console.error('[avatar] multer:', err);
+            return res.status(400).json({ error: 'Error al procesar el archivo' });
         }
         next();
     });
@@ -1878,7 +1943,7 @@ app.get('/api/notifications', auth_1.authenticateToken, async (req, res) => {
     }
     catch (e) {
         console.error(e);
-        res.status(500).json({ error: 'Failed to fetch notifications' });
+        res.status(500).json({ error: 'No se pudieron cargar las notificaciones' });
     }
 });
 /** Resumen ligero para badge y punto “reciente” — no sustituye la lista paginada. */
@@ -1898,7 +1963,7 @@ app.get('/api/notifications/unread-summary', auth_1.authenticateToken, async (re
     }
     catch (e) {
         console.error(e);
-        res.status(500).json({ error: 'Failed to fetch unread summary' });
+        res.status(500).json({ error: 'No se pudo cargar el resumen de no leídas' });
     }
 });
 app.patch('/api/notifications/:id/read', auth_1.authenticateToken, async (req, res) => {
@@ -1914,7 +1979,7 @@ app.patch('/api/notifications/:id/read', auth_1.authenticateToken, async (req, r
     }
     catch (e) {
         console.error(e);
-        res.status(500).json({ error: 'Failed to mark as read' });
+        res.status(500).json({ error: 'No se pudo marcar como leída' });
     }
 });
 app.patch('/api/notifications/read-all', auth_1.authenticateToken, async (req, res) => {
@@ -1927,7 +1992,7 @@ app.patch('/api/notifications/read-all', auth_1.authenticateToken, async (req, r
     }
     catch (e) {
         console.error(e);
-        res.status(500).json({ error: 'Failed' });
+        res.status(500).json({ error: GENERIC_INTERNAL_ERROR });
     }
 });
 // --- Web Push API (suscripciones PWA) ---
@@ -2031,7 +2096,7 @@ app.post('/api/push/test', auth_1.authenticateToken, async (req, res) => {
     }
     catch (e) {
         console.error('Error enviando push test:', e);
-        res.status(500).json({ error: 'Failed to send push test' });
+        res.status(500).json({ error: 'No se pudo enviar la prueba de push' });
     }
 });
 // Estado de suscripción (útil para depurar PWA/Web Push en móvil)
@@ -2055,7 +2120,7 @@ app.get('/api/push/status', auth_1.authenticateToken, async (req, res) => {
     }
     catch (e) {
         console.error('Error en /api/push/status:', e);
-        res.status(500).json({ error: 'Failed to fetch push status' });
+        res.status(500).json({ error: 'No se pudo obtener el estado de push' });
     }
 });
 // --- Export folders: generar manifiesto para sincronización local (solo ítems asignados al usuario) ---
@@ -2267,7 +2332,7 @@ app.get('/api/docs', auth_1.authenticateToken, async (req, res) => {
     }
     catch (e) {
         console.error('Error fetching docs list:', e);
-        res.status(500).json({ error: 'Failed to fetch docs' });
+        res.status(500).json({ error: 'No se pudieron cargar los documentos' });
     }
 });
 app.post('/api/docs', auth_1.authenticateToken, async (req, res) => {
@@ -2407,7 +2472,7 @@ app.get('/api/docs/:id', auth_1.authenticateToken, async (req, res) => {
     }
     catch (e) {
         console.error('Error fetching doc:', e);
-        res.status(500).json({ error: 'Failed to fetch doc' });
+        res.status(500).json({ error: 'No se pudo cargar el documento' });
     }
 });
 app.patch('/api/docs/:id', auth_1.authenticateToken, async (req, res) => {
@@ -2449,7 +2514,7 @@ app.patch('/api/docs/:id', auth_1.authenticateToken, async (req, res) => {
         if (e?.code === 'P2025') {
             return res.status(404).json({ error: 'Doc no encontrado' });
         }
-        res.status(500).json({ error: 'Failed to update doc' });
+        res.status(500).json({ error: 'No se pudo actualizar el documento' });
     }
 });
 app.delete('/api/docs/:id', auth_1.authenticateToken, async (req, res) => {
@@ -2573,7 +2638,7 @@ app.delete('/api/docs/:id', auth_1.authenticateToken, async (req, res) => {
         if (e?.code === 'P2025') {
             return res.status(404).json({ error: 'Doc no encontrado' });
         }
-        res.status(500).json({ error: 'Failed to delete doc' });
+        res.status(500).json({ error: 'No se pudo eliminar el documento' });
     }
 });
 // --- Designs API (editores vectoriales por workspace) ---
@@ -2593,7 +2658,7 @@ app.get('/api/designs', auth_1.authenticateToken, async (req, res) => {
     }
     catch (e) {
         console.error('Error fetching designs list:', e);
-        res.status(500).json({ error: 'Failed to fetch designs' });
+        res.status(500).json({ error: 'No se pudieron cargar los diseños' });
     }
 });
 app.post('/api/designs', auth_1.authenticateToken, async (req, res) => {
@@ -2651,7 +2716,7 @@ app.get('/api/designs/:id', auth_1.authenticateToken, async (req, res) => {
             return res.status(400).json({ error: 'id inválido' });
         const design = await prisma.design.findUnique({ where: { id } });
         if (!design)
-            return res.status(404).json({ error: 'Design no encontrado' });
+            return res.status(404).json({ error: 'Diseño no encontrado' });
         // FIX 1 (IDOR): mismo criterio de workspace/board que en docs.
         if (!(await assertUserCanAccessWorkspaceForDocOrDesign(res, design.workspaceId, design.boardId)))
             return;
@@ -2659,7 +2724,7 @@ app.get('/api/designs/:id', auth_1.authenticateToken, async (req, res) => {
     }
     catch (e) {
         console.error('Error fetching design:', e);
-        res.status(500).json({ error: 'Failed to fetch design' });
+        res.status(500).json({ error: 'No se pudo cargar el diseño' });
     }
 });
 app.patch('/api/designs/:id', auth_1.authenticateToken, async (req, res) => {
@@ -2672,7 +2737,7 @@ app.patch('/api/designs/:id', auth_1.authenticateToken, async (req, res) => {
             select: { workspaceId: true, boardId: true },
         });
         if (!existing)
-            return res.status(404).json({ error: 'Design no encontrado' });
+            return res.status(404).json({ error: 'Diseño no encontrado' });
         if (!(await assertUserCanAccessWorkspaceForDocOrDesign(res, existing.workspaceId, existing.boardId)))
             return;
         const body = req.body ?? {};
@@ -2707,9 +2772,9 @@ app.patch('/api/designs/:id', auth_1.authenticateToken, async (req, res) => {
     catch (e) {
         console.error('Error updating design:', e);
         if (e?.code === 'P2025') {
-            return res.status(404).json({ error: 'Design no encontrado' });
+            return res.status(404).json({ error: 'Diseño no encontrado' });
         }
-        res.status(500).json({ error: 'Failed to update design' });
+        res.status(500).json({ error: 'No se pudo actualizar el diseño' });
     }
 });
 app.delete('/api/designs/:id', auth_1.authenticateToken, async (req, res) => {
@@ -2722,7 +2787,7 @@ app.delete('/api/designs/:id', auth_1.authenticateToken, async (req, res) => {
             select: { workspaceId: true, boardId: true },
         });
         if (!meta)
-            return res.status(404).json({ error: 'Design no encontrado' });
+            return res.status(404).json({ error: 'Diseño no encontrado' });
         if (!(await assertUserCanAccessWorkspaceForDocOrDesign(res, meta.workspaceId, meta.boardId)))
             return;
         await prisma.design.delete({ where: { id } });
@@ -2731,9 +2796,9 @@ app.delete('/api/designs/:id', auth_1.authenticateToken, async (req, res) => {
     catch (e) {
         console.error('Error deleting design:', e);
         if (e?.code === 'P2025') {
-            return res.status(404).json({ error: 'Design no encontrado' });
+            return res.status(404).json({ error: 'Diseño no encontrado' });
         }
-        res.status(500).json({ error: 'Failed to delete design' });
+        res.status(500).json({ error: 'No se pudo eliminar el diseño' });
     }
 });
 // ── Templates (PDF plantillas para cotización, levantamiento, hoja de trabajo) ────────────────
@@ -3108,7 +3173,7 @@ app.get('/api/boards/:boardId/calendar-events', auth_1.authenticateToken, async 
     }
     catch (e) {
         console.error('Error fetching calendar events:', e);
-        res.status(500).json({ error: 'Failed to fetch calendar events' });
+        res.status(500).json({ error: 'No se pudieron cargar los eventos del calendario' });
     }
 });
 app.post('/api/boards/:boardId/calendar-events', auth_1.authenticateToken, (0, auth_1.requireRoles)(['ADMIN', 'VENTAS', 'DISENO']), async (req, res) => {
@@ -3142,7 +3207,7 @@ app.post('/api/boards/:boardId/calendar-events', auth_1.authenticateToken, (0, a
     }
     catch (e) {
         console.error('Error creating calendar event:', e);
-        res.status(500).json({ error: 'Failed to create calendar event' });
+        res.status(500).json({ error: 'No se pudo crear el evento del calendario' });
     }
 });
 app.patch('/api/boards/:boardId/calendar-events/:eventId', auth_1.authenticateToken, (0, auth_1.requireRoles)(['ADMIN', 'VENTAS', 'DISENO']), async (req, res) => {
@@ -3175,7 +3240,7 @@ app.patch('/api/boards/:boardId/calendar-events/:eventId', auth_1.authenticateTo
     }
     catch (e) {
         console.error('Error updating calendar event:', e);
-        res.status(500).json({ error: 'Failed to update calendar event' });
+        res.status(500).json({ error: 'No se pudo actualizar el evento del calendario' });
     }
 });
 app.delete('/api/boards/:boardId/calendar-events/:eventId', auth_1.authenticateToken, (0, auth_1.requireRoles)(['ADMIN', 'VENTAS', 'DISENO']), async (req, res) => {
@@ -3190,7 +3255,7 @@ app.delete('/api/boards/:boardId/calendar-events/:eventId', auth_1.authenticateT
     }
     catch (e) {
         console.error('Error deleting calendar event:', e);
-        res.status(500).json({ error: 'Failed to delete calendar event' });
+        res.status(500).json({ error: 'No se pudo eliminar el evento del calendario' });
     }
 });
 // DELETE item (misma lógica que socket delete_item: persistencia en BD)
@@ -3382,6 +3447,17 @@ app.post('/api/boards/:boardId/groups', auth_1.authenticateToken, (0, auth_1.req
 // FIX 9: middleware global de errores Express (captura next(err) y fallos no manejados en rutas async).
 app.use((err, _req, res, _next) => {
     console.error('[Express Error]', err);
+    if (err instanceof multer_1.default.MulterError) {
+        console.error('[Multer] detalle:', err.code, err.field, err.message);
+        if (!res.headersSent)
+            res.status(400).json({ error: 'Error al procesar el archivo' });
+        return;
+    }
+    if (err instanceof MulterFileRejectedError) {
+        if (!res.headersSent)
+            res.status(400).json({ error: 'Error al procesar el archivo' });
+        return;
+    }
     const status = err && typeof err === 'object' && 'status' in err && typeof err.status === 'number'
         ? err.status
         : 500;
@@ -3431,6 +3507,7 @@ io.on('connection', (socket) => {
                 socket.emit('action_denied', { event: 'join_board', reason: 'unauthenticated' });
                 return;
             }
+            // SECURITY-ACCEPTED-RISK: join_board sin membresía por usuario; mismo alcance que GET /api/boards/:id (app interna, todos los autenticados).
             // FIX 4: no unir a board:<id> si el tablero no existe (misma política de alcance que GET /api/boards/:id autenticado).
             const board = await prisma.board.findUnique({ where: { id: boardId }, select: { id: true } });
             if (!board) {
