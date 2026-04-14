@@ -133,9 +133,10 @@ const apiGlobalRateLimiter = (0, express_rate_limit_1.default)({
     skip: (req) => {
         if (!isProduction)
             return true;
-        if (req.method === 'POST' && req.path === '/login')
+        const p = req.path ?? '';
+        if (req.method === 'POST' && (p === '/login' || p === '/api/login'))
             return true;
-        if (req.method === 'GET' && req.path === '/health')
+        if (req.method === 'GET' && (p === '/health' || p === '/api/health'))
             return true;
         return false;
     },
