@@ -914,6 +914,8 @@ function App() {
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
   const [workspacesLoaded, setWorkspacesLoaded] = useState(false);
   const [activeWorkspaceId, setActiveWorkspaceId] = useState<string | null>(null);
+  /** Mismo fallback que DocsPage / MobileDocsHub: si aún no hay workspace activo, el primero de la lista. */
+  const effectiveDocsWorkspaceId = activeWorkspaceId ?? workspaces[0]?.id ?? null;
   const [workspaceSelectorOpen, setWorkspaceSelectorOpen] = useState(false);
   const [newWorkspaceName, setNewWorkspaceName] = useState('');
   const [creatingWorkspace, setCreatingWorkspace] = useState(false);
@@ -1197,26 +1199,26 @@ function App() {
   }, [currentUser?.id]);
 
   const scheduleSavePanelNotes = React.useCallback(() => {
-    if (!activeWorkspaceId) return;
+    if (!effectiveDocsWorkspaceId) return;
     if (savePanelNotesTimeoutRef.current) {
       clearTimeout(savePanelNotesTimeoutRef.current);
     }
     savePanelNotesTimeoutRef.current = setTimeout(() => {
       savePanelNotesTimeoutRef.current = null;
-      if (activeWorkspaceId) {
-        savePanelNotesToApi(taskWindowsRef.current, activeWorkspaceId);
+      if (effectiveDocsWorkspaceId) {
+        savePanelNotesToApi(taskWindowsRef.current, effectiveDocsWorkspaceId);
       }
     }, 500);
-  }, [activeWorkspaceId, savePanelNotesToApi]);
+  }, [effectiveDocsWorkspaceId, savePanelNotesToApi]);
 
   useEffect(() => {
-    if (!activeWorkspaceId || !currentUser?.id) {
+    if (!effectiveDocsWorkspaceId || !currentUser?.id) {
       setTaskWindows([]);
       setTasksLoading(false);
       return;
     }
     setTasksLoading(true);
-    const url = `${API_BASE}/api/workspaces/${activeWorkspaceId}/panel-notes?userId=${encodeURIComponent(currentUser.id)}`;
+    const url = `${API_BASE}/api/workspaces/${effectiveDocsWorkspaceId}/panel-notes?userId=${encodeURIComponent(currentUser.id)}`;
     apiFetch(url)
       .then(r => r.json())
       .then(data => {
@@ -1252,7 +1254,7 @@ function App() {
       })
       .catch(() => setTaskWindows([]))
       .finally(() => setTasksLoading(false));
-  }, [activeWorkspaceId, currentUser?.id]);
+  }, [effectiveDocsWorkspaceId, currentUser?.id]);
 
   // Flush de tareas al cambiar workspace o cerrar pestaÃƒÂ±a
   useEffect(() => {
@@ -1261,21 +1263,21 @@ function App() {
         clearTimeout(savePanelNotesTimeoutRef.current);
         savePanelNotesTimeoutRef.current = null;
       }
-      if (activeWorkspaceId && taskWindowsRef.current.length >= 0) {
-        savePanelNotesToApi(taskWindowsRef.current, activeWorkspaceId);
+      if (effectiveDocsWorkspaceId && taskWindowsRef.current.length >= 0) {
+        savePanelNotesToApi(taskWindowsRef.current, effectiveDocsWorkspaceId);
       }
     };
-  }, [activeWorkspaceId, savePanelNotesToApi]);
+  }, [effectiveDocsWorkspaceId, savePanelNotesToApi]);
 
   useEffect(() => {
     const onBeforeUnload = () => {
-      if (activeWorkspaceId && taskWindowsRef.current.length >= 0) {
-        savePanelNotesToApi(taskWindowsRef.current, activeWorkspaceId);
+      if (effectiveDocsWorkspaceId && taskWindowsRef.current.length >= 0) {
+        savePanelNotesToApi(taskWindowsRef.current, effectiveDocsWorkspaceId);
       }
     };
     window.addEventListener('beforeunload', onBeforeUnload);
     return () => window.removeEventListener('beforeunload', onBeforeUnload);
-  }, [activeWorkspaceId, savePanelNotesToApi]);
+  }, [effectiveDocsWorkspaceId, savePanelNotesToApi]);
 
   // Navegación desde columnas de Docs / Facturación hacia la pestaña interna de Docs
   useEffect(() => {
@@ -1609,7 +1611,7 @@ function App() {
   };
 
   const addTaskWindow = () => {
-    if (!activeWorkspaceId || !currentUser?.id) return;
+    if (!effectiveDocsWorkspaceId || !currentUser?.id) return;
     const newWindow: TaskWindow = {
       id: crypto.randomUUID(),
       title: 'Mis tareas',
@@ -3399,7 +3401,7 @@ if (ok && data && typeof data.id === 'string') {
                   >
                     <div className="space-y-0.5">
                       <AnimatePresence initial={false}>
-                        {win.tasks.map(task => (
+                        {(win.tasks ?? []).map(task => (
                           <motion.div
                             key={task.id}
                             layout
@@ -3415,7 +3417,7 @@ if (ok && data && typeof data.id === 'string') {
                               aria-checked={!!task.done}
                               onClick={() =>
                                 updateTaskWindow(win.id, {
-                                  tasks: win.tasks.map(t =>
+                                  tasks: (win.tasks ?? []).map(t =>
                                     t.id === task.id ? { ...t, done: !t.done } : t,
                                   ),
                                 })
@@ -3439,15 +3441,15 @@ if (ok && data && typeof data.id === 'string') {
                               </motion.span>
                             </motion.button>
                             <textarea
-                              value={task.text}
+                              value={task.text ?? ''}
                               onChange={e => {
                                 updateTaskWindow(win.id, {
-                                  tasks: win.tasks.map(t =>
+                                  tasks: (win.tasks ?? []).map(t =>
                                     t.id === task.id ? { ...t, text: e.target.value } : t,
                                   ),
                                 });
                               }}
-                              rows={Math.max(2, Math.min(6, (task.text.match(/\n/g)?.length ?? 0) + 2))}
+                              rows={Math.max(2, Math.min(6, (String(task.text ?? '').match(/\n/g)?.length ?? 0) + 2))}
                               className={`flex-1 min-w-0 text-[12px] border-0 bg-transparent outline-none resize-none overflow-hidden placeholder:text-current placeholder:opacity-50 transition-opacity duration-200 ${
                                 task.done ? 'opacity-55 line-through' : ''
                               }`}
@@ -3458,7 +3460,7 @@ if (ok && data && typeof data.id === 'string') {
                               type="button"
                               onClick={() =>
                                 updateTaskWindow(win.id, {
-                                  tasks: win.tasks.filter(t => t.id !== task.id),
+                                  tasks: (win.tasks ?? []).filter(t => t.id !== task.id),
                                 })
                               }
                               className="text-current text-[11px] opacity-0 group-hover/task:opacity-100 hover:text-red-600 transition-opacity p-0.5 rounded"
@@ -3473,7 +3475,7 @@ if (ok && data && typeof data.id === 'string') {
                         onClick={() =>
                           updateTaskWindow(win.id, {
                             tasks: [
-                              ...win.tasks,
+                              ...(win.tasks ?? []),
                               { id: crypto.randomUUID(), text: '', done: false },
                             ],
                           })
