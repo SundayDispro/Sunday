@@ -52,7 +52,7 @@ export const ColumnTypePicker: React.FC<Props> = ({ children, onSelect }) => {
       </Popover.Trigger>
       <Popover.Portal>
         <Popover.Content
-          className="z-[100] bg-white rounded-xl shadow-monday-lg border border-monday-border w-[300px] p-3 fade-in"
+          className="z-[100] bg-white rounded-xl shadow-monday-lg border border-monday-border w-[300px] max-w-[calc(100vw-16px)] p-3 fade-in"
           sideOffset={6}
           align="start"
           onClick={e => e.stopPropagation()}
@@ -63,7 +63,7 @@ export const ColumnTypePicker: React.FC<Props> = ({ children, onSelect }) => {
               <X size={15} />
             </button>
           </div>
-          <div className="grid grid-cols-1 gap-1">
+          <div className="grid grid-cols-1 gap-1 max-h-[65vh] overflow-y-auto pr-1">
             {COLUMN_TYPES.filter(type => {
               if (type.id === 'billing_docs' && !isAdminOrVentas) return false;
               return true;

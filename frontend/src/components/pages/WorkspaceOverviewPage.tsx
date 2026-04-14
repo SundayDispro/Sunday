@@ -371,22 +371,22 @@ export const WorkspaceOverviewPage: React.FC<WorkspaceOverviewPageProps> = ({
 
   return (
     <div className="flex-1 flex flex-col min-h-0 overflow-hidden bg-monday-bg">
-      <div className="p-6 border-b border-monday-border bg-white">
-        <div className="flex items-start gap-6">
+      <div className="p-4 sm:p-5 border-b border-monday-border bg-white">
+        <div className="flex items-start gap-4">
           <motion.div
             initial={{ opacity: 0, scale: 0.96 }}
             animate={{ opacity: 1, scale: 1 }}
             transition={{ duration: 0.25 }}
-            className="w-24 h-24 rounded-2xl flex items-center justify-center text-white text-4xl font-bold shrink-0"
+            className="w-16 h-16 rounded-2xl flex items-center justify-center text-white text-2xl font-bold shrink-0"
             style={{ backgroundColor: '#00c875' }}
           >
             {initial}
           </motion.div>
-          <div>
+          <div className="min-w-0 flex-1">
             {canEditWorkspaceOrBoard ? (
               <Popover.Root open={renameOpen} onOpenChange={setRenameOpen}>
                 <Popover.Trigger asChild>
-                  <button className="flex items-center gap-1 text-3xl font-bold text-monday-text hover:bg-monday-hover rounded px-1 -ml-1">
+                  <button className="flex items-center gap-1 text-2xl font-bold text-monday-text hover:bg-monday-hover rounded px-1 -ml-1 min-w-0">
                     {workspace.name}
                     <span className="text-monday-subtext text-2xl">▾</span>
                   </button>
@@ -425,7 +425,7 @@ export const WorkspaceOverviewPage: React.FC<WorkspaceOverviewPageProps> = ({
                 </Popover.Portal>
               </Popover.Root>
             ) : (
-              <span className="text-3xl font-bold text-monday-text">{workspace.name}</span>
+              <span className="text-2xl font-bold text-monday-text">{workspace.name}</span>
             )}
             {canEditWorkspaceOrBoard && (
               <>
@@ -470,15 +470,14 @@ export const WorkspaceOverviewPage: React.FC<WorkspaceOverviewPageProps> = ({
           </div>
         </div>
 
-        {/* Resumen rápido */}
+        {/* Resumen rápido (compacto) */}
         <motion.div
           initial={{ opacity: 0, y: 8 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.05 }}
-          className="grid grid-cols-1 sm:grid-cols-3 gap-3 mt-6"
+          className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-4"
         >
           {[
-            { label: 'Espacios de trabajo', value: workspaces.length, icon: FolderOpen, color: 'text-emerald-600' },
             { label: 'Tableros en total', value: totalBoardsCount, icon: LayoutGrid, color: 'text-blue-600' },
             { label: 'Visitados recientes', value: recentVisits.boardIds.length, icon: Clock, color: 'text-violet-600' },
           ].map((card) => (
@@ -495,7 +494,7 @@ export const WorkspaceOverviewPage: React.FC<WorkspaceOverviewPageProps> = ({
           ))}
         </motion.div>
 
-        <div className="flex gap-1 mt-6 border-b border-monday-border">
+        <div className="flex gap-1 mt-4 border-b border-monday-border">
           {[
             { id: 'recent' as TabId, label: 'Recientes', icon: Clock },
             { id: 'content' as TabId, label: 'Contenido', icon: FileText },
@@ -515,7 +514,7 @@ export const WorkspaceOverviewPage: React.FC<WorkspaceOverviewPageProps> = ({
         </div>
       </div>
 
-      <div className="flex-1 overflow-auto custom-scrollbar scroll-touch p-4 sm:p-6 min-h-0">
+      <div className="flex-1 overflow-auto custom-scrollbar scroll-touch p-4 sm:p-5 min-h-0">
         {/* Búsqueda global de tableros (nombre o espacio) */}
         <div className="relative mb-5 group/search max-w-xl">
           <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-monday-subtext" />
@@ -619,7 +618,7 @@ export const WorkspaceOverviewPage: React.FC<WorkspaceOverviewPageProps> = ({
           <section className="mb-6">
             <h2 className="text-[15px] font-semibold text-monday-subtext mb-3 uppercase tracking-tight">Visitado recientemente</h2>
             <div className="flex gap-3 overflow-x-auto pb-2 scroll-touch custom-scrollbar -mx-1">
-              {recentWorkspaces.slice(0, 5).map((ws) => {
+              {recentWorkspaces.slice(0, 4).map((ws) => {
                 const isActive = ws.id === workspace?.id;
                 const wsInitial = ws.name.charAt(0).toUpperCase();
                 return (
@@ -641,7 +640,7 @@ export const WorkspaceOverviewPage: React.FC<WorkspaceOverviewPageProps> = ({
                   </button>
                 );
               })}
-              {recentBoardsResolved.slice(0, 8).map((b) => {
+              {recentBoardsResolved.slice(0, 6).map((b) => {
                 const wsName = getWorkspaceName(b.workspaceId);
                 return (
                   <button
@@ -671,42 +670,11 @@ export const WorkspaceOverviewPage: React.FC<WorkspaceOverviewPageProps> = ({
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             transition={{ duration: 0.2 }}
-            className="space-y-8"
+            className="space-y-6"
           >
             {allBoardsLoading && (
               <p className="text-[13px] text-monday-subtext">Cargando tableros…</p>
             )}
-            {workspaces.length > 0 && (
-              <section>
-                <h2 className="text-[15px] font-semibold text-monday-subtext mb-3 uppercase tracking-tight">Espacios de trabajo</h2>
-                <ul className="space-y-2">
-                  {workspaces.map((ws) => {
-                    const wsInitial = ws.name.charAt(0).toUpperCase();
-                    const isActive = ws.id === workspace?.id;
-                    return (
-                      <li key={ws.id}>
-                        <button
-                          type="button"
-                          onClick={() => onSelectWorkspace?.(ws.id)}
-                          className={`w-full flex items-center gap-4 px-4 py-3 rounded-xl text-left transition-colors ${
-                            isActive ? 'bg-monday-blue/10 ring-1 ring-monday-blue/30' : 'hover:bg-monday-hover'
-                          }`}
-                        >
-                          <div
-                            className="w-14 h-14 rounded-xl flex items-center justify-center text-white text-xl font-bold shrink-0"
-                            style={{ backgroundColor: workspaceColor(ws.id) }}
-                          >
-                            {wsInitial}
-                          </div>
-                          <span className="text-[17px] font-semibold text-monday-text">{ws.name}</span>
-                        </button>
-                      </li>
-                    );
-                  })}
-                </ul>
-              </section>
-            )}
-
             <section>
               <h2 className="text-[15px] font-semibold text-monday-subtext mb-3 uppercase tracking-tight">Tableros por espacio</h2>
               {groupedBoards.length === 0 && !allBoardsLoading ? (

@@ -217,7 +217,7 @@ function SortableBoardTab({
   );
 }
 
-const API_BASE = import.meta.env.DEV ? '' : (import.meta.env.VITE_API_URL ?? '');
+const API_BASE = (import.meta.env.VITE_API_URL ?? '').trim();
 import { apiFetch } from './api';
 import { can } from './authz/can';
 
@@ -1609,7 +1609,7 @@ function App() {
   };
 
   const addTaskWindow = () => {
-    if (!activeWorkspaceId) return;
+    if (!activeWorkspaceId || !currentUser?.id) return;
     const newWindow: TaskWindow = {
       id: crypto.randomUUID(),
       title: 'Mis tareas',

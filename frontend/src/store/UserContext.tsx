@@ -151,9 +151,16 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
         // ignore
       }
     } catch (e) {
-      console.error('Error asegurando suscripción push', e);
+      const message = e instanceof Error ? e.message : String(e);
+      const isPushServiceUnavailable =
+        e instanceof DOMException &&
+        e.name === 'AbortError' &&
+        message.toLowerCase().includes('push service not available');
+      if (!isPushServiceUnavailable) {
+        console.error('Error asegurando suscripción push', e);
+      }
       try {
-        localStorage.setItem('sunday_push_last_error', String(e));
+        localStorage.setItem('sunday_push_last_error', message);
       } catch {/* ignore */}
     }
   };

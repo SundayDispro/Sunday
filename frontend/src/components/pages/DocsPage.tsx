@@ -1639,12 +1639,8 @@ export const DocsPage: React.FC<Props> = ({
     }
   }, [beginNewDocDraft]);
   const createFromExploreFlow = useCallback((type: DocType) => {
-    setViewMode('overview');
-    setSelectedId(null);
-    setNewDocDraft(null);
-    if (docsUxMobile) setMobileDocOpen(false);
-    void handleCreate(type);
-  }, [docsUxMobile]);
+    beginNewDocDraft(type);
+  }, [beginNewDocDraft]);
   // Drawer móvil para editar plantillas (evita “scroll dentro de scroll”).
   const [templateEditorMobileOpen, setTemplateEditorMobileOpen] = useState(false);
   // Focus Mode (Micro-Editor) para edición contextual en móvil.
@@ -3281,9 +3277,9 @@ export const DocsPage: React.FC<Props> = ({
 
   useEffect(() => {
     if (!initialCreateDocType) return;
-    createFromExploreFlow(initialCreateDocType);
+    beginNewDocDraft(initialCreateDocType);
     onConsumeInitialCreateDocType?.();
-  }, [initialCreateDocType, onConsumeInitialCreateDocType, createFromExploreFlow]);
+  }, [initialCreateDocType, onConsumeInitialCreateDocType, beginNewDocDraft]);
 
   useEffect(() => {
     if (!workspaceId || !initialCotizacionCartPrefill) return;
@@ -3299,16 +3295,15 @@ export const DocsPage: React.FC<Props> = ({
       items: payload.items,
     });
 
-    void (async () => {
-      try {
-        await handleCreate('cotizacion', undefined, content);
-        onConsumeInitialCotizacionCartPrefill?.();
-      } catch {
-        cotizacionPrefillDoneRef.current.delete(payload.id);
-      }
-    })();
+    try {
+      beginNewDocDraft('cotizacion');
+      setPdfFormDraft(content);
+      onConsumeInitialCotizacionCartPrefill?.();
+    } catch {
+      cotizacionPrefillDoneRef.current.delete(payload.id);
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- intencional: una vez por payload.id
-  }, [workspaceId, initialCotizacionCartPrefill, onConsumeInitialCotizacionCartPrefill]);
+  }, [workspaceId, initialCotizacionCartPrefill, onConsumeInitialCotizacionCartPrefill, beginNewDocDraft]);
 
   const [overwriteDialog, setOverwriteDialog] = useState<{
     mode: 'update' | 'create';
@@ -4530,7 +4525,7 @@ export const DocsPage: React.FC<Props> = ({
                   saving={saving}
                   error={error}
                   onCreate={async (type) => {
-                    await handleCreate(type);
+                    beginNewDocDraft(type);
                     setWordShellTab('inicio');
                   }}
                 />

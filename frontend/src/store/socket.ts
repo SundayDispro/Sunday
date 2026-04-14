@@ -18,7 +18,11 @@ function isLocalDevHostname(hostname: string): boolean {
 }
 
 function getSocketServerUrl(): string | undefined {
-  const fromEnv = import.meta.env.VITE_API_URL as string | undefined;
+  const devProxyTarget = (import.meta.env.VITE_DEV_PROXY_TARGET as string | undefined)?.trim();
+  const fromEnv = (import.meta.env.VITE_API_URL as string | undefined)?.trim();
+  // Si estamos en desarrollo y usamos proxy remoto de Vite, el socket debe ir por mismo origen
+  // para evitar CORS/WS cross-origin en equipos cliente.
+  if (import.meta.env.DEV && devProxyTarget) return undefined;
   if (fromEnv) return fromEnv;
   // Desarrollo en localhost/LAN: conexión directa a :3001. Evita fallos del proxy WebSocket de Vite en Windows.
   // Cloudflare Quick Tunnel (*.trycloudflare.com) u otro host público: mismo origen → Vite proxya /socket.io a 3001.

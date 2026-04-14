@@ -5,6 +5,7 @@ import fs from 'fs'
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '')
+  const backendTarget = (env.VITE_DEV_PROXY_TARGET || 'http://localhost:3001').trim()
   const tunnelExtraHosts = (env.VITE_TUNNEL_ALLOWED_HOSTS ?? '')
     .split(',')
     .map((s) => s.trim())
@@ -40,15 +41,15 @@ export default defineConfig(({ mode }) => {
     allowedHosts: ['.trycloudflare.com', ...tunnelExtraHosts],
     proxy: {
       '/api': {
-        target: 'http://localhost:3001',
+        target: backendTarget,
         changeOrigin: true,
       },
       '/uploads': {
-        target: 'http://localhost:3001',
+        target: backendTarget,
         changeOrigin: true,
       },
       '/socket.io': {
-        target: 'http://localhost:3001',
+        target: backendTarget,
         changeOrigin: true,
         ws: true,
       },
@@ -58,9 +59,9 @@ export default defineConfig(({ mode }) => {
       host: true,
       allowedHosts: ['.trycloudflare.com', ...tunnelExtraHosts],
       proxy: {
-        '/api': { target: 'http://localhost:3001', changeOrigin: true },
-        '/uploads': { target: 'http://localhost:3001', changeOrigin: true },
-        '/socket.io': { target: 'http://localhost:3001', changeOrigin: true, ws: true },
+        '/api': { target: backendTarget, changeOrigin: true },
+        '/uploads': { target: backendTarget, changeOrigin: true },
+        '/socket.io': { target: backendTarget, changeOrigin: true, ws: true },
       },
     },
   }

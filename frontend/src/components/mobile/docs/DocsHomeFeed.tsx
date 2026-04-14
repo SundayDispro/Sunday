@@ -125,9 +125,16 @@ export function DocsHomeFeed({
                 selectedId === doc.id ? 'ring-2 ring-monday-blue/40' : '',
               ].join(' ')}
             >
-              <button
-                type="button"
+              <div
+                role="button"
+                tabIndex={0}
                 onClick={() => onOpenDoc(doc.id)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    onOpenDoc(doc.id);
+                  }
+                }}
                 className="w-full text-left touch-manipulation active:bg-monday-hover/50"
               >
                 <div className="flex items-center gap-2 px-3 pt-3 pb-2">
@@ -184,7 +191,7 @@ export function DocsHomeFeed({
                     </Popover.Portal>
                   </Popover.Root>
                 </div>
-              </button>
+              </div>
             </article>
           ))}
       </div>
