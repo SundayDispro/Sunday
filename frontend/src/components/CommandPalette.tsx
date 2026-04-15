@@ -47,7 +47,7 @@ export type CommandPaletteProps = {
 };
 
 const CMD_SPECS: { cmd: string; desc: string }[] = [
-  { cmd: '/help', desc: 'Lista todos los comandos' },
+  { cmd: '/help', desc: 'Lista todas las acciones disponibles' },
   { cmd: '/temas', desc: 'Selector de tema en esta ventana' },
   { cmd: '/cuenta', desc: 'Resumen de cuenta y enlace al panel' },
   { cmd: '/nuevo', desc: 'Crea ítem en el tablero activo' },
@@ -63,7 +63,6 @@ const CMD_SPECS: { cmd: string; desc: string }[] = [
 ];
 
 const APP_SHORTCUTS: { keys: string; desc: string }[] = [
-  { keys: 'Ctrl/Cmd + K', desc: 'Abrir terminal de comandos' },
   { keys: 'Ctrl + \\', desc: 'Colapsar / expandir barra lateral' },
   { keys: 'Ctrl + Shift + F', desc: 'Modo enfoque (ocultar chrome)' },
   { keys: 'Escape', desc: 'Cerrar paleta / dropdowns' },
@@ -104,7 +103,7 @@ function fuzzy<T extends { name?: string; title?: string }>(items: T[], q: strin
 }
 
 /**
- * Paleta modo terminal: Ctrl/Cmd+K. Comandos con "/", historial al abrir, resultados inline.
+ * Búsqueda rápida: accesos con "/", historial al abrir y resultados inline.
  */
 export function CommandPalette({
   open,
@@ -393,9 +392,9 @@ export function CommandPalette({
           onCloseAutoFocus={(ev) => ev.preventDefault()}
           onKeyDown={onKeyDown}
         >
-          <Dialog.Title className="sr-only">Terminal de comandos</Dialog.Title>
+          <Dialog.Title className="sr-only">Búsqueda rápida</Dialog.Title>
           <Dialog.Description className="sr-only">
-            Escribe comandos con barra o busca tableros e ítems.
+            Escribe una acción con barra o busca tableros e ítems.
           </Dialog.Description>
 
           <div className="flex items-stretch gap-0 border-b border-monday-border/60 px-3 py-2 font-mono text-[13px] bg-black/20">
@@ -406,12 +405,12 @@ export function CommandPalette({
               ref={inputRef}
               value={q}
               onChange={(e) => setQ(e.target.value)}
-              placeholder="Comando o búsqueda…"
+              placeholder="Acción o búsqueda…"
               className="flex-1 min-w-0 bg-transparent text-monday-text placeholder:text-monday-subtext/70 outline-none caret-monday-blue"
               autoComplete="off"
               autoCorrect="off"
               spellCheck={false}
-              aria-label="Entrada de terminal"
+              aria-label="Entrada de búsqueda rápida"
             />
             <kbd className="hidden sm:inline text-[10px] text-monday-subtext border border-monday-border/50 rounded px-1 self-center">
               Esc
@@ -423,7 +422,7 @@ export function CommandPalette({
               <table className="w-full text-left border-collapse font-mono text-[12px]">
                 <thead>
                   <tr className="text-monday-subtext border-b border-monday-border/50">
-                    <th className="py-1 pr-2 font-medium">comando</th>
+                    <th className="py-1 pr-2 font-medium">acción</th>
                     <th className="py-1 font-medium">descripción</th>
                   </tr>
                 </thead>

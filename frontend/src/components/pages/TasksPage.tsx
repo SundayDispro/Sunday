@@ -9,10 +9,13 @@ import {
   MoreVertical,
   ListPlus,
   Trash2,
+  UserRound,
+  X,
 } from 'lucide-react';
 import * as Dialog from '@radix-ui/react-dialog';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import { apiFetch, apiUrl } from '../../api';
+import { useUser } from '../../store/UserContext';
 
 export type UserTaskListRow = {
   id: string;
@@ -34,8 +37,17 @@ export type UserTaskRow = {
   completed: boolean;
   position: number;
   dueDate: string | null;
+  assigneeUserId?: string | null;
+  assignee?: { id: string; name: string; initials: string; color: string } | null;
+  assigneeUserIds?: string[];
+  assignees?: Array<{ id: string; name: string; initials: string; color: string }>;
   createdAt: string;
   updatedAt: string;
+};
+
+export type AssignedTaskRow = UserTaskRow & {
+  user: { id: string; name: string; initials: string; color: string };
+  list: { id: string; name: string };
 };
 
 function formatDue(d: string | null): string {
@@ -69,8 +81,10 @@ function sortByPosition(a: UserTaskRow, b: UserTaskRow) {
 }
 
 export const TasksPage: React.FC = () => {
+  const { users } = useUser();
   const [lists, setLists] = useState<UserTaskListRow[]>([]);
   const [tasksByList, setTasksByList] = useState<Record<string, UserTaskRow[]>>({});
+  const [assignedTasks, setAssignedTasks] = useState<AssignedTaskRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [draftByList, setDraftByList] = useState<Record<string, string>>({});
@@ -115,10 +129,19 @@ export const TasksPage: React.FC = () => {
         })
       );
       setTasksByList(Object.fromEntries(entries));
+      // Compatibilidad: si el backend aún no tiene este endpoint, no mostramos error global.
+      const assignedRes = await apiFetch(apiUrl('/api/user-tasks-assigned'), { silent: true });
+      if (assignedRes.ok) {
+        const assigned = (await assignedRes.json()) as AssignedTaskRow[];
+        setAssignedTasks(Array.isArray(assigned) ? assigned : []);
+      } else {
+        setAssignedTasks([]);
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Error al cargar');
       setLists([]);
       setTasksByList({});
+      setAssignedTasks([]);
     } finally {
       setLoading(false);
     }
@@ -128,7 +151,13 @@ export const TasksPage: React.FC = () => {
     loadAll();
   }, [loadAll]);
 
-  const patchTask = async (id: string, patch: Partial<Pick<UserTaskRow, 'title' | 'notes' | 'completed' | 'dueDate' | 'listId' | 'parentId'>> & { dueDate?: string | null }) => {
+  const patchTask = async (
+    id: string,
+    patch: Partial<Pick<UserTaskRow, 'title' | 'notes' | 'completed' | 'dueDate' | 'listId' | 'parentId' | 'assigneeUserIds'>> & {
+      dueDate?: string | null;
+      assigneeUserIds?: string[];
+    }
+  ) => {
     setSavingTaskId(id);
     try {
       const res = await apiFetch(apiUrl(`/api/user-tasks/${id}`), {
@@ -141,9 +170,31 @@ export const TasksPage: React.FC = () => {
         throw new Error(typeof j?.error === 'string' ? j.error : `Error ${res.status}`);
       }
       const updated = (await res.json()) as UserTaskRow;
+      const patchedAssigneeUserIds =
+        patch.assigneeUserIds !== undefined
+          ? patch.assigneeUserIds
+          : updated.assigneeUserIds ??
+            (updated.assigneeUserId ? [updated.assigneeUserId] : []);
+      const assigneesFromUsers =
+        patchedAssigneeUserIds
+          .map((id) => users.find((u) => u.id === id))
+          .filter((u): u is NonNullable<typeof u> => Boolean(u))
+          .map((u) => ({
+            id: u.id,
+            name: u.name,
+            initials: u.initials ?? u.name.slice(0, 2).toUpperCase(),
+            color: u.color ?? '#6b7280',
+          }));
+      const normalizedUpdated: UserTaskRow = {
+        ...updated,
+        assigneeUserIds: patchedAssigneeUserIds,
+        assignees: updated.assignees ?? assigneesFromUsers,
+        assigneeUserId: patchedAssigneeUserIds[0] ?? null,
+        assignee: (updated.assignees ?? assigneesFromUsers)[0] ?? null,
+      };
       setTasksByList((prev) => ({
         ...prev,
-        [updated.listId]: (prev[updated.listId] ?? []).map((t) => (t.id === id ? updated : t)),
+        [normalizedUpdated.listId]: (prev[normalizedUpdated.listId] ?? []).map((t) => (t.id === id ? normalizedUpdated : t)),
       }));
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Error al guardar');
@@ -345,6 +396,7 @@ export const TasksPage: React.FC = () => {
               }}
               onPatchTask={patchTask}
               onRequestDeleteTask={(taskId) => setDeleteTaskConfirm({ taskId, listId: list.id })}
+              users={users}
               savingTaskId={savingTaskId}
               savingNewListId={savingNewListId}
               savingSubListId={savingSubListId}
@@ -367,6 +419,27 @@ export const TasksPage: React.FC = () => {
               }}
             />
           ))}
+          {assignedTasks.length > 0 && (
+            <section className="w-[min(100%,380px)] shrink-0 flex flex-col h-full max-h-full bg-monday-surface rounded-xl border border-monday-border shadow-monday-sm overflow-hidden">
+              <div className="px-3 pt-3 pb-2 border-b border-monday-border">
+                <h2 className="text-[15px] font-medium text-monday-text truncate pl-1">Asignadas a mí</h2>
+              </div>
+              <div className="flex-1 overflow-y-auto min-h-0 custom-scrollbar divide-y divide-monday-border/70">
+                {assignedTasks.map((task) => (
+                  <article key={task.id} className="px-3 py-2">
+                    <p className="text-[13px] font-medium text-monday-text">{task.title || 'Sin título'}</p>
+                    {task.notes?.trim() ? (
+                      <p className="mt-1 text-[12px] text-monday-subtext line-clamp-3 whitespace-pre-wrap">{task.notes}</p>
+                    ) : null}
+                    <p className="mt-1 text-[11px] text-monday-subtext">
+                      {task.user.name} · {task.list.name}
+                      {task.dueDate ? ` · ${formatDueBadge(task.dueDate)}` : ''}
+                    </p>
+                  </article>
+                ))}
+              </div>
+            </section>
+          )}
         </div>
       </div>
 
@@ -484,6 +557,7 @@ function TaskListColumn({
   onToggleDone,
   onPatchTask,
   onRequestDeleteTask,
+  users,
   savingTaskId,
   savingNewListId,
   savingSubListId,
@@ -503,11 +577,13 @@ function TaskListColumn({
   onToggleDone: (id: string) => void;
   onPatchTask: (
     id: string,
-    patch: Partial<Pick<UserTaskRow, 'title' | 'notes' | 'completed' | 'dueDate' | 'listId' | 'parentId'>> & {
+    patch: Partial<Pick<UserTaskRow, 'title' | 'notes' | 'completed' | 'dueDate' | 'listId' | 'parentId' | 'assigneeUserIds'>> & {
       dueDate?: string | null;
+      assigneeUserIds?: string[];
     }
   ) => Promise<void>;
   onRequestDeleteTask: (taskId: string) => void;
+  users: Array<{ id: string; name: string; initials?: string; color?: string }>;
   savingTaskId: string | null;
   savingNewListId: string | null;
   savingSubListId: string | null;
@@ -556,6 +632,7 @@ function TaskListColumn({
               busy={savingTaskId === task.id}
               onPatch={(patch) => onPatchTask(task.id, patch)}
               onRequestDelete={() => onRequestDeleteTask(task.id)}
+              users={users}
             />
             {!completed && (
               <div style={{ paddingLeft: depth * 20 + 48 }} className="pb-2 flex items-center gap-2">
@@ -671,7 +748,10 @@ function TaskListColumn({
   );
 }
 
-type TaskPatch = Partial<Pick<UserTaskRow, 'title' | 'notes' | 'completed' | 'dueDate'>> & { dueDate?: string | null };
+type TaskPatch = Partial<Pick<UserTaskRow, 'title' | 'notes' | 'completed' | 'dueDate' | 'assigneeUserIds'>> & {
+  dueDate?: string | null;
+  assigneeUserIds?: string[];
+};
 
 const TaskListRow: React.FC<{
   task: UserTaskRow;
@@ -680,13 +760,15 @@ const TaskListRow: React.FC<{
   busy: boolean;
   onPatch: (patch: TaskPatch) => Promise<void>;
   onRequestDelete: () => void;
-}> = ({ task, completed, onToggleDone, busy, onPatch, onRequestDelete }) => {
+  users: Array<{ id: string; name: string; initials?: string; color?: string }>;
+}> = ({ task, completed, onToggleDone, busy, onPatch, onRequestDelete, users }) => {
   const locked = task.completed || completed;
   const [editingTitle, setEditingTitle] = useState(false);
   const [titleDraft, setTitleDraft] = useState(task.title);
   const [editingNotes, setEditingNotes] = useState(false);
   const [notesDraft, setNotesDraft] = useState(task.notes);
   const [dueEditing, setDueEditing] = useState(false);
+  const [assigneeOpen, setAssigneeOpen] = useState(false);
 
   useEffect(() => {
     setTitleDraft(task.title);
@@ -708,6 +790,27 @@ const TaskListRow: React.FC<{
   const commitNotes = async () => {
     setEditingNotes(false);
     if (notesDraft !== task.notes) await onPatch({ notes: notesDraft });
+  };
+
+  const fallbackAssigneeIds = task.assigneeUserIds ?? (task.assigneeUserId ? [task.assigneeUserId] : []);
+  const fallbackAssignees = fallbackAssigneeIds
+    .map((id) => users.find((u) => u.id === id))
+    .filter((u): u is NonNullable<typeof u> => Boolean(u))
+    .map((u) => ({
+      id: u.id,
+      name: u.name,
+      initials: u.initials ?? u.name.slice(0, 2).toUpperCase(),
+      color: u.color ?? '#6b7280',
+    }));
+  const displayAssignees = (task.assignees && task.assignees.length > 0)
+    ? task.assignees
+    : fallbackAssignees;
+  const displayAssigneeIds = displayAssignees.map((a) => a.id);
+  const toggleAssignee = (userId: string) => {
+    const next = displayAssigneeIds.includes(userId)
+      ? displayAssigneeIds.filter((id) => id !== userId)
+      : [...displayAssigneeIds, userId];
+    void onPatch({ assigneeUserIds: next });
   };
 
   return (
@@ -805,6 +908,107 @@ const TaskListRow: React.FC<{
         )}
 
         <div className="mt-1.5 flex flex-wrap items-center gap-2">
+          {locked ? (
+            displayAssignees.length > 0 ? (
+              <div className="inline-flex flex-wrap items-center gap-1">
+                {displayAssignees.map((a) => (
+                  <span key={a.id} className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] border border-monday-border bg-monday-hover/50 text-monday-text">
+                    <span
+                      className="inline-flex h-4 w-4 items-center justify-center rounded-full text-[9px] font-semibold text-white"
+                      style={{ backgroundColor: a.color ?? '#6b7280' }}
+                    >
+                      {String(a.initials ?? a.name.slice(0, 2)).toUpperCase().slice(0, 2)}
+                    </span>
+                    {a.name}
+                  </span>
+                ))}
+              </div>
+            ) : null
+          ) : (
+            <DropdownMenu.Root open={assigneeOpen} onOpenChange={setAssigneeOpen}>
+              <DropdownMenu.Trigger asChild>
+                <button
+                  type="button"
+                  className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] ${
+                    displayAssignees.length > 0
+                      ? 'border border-monday-border bg-monday-hover/50 text-monday-text'
+                      : 'border border-dashed border-monday-border text-monday-subtext hover:bg-monday-hover/60'
+                  }`}
+                >
+                  {displayAssignees.length > 0 ? (
+                    <>
+                      <UserRound size={11} className="text-monday-subtext" />
+                      {displayAssignees.length === 1 ? displayAssignees[0].name : `${displayAssignees.length} personas`}
+                    </>
+                  ) : (
+                    'Personas'
+                  )}
+                </button>
+              </DropdownMenu.Trigger>
+              <DropdownMenu.Portal>
+                <DropdownMenu.Content
+                  sideOffset={6}
+                  align="start"
+                  className="z-[220] min-w-[220px] rounded-lg border border-monday-border bg-monday-surface py-1 shadow-monday-lg text-[12px] text-monday-text outline-none max-h-64 overflow-auto custom-scrollbar"
+                >
+                  <DropdownMenu.Item
+                    className="cursor-pointer px-3 py-2 outline-none hover:bg-monday-hover focus:bg-monday-hover text-monday-subtext"
+                    onSelect={() => {
+                      void onPatch({ assigneeUserIds: [] });
+                    }}
+                  >
+                    Sin asignar
+                  </DropdownMenu.Item>
+                  {users.map((u) => (
+                    <DropdownMenu.Item
+                      key={u.id}
+                      className="cursor-pointer px-3 py-2 outline-none hover:bg-monday-hover focus:bg-monday-hover"
+                      onSelect={() => {
+                        toggleAssignee(u.id);
+                      }}
+                    >
+                      <span className="inline-flex items-center gap-2">
+                        <span
+                          className="inline-flex h-4 w-4 items-center justify-center rounded-full text-[9px] font-semibold text-white"
+                          style={{ backgroundColor: u.color ?? '#6b7280' }}
+                        >
+                          {String(u.initials ?? u.name.slice(0, 2)).toUpperCase().slice(0, 2)}
+                        </span>
+                        {u.name}
+                        {displayAssigneeIds.includes(u.id) ? (
+                          <Check size={12} className="text-monday-blue ml-auto" />
+                        ) : null}
+                      </span>
+                    </DropdownMenu.Item>
+                  ))}
+                </DropdownMenu.Content>
+              </DropdownMenu.Portal>
+            </DropdownMenu.Root>
+          )}
+          {!locked && displayAssignees.length > 0 && (
+            <div className="inline-flex flex-wrap items-center gap-1">
+              {displayAssignees.map((a) => (
+                <button
+                  key={a.id}
+                  type="button"
+                  onClick={() => {
+                    void onPatch({ assigneeUserIds: displayAssigneeIds.filter((id) => id !== a.id) });
+                  }}
+                  className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] border border-monday-border bg-monday-hover/50 text-monday-text hover:bg-monday-hover"
+                  title={`Quitar a ${a.name}`}
+                >
+                  <span
+                    className="inline-flex h-4 w-4 items-center justify-center rounded-full text-[9px] font-semibold text-white"
+                    style={{ backgroundColor: a.color ?? '#6b7280' }}
+                  >
+                    {String(a.initials ?? a.name.slice(0, 2)).toUpperCase().slice(0, 2)}
+                  </span>
+                  {a.name}
+                  <X size={11} className="opacity-70" />
+                </button>
+              ))}
+            </div>
+          )}
           {dueEditing && !locked ? (
             <div className="flex items-center gap-2 flex-wrap">
               <input

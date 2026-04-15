@@ -27,6 +27,8 @@ model User {
   updates              Update[]
   cotizaciones         Cotizacion[]
   userTasks            UserTask[]
+  assignedUserTasks    UserTask[]            @relation("UserTaskAssignee")
+  taskAssignments      UserTaskAssignment[]
   userTaskLists        UserTaskList[]
 }
 
@@ -49,6 +51,9 @@ model UserTask {
   id        String    @id @default(uuid())
   userId    String
   user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  assigneeUserId String?
+  assignee      User? @relation("UserTaskAssignee", fields: [assigneeUserId], references: [id], onDelete: SetNull)
+  assignments UserTaskAssignment[]
   listId    String
   list      UserTaskList @relation(fields: [listId], references: [id], onDelete: Cascade)
   parentId  String?
@@ -64,6 +69,18 @@ model UserTask {
 
   @@index([userId, listId, parentId, position])
   @@index([userId, completed])
+  @@index([assigneeUserId, completed])
+}
+
+model UserTaskAssignment {
+  taskId     String
+  userId     String
+  task       UserTask @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt  DateTime @default(now())
+
+  @@id([taskId, userId])
+  @@index([userId])
 }
 
 /// Cotización guardada (folio autoincremental; PDF en cliente; pdfUrl reservado para subida futura).

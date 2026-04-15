@@ -768,6 +768,28 @@ async function ensureDefaultTaskList(userId) {
         data: { userId, name: 'Mis tareas', position: 1024 },
     });
 }
+function uniqueNonEmptyStrings(values) {
+    const seen = new Set();
+    for (const raw of values) {
+        const id = String(raw ?? '').trim();
+        if (!id)
+            continue;
+        seen.add(id);
+    }
+    return Array.from(seen);
+}
+function taskWithAssignees(task) {
+    const assignees = (task.assignments ?? []).map((a) => a.user);
+    const assigneeUserIds = assignees.map((a) => a.id);
+    return {
+        ...task,
+        assignees,
+        assigneeUserIds,
+        // Compatibilidad temporal con frontend/consumidores antiguos.
+        assignee: assignees[0] ?? null,
+        assigneeUserId: assigneeUserIds[0] ?? (task.assigneeUserId ?? null),
+    };
+}
 app.get(['/api/user-task-lists', '/api/user_task_lists'], auth_1.authenticateToken, async (req, res) => {
     try {
         const userId = req.authUser?.id;
@@ -870,11 +892,46 @@ app.get(['/api/user-tasks', '/api/user_tasks'], auth_1.authenticateToken, async 
         const tasks = await prisma.userTask.findMany({
             where: { userId, listId },
             orderBy: [{ completed: 'asc' }, { position: 'asc' }],
+            include: {
+                assignments: {
+                    include: { user: { select: { id: true, name: true, initials: true, color: true } } },
+                    orderBy: { createdAt: 'asc' },
+                },
+            },
         });
-        res.json(tasks);
+        res.json(tasks.map(taskWithAssignees));
     }
     catch (e) {
         console.error('Error en /api/user-tasks:', e);
+        res.status(500).json({ error: 'Error interno' });
+    }
+});
+// Tareas asignadas al usuario actual desde listas de otras personas.
+app.get(['/api/user-tasks-assigned', '/api/user_tasks_assigned'], auth_1.authenticateToken, async (req, res) => {
+    try {
+        const userId = req.authUser?.id;
+        if (!userId)
+            return res.status(401).json({ error: 'No autenticado' });
+        const tasks = await prisma.userTask.findMany({
+            where: {
+                assignments: { some: { userId } },
+                NOT: { userId },
+            },
+            orderBy: [{ completed: 'asc' }, { updatedAt: 'desc' }],
+            include: {
+                list: { select: { id: true, name: true } },
+                user: { select: { id: true, name: true, initials: true, color: true } },
+                assignments: {
+                    include: { user: { select: { id: true, name: true, initials: true, color: true } } },
+                    orderBy: { createdAt: 'asc' },
+                },
+            },
+            take: 200,
+        });
+        res.json(tasks.map(taskWithAssignees));
+    }
+    catch (e) {
+        console.error('Error en /api/user-tasks-assigned:', e);
         res.status(500).json({ error: 'Error interno' });
     }
 });
@@ -903,6 +960,18 @@ app.post(['/api/user-tasks', '/api/user_tasks'], auth_1.authenticateToken, async
             parentId = pid;
         }
         const notes = String(req.body?.notes ?? '').trim();
+        const candidateAssigneeIds = Array.isArray(req.body?.assigneeUserIds)
+            ? uniqueNonEmptyStrings(req.body.assigneeUserIds)
+            : req.body?.assigneeUserId != null && req.body?.assigneeUserId !== ''
+                ? uniqueNonEmptyStrings([req.body.assigneeUserId])
+                : [];
+        if (candidateAssigneeIds.length > 0) {
+            const validCount = await prisma.user.count({ where: { id: { in: candidateAssigneeIds } } });
+            if (validCount !== candidateAssigneeIds.length) {
+                return res.status(400).json({ error: 'Uno o más usuarios asignados no son válidos' });
+            }
+        }
+        const assigneeUserId = candidateAssigneeIds[0] ?? null;
         let dueDate = null;
         if (req.body?.dueDate != null && req.body?.dueDate !== '') {
             const d = new Date(String(req.body.dueDate));
@@ -915,9 +984,30 @@ app.post(['/api/user-tasks', '/api/user_tasks'], auth_1.authenticateToken, async
         });
         const position = (maxPos._max.position ?? 0) + 1024;
         const task = await prisma.userTask.create({
-            data: { userId, listId, parentId, title, notes, dueDate, position },
+            data: { userId, listId, parentId, title, notes, dueDate, position, assigneeUserId },
+            include: {
+                assignments: {
+                    include: { user: { select: { id: true, name: true, initials: true, color: true } } },
+                    orderBy: { createdAt: 'asc' },
+                },
+            },
         });
-        res.status(201).json(task);
+        if (candidateAssigneeIds.length > 0) {
+            await prisma.userTaskAssignment.createMany({
+                data: candidateAssigneeIds.map((targetUserId) => ({ taskId: task.id, userId: targetUserId })),
+                skipDuplicates: true,
+            });
+        }
+        const reloadedTask = await prisma.userTask.findUnique({
+            where: { id: task.id },
+            include: {
+                assignments: {
+                    include: { user: { select: { id: true, name: true, initials: true, color: true } } },
+                    orderBy: { createdAt: 'asc' },
+                },
+            },
+        });
+        res.status(201).json(taskWithAssignees(reloadedTask ?? task));
     }
     catch (e) {
         console.error('Error POST /api/user-tasks:', e);
@@ -936,6 +1026,7 @@ app.patch(['/api/user-tasks/:id', '/api/user_tasks/:id'], auth_1.authenticateTok
         if (!existing)
             return res.status(404).json({ error: 'Tarea no encontrada' });
         const data = {};
+        let nextAssigneeUserIds = null;
         if (req.body?.title !== undefined)
             data.title = String(req.body.title).trim() || existing.title;
         if (req.body?.notes !== undefined)
@@ -977,8 +1068,47 @@ app.patch(['/api/user-tasks/:id', '/api/user_tasks/:id'], auth_1.authenticateTok
                 data.parentId = pid;
             }
         }
-        const task = await prisma.userTask.update({ where: { id }, data });
-        res.json(task);
+        if (req.body?.assigneeUserIds !== undefined || req.body?.assigneeUserId !== undefined) {
+            if (Array.isArray(req.body?.assigneeUserIds)) {
+                nextAssigneeUserIds = uniqueNonEmptyStrings(req.body.assigneeUserIds);
+            }
+            else if (req.body?.assigneeUserId === null || req.body?.assigneeUserId === '') {
+                nextAssigneeUserIds = [];
+            }
+            else if (req.body?.assigneeUserId !== undefined) {
+                nextAssigneeUserIds = uniqueNonEmptyStrings([req.body.assigneeUserId]);
+            }
+            const ids = nextAssigneeUserIds ?? [];
+            if (ids.length > 0) {
+                const validCount = await prisma.user.count({ where: { id: { in: ids } } });
+                if (validCount !== ids.length)
+                    return res.status(400).json({ error: 'Uno o más usuarios asignados no son válidos' });
+            }
+            data.assigneeUserId = ids[0] ?? null;
+        }
+        const task = await prisma.$transaction(async (tx) => {
+            const updatedTask = await tx.userTask.update({ where: { id }, data });
+            if (nextAssigneeUserIds !== null) {
+                await tx.userTaskAssignment.deleteMany({ where: { taskId: id } });
+                if (nextAssigneeUserIds.length > 0) {
+                    await tx.userTaskAssignment.createMany({
+                        data: nextAssigneeUserIds.map((targetUserId) => ({ taskId: id, userId: targetUserId })),
+                        skipDuplicates: true,
+                    });
+                }
+            }
+            const withAssignments = await tx.userTask.findUnique({
+                where: { id },
+                include: {
+                    assignments: {
+                        include: { user: { select: { id: true, name: true, initials: true, color: true } } },
+                        orderBy: { createdAt: 'asc' },
+                    },
+                },
+            });
+            return withAssignments ?? updatedTask;
+        });
+        res.json(taskWithAssignees(task));
     }
     catch (e) {
         console.error('Error PATCH /api/user-tasks/:id:', e);

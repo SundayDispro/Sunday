@@ -308,7 +308,7 @@ export function MobileMoreDrawer({
                       className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-monday-text hover:bg-monday-hover transition-colors text-left text-[13px]"
                     >
                       <Command size={18} className="text-monday-subtext shrink-0" />
-                      Comandos
+                      Búsqueda rápida
                     </button>
                     {!isTaller && (
                       <button
@@ -396,7 +396,7 @@ export function MobileMoreDrawer({
                       </Popover.Root>
                     </div>
                     <p className="text-[10px] text-monday-subtext px-2.5 pt-1 leading-snug">
-                      Temas: <span className="font-medium text-monday-text">Comandos</span> y{' '}
+                      Temas: <span className="font-medium text-monday-text">búsqueda rápida</span> y{' '}
                       <span className="font-mono text-monday-text">/temas</span>. Búsqueda:{' '}
                       <span className="font-mono text-monday-text">/buscar</span>.
                     </p>

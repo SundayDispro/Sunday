@@ -2927,8 +2927,7 @@ if (ok && data && typeof data.id === 'string') {
             activePage === 'facturacion' ? (
             <div className="p-3">
               <p className="text-[12px] text-monday-subtext px-2 leading-relaxed">
-                Vista principal en el panel central. <span className="font-medium text-monday-text">Ctrl+K</span> comandos
-                y búsqueda global.
+                Vista principal en el panel central. Usa búsqueda global desde el menú superior.
               </p>
             </div>
           ) : activePage === 'docs' ? (
