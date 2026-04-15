@@ -1863,7 +1863,7 @@ app.patch('/api/users/me', auth_1.authenticateToken, async (req, res) => {
         const uid = req.authUser?.id;
         if (!uid)
             return res.status(401).json({ error: 'No autenticado' });
-        const { preferences } = req.body ?? {};
+        const { preferences, username, password, currentPassword } = req.body ?? {};
         if (preferences !== undefined &&
             (typeof preferences !== 'object' || preferences === null || Array.isArray(preferences))) {
             return res.status(400).json({ error: 'preferences debe ser un objeto JSON' });
@@ -1875,9 +1875,36 @@ app.patch('/api/users/me', auth_1.authenticateToken, async (req, res) => {
         const merged = preferences && typeof preferences === 'object'
             ? { ...prev, ...preferences }
             : prev;
+        const data = {
+            preferences: merged,
+        };
+        if (username !== undefined) {
+            const nextUsername = String(username).trim();
+            if (!nextUsername)
+                return res.status(400).json({ error: 'El nombre de usuario no puede estar vacío' });
+            if (nextUsername !== existing.username) {
+                const duplicate = await prisma.user.findUnique({ where: { username: nextUsername } });
+                if (duplicate && duplicate.id !== uid) {
+                    return res.status(400).json({ error: 'El nombre de usuario ya está en uso' });
+                }
+                data.username = nextUsername;
+            }
+        }
+        if (password !== undefined) {
+            const nextPassword = String(password ?? '').trim();
+            if (!nextPassword)
+                return res.status(400).json({ error: 'La contraseña no puede estar vacía' });
+            if (nextPassword.length < 6)
+                return res.status(400).json({ error: 'La contraseña debe tener al menos 6 caracteres' });
+            const providedCurrent = String(currentPassword ?? '');
+            const validCurrent = await (0, auth_1.verifyPassword)(providedCurrent, existing.password);
+            if (!validCurrent)
+                return res.status(400).json({ error: 'La contraseña actual es incorrecta' });
+            data.password = await (0, auth_1.hashPassword)(nextPassword);
+        }
         const updated = await prisma.user.update({
             where: { id: uid },
-            data: { preferences: merged },
+            data,
         });
         const { password: _p, ...safe } = updated;
         res.json(safe);

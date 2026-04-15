@@ -14,6 +14,7 @@ interface UserContextType {
   logout: () => void;
   setUserStatus: (status: UserStatus) => Promise<void>;
   updateAvatar: (file: File) => Promise<void>;
+  updateOwnCredentials: (payload: { username?: string; currentPassword?: string; newPassword?: string }) => Promise<void>;
   users: User[];
   fetchUsers: () => Promise<void>;
   ensurePushSubscription: () => Promise<void>;
@@ -277,8 +278,29 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
+  const updateOwnCredentials = async (payload: { username?: string; currentPassword?: string; newPassword?: string }) => {
+    const userId = currentUser?.id;
+    if (!userId) throw new Error('No autenticado');
+    const body: Record<string, unknown> = {};
+    if (payload.username !== undefined) body.username = payload.username;
+    if (payload.newPassword !== undefined) body.password = payload.newPassword;
+    if (payload.currentPassword !== undefined) body.currentPassword = payload.currentPassword;
+    if (Object.keys(body).length === 0) return;
+
+    const res = await apiFetch(`${API_BASE}/api/users/me`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const updated = await parseResponse<User>(res);
+    if (!updated) return;
+    setCurrentUser(updated);
+    localStorage.setItem('sunday_user', JSON.stringify(updated));
+    setUsers((prev) => prev.map((u) => (u.id === updated.id ? { ...u, ...updated } : u)));
+  };
+
   return (
-    <UserContext.Provider value={{ currentUser, login, logout, setUserStatus, updateAvatar, users, fetchUsers, ensurePushSubscription }}>
+    <UserContext.Provider value={{ currentUser, login, logout, setUserStatus, updateAvatar, updateOwnCredentials, users, fetchUsers, ensurePushSubscription }}>
       {children}
     </UserContext.Provider>
   );
