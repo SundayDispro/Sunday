@@ -3,7 +3,7 @@ import path from 'path';
 import puppeteer from 'puppeteer';
 import { parentPort, workerData } from 'worker_threads';
 import { buildDocumentWrapperHtml } from './documentHtmlBuilder';
-import { createPdfFromScreenshotPng } from './templatePdfGenerator';
+import { createPdfFromScreenshotImage } from './templatePdfGenerator';
 import { UPLOADS_DIR as UPLOAD_DIR } from './config/paths';
 
 type GeneratePdfFromDocumentOptions = {
@@ -60,9 +60,12 @@ function resolveImageUrlsToDataUrls(content: Record<string, unknown>): Record<st
     ? ((content as any).customBoxes as Array<Record<string, unknown>>)
     : [];
 
+  const cache = new Map<string, string | null>();
   const resolvedBoxes = customBoxes.map((box) => {
     if (box.kind !== 'image' || !box.imageUrl) return box;
-    const dataUrl = imageUrlToDataUrl(String(box.imageUrl));
+    const key = String(box.imageUrl);
+    if (!cache.has(key)) cache.set(key, imageUrlToDataUrl(key));
+    const dataUrl = cache.get(key);
     if (!dataUrl) {
       // eslint-disable-next-line no-console
       console.warn(`[PDF] No se pudo resolver la imagen: ${box.imageUrl}`);
@@ -77,10 +80,9 @@ function resolveImageUrlsToDataUrls(content: Record<string, unknown>): Record<st
 // US Letter a 96 DPI lógico: 612pt → 816px, 792pt → 1056px
 const TEMPLATE_VIEWPORT_WIDTH = 816;
 const TEMPLATE_VIEWPORT_HEIGHT = 1056;
-/** Escala para 300 dpi efectivos en la captura PNG (300/96 ≈ 3.125). */
-const PDF_EXPORT_DPI = 300;
 const VIEWPORT_DPI = 96;
-const RENDER_SCALE = PDF_EXPORT_DPI / VIEWPORT_DPI;
+const STANDARD_DPI = 220;
+const STANDARD_SCALE = STANDARD_DPI / VIEWPORT_DPI;
 
 async function getTemplatePdfFirstPageAsDataUrlWithBrowser(
   browser: Awaited<ReturnType<typeof puppeteer.launch>>,
@@ -166,7 +168,7 @@ async function runInWorker(payload: WorkerPayload): Promise<Buffer> {
     await page.setViewport({
       width: TEMPLATE_VIEWPORT_WIDTH,
       height: TEMPLATE_VIEWPORT_HEIGHT,
-      deviceScaleFactor: RENDER_SCALE,
+      deviceScaleFactor: STANDARD_SCALE,
     });
     await page.setContent(html, {
       waitUntil: 'load',
@@ -191,12 +193,15 @@ async function runInWorker(payload: WorkerPayload): Promise<Buffer> {
 
     await page.emulateMediaType('screen');
     const screenshotBuffer = await page.screenshot({
-      type: 'png',
+      type: 'jpeg',
+      quality: 82,
       fullPage: true,
       omitBackground: false,
     });
 
-    return createPdfFromScreenshotPng(Buffer.from(screenshotBuffer as Buffer));
+    return createPdfFromScreenshotImage(Buffer.from(screenshotBuffer as Buffer), {
+      format: 'jpeg',
+    });
   } finally {
     await browser.close();
   }

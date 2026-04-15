@@ -103,10 +103,15 @@ function resolveImageUrlsToDataUrls(content) {
     const customBoxes = Array.isArray(content.customBoxes)
         ? content.customBoxes
         : [];
+    const cache = new Map();
     const resolvedBoxes = customBoxes.map((box) => {
         if (box.kind !== 'image' || !box.imageUrl)
             return box;
-        const dataUrl = imageUrlToDataUrl(String(box.imageUrl));
+        const key = String(box.imageUrl);
+        if (!cache.has(key)) {
+            cache.set(key, imageUrlToDataUrl(key));
+        }
+        const dataUrl = cache.get(key);
         if (!dataUrl) {
             console.warn(`[PDF] No se pudo resolver la imagen: ${box.imageUrl}`);
             return { ...box, imageUrl: '' }; // vacío → no renderiza nada pero no rompe
@@ -121,6 +126,14 @@ const TEMPLATE_VIEWPORT_HEIGHT = 1056;
 const PDF_EXPORT_DPI = 300;
 const VIEWPORT_DPI = 96;
 const RASTER_SCALE = PDF_EXPORT_DPI / VIEWPORT_DPI;
+const STANDARD_DPI = 220;
+const STANDARD_SCALE = STANDARD_DPI / VIEWPORT_DPI;
+function resolveQualityProfile(profile) {
+    if (profile === 'high') {
+        return { scale: RASTER_SCALE, screenshotType: 'jpeg', jpegQuality: 90 };
+    }
+    return { scale: STANDARD_SCALE, screenshotType: 'jpeg', jpegQuality: 82 };
+}
 /**
  * Convierte la primera página del PDF de plantilla a imagen base64.
  * Viewport 816×1056 (96 DPI) para que la imagen no se reescale en el HTML (612pt×792pt = 816×1056 px).
@@ -168,19 +181,23 @@ async function generatePdfFromHtml(html, options = {}) {
     try {
         const page = await browser.newPage();
         // Captura rasterizada a 300 dpi efectivos: 96 dpi de base * 3.125 = 300 dpi.
+        const quality = resolveQualityProfile('standard');
         await page.setViewport({
             width: TEMPLATE_VIEWPORT_WIDTH,
             height: TEMPLATE_VIEWPORT_HEIGHT,
-            deviceScaleFactor: RASTER_SCALE,
+            deviceScaleFactor: quality.scale,
         });
         await page.setContent(html, { waitUntil: 'load', timeout: 60000 });
         await page.emulateMediaType('screen');
         const screenshotBuffer = await page.screenshot({
-            type: 'png',
+            type: quality.screenshotType,
+            quality: quality.jpegQuality,
             fullPage: true,
             omitBackground: false,
         });
-        return (0, templatePdfGenerator_1.createPdfFromScreenshotPng)(Buffer.from(screenshotBuffer));
+        return (0, templatePdfGenerator_1.createPdfFromScreenshotImage)(Buffer.from(screenshotBuffer), {
+            format: quality.screenshotType,
+        });
     }
     finally {
         await browser.close();
@@ -262,7 +279,8 @@ async function generatePdfFromDocument(options) {
 }
 async function generatePdfFromExportPreview(options) {
     const { default: puppeteer } = await Promise.resolve().then(() => __importStar(require('puppeteer')));
-    const scale = options.exportScale && options.exportScale > 0 ? options.exportScale : RASTER_SCALE;
+    const quality = resolveQualityProfile(options.qualityProfile);
+    const scale = options.exportScale && options.exportScale > 0 ? options.exportScale : quality.scale;
     const url = new URL('/docs/export', options.frontendUrl);
     url.searchParams.set('docId', options.docId);
     url.searchParams.set('token', options.token);
@@ -285,8 +303,13 @@ async function generatePdfFromExportPreview(options) {
         const root = await page.$('[data-export-root="true"]');
         if (!root)
             throw new Error('No se encontró la vista de exportación');
-        const screenshotBuffer = await root.screenshot({ type: 'png' });
-        return (0, templatePdfGenerator_1.createPdfFromScreenshotPng)(Buffer.from(screenshotBuffer));
+        const screenshotBuffer = await root.screenshot({
+            type: quality.screenshotType,
+            quality: quality.jpegQuality,
+        });
+        return (0, templatePdfGenerator_1.createPdfFromScreenshotImage)(Buffer.from(screenshotBuffer), {
+            format: quality.screenshotType,
+        });
     }
     finally {
         await browser.close();

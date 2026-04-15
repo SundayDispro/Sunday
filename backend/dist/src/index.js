@@ -3065,6 +3065,9 @@ app.post('/api/templates/:kind/generate', auth_1.authenticateToken, async (req, 
             ? rawContent
             : {};
         const docId = typeof req.body?.docId === 'string' ? req.body.docId.trim() : null;
+        const qualityProfile = req.body?.qualityProfile === 'high' || req.body?.qualityProfile === 'standard'
+            ? req.body.qualityProfile
+            : 'standard';
         // Guardamos el contenido en caché para que la vista /docs/export lo use exactamente igual
         // que el preview (buildPdfContent → customBoxes, etc.) y Puppeteer haga una captura 1:1.
         const contentKey = crypto_1.default.randomUUID();
@@ -3089,7 +3092,7 @@ app.post('/api/templates/:kind/generate', auth_1.authenticateToken, async (req, 
                 docId: docId ?? '',
                 token: exportToken,
                 contentKey,
-                exportScale: 3.125,
+                qualityProfile,
             });
         }
         catch (clientCaptureError) {

@@ -4,7 +4,7 @@ import type { Browser } from 'puppeteer';
 import { Worker } from 'worker_threads';
 import { randomUUID } from 'crypto';
 import { buildDocumentWrapperHtml } from './documentHtmlBuilder';
-import { createPdfFromScreenshotPng } from './templatePdfGenerator';
+import { createPdfFromScreenshotImage } from './templatePdfGenerator';
 import { UPLOADS_DIR as UPLOAD_DIR } from './config/paths';
 
 export interface HtmlPdfOptions {
@@ -77,9 +77,14 @@ function resolveImageUrlsToDataUrls(content: Record<string, unknown>): Record<st
     ? content.customBoxes
     : [];
 
+  const cache = new Map<string, string | null>();
   const resolvedBoxes = customBoxes.map((box: Record<string, unknown>) => {
     if (box.kind !== 'image' || !box.imageUrl) return box;
-    const dataUrl = imageUrlToDataUrl(String(box.imageUrl));
+    const key = String(box.imageUrl);
+    if (!cache.has(key)) {
+      cache.set(key, imageUrlToDataUrl(key));
+    }
+    const dataUrl = cache.get(key);
     if (!dataUrl) {
       console.warn(`[PDF] No se pudo resolver la imagen: ${box.imageUrl}`);
       return { ...box, imageUrl: '' }; // vacío → no renderiza nada pero no rompe
@@ -96,6 +101,21 @@ const TEMPLATE_VIEWPORT_HEIGHT = 1056;
 const PDF_EXPORT_DPI = 300;
 const VIEWPORT_DPI = 96;
 const RASTER_SCALE = PDF_EXPORT_DPI / VIEWPORT_DPI;
+const STANDARD_DPI = 220;
+const STANDARD_SCALE = STANDARD_DPI / VIEWPORT_DPI;
+
+export type PdfQualityProfile = 'standard' | 'high';
+
+function resolveQualityProfile(profile?: PdfQualityProfile): {
+  scale: number;
+  screenshotType: 'jpeg' | 'png';
+  jpegQuality?: number;
+} {
+  if (profile === 'high') {
+    return { scale: RASTER_SCALE, screenshotType: 'jpeg', jpegQuality: 90 };
+  }
+  return { scale: STANDARD_SCALE, screenshotType: 'jpeg', jpegQuality: 82 };
+}
 
 /**
  * Convierte la primera página del PDF de plantilla a imagen base64.
@@ -149,20 +169,23 @@ export async function generatePdfFromHtml(
   try {
     const page = await browser.newPage();
     // Captura rasterizada a 300 dpi efectivos: 96 dpi de base * 3.125 = 300 dpi.
+    const quality = resolveQualityProfile('standard');
     await page.setViewport({
       width: TEMPLATE_VIEWPORT_WIDTH,
       height: TEMPLATE_VIEWPORT_HEIGHT,
-      deviceScaleFactor: RASTER_SCALE,
+      deviceScaleFactor: quality.scale,
     });
     await page.setContent(html, { waitUntil: 'load', timeout: 60000 });
     await page.emulateMediaType('screen');
     const screenshotBuffer = await page.screenshot({
-      type: 'png',
+      type: quality.screenshotType,
+      quality: quality.jpegQuality,
       fullPage: true,
       omitBackground: false,
     });
-
-    return createPdfFromScreenshotPng(Buffer.from(screenshotBuffer as Buffer));
+    return createPdfFromScreenshotImage(Buffer.from(screenshotBuffer as Buffer), {
+      format: quality.screenshotType,
+    });
   } finally {
     await browser.close();
   }
@@ -259,13 +282,15 @@ export interface GeneratePdfFromExportPreviewOptions {
   token: string;
   contentKey?: string | null;
   exportScale?: number;
+  qualityProfile?: PdfQualityProfile;
 }
 
 export async function generatePdfFromExportPreview(
   options: GeneratePdfFromExportPreviewOptions
 ): Promise<Buffer> {
   const { default: puppeteer } = await import('puppeteer');
-  const scale = options.exportScale && options.exportScale > 0 ? options.exportScale : RASTER_SCALE;
+  const quality = resolveQualityProfile(options.qualityProfile);
+  const scale = options.exportScale && options.exportScale > 0 ? options.exportScale : quality.scale;
   const url = new URL('/docs/export', options.frontendUrl);
   url.searchParams.set('docId', options.docId);
   url.searchParams.set('token', options.token);
@@ -288,8 +313,13 @@ export async function generatePdfFromExportPreview(
     await page.waitForSelector('[data-export-ready="true"]', { timeout: 60000 });
     const root = await page.$('[data-export-root="true"]');
     if (!root) throw new Error('No se encontró la vista de exportación');
-    const screenshotBuffer = await root.screenshot({ type: 'png' });
-    return createPdfFromScreenshotPng(Buffer.from(screenshotBuffer as Buffer));
+    const screenshotBuffer = await root.screenshot({
+      type: quality.screenshotType,
+      quality: quality.jpegQuality,
+    });
+    return createPdfFromScreenshotImage(Buffer.from(screenshotBuffer as Buffer), {
+      format: quality.screenshotType,
+    });
   } finally {
     await browser.close();
   }

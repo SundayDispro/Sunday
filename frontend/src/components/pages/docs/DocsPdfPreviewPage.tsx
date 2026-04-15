@@ -16,9 +16,23 @@ import { sanitizePdfText } from '../../../utils/sanitizePdfText';
 const API_BASE = import.meta.env.DEV ? '' : (import.meta.env.VITE_API_URL ?? '');
 const STORAGE_KEY = 'sunday_pdf_preview';
 const PDF_EXPORT_TIMEOUT_MS = 90_000;
+const PDF_QUALITY_STORAGE_KEY = 'sunday_pdf_quality_profile';
 
-/** Escala para captura a ~300 dpi (300/96). */
-const CAPTURE_SCALE = 300 / 96;
+type PdfQualityProfile = 'standard' | 'high';
+const PDF_QUALITY_CONFIG: Record<PdfQualityProfile, { label: string; captureScale: number; mimeType: 'image/jpeg' | 'image/png'; jpegQuality?: number }> = {
+  standard: {
+    label: 'Estándar',
+    captureScale: 220 / 96,
+    mimeType: 'image/jpeg',
+    jpegQuality: 0.82,
+  },
+  high: {
+    label: 'Alta',
+    captureScale: 300 / 96,
+    mimeType: 'image/jpeg',
+    jpegQuality: 0.9,
+  },
+};
 
 function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
   return Promise.race([
@@ -45,6 +59,12 @@ export default function DocsPdfPreviewPage() {
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [exportReady, setExportReady] = useState(false);
+  const [qualityProfile, setQualityProfile] = useState<PdfQualityProfile>(() => {
+    const stored = typeof window !== 'undefined'
+      ? window.localStorage.getItem(PDF_QUALITY_STORAGE_KEY)
+      : null;
+    return stored === 'high' ? 'high' : 'standard';
+  });
   const captureRef = useRef<HTMLDivElement>(null);
 
   const onExportReady = useCallback(() => setExportReady(true), []);
@@ -116,22 +136,25 @@ export default function DocsPdfPreviewPage() {
     setSaving(true);
     setError(null);
     try {
+      const quality = PDF_QUALITY_CONFIG[qualityProfile];
       await withTimeout(
         (async () => {
           const canvas = await html2canvas(el, {
-            scale: CAPTURE_SCALE,
+            scale: quality.captureScale,
             useCORS: true,
             allowTaint: true,
             logging: false,
             backgroundColor: '#ffffff',
           });
-          const imgData = canvas.toDataURL('image/png');
+          const imgData = quality.mimeType === 'image/jpeg'
+            ? canvas.toDataURL('image/jpeg', quality.jpegQuality)
+            : canvas.toDataURL('image/png');
           const pdf = new jsPDF({
             orientation: 'portrait',
             unit: 'pt',
             format: 'letter',
           });
-          pdf.addImage(imgData, 'PNG', 0, 0, 612, 792);
+          pdf.addImage(imgData, quality.mimeType === 'image/jpeg' ? 'JPEG' : 'PNG', 0, 0, 612, 792);
           const fileBase = sanitizePdfText(String(payload.docType ?? 'documento'), 128).replace(/[^a-zA-Z0-9._-]+/g, '_') || 'documento';
           pdf.save(`${fileBase}.pdf`);
         })(),
@@ -149,7 +172,14 @@ export default function DocsPdfPreviewPage() {
     } finally {
       setSaving(false);
     }
-  }, [payload]);
+  }, [payload, qualityProfile]);
+
+  const handleQualityChange = useCallback((next: PdfQualityProfile) => {
+    setQualityProfile(next);
+    if (typeof window !== 'undefined') {
+      window.localStorage.setItem(PDF_QUALITY_STORAGE_KEY, next);
+    }
+  }, []);
 
   const docTitle = (payload?.documentTitle ?? payload?.docType ?? 'Documento').trim() || 'Documento';
   const shareUrl = typeof window !== 'undefined' ? window.location.href : '';
@@ -199,6 +229,21 @@ export default function DocsPdfPreviewPage() {
             <Download size={16} />
             {saving ? 'Guardando…' : exportReady ? 'Guardar como PDF' : 'Preparando…'}
           </button>
+          <label className="inline-flex items-center gap-2 px-2 py-1.5 rounded-monday border border-monday-border text-[12px] text-white/85">
+            Calidad
+            <select
+              value={qualityProfile}
+              onChange={(e) => handleQualityChange(e.target.value === 'high' ? 'high' : 'standard')}
+              disabled={saving}
+              className="bg-transparent border border-white/20 rounded px-1.5 py-0.5 text-[12px]"
+            >
+              {Object.entries(PDF_QUALITY_CONFIG).map(([key, cfg]) => (
+                <option key={key} value={key} className="text-black">
+                  {cfg.label}
+                </option>
+              ))}
+            </select>
+          </label>
           <a
             href={whatsAppHref}
             target="_blank"

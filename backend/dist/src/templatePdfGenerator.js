@@ -39,12 +39,14 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.TEMPLATE_FIELD_POSITIONS = void 0;
 exports.getTemplatePathIfExists = getTemplatePathIfExists;
 exports.getTemplatesDir = getTemplatesDir;
+exports.createPdfFromScreenshotImage = createPdfFromScreenshotImage;
 exports.createPdfFromScreenshotPng = createPdfFromScreenshotPng;
 exports.getTemplateImagePathIfExists = getTemplateImagePathIfExists;
 exports.generatePdfFromTemplate = generatePdfFromTemplate;
 exports.generateFilledPdf = generateFilledPdf;
 const fs_1 = __importDefault(require("fs"));
 const path_1 = __importDefault(require("path"));
+const crypto_1 = __importDefault(require("crypto"));
 const pdf_lib_1 = require("pdf-lib");
 const paths_1 = require("./config/paths");
 /** Convierte color hex (#000000 o #fff) a RGB para pdf-lib */
@@ -129,13 +131,16 @@ function getTemplatesDir() {
 const LETTER_WIDTH_PT = 612;
 const LETTER_HEIGHT_PT = 792;
 /**
- * Crea un PDF de una página US Letter con la imagen PNG de la captura (ej. screenshot a 300 DPI).
+ * Crea un PDF de una página US Letter con una captura rasterizada (PNG/JPEG).
  * La imagen se dibuja a tamaño completo en la página (612×792 pt).
  */
-async function createPdfFromScreenshotPng(pngBuffer) {
+async function createPdfFromScreenshotImage(imageBuffer, options) {
+    const format = options?.format ?? 'png';
     const pdfDoc = await pdf_lib_1.PDFDocument.create();
     const page = pdfDoc.addPage([LETTER_WIDTH_PT, LETTER_HEIGHT_PT]);
-    const embedded = await pdfDoc.embedPng(pngBuffer);
+    const embedded = format === 'jpeg'
+        ? await pdfDoc.embedJpg(imageBuffer)
+        : await pdfDoc.embedPng(imageBuffer);
     page.drawImage(embedded, {
         x: 0,
         y: 0,
@@ -144,6 +149,10 @@ async function createPdfFromScreenshotPng(pngBuffer) {
     });
     const bytes = await pdfDoc.save();
     return Buffer.from(bytes);
+}
+/** Compatibilidad retro: mantiene nombre histórico para llamadas existentes. */
+async function createPdfFromScreenshotPng(pngBuffer) {
+    return createPdfFromScreenshotImage(pngBuffer, { format: 'png' });
 }
 /** Si no hay PDF, devuelve la ruta a una imagen de plantilla (JPG o PNG) si existe. */
 function getTemplateImagePathIfExists(kind) {
@@ -201,6 +210,9 @@ function imageUrlToBuffer(imageUrl) {
     catch {
         return null;
     }
+}
+function sha1Buffer(buffer) {
+    return crypto_1.default.createHash('sha1').update(buffer).digest('hex');
 }
 const SIMPLE_TEMPLATE_FIELDS = {
     cotizacion: {
@@ -271,11 +283,11 @@ async function generatePdfFromTemplate(kind, content) {
             }
         }
         if (regularBytes) {
-            avertaRegular = await pdfDoc.embedFont(regularBytes);
+            avertaRegular = await pdfDoc.embedFont(regularBytes, { subset: true });
             avertaItalic = avertaRegular; // OTF demo suele ser solo Regular
         }
         if (boldBytes) {
-            avertaBold = await pdfDoc.embedFont(boldBytes);
+            avertaBold = await pdfDoc.embedFont(boldBytes, { subset: true });
             avertaBoldItalic = avertaBold;
         }
         else if (regularBytes) {
@@ -286,9 +298,9 @@ async function generatePdfFromTemplate(kind, content) {
             const italicPath = path_1.default.join(FONTS_DIR, 'AvertaStd-RegularItalic.ttf');
             const boldItalicPath = path_1.default.join(FONTS_DIR, 'AvertaStd-BoldItalic.ttf');
             if (fs_1.default.existsSync(italicPath))
-                avertaItalic = await pdfDoc.embedFont(fs_1.default.readFileSync(italicPath));
+                avertaItalic = await pdfDoc.embedFont(fs_1.default.readFileSync(italicPath), { subset: true });
             if (fs_1.default.existsSync(boldItalicPath))
-                avertaBoldItalic = await pdfDoc.embedFont(fs_1.default.readFileSync(boldItalicPath));
+                avertaBoldItalic = await pdfDoc.embedFont(fs_1.default.readFileSync(boldItalicPath), { subset: true });
         }
     }
     catch {
@@ -383,6 +395,7 @@ async function generatePdfFromTemplate(kind, content) {
     const customBoxes = (content.customBoxes ?? []);
     const customFieldValues = (content.customFieldValues ?? {});
     const defaultBoxFontSize = typeof content.globalFontSize === 'number' ? content.globalFontSize : 11;
+    const embeddedImageCache = new Map();
     /** Convierte a número (0-1) por si viene como string desde JSON. */
     const num = (v, fallback) => {
         if (typeof v === 'number' && !Number.isNaN(v))
@@ -403,9 +416,14 @@ async function generatePdfFromTemplate(kind, content) {
                 const xPts = num(box.x, 0) * width;
                 const yFromBottom = height - num(box.y, 0) * height - hPts;
                 try {
-                    const embedded = resolved.isPng
-                        ? await pdfDoc.embedPng(resolved.buffer)
-                        : await pdfDoc.embedJpg(resolved.buffer);
+                    const cacheKey = `${resolved.isPng ? 'png' : 'jpg'}:${sha1Buffer(resolved.buffer)}`;
+                    let embedded = embeddedImageCache.get(cacheKey);
+                    if (!embedded) {
+                        embedded = resolved.isPng
+                            ? await pdfDoc.embedPng(resolved.buffer)
+                            : await pdfDoc.embedJpg(resolved.buffer);
+                        embeddedImageCache.set(cacheKey, embedded);
+                    }
                     const rotDeg = typeof box.rotationDeg === 'number' && !Number.isNaN(box.rotationDeg) ? box.rotationDeg : 0;
                     if (Math.abs(rotDeg) < 0.01) {
                         page.drawImage(embedded, {

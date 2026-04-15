@@ -84,10 +84,14 @@ function resolveImageUrlsToDataUrls(content) {
     const customBoxes = Array.isArray(content.customBoxes)
         ? content.customBoxes
         : [];
+    const cache = new Map();
     const resolvedBoxes = customBoxes.map((box) => {
         if (box.kind !== 'image' || !box.imageUrl)
             return box;
-        const dataUrl = imageUrlToDataUrl(String(box.imageUrl));
+        const key = String(box.imageUrl);
+        if (!cache.has(key))
+            cache.set(key, imageUrlToDataUrl(key));
+        const dataUrl = cache.get(key);
         if (!dataUrl) {
             // eslint-disable-next-line no-console
             console.warn(`[PDF] No se pudo resolver la imagen: ${box.imageUrl}`);
@@ -100,10 +104,9 @@ function resolveImageUrlsToDataUrls(content) {
 // US Letter a 96 DPI lógico: 612pt → 816px, 792pt → 1056px
 const TEMPLATE_VIEWPORT_WIDTH = 816;
 const TEMPLATE_VIEWPORT_HEIGHT = 1056;
-/** Escala para 300 dpi efectivos en la captura PNG (300/96 ≈ 3.125). */
-const PDF_EXPORT_DPI = 300;
 const VIEWPORT_DPI = 96;
-const RENDER_SCALE = PDF_EXPORT_DPI / VIEWPORT_DPI;
+const STANDARD_DPI = 220;
+const STANDARD_SCALE = STANDARD_DPI / VIEWPORT_DPI;
 async function getTemplatePdfFirstPageAsDataUrlWithBrowser(browser, templatePdfPath) {
     if (!fs_1.default.existsSync(templatePdfPath))
         return null;
@@ -177,7 +180,7 @@ async function runInWorker(payload) {
         await page.setViewport({
             width: TEMPLATE_VIEWPORT_WIDTH,
             height: TEMPLATE_VIEWPORT_HEIGHT,
-            deviceScaleFactor: RENDER_SCALE,
+            deviceScaleFactor: STANDARD_SCALE,
         });
         await page.setContent(html, {
             waitUntil: 'load',
@@ -194,11 +197,14 @@ async function runInWorker(payload) {
         ]);
         await page.emulateMediaType('screen');
         const screenshotBuffer = await page.screenshot({
-            type: 'png',
+            type: 'jpeg',
+            quality: 82,
             fullPage: true,
             omitBackground: false,
         });
-        return (0, templatePdfGenerator_1.createPdfFromScreenshotPng)(Buffer.from(screenshotBuffer));
+        return (0, templatePdfGenerator_1.createPdfFromScreenshotImage)(Buffer.from(screenshotBuffer), {
+            format: 'jpeg',
+        });
     }
     finally {
         await browser.close();
