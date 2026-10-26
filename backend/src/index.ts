@@ -1,7 +1,7 @@
 import './env';
 import crypto from 'crypto';
 import express from 'express';
-import rateLimit from 'express-rate-limit';
+import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
 import { createServer } from 'http';
 import { Server } from 'socket.io';
 import cors, { type CorsOptions } from 'cors';
@@ -19,6 +19,7 @@ import { runBackup, cleanOldBackups, getBackupList } from './backupService';
 
 const prisma = new PrismaClient();
 const app = express();
+app.set('trust proxy', 1);
 
 // SECURITY-VERIFIED: cabeceras HTTP de seguridad (CSP, HSTS, etc.) las aplica el reverse proxy (p. ej. Nginx); no se usa helmet en Node.
 
@@ -95,24 +96,37 @@ const loginRateLimiter = rateLimit({
 });
 
 /**
- * Rate limit global para /api.
+ * Rate limiters para /api (autenticados por usuario, anónimos por IP).
  * - Desarrollo: desactivado (skip) para no bloquear HMR, recargas y depuración.
- * - Producción: límite más alto; POST /api/login y GET /api/health excluidos del contador global
+ * - Producción: POST /api/login y GET /api/health excluidos del contador
  *   (login sigue protegido por loginRateLimiter; evita 429 al iniciar sesión tras uso intensivo de la API).
  */
-const apiGlobalRateLimiter = rateLimit({
+const shouldSkipApiRateLimit = (req: express.Request): boolean => {
+  if (!isProduction) return true;
+  const p = req.path ?? '';
+  if (req.method === 'POST' && (p === '/login' || p === '/api/login')) return true;
+  if (req.method === 'GET' && (p === '/health' || p === '/api/health')) return true;
+  return false;
+};
+
+const apiAuthedLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: isProduction ? 800 : 50_000,
+  max: 2000,
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: 'Demasiadas solicitudes. Espera unos minutos e intenta de nuevo.' },
-  skip: (req) => {
-    if (!isProduction) return true;
-    const p = req.path ?? '';
-    if (req.method === 'POST' && (p === '/login' || p === '/api/login')) return true;
-    if (req.method === 'GET' && (p === '/health' || p === '/api/health')) return true;
-    return false;
-  },
+  keyGenerator: (req) => `u:${req.authUser?.id ?? 'anon'}`,
+  skip: (req) => !req.authUser || shouldSkipApiRateLimit(req),
+});
+
+const apiAnonLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 300,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Demasiadas solicitudes. Espera unos minutos e intenta de nuevo.' },
+  keyGenerator: (req) => ipKeyGenerator(req.ip ?? ''),
+  skip: (req) => Boolean(req.authUser) || shouldSkipApiRateLimit(req),
 });
 
 const jsonBodyParser1mb = express.json({ limit: '1mb' });
@@ -444,7 +458,6 @@ app.use(
     origin: corsDynamicOrigin,
   })
 );
-app.use('/api', apiGlobalRateLimiter);
 // JSON: 1mb por defecto; 25mb solo en rutas con payloads grandes (docs, diseños, export PDF, panel-notes, doc-groups).
 app.use(selectJsonBodyParser);
 
@@ -460,6 +473,8 @@ app.use((req, res, next) => {
 });
 
 app.use(attachUserFromJwt);
+app.use('/api', apiAuthedLimiter);
+app.use('/api', apiAnonLimiter);
 
 // Evitar que iOS Safari (y otros móviles) cacheen respuestas de la API
 app.use('/api', (_req, res, next) => {
