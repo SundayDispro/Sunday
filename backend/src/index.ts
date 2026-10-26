@@ -19,7 +19,8 @@ import { runBackup, cleanOldBackups, getBackupList } from './backupService';
 
 const prisma = new PrismaClient();
 const app = express();
-app.set('trust proxy', 1);
+// Confiar únicamente en el proxy local (Nginx).
+app.set('trust proxy', 'loopback');
 
 // SECURITY-VERIFIED: cabeceras HTTP de seguridad (CSP, HSTS, etc.) las aplica el reverse proxy (p. ej. Nginx); no se usa helmet en Node.
 
@@ -4658,6 +4659,6 @@ console.log(
   })
 );
 ensureUploadDirs();
-httpServer.listen(PORT, () => {
+httpServer.listen({ port: Number(PORT), host: '127.0.0.1' }, () => {
   console.log(`Sunday Server running on port ${PORT}`);
 });
