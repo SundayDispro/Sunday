@@ -12,7 +12,8 @@ export const TeamPage: React.FC<Props> = ({ onOpenInboxForUser }) => {
 
   useEffect(() => {
     fetchUsers();
-  }, [fetchUsers]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   return (
     <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
