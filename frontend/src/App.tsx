@@ -5,7 +5,7 @@ import BoardContainer from './components/Board/BoardContainer';
 import { ItemDetailsPanel } from './components/Board/ItemDetailsPanel';
 import {
   Home, Search, ChevronDown, ChevronRight,
-  Users, BookOpen, BarChart2, Inbox, Star, Plus, Receipt, Calendar, Folder, PieChart, FolderOpen, UserCheck, GanttChart, Check, AlertCircle, X, Sun, Moon, Sparkles, LayoutGrid, Menu, ChevronLeft, Globe, GripVertical,
+  Users, BookOpen, Box, BarChart2, Inbox, Star, Plus, Receipt, Calendar, Folder, PieChart, FolderOpen, UserCheck, GanttChart, Check, AlertCircle, X, Sun, Moon, Sparkles, LayoutGrid, Menu, ChevronLeft, Globe, GripVertical,
   FileText,
   ListTodo,
   Copy, ClipboardPaste, Delete,
@@ -30,6 +30,7 @@ import { NotificationsPage } from './components/pages/NotificationsPage';
 import { BandejaUnificadaPage } from './components/pages/BandejaUnificadaPage';
 import { SearchPage } from './components/pages/SearchPage';
 const DocsPageLazy = lazy(() => import('./components/pages/DocsPage'));
+const WorkshopPageLazy = lazy(() => import('./components/workshop/WorkshopPage'));
 const MobileDocsHubLazy = lazy(() =>
   import('./components/mobile/MobileDocsHub').then((m) => ({ default: m.MobileDocsHub }))
 );
@@ -450,6 +451,7 @@ function App() {
   }, [selectedItemIdState, isDocsMobile]);
   const canSeeFacturacionView = can(currentUser, 'billing.view');
   const canCreateBoard = can(currentUser, 'board.create');
+  const canAccessWorkshop = can(currentUser, 'workshop.access');
   const isTaller = currentUser?.role === 'TALLER';
 
   const defaultViewsForRole = isTaller ? (['table', 'calendar'] as ViewMode[]) : (['table', 'kanban'] as ViewMode[]);
@@ -731,6 +733,7 @@ function App() {
     | 'cotizacion'
     | 'tasks'
     | 'miTrabajo'
+    | 'workshop'
   >(() => {
     if (typeof window === 'undefined') return 'board';
     try {
@@ -760,6 +763,13 @@ function App() {
   useEffect(() => {
     if (activePage === 'cotizacion' && !SHOW_COTIZACIONES_NAV) setActivePage('board');
   }, [activePage]);
+
+  // Defensa de UX: aunque el estado móvil persistido traiga 'workshop', un rol
+  // sin acceso (TALLER) no debe quedarse en la sección. El backend es la
+  // fuente de verdad y también rechaza las rutas.
+  useEffect(() => {
+    if (activePage === 'workshop' && !canAccessWorkshop) setActivePage('board');
+  }, [activePage, canAccessWorkshop]);
 
   /** Calendario en móvil horizontal: menos chrome en la barra superior para ganar área útil. */
   const calendarMinimalChrome = isDocsMobile && activePage === 'calendar' && isLandscape;
@@ -1552,15 +1562,17 @@ function App() {
     { id: 'inbox', icon: <Inbox size={navIconSize} strokeWidth={2.25} />, label: 'Bandeja' },
     { id: 'search', icon: <Search size={navIconSize} strokeWidth={2.25} />, label: 'Buscar' },
     { id: 'docs', icon: <BookOpen size={navIconSize} strokeWidth={2.25} />, label: 'Docs' },
+    { id: 'workshop' as const, icon: <Box size={navIconSize} strokeWidth={2.25} />, label: 'Taller 3D' },
     ...(SHOW_COTIZACIONES_NAV
       ? [{ id: 'cotizacion' as const, icon: <FileText size={navIconSize} strokeWidth={2.25} />, label: 'Cotizaciones' }]
       : []),
     { id: 'tasks', icon: <ListTodo size={navIconSize} strokeWidth={2.25} />, label: 'Tareas' },
     { id: 'team', icon: <Users size={navIconSize} strokeWidth={2.25} />, label: 'Equipo' },
   ];
-  const navIcons = isTaller
+  const navIcons = (isTaller
     ? navIconsAll.filter(n => n.id === 'board' || n.id === 'calendar' || n.id === 'tasks')
-    : navIconsAll;
+    : navIconsAll
+  ).filter(n => n.id !== 'workshop' || canAccessWorkshop);
 
   const handleCreateBoard = async () => {
     if (!canCreateBoard) return;
@@ -2244,6 +2256,17 @@ function App() {
                 />
               </div>
             </>
+          ) : activePage === 'workshop' && canAccessWorkshop ? (
+            <Suspense
+              fallback={
+                <div className="flex flex-1 items-center justify-center py-20 text-[13px] text-monday-subtext gap-2">
+                  <div className="w-5 h-5 border-2 border-monday-blue border-t-transparent rounded-full animate-spin" />
+                  Cargando Taller 3D…
+                </div>
+              }
+            >
+              <WorkshopPageLazy workspaceId={activeWorkspaceId ?? workspaces[0]?.id ?? null} />
+            </Suspense>
           ) : activePage === 'inbox' ? (
             <InboxPage
               onItemClick={setSelectedItem}
@@ -2585,6 +2608,7 @@ function App() {
                 } else if (id === 'inbox') setActivePage('inbox');
                 else if (id === 'search') setActivePage('search');
                 else if (id === 'docs') setActivePage('docs');
+                else if (id === 'workshop') setActivePage('workshop');
                 else if (id === 'tasks') setActivePage('tasks');
                 else if (id === 'team') setActivePage('team');
                 else if (id === 'cotizacion' && SHOW_COTIZACIONES_NAV) setActivePage('cotizacion');
@@ -3611,6 +3635,8 @@ if (ok && data && typeof data.id === 'string') {
                               ? 'Cotizaciones'
                               : activePage === 'facturacion'
                               ? 'Facturación'
+                              : activePage === 'workshop'
+                              ? 'Taller 3D'
                               : activePage === 'miTrabajo'
                                 ? 'Mi trabajo'
                                 : activePage === 'home'

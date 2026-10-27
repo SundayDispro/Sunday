@@ -30,6 +30,8 @@ model User {
   assignedUserTasks    UserTask[]            @relation("UserTaskAssignee")
   taskAssignments      UserTaskAssignment[]
   userTaskLists        UserTaskList[]
+  workshopProjects     Workshop3DProject[]   @relation("Workshop3DProjectCreator")
+  workshopQuotations   Workshop3DQuotation[] @relation("Workshop3DQuotationCreator")
 }
 
 /// Lista de tareas (varias por usuario, estilo Google Tasks).
@@ -118,6 +120,7 @@ model Workspace {
   boards           Board[]
   docs             Doc[]
   designs          Design[]
+  workshopProjects Workshop3DProject[]
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
 }
@@ -308,4 +311,82 @@ model PushSubscription {
   createdAt DateTime @default(now())
 
   @@unique([endpoint, userId])
+}
+
+
+// ─── Sunday 3D Workshop ──────────────────────────────────────────
+
+/// Proyecto 3D Workshop: contiene la escena completa, parámetros y metadatos.
+model Workshop3DProject {
+  id          String   @id @default(uuid())
+  name        String
+  description String?
+  /// Datos completos de la escena 3D (objetos, transformaciones, materiales, parámetros)
+  sceneData   Json     @default("{}")
+  /// Configuración del catálogo de materiales personalizado del proyecto
+  catalogData Json?
+  /// Miniatura del proyecto (data URL o ruta)
+  thumbnailUrl String?
+  createdById String
+  createdBy   User     @relation("Workshop3DProjectCreator", fields: [createdById], references: [id], onDelete: Restrict)
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  quotations  Workshop3DQuotation[]
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([workspaceId])
+  @@index([createdById])
+}
+
+/// Cotización generada a partir de un proyecto 3D Workshop (snapshot de costos).
+model Workshop3DQuotation {
+  id          String   @id @default(uuid())
+  folio       Int      @unique @default(autoincrement())
+  projectId   String
+  project     Workshop3DProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  /// Nombre del cliente
+  cliente     String?
+  /// Moneda (ISO 4217), default MXN
+  currency    String   @default("MXN")
+  /// Snapshot completo de la cotización: lineItems, subtotales, totales, márgenes
+  breakdownData Json
+  /// Total final (precio de venta)
+  totalPrice  Float
+  /// Costo directo total
+  totalCost   Float
+  /// Margen bruto (%)
+  grossMargin Float?
+  /// Notas adicionales
+  notes       String?
+  createdById String
+  createdBy   User     @relation("Workshop3DQuotationCreator", fields: [createdById], references: [id], onDelete: Restrict)
+  createdAt   DateTime @default(now())
+
+  @@index([projectId])
+  @@index([createdById])
+}
+
+/// Catálogo global de materiales y componentes para 3D Workshop (editable por ADMIN).
+model Workshop3DCatalogEntry {
+  id          String   @id @default(uuid())
+  /// Categoría: filamento, acrilico, pvc, led, fuente, hardware, adhesivo, otro
+  category    String
+  name        String
+  /// Unidad de medida: kg, m², m, unidad, litro
+  unit        String
+  /// Precio por unidad en la moneda configurada
+  pricePerUnit Float
+  /// Moneda
+  currency    String   @default("MXN")
+  /// Propiedades técnicas adicionales (densidad, espesor, voltaje, potencia, etc.)
+  properties  Json?
+  /// Información del proveedor
+  supplier    String?
+  /// Disponible en inventario
+  inStock     Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([category])
 }

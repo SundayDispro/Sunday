@@ -6,7 +6,8 @@ export type Action =
   | 'board.delete'
   | 'group.delete'
   | 'column.delete'
-  | 'item.delete';
+  | 'item.delete'
+  | 'workshop.access';
 
 /**
  * Frontend guard (UX): el backend es la fuente de verdad.
@@ -20,6 +21,10 @@ export function can(user: User | null | undefined, action: Action): boolean {
   switch (action) {
     case 'billing.view':
       return role === 'VENTAS';
+
+    // Taller 3D: mismos roles que el backend. TALLER queda fuera a propósito.
+    case 'workshop.access':
+      return role === 'ADMIN' || role === 'VENTAS' || role === 'DISENO' || role === 'USER';
 
     // POST /api/boards — mismo conjunto que el backend.
     case 'board.create':

@@ -1,10 +1,11 @@
 import jwt, { type SignOptions } from 'jsonwebtoken';
 import bcrypt from 'bcrypt';
-import type { Request, Response, NextFunction } from 'express';
 import { PrismaClient } from '@prisma/client';
 import { createAttachUserFromJwt, createAuthenticateToken } from './httpAuth';
+import { ALLOWED_ROLES } from './roles';
 
 export { requireAuth } from './httpAuth';
+export { requireAdmin, requireRoles } from './roles';
 
 const _jwtSecret = process.env.JWT_SECRET;
 if (!_jwtSecret) {
@@ -20,8 +21,6 @@ const BCRYPT_ROUNDS =
   BCRYPT_ROUNDS_ENV && !Number.isNaN(Number.parseInt(BCRYPT_ROUNDS_ENV, 10))
     ? Number.parseInt(BCRYPT_ROUNDS_ENV, 10)
     : 12;
-
-const ALLOWED_ROLES = new Set(['ADMIN', 'VENTAS', 'DISENO', 'TALLER', 'USER']);
 
 export type JwtPayload = {
   userId: string;
@@ -90,45 +89,4 @@ const httpAuthDeps = {
 
 export const attachUserFromJwt = createAttachUserFromJwt(httpAuthDeps);
 export const authenticateToken = createAuthenticateToken(httpAuthDeps);
-
-export function requireAdmin(req: Request, res: Response, next: NextFunction) {
-  if (!req.authUser) {
-    return res.status(401).json({ error: 'No autenticado' });
-  }
-  if (req.authUser.role !== 'ADMIN') {
-    return res.status(403).json({ error: 'Solo administradores' });
-  }
-  req.user = { ...req.authUser };
-  return next();
-}
-
-export function requireRoles(rolesAllowed: string[]) {
-  const allowed = new Set(rolesAllowed);
-  // Defensa: si el middleware se configura mal, fallar de forma explícita.
-  if (allowed.size === 0) {
-    throw new Error('requireRoles(): rolesAllowed no puede ser vacío');
-  }
-  // Validar roles para evitar typos silenciosos que abran/corten acceso incorrectamente.
-  for (const r of allowed) {
-    if (!ALLOWED_ROLES.has(r)) {
-      throw new Error(`requireRoles(): rol no permitido en configuración: ${String(r)}`);
-    }
-  }
-  return function requireRolesMiddleware(req: Request, res: Response, next: NextFunction) {
-    if (!req.authUser) {
-      return res.status(401).json({ error: 'No autenticado' });
-    }
-    const role = req.authUser.role;
-    // ADMIN siempre tiene acceso total (backend como única fuente de verdad).
-    if (role === 'ADMIN') {
-      req.user = { ...req.authUser };
-      return next();
-    }
-    if (!allowed.has(role)) {
-      return res.status(403).json({ error: 'No autorizado' });
-    }
-    req.user = { ...req.authUser };
-    return next();
-  };
-}
 
