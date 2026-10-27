@@ -266,6 +266,16 @@ const io = new Server(httpServer, {
   pingInterval: 25000, // 25s — default 25s
   connectTimeout: 45000, // 45s para VPN lentas
   transports: ['websocket', 'polling'], // polling como fallback VPN
+  // Recuperación de estado (P0): si un cliente pierde la conexión (cambio de red en
+  // móvil/VPN, túnel caído) durante menos de 2 minutos, Socket.IO reproduce los
+  // paquetes perdidos en vez de descartarlos. Evita pérdida de eventos de tablero.
+  // skipMiddlewares: false → el middleware io.use() vuelve a ejecutarse, de modo que
+  // la recuperación NO salta el RBAC (JWT + rol + re-join de user:<id>).
+  // maxDisconnectionDuration debe ser menor que la retención interna de la sesión.
+  connectionStateRecovery: {
+    maxDisconnectionDuration: 2 * 60 * 1000, // 120000 ms
+    skipMiddlewares: false,
+  },
   cors: {
     origin: corsDynamicOrigin,
     methods: ['GET', 'POST', 'PUT', 'DELETE'],

@@ -6,7 +6,7 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { User, UserStatus, type WebPushSubscribeRequestBody } from '../types';
 import { API_BASE, apiFetch, buildAuthHeaders, clearAuthStorage, getAuthToken, parseResponse } from '../api';
-import { reconnectSocketWithAuth, socket } from './socket';
+import { clearPendingCellWrites, reconnectSocketWithAuth, socket } from './socket';
 
 interface UserContextType {
   currentUser: User | null;
@@ -218,6 +218,9 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const userId = currentUser?.id;
     setCurrentUser(null);
     clearAuthStorage();
+    // P1 — La cola de escrituras offline es estado de módulo, no del usuario:
+    // si sobreviviera al logout, se enviaría con la identidad del siguiente login.
+    clearPendingCellWrites();
     // Marcar como offline en el backend (fire-and-forget). Puede fallar si el token expiró.
     if (userId) {
       apiFetch(`${API_BASE}/api/users/${userId}/status`, {

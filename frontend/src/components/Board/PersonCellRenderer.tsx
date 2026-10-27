@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Item, BoardColumn, ColumnValue, User } from '../../types';
-import { socket } from '../../store/socket';
+import { emitCellValue, notificarEscrituraEnCola } from '../../store/socket';
 import * as Popover from '@radix-ui/react-popover';
 import { useUser } from '../../store/UserContext';
 import { UserCircle2 } from 'lucide-react';
@@ -20,11 +20,16 @@ export const PersonCellRenderer: React.FC<Props> = ({ item, column, value }) => 
   const assignedUser = users.find(u => u.id === assignedUserId);
 
   const handleSelect = (user: User | null) => {
-    socket.emit('update_column_value', {
-      itemId: item.id,
-      columnId: column.id,
-      value: user ? user.id : ''
-    });
+    // Si devuelve false, la escritura quedó en cola (sin conexión) y se enviará al reconectar.
+    if (
+      !emitCellValue({
+        itemId: item.id,
+        columnId: column.id,
+        value: user ? user.id : '',
+      })
+    ) {
+      notificarEscrituraEnCola();
+    }
     setOpen(false);
   };
 

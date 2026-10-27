@@ -12,7 +12,7 @@ import { DraggableRow } from './DraggableRow';
 import { GripVertical, MessageSquare, Plus, ChevronDown, MoreHorizontal, Pencil, Trash2, Tag } from 'lucide-react';
 import { StatusCellRenderer } from './StatusCellRenderer';
 import { ColumnTypePicker } from './ColumnTypePicker';
-import { socket, emitMoveItem } from '../../store/socket';
+import { socket, emitMoveItem, emitCellValue, notificarEscrituraEnCola } from '../../store/socket';
 import { AnimatedDialog } from '../AnimatedDialog';
 import * as Popover from '@radix-ui/react-popover';
 import * as Dialog from '@radix-ui/react-dialog';
@@ -94,7 +94,10 @@ const TextCell: React.FC<{ content: string; item: Item; column: BoardColumn }> =
   const commit = () => {
     setEditing(false);
     if (draft !== content) {
-      socket.emit('update_column_value', { itemId: item.id, columnId: column.id, value: draft });
+      // Si devuelve false, la escritura quedó en cola (sin conexión) y se enviará al reconectar.
+      if (!emitCellValue({ itemId: item.id, columnId: column.id, value: draft })) {
+        notificarEscrituraEnCola();
+      }
     } else {
       setDraft(content);
     }

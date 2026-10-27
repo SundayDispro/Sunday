@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Item, BoardColumn, ColumnValue } from '../../types';
-import { socket } from '../../store/socket';
+import { emitCellValue, notificarEscrituraEnCola } from '../../store/socket';
 import { Calendar } from 'lucide-react';
 import { useUser } from '../../store/UserContext';
 
@@ -33,12 +33,17 @@ export const DateCellRenderer: React.FC<Props> = ({ item, column, value }) => {
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const v = e.target.value;
     if (!v) {
-      socket.emit('update_column_value', { itemId: item.id, columnId: column.id, value: '' });
+      // Si devuelve false, la escritura quedó en cola (sin conexión) y se enviará al reconectar.
+      if (!emitCellValue({ itemId: item.id, columnId: column.id, value: '' })) {
+        notificarEscrituraEnCola();
+      }
       setOpen(false);
       return;
     }
     // Guardar como YYYY-MM-DD para evitar desfase por zona horaria (medianoche UTC → día anterior en otras zonas)
-    socket.emit('update_column_value', { itemId: item.id, columnId: column.id, value: v });
+    if (!emitCellValue({ itemId: item.id, columnId: column.id, value: v })) {
+      notificarEscrituraEnCola();
+    }
     setOpen(false);
   };
 

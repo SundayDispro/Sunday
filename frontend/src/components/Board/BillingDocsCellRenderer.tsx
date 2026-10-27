@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Item, BoardColumn, ColumnValue } from '../../types';
-import { socket } from '../../store/socket';
+import { emitCellValue, notificarEscrituraEnCola } from '../../store/socket';
 import { useUser } from '../../store/UserContext';
 import * as Popover from '@radix-ui/react-popover';
 import * as Dialog from '@radix-ui/react-dialog';
@@ -53,7 +53,10 @@ export const BillingDocsCellRenderer: React.FC<Props> = ({ item, column, value }
 
   const persist = (next: BillingDocEntry[]) => {
     const payload = serializeBillingDocsEntries(next);
-    socket.emit('update_column_value', { itemId: item.id, columnId: column.id, value: payload });
+    // Si devuelve false, la escritura quedó en cola (sin conexión) y se enviará al reconectar.
+    if (!emitCellValue({ itemId: item.id, columnId: column.id, value: payload })) {
+      notificarEscrituraEnCola();
+    }
     setDocs(next);
   };
 

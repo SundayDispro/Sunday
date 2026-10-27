@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Item, BoardColumn, ColumnValue } from '../../types';
-import { socket } from '../../store/socket';
+import { emitCellValue, notificarEscrituraEnCola } from '../../store/socket';
 import { Mail, ExternalLink } from 'lucide-react';
 
 interface ContactValue {
@@ -54,7 +54,10 @@ export const ContactCellRenderer: React.FC<Props> = ({ item, column, value }) =>
   const save = () => {
     setEditing(false);
     const payload = JSON.stringify({ text: text.trim(), link: link.trim() || undefined });
-    socket.emit('update_column_value', { itemId: item.id, columnId: column.id, value: payload });
+    // Si devuelve false, la escritura quedó en cola (sin conexión) y se enviará al reconectar.
+    if (!emitCellValue({ itemId: item.id, columnId: column.id, value: payload })) {
+      notificarEscrituraEnCola();
+    }
   };
   const emailCandidate = isEmail(parsed.text || '') ? parsed.text : isEmail(parsed.link || '') ? parsed.link : '';
   const phoneCandidate = isPhone(parsed.text || '') ? parsed.text : isPhone(parsed.link || '') ? parsed.link : '';

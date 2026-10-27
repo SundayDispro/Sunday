@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Item, BoardColumn, ColumnValue } from '../../types';
-import { socket } from '../../store/socket';
+import { emitCellValue, notificarEscrituraEnCola } from '../../store/socket';
 import * as Popover from '@radix-ui/react-popover';
 import { Paperclip, ExternalLink, Pencil } from 'lucide-react';
 import { useUser } from '../../store/UserContext';
@@ -25,7 +25,10 @@ export const FileCellRenderer: React.FC<Props> = ({ item, column, value }) => {
     setEditing(false);
     setOpen(false);
     const v = draft.trim();
-    socket.emit('update_column_value', { itemId: item.id, columnId: column.id, value: v });
+    // Si devuelve false, la escritura quedó en cola (sin conexión) y se enviará al reconectar.
+    if (!emitCellValue({ itemId: item.id, columnId: column.id, value: v })) {
+      notificarEscrituraEnCola();
+    }
   };
 
   const openInNewTab = (e: React.MouseEvent) => {

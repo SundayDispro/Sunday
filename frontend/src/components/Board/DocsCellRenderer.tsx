@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Item, BoardColumn, ColumnValue } from '../../types';
-import { socket } from '../../store/socket';
+import { emitCellValue, notificarEscrituraEnCola } from '../../store/socket';
 import { useUser } from '../../store/UserContext';
 import * as Popover from '@radix-ui/react-popover';
 import * as Dialog from '@radix-ui/react-dialog';
@@ -109,7 +109,10 @@ export const DocsCellRenderer: React.FC<Props> = ({ item, column, value }) => {
       hojaTrabajo: hojaTrabajo.trim() || undefined,
       levantamiento: levantamiento.trim() || undefined,
     });
-    socket.emit('update_column_value', { itemId: item.id, columnId: column.id, value: payload });
+    // Si devuelve false, la escritura quedó en cola (sin conexión) y se enviará al reconectar.
+    if (!emitCellValue({ itemId: item.id, columnId: column.id, value: payload })) {
+      notificarEscrituraEnCola();
+    }
   };
 
   const openUrl = (url: string) => {
@@ -211,7 +214,10 @@ export const DocsCellRenderer: React.FC<Props> = ({ item, column, value }) => {
       hojaTrabajo: nextHoja.trim() || undefined,
       levantamiento: nextLev.trim() || undefined,
     });
-    socket.emit('update_column_value', { itemId: item.id, columnId: column.id, value: payload });
+    // Si devuelve false, la escritura quedó en cola (sin conexión) y se enviará al reconectar.
+    if (!emitCellValue({ itemId: item.id, columnId: column.id, value: payload })) {
+      notificarEscrituraEnCola();
+    }
   };
 
   return (

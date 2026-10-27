@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useMemo, useRef, useCallback } from 'react';
 import { Board, Group, BoardColumn, Item } from '../../types';
-import { socket, emitMoveItem } from '../../store/socket';
+import { socket, emitMoveItem, emitCellValue, onSocketResync } from '../../store/socket';
 import { BoardGroup } from './BoardGroup';
 import {
   Plus, Search, Filter, ArrowUpDown, EyeOff, ChevronDown, X, Folder,
@@ -240,6 +240,26 @@ const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode, onBoar
     if (!board) return;
     onBoardData(board);
   }, [onBoardData, board]);
+
+  // P0 — Red de seguridad de reconexión.
+  // Si `connectionStateRecovery` no pudo reproducir los paquetes perdidos
+  // (caída de más de 2 min, reinicio del backend o sesión descartada),
+  // recargamos el tablero desde la API REST para no quedarnos con una vista
+  // obsoleta. `onSocketResync` solo invoca el callback cuando
+  // `socket.recovered === false`; si la recuperación fue exitosa, no hay refetch.
+  // El ref evita re-suscribir el listener en cada render y mantiene fresca la
+  // clausura de fetchBoard (boardId / onBoardData actuales).
+  const fetchBoardRef = useRef(fetchBoard);
+  useEffect(() => {
+    fetchBoardRef.current = fetchBoard;
+  }, [fetchBoard]);
+  useEffect(
+    () =>
+      onSocketResync(() => {
+        void fetchBoardRef.current();
+      }),
+    []
+  );
 
   useEffect(() => {
     // Unirse a la sala del tablero en Socket.IO
@@ -1078,14 +1098,14 @@ const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode, onBoar
   const applyBulkStatus = (optionId: string) => {
     if (!board || !bulkStatusColumn || selectedItemIds.size === 0) return;
     const valueStr = JSON.stringify({ optionId });
+    let enCola = 0;
     selectedItemIds.forEach((itemId) => {
       handleOptimisticUpdate(itemId, bulkStatusColumn.id, valueStr);
-      socket.emit('update_column_value', {
-        itemId,
-        columnId: bulkStatusColumn.id,
-        value: valueStr,
-      });
+      // El booleano indica si el evento salió ya; si no, quedó en pendingCellWrites.
+      if (!emitCellValue({ itemId, columnId: bulkStatusColumn.id, value: valueStr })) enCola += 1;
     });
+    // Aviso agregado: uno solo por acción masiva, no uno por ítem.
+    if (enCola > 0) toast(`${enCola} cambio(s) en cola: se enviarán al reconectar.`, 'warning');
     setShowBulkStatusPopover(false);
     clearSelection();
   };
@@ -1093,14 +1113,14 @@ const BoardContainer: React.FC<Props> = ({ boardId, onRowClick, viewMode, onBoar
   const applyBulkAssign = (userId: string | null) => {
     if (!board || !bulkPersonColumn || selectedItemIds.size === 0) return;
     const valueStr = userId ?? '';
+    let enCola = 0;
     selectedItemIds.forEach((itemId) => {
       handleOptimisticUpdate(itemId, bulkPersonColumn.id, valueStr);
-      socket.emit('update_column_value', {
-        itemId,
-        columnId: bulkPersonColumn.id,
-        value: valueStr,
-      });
+      // El booleano indica si el evento salió ya; si no, quedó en pendingCellWrites.
+      if (!emitCellValue({ itemId, columnId: bulkPersonColumn.id, value: valueStr })) enCola += 1;
     });
+    // Aviso agregado: uno solo por acción masiva, no uno por ítem.
+    if (enCola > 0) toast(`${enCola} cambio(s) en cola: se enviarán al reconectar.`, 'warning');
     setShowBulkAssignPopover(false);
     clearSelection();
   };

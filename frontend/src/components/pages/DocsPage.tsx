@@ -58,7 +58,7 @@ import { buildPdfContent } from './docs/buildPdfContent';
 import { TextFormatBarForEditor } from '../docs/TextFormatBar';
 import { useUser } from '../../store/UserContext';
 import { useToast } from '../Toast';
-import { socket } from '../../store/socket';
+import { emitCellValue, notificarEscrituraEnCola } from '../../store/socket';
 import * as XLSX from 'xlsx';
 import { apiFetch } from '../../api';
 import { useViewport } from '../../hooks/useViewport';
@@ -2309,11 +2309,16 @@ export const DocsPage: React.FC<Props> = ({
           nextValue = JSON.stringify(parsed);
         }
 
-        socket.emit('update_column_value', {
-          itemId: opts.itemId,
-          columnId: opts.columnId,
-          value: nextValue,
-        });
+        // Si devuelve false, la escritura quedó en cola (sin conexión) y se enviará al reconectar.
+        if (
+          !emitCellValue({
+            itemId: opts.itemId,
+            columnId: opts.columnId,
+            value: nextValue,
+          })
+        ) {
+          notificarEscrituraEnCola();
+        }
       } catch (e) {
         console.error('Error ligando documento al elemento (fallback):', e);
       }

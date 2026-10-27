@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Item, BoardColumn, ColumnValue } from '../../types';
-import { socket } from '../../store/socket';
+import { emitCellValue, notificarEscrituraEnCola } from '../../store/socket';
 import { Clock } from 'lucide-react';
 import { useUser } from '../../store/UserContext';
 
@@ -71,7 +71,10 @@ export const TimelineCellRenderer: React.FC<Props> = ({ item, column, value }) =
       start: startDate && !isNaN(startDate.getTime()) ? startDate.toISOString() : undefined,
       end: endDate && !isNaN(endDate.getTime()) ? endDate.toISOString() : undefined,
     });
-    socket.emit('update_column_value', { itemId: item.id, columnId: column.id, value: payload });
+    // Si devuelve false, la escritura quedó en cola (sin conexión) y se enviará al reconectar.
+    if (!emitCellValue({ itemId: item.id, columnId: column.id, value: payload })) {
+      notificarEscrituraEnCola();
+    }
   };
 
   const displayStart = formatDate(parsed.start);

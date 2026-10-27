@@ -99,6 +99,60 @@ export function clearAuthStorage(): void {
   }
 }
 
+/**
+ * Cierre de sesión centralizado por expiración/invalidez del JWT.
+ *
+ * Lo consumen los dos caminos que hoy pueden detectar el problema:
+ * - `apiFetch`, cuando el backend responde 401 con el mismo token de la petición.
+ * - `store/socket.ts`, cuando el handshake de Socket.IO se rechaza con `unauthorized`.
+ *
+ * Pasos (idénticos a los que antes estaban duplicados en cada sitio):
+ * 1. Guarda el motivo en `sessionStorage` para que el Login muestre el mensaje.
+ * 2. Emite `session-expired` para que la UI (App.tsx) marque el JWT como expirado.
+ * 3. Limpia el almacenamiento local y redirige a `/`.
+ *
+ * `isExpired` se deduce del `exp` del JWT aún almacenado. Si el token seguía vivo
+ * (401 por permisos del servidor, no por caducidad) se redirige sin retardo; si
+ * caducó, se deja un margen de 250 ms para que el banner de sesión expirada llegue
+ * a pintarse antes de la recarga completa.
+ */
+export function expireSession(reason: string = 'session_expired'): void {
+  const token = getAuthToken();
+  const expMs = token ? decodeJwtExpMs(token) : null;
+  const isExpired = expMs != null ? expMs <= Date.now() : true;
+
+  try {
+    sessionStorage.setItem('logout_reason', reason);
+  } catch {
+    // ignore (almacenamiento bloqueado)
+  }
+
+  try {
+    window.dispatchEvent(
+      new CustomEvent('session-expired', {
+        detail: { reason, isExpired },
+      })
+    );
+  } catch {
+    // ignore en entornos sin window
+  }
+
+  clearAuthStorage();
+
+  try {
+    const delayMs = isExpired ? 250 : 0;
+    setTimeout(() => {
+      try {
+        window.location.href = '/';
+      } catch {
+        // ignore en entornos sin window
+      }
+    }, delayMs);
+  } catch {
+    // ignore en entornos sin window
+  }
+}
+
 function decodeJwtExpMs(token: string): number | null {
   try {
     const parts = token.split('.');
@@ -170,32 +224,8 @@ export async function apiFetch(input: RequestInfo | URL, init: ApiFetchInit = {}
   // Solo forzar logout si esta petición llevaba token y el almacenamiento sigue siendo el mismo.
   // Evita: PATCH offline tras logout (sin Bearer) que responde 401 cuando ya hay otro JWT en localStorage.
   if (tokenUsedForRequest && tokenNow === tokenUsedForRequest && res.status === 401) {
-    // UX consistente: el Login mostrará un mensaje claro si la sesión expiró.
-    try {
-      sessionStorage.setItem('logout_reason', 'session_expired');
-    } catch {/* ignore */}
-
-    const expMs = decodeJwtExpMs(tokenNow);
-    const isExpired = expMs != null ? expMs <= Date.now() : true;
-
-    // Provisional: avisar a la UI para que muestre banner/modal antes del redirect.
-    try {
-      window.dispatchEvent(
-        new CustomEvent('session-expired', {
-          detail: { reason: 'session_expired', isExpired },
-        })
-      );
-    } catch {/* ignore */}
-
-    clearAuthStorage();
-    try {
-      const delayMs = isExpired ? 250 : 0;
-      setTimeout(() => {
-        try { window.location.href = '/'; } catch {/* ignore */}
-      }, delayMs);
-    } catch {
-      // ignore en entornos sin window
-    }
+    // Flujo único de sesión expirada: motivo + evento global + limpieza + redirect.
+    expireSession('session_expired');
   }
 
   if (!silent && res.status === 403) {

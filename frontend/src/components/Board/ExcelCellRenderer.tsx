@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Item, BoardColumn, ColumnValue } from '../../types';
-import { socket } from '../../store/socket';
+import { emitCellValue, notificarEscrituraEnCola } from '../../store/socket';
 import { FileSpreadsheet, Upload, Loader2, X } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import * as Dialog from '@radix-ui/react-dialog';
@@ -91,7 +91,10 @@ export const ExcelCellRenderer: React.FC<Props> = ({ item, column, value }) => {
             : `Error al subir archivo (${res.status}).`;
         throw new Error(backendMsg);
       }
-      socket.emit('update_column_value', { itemId: item.id, columnId: column.id, value: data.url });
+      // Si devuelve false, la escritura quedó en cola (sin conexión) y se enviará al reconectar.
+      if (!emitCellValue({ itemId: item.id, columnId: column.id, value: data.url })) {
+        notificarEscrituraEnCola();
+      }
     } catch (err) {
       console.error('Error uploading excel', err);
       const msg = err instanceof Error ? err.message : 'No se pudo subir el archivo de Excel.';

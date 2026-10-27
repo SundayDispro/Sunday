@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import confetti from 'canvas-confetti';
 import { Item, BoardColumn, ColumnValue, StatusSettings } from '../../types';
 import * as Popover from '@radix-ui/react-popover';
-import { socket } from '../../store/socket';
+import { emitCellValue, notificarEscrituraEnCola } from '../../store/socket';
 import { useUser } from '../../store/UserContext';
 
 function isCompletionLikeStatus(label: string, id: string): boolean {
@@ -52,11 +52,16 @@ export const StatusCellRenderer: React.FC<Props> = ({ item, column, value }) => 
   const handleSelect = (optionId: string) => {
     if (!canEdit) return;
     const chosen = settings.options.find((o) => o.id === optionId);
-    socket.emit('update_column_value', {
-      itemId: item.id,
-      columnId: column.id,
-      value: JSON.stringify({ optionId }),
-    });
+    // Si devuelve false, la escritura quedó en cola (sin conexión) y se enviará al reconectar.
+    if (
+      !emitCellValue({
+        itemId: item.id,
+        columnId: column.id,
+        value: JSON.stringify({ optionId }),
+      })
+    ) {
+      notificarEscrituraEnCola();
+    }
     setOpen(false);
     if (chosen && isCompletionLikeStatus(chosen.label, chosen.id)) {
       confetti({ particleCount: 72, spread: 68, origin: { y: 0.72 }, ticks: 120 });
