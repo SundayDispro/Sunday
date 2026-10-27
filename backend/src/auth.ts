@@ -2,6 +2,9 @@ import jwt, { type SignOptions } from 'jsonwebtoken';
 import bcrypt from 'bcrypt';
 import type { Request, Response, NextFunction } from 'express';
 import { PrismaClient } from '@prisma/client';
+import { createAttachUserFromJwt, createAuthenticateToken } from './httpAuth';
+
+export { requireAuth } from './httpAuth';
 
 const _jwtSecret = process.env.JWT_SECRET;
 if (!_jwtSecret) {
@@ -74,91 +77,19 @@ export function verifyExportToken(token: string): ExportTokenPayload {
   return { userId: payload.userId, docId: payload.docId, purpose: 'export' };
 }
 
-declare module 'express-serve-static-core' {
-  interface Request {
-    authUser?: {
-      id: string;
-      role: string;
-      username: string;
-      name: string;
-    };
-    // Alias genérico para compatibilidad con middlewares que usan req.user
-    user?: {
-      id: string;
-      role: string;
-      username: string;
-      name: string;
-    };
-  }
-}
-
 const prisma = new PrismaClient();
 
-export async function attachUserFromJwt(req: Request, _res: Response, next: NextFunction) {
-  const auth = req.get('Authorization') || '';
-  const token = auth.startsWith('Bearer ') ? auth.slice('Bearer '.length).trim() : '';
-  if (!token) return next();
-  try {
-    const payload = verifyJwt(token);
-    const user = await prisma.user.findUnique({ where: { id: payload.userId } });
-    if (!user) return next();
-    req.authUser = {
-      id: user.id,
-      role: user.role,
-      username: user.username,
-      name: user.name,
-    };
-    req.user = { ...req.authUser };
-  } catch {
-    // Silenciar errores de token; simplemente no adjuntamos usuario
-  }
-  next();
-}
+/**
+ * Dependencias reales de los middlewares HTTP. La lógica (401 vs 503) vive en
+ * `httpAuth.ts` y es pura para poder probarla sin base de datos.
+ */
+const httpAuthDeps = {
+  verifyToken: (token: string) => verifyJwt(token),
+  findUser: (userId: string) => prisma.user.findUnique({ where: { id: userId } }),
+};
 
-// Middleware estilo "authenticateToken" que fuerza presencia de un JWT válido
-export function authenticateToken(req: Request, res: Response, next: NextFunction) {
-  // Si attachUserFromJwt ya resolvió el usuario, solo validamos
-  if (req.authUser) {
-    req.user = { ...req.authUser };
-    return next();
-  }
-
-  const auth = req.get('Authorization') || '';
-  const token = auth.startsWith('Bearer ') ? auth.slice('Bearer '.length).trim() : '';
-  if (!token) {
-    return res.status(401).json({ error: 'No autenticado' });
-  }
-
-  try {
-    const payload = verifyJwt(token);
-    prisma.user
-      .findUnique({ where: { id: payload.userId } })
-      .then((user) => {
-        if (!user) {
-          return res.status(401).json({ error: 'No autenticado' });
-        }
-        req.authUser = {
-          id: user.id,
-          role: user.role,
-          username: user.username,
-          name: user.name,
-        };
-        req.user = { ...req.authUser };
-        return next();
-      })
-      .catch(() => res.status(401).json({ error: 'No autenticado' }));
-  } catch {
-    return res.status(401).json({ error: 'No autenticado' });
-  }
-}
-
-export function requireAuth(req: Request, res: Response, next: NextFunction) {
-  if (!req.authUser) {
-    return res.status(401).json({ error: 'No autenticado' });
-  }
-  req.user = { ...req.authUser };
-  return next();
-}
+export const attachUserFromJwt = createAttachUserFromJwt(httpAuthDeps);
+export const authenticateToken = createAuthenticateToken(httpAuthDeps);
 
 export function requireAdmin(req: Request, res: Response, next: NextFunction) {
   if (!req.authUser) {

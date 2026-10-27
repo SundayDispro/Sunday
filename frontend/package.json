@@ -49,7 +49,9 @@
     "copy-pdfjs-worker": "node scripts/copy-pdfjs-worker.mjs",
     "postinstall": "node scripts/copy-pdfjs-worker.mjs",
     "prebuild": "node scripts/copy-pdfjs-worker.mjs && node scripts/generate-pwa-icons.mjs",
-    "build": "tsc && vite build"
+    "build": "tsc && vite build",
+    "test": "node --test tests/apiSession.test.ts tests/socketRetry.test.ts tests/socketClientRetry.test.ts",
+    "test:types": "tsc --noEmit -p tsconfig.tests.json"
   },
   "type": "module"
 }

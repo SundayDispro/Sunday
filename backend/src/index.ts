@@ -13,10 +13,12 @@ import multer from 'multer';
 import { PrismaClient, Prisma } from '@prisma/client';
 import { attachUserFromJwt, authenticateToken, hashPassword, requireAdmin, requireAuth, requireRoles, verifyPassword, signJwt, verifyJwt, verifyExportToken, signExportToken } from './auth';
 import { buildInfraErrorLog, createSocketAuthMiddleware } from './socketAuth';
+import { authServiceErrorResponse, isAuthServiceError } from './httpAuth';
 import webpush from 'web-push';
 import { getTemplatePathIfExists, getTemplateImagePathIfExists, generateFilledPdf, generatePdfFromTemplate, getTemplatesDir, TemplateKind } from './templatePdfGenerator';
 import * as notificationsService from './services/notifications';
 import { runBackup, cleanOldBackups, getBackupList } from './backupService';
+import workshop3dRouter from './workshop3dRoutes';
 
 const prisma = new PrismaClient();
 const app = express();
@@ -145,7 +147,8 @@ function selectJsonBodyParser(req: express.Request, res: express.Response, next:
     (method === 'PATCH' && /^\/api\/designs\/[^/]+$/.test(p)) ||
     (method === 'POST' && /^\/api\/templates\/[^/]+\/generate$/.test(p)) ||
     (method === 'PATCH' && /^\/api\/workspaces\/[^/]+\/panel-notes$/.test(p)) ||
-    (method === 'PATCH' && /^\/api\/workspaces\/[^/]+\/doc-groups$/.test(p));
+    (method === 'PATCH' && /^\/api\/workspaces\/[^/]+\/doc-groups$/.test(p)) ||
+    p.startsWith('/api/workshop');
   (large ? jsonBodyParser25mb : jsonBodyParser1mb)(req, res, next);
 }
 
@@ -497,6 +500,7 @@ app.use('/api', (_req, res, next) => {
 
 // SECURITY-ACCEPTED-RISK: /uploads sin auth de sesión; nombres de archivo no adivinables (timestamp+random). Riesgo residual de enumeración bajo control en red interna.
 app.use('/uploads', express.static(UPLOADS_DIR));
+app.use('/api/workshop', workshop3dRouter);
 
 // Health check (for frontend to verify backend is up); socketConnections para observabilidad
 app.get('/api/health', (_req, res) => {
@@ -3697,6 +3701,17 @@ app.post(
 
 // FIX 9: middleware global de errores Express (captura next(err) y fallos no manejados en rutas async).
 app.use((err: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
+  // Fallo de infraestructura al resolver la identidad HTTP (Prisma/PostgreSQL).
+  // Se registra solo el contrato seguro de `httpAuth.ts` y se responde 503/500,
+  // nunca 401: el cliente conserva el JWT y no debe cerrar sesión.
+  if (isAuthServiceError(err)) {
+    console.error(err.log);
+    if (!res.headersSent) {
+      const { status, body } = authServiceErrorResponse(err);
+      res.status(status).json(body);
+    }
+    return;
+  }
   console.error('[Express Error]', err);
   if (err instanceof multer.MulterError) {
     console.error('[Multer] detalle:', err.code, err.field, err.message);

@@ -54,6 +54,7 @@ export function buildAuthHeaders(base: HeadersInit = {}): HeadersInit {
 }
 
 import { notifyGlobalToast } from './toastGlobal';
+import { shouldExpireSession } from './apiSession';
 
 export type ApiFetchInit = RequestInit & { silent?: boolean };
 
@@ -111,10 +112,15 @@ export function clearAuthStorage(): void {
  * 2. Emite `session-expired` para que la UI (App.tsx) marque el JWT como expirado.
  * 3. Limpia el almacenamiento local y redirige a `/`.
  *
- * `isExpired` se deduce del `exp` del JWT aún almacenado. Si el token seguía vivo
- * (401 por permisos del servidor, no por caducidad) se redirige sin retardo; si
- * caducó, se deja un margen de 250 ms para que el banner de sesión expirada llegue
- * a pintarse antes de la recarga completa.
+ * `isExpired` se deduce del `exp` del JWT que sigue en `localStorage`:
+ * - Token con `exp` ya vencido → `true` → margen de 250 ms para que el banner de
+ *   sesión expirada llegue a pintarse antes de la recarga completa.
+ * - Token aún vivo (401/`unauthorized` por permisos o por usuario borrado, no
+ *   por caducidad) → `false` → redirección inmediata.
+ * - Sin token o con un JWT no decodificable (p. ej. una segunda llamada después
+ *   de que otra ruta ya limpió el almacenamiento) → `true` por defecto: si no se
+ *   puede demostrar que el token seguía vivo, se asume expirado y se aplica el
+ *   margen de 250 ms.
  */
 export function expireSession(reason: string = 'session_expired'): void {
   const token = getAuthToken();
@@ -182,6 +188,9 @@ function decodeJwtExpMs(token: string): number | null {
  *   limpia sesión local y redirige al login.
  * - 403: no cierra sesión; muestra toast con el mensaje del servidor o texto genérico de permisos
  *   (salvo `silent: true`).
+ * - 503 (backend o base de datos temporalmente no disponible): NO cierra sesión, NO borra el
+ *   JWT y NO redirige al login. Un fallo de infraestructura no invalida el token; se muestra el
+ *   error y el usuario puede reintentar. Lo mismo aplica a 500/502/504 y errores de red.
  * - Si entre el envío y la respuesta cambió el token (p. ej. login nuevo tras un 401 tardío de otra petición),
  *   no limpia la sesión actual.
  */
@@ -223,7 +232,8 @@ export async function apiFetch(input: RequestInfo | URL, init: ApiFetchInit = {}
   const tokenNow = getAuthToken();
   // Solo forzar logout si esta petición llevaba token y el almacenamiento sigue siendo el mismo.
   // Evita: PATCH offline tras logout (sin Bearer) que responde 401 cuando ya hay otro JWT en localStorage.
-  if (tokenUsedForRequest && tokenNow === tokenUsedForRequest && res.status === 401) {
+  // Un 503/500/502/504 (infraestructura) nunca expira la sesión: ver apiSession.ts.
+  if (shouldExpireSession(res.status, tokenUsedForRequest, tokenNow)) {
     // Flujo único de sesión expirada: motivo + evento global + limpieza + redirect.
     expireSession('session_expired');
   }

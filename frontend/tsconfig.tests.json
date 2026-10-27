@@ -1,0 +1,19 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "types": ["node"],
+    "typeRoots": ["../backend/node_modules/@types"],
+    "baseUrl": ".",
+    "paths": {
+      "ws": ["../backend/node_modules/@types/ws"]
+    }
+  },
+  "include": [
+    "tests/apiSession.test.ts",
+    "tests/socketRetry.test.ts",
+    "tests/socketClientRetry.test.ts",
+    "src/apiSession.ts",
+    "src/store/socketRetry.ts",
+    "src/vite-env.d.ts"
+  ]
+}
