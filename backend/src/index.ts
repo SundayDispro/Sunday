@@ -12,6 +12,7 @@ import { ensureUploadDirs, UPLOADS_DIR } from './config/paths';
 import multer from 'multer';
 import { PrismaClient, Prisma } from '@prisma/client';
 import { attachUserFromJwt, authenticateToken, hashPassword, requireAdmin, requireAuth, requireRoles, verifyPassword, signJwt, verifyJwt, verifyExportToken, signExportToken } from './auth';
+import { buildInfraErrorLog, createSocketAuthMiddleware } from './socketAuth';
 import webpush from 'web-push';
 import { getTemplatePathIfExists, getTemplateImagePathIfExists, generateFilledPdf, generatePdfFromTemplate, getTemplatesDir, TemplateKind } from './templatePdfGenerator';
 import * as notificationsService from './services/notifications';
@@ -315,23 +316,20 @@ async function getUserIdsForWorkspaceNotification(workspaceId: string): Promise<
 
 // SECURITY-VERIFIED: JWT obligatorio en handshake Socket.IO (sin sesión anónima).
 // FIX 3: JWT válido obligatorio en el handshake Socket.io (rechaza conexión anónima).
-io.use(async (socket, next) => {
-  const tokenMaybe = (socket.handshake.auth as { token?: string } | undefined)?.token;
-  const token = typeof tokenMaybe === 'string' ? tokenMaybe.trim() : '';
-  if (!token) return next(new Error('unauthorized'));
-  try {
-    const payload = verifyJwt(token);
-    const user = await prisma.user.findUnique({ where: { id: payload.userId } });
-    if (!user || !SOCKET_IO_ALLOWED_ROLES.has(user.role)) return next(new Error('unauthorized'));
-    const bag = (socket.data as Record<string, unknown> | null | undefined) ?? {};
-    Object.assign(bag, { userId: user.id, role: user.role });
-    socket.data = bag;
-    socket.join(userRoom(user.id));
-    next();
-  } catch {
-    next(new Error('unauthorized'));
-  }
-});
+//
+// El rechazo de autenticación se distingue del fallo de infraestructura: el cliente
+// solo cierra la sesión con `unauthorized`. Antes, un `try/catch` único convertía
+// una caída de PostgreSQL en `unauthorized` y el cliente deslogueaba al usuario.
+io.use(
+  createSocketAuthMiddleware({
+    verifyToken: verifyJwt,
+    findUser: (userId) => prisma.user.findUnique({ where: { id: userId } }),
+    allowedRoles: SOCKET_IO_ALLOWED_ROLES,
+    roomForUser: userRoom,
+    // Log útil para operación, sin token ni credenciales (ver describeInfraError).
+    logInfraError: (details) => console.error(buildInfraErrorLog(details)),
+  })
+);
 
 // Configuración Web Push (VAPID)
 let VAPID_PUBLIC_KEY = process.env.VAPID_PUBLIC_KEY;

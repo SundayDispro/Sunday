@@ -1,6 +1,11 @@
 import { io, Socket } from 'socket.io-client';
 import { notifyGlobalToast } from '../toastGlobal';
 import { expireSession } from '../api';
+import {
+  createRetryScheduler,
+  handleConnectError,
+  reconnectOnConnectivityRecovery,
+} from './socketRetry';
 
 function getSocketToken(): string | null {
   try {
@@ -66,8 +71,37 @@ export const socket: Socket = io(getSocketServerUrl(), {
   tryAllTransports: true,
 });
 
+/**
+ * P1 — Reintento propio para rechazos de namespace (`connect_error` de middleware).
+ *
+ * El backoff del manager no cubre este caso: al recibir un CONNECT_ERROR de
+ * namespace, socket.io-client destruye el socket y marca `skipReconnect = true`.
+ * Este programador usa exactamente los mismos parámetros que el manager
+ * (`reconnectionDelay`, `reconnectionDelayMax`, `randomizationFactor`) y mantiene
+ * un único temporizador pendiente.
+ */
+const socketRetry = createRetryScheduler({
+  attempt: () => {
+    // Si el usuario cerró sesión mientras esperábamos, no reconectamos: sin token
+    // el servidor respondería `unauthorized` y dispararíamos un falso logout.
+    if (!getSocketToken()) return;
+    socket.connect();
+  },
+  backoff: {
+    // Getters del Manager: devuelven los valores ya normalizados (incluye defaults).
+    reconnectionDelay: socket.io.reconnectionDelay(),
+    reconnectionDelayMax: socket.io.reconnectionDelayMax(),
+    randomizationFactor: socket.io.randomizationFactor(),
+  },
+});
+
 /** Tras login, reconectar el socket para que el handshake lleve el nuevo JWT y el servidor una al room user:<userId>. */
 export function reconnectSocketWithAuth(): void {
+  // Login explícito del usuario: se reinicia el backoff (no arrastra intentos previos).
+  socketRetry.reset();
+  // Reactivar el backoff del manager si un rechazo de auth lo había desactivado:
+  // `connect()` limpia `skipReconnect`, pero no restaura `_reconnection`.
+  socket.io.reconnection(true);
   // Con `auth` en forma de callback, cada connect vuelve a leer el token de localStorage.
   socket.disconnect();
   socket.connect();
@@ -123,15 +157,21 @@ function flushPendingCellWrites(): void {
 }
 
 /**
- * Descarta las escrituras encoladas sin emitirlas.
+ * Descarta las escrituras encoladas sin emitirlas y cancela el reintento propio.
  *
  * Debe llamarse al cerrar sesión: la cola vive en el módulo, no en el usuario, y
  * si se conservara, tras un login distinto en el mismo navegador esas escrituras
  * se enviarían con la identidad del nuevo usuario (el backend las aplicaría como
  * si fueran suyas).
+ *
+ * La cancelación es necesaria porque `socket.disconnect()` solo emite el evento
+ * `disconnect` (que también cancela) si el socket estaba conectado; tras un
+ * `server_error` el socket ya fue destruido y el temporizador quedaría huérfano
+ * hasta dispararse. Sin token el intento no conectaría, pero no debe quedar vivo.
  */
 export function clearPendingCellWrites(): void {
   pendingCellWrites.clear();
+  socketRetry.cancel();
 }
 
 /**
@@ -161,14 +201,17 @@ export function emitCellValue(payload: {
 }
 
 /**
- * Al conectar: re-armar la reconexión automática y vaciar la cola de celdas.
+ * Al conectar: reactivar la reconexión del manager, reiniciar el backoff propio
+ * y vaciar la cola de celdas.
  *
- * El re-armado es necesario porque un `connect_error: unauthorized` la desactiva
- * (ver manejador). Tras un login nuevo en la misma sesión de SPA, el socket debe
- * volver a reintentar si se cae la red.
+ * Tras `connect()`, `Manager.open()` limpia `skipReconnect`, pero la bandera
+ * `_reconnection` pudo quedar en `false` por un rechazo de auth anterior. Se
+ * restaura aquí (y en `reconnectSocketWithAuth`) para que un futuro fallo de
+ * transporte vuelva a tener backoff automático.
  */
 function onSocketConnect(): void {
-  socket.io.opts.reconnection = true;
+  socket.io.reconnection(true);
+  socketRetry.reset();
   flushPendingCellWrites();
 }
 
@@ -177,39 +220,64 @@ socket.on('connect', onSocketConnect);
 /**
  * P1 — Error de conexión.
  *
- * `unauthorized` significa que el servidor rechazó el handshake JWT (token
- * caducado, usuario borrado o rol inválido). Reintentar es inútil y consume
- * batería/red, así que se corta la reconexión y se delega en `expireSession()`,
- * el mismo flujo que usa `apiFetch` ante un 401.
- *
- * Cualquier otro error (red, túnel, CORS) se ignora a propósito: el backoff
- * infinito con jitter se encarga de reintentar.
+ * - `unauthorized` (token inválido/caducado o usuario sin permisos): reintentar
+ *   es inútil y consume batería/red. Se corta la reconexión, se descarta la cola
+ *   (pertenece a la sesión que acaba de morir) y se delega en `expireSession()`,
+ *   el mismo flujo que usa `apiFetch` ante un 401.
+ * - `server_error` (PostgreSQL caído, timeout, reinicio del backend): NO es una
+ *   sesión expirada. No se borra el JWT ni la cola; se programa un reintento con
+ *   el backoff del manager, porque su reconexión automática no cubre este caso.
+ * - Cualquier otro mensaje: no se inicia el programador propio. Se deja que se
+ *   aplique el comportamiento nativo del manager (fallo de transporte) o el
+ *   estado nativo del cliente (rechazo de namespace sin código conocido).
  */
 socket.on('connect_error', (err: Error) => {
-  if (err.message !== 'unauthorized') return;
+  const action = handleConnectError(err?.message, {
+    expireSession: () => {
+      socket.io.reconnection(false);
+      socketRetry.cancel();
+      clearPendingCellWrites();
+      expireSession('session_expired');
+    },
+    scheduleRetry: () => {
+      socketRetry.schedule();
+    },
+  });
 
-  socket.io.opts.reconnection = false;
-  // La cola pertenece a la sesión que acaba de morir: no debe sobrevivir al login.
-  clearPendingCellWrites();
-  expireSession('session_expired');
+  if (action === 'retry') {
+    // Sin datos del error en el log: el mensaje del servidor ya es genérico.
+    console.warn('[socket] Error temporal del servidor en el handshake; reintento programado.');
+  }
+});
+
+/**
+ * Logout explícito (`socket.disconnect()`): cancelar cualquier reintento pendiente
+ * para no reconectar en la pantalla de login. El evento `connect` posterior
+ * vuelve a reiniciar el backoff desde el primer escalón.
+ */
+socket.on('disconnect', (reason: string) => {
+  if (reason === 'io client disconnect') socketRetry.cancel();
 });
 
 /**
  * P1 — Ciclo de vida del navegador.
  *
  * iOS Safari y Android congelan o matan el WebSocket cuando la PWA pasa a
- * segundo plano, y el backoff puede quedar esperando segundos de más. Al volver
- * al primer plano o al recuperar red llamamos a `socket.connect()`: eso fuerza
- * un intento inmediato y cancela el backoff pendiente.
- *
- * Se ignora si el navegador está sin red (`navigator.onLine === false`) para no
- * gastar intentos inútiles; el evento `online` hará el trabajo cuando vuelva.
+ * segundo plano. Al volver al primer plano o al recuperar red se puede forzar
+ * un intento inmediato, pero SOLO si no hay ya un handshake en curso ni un
+ * reintento de `server_error` programado: de lo contrario una ráfaga de
+ * `online`/`visibilitychange`/`pageshow` duplicaría el CONNECT del namespace o
+ * adelantaría indefinidamente el backoff. La decisión vive en
+ * `reconnectOnConnectivityRecovery()` para poder probarla sin navegador.
  */
 function reconectarSiHaceFalta(): void {
   if (typeof window === 'undefined') return;
-  if (typeof navigator !== 'undefined' && navigator.onLine === false) return;
-  if (socket.connected) return;
-  socket.connect();
+  reconnectOnConnectivityRecovery({
+    socket,
+    retryPending: socketRetry.isPending(),
+    hasToken: !!getSocketToken(),
+    online: typeof navigator === 'undefined' || navigator.onLine !== false,
+  });
 }
 
 if (typeof window !== 'undefined') {
